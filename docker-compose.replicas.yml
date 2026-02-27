@@ -1,0 +1,44 @@
+version: "3.9"
+
+# Configuración para read replicas de PostgreSQL
+services:
+  postgres-primary:
+    image: postgres:15-alpine
+    container_name: chateam-postgres-primary
+    environment:
+      POSTGRES_DB: chateam
+      POSTGRES_USER: chateam
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  postgres-replica:
+    image: postgres:15-alpine
+    container_name: chateam-postgres-replica
+    environment:
+      POSTGRES_DB: chateam
+      POSTGRES_USER: chateam_ro
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+    depends_on:
+      - postgres-primary
+    restart: unless-stopped
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    container_name: chateam-pgbouncer
+    environment:
+      DATABASES_HOST: postgres-primary
+      DATABASES_PORT: 5432
+      DATABASES_USER: chateam
+      DATABASES_PASSWORD: ${DB_PASSWORD}
+      DATABASES_DB: chateam
+    ports:
+      - "6432:6432"
+    restart: unless-stopped
+
+volumes:
+  postgres_primary_data:
+  postgres_replica_data:

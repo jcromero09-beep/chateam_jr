@@ -1,0 +1,253 @@
+# ==========================================
+# ALERTMANAGER CONFIGURATION - CHATEAM
+# ==========================================
+
+global:
+  # SMTP Configuration (configurable via env vars)
+  smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+  smtp_from: '${SMTP_FROM}'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  # Default notification settings
+  resolve_timeout: 10m
+
+# ==========================================
+# INHIBITION RULES
+# ==========================================
+inhibit_rules:
+  # Inhibit critical alerts when service is down
+  - source_match:
+      severity: 'critical'
+      alertname: 'ServiceDown'
+    target_match:
+      service: '{{ .CommonLabels.service }}'
+    equal: ['service']
+
+  # Inhibit warning alerts when critical of same type exists
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
+
+# ==========================================
+# NOTIFICATION ROUTES
+# ==========================================
+route:
+  # Default settings
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'default-notifications'
+
+  # Specific routing rules
+  routes:
+    # Critical alerts route to multiple channels
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 5m
+      routes:
+        # Database critical issues
+        - match:
+            service: postgresql
+          receiver: 'database-critical'
+        # Application critical issues
+        - match:
+            service: chateam-app
+          receiver: 'application-critical'
+
+    # Warning alerts route to team channels
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_interval: 10m
+      repeat_interval: 4h
+
+    # Business metric alerts
+    - match_re:
+        service: (billing|tenant|worker)
+      receiver: 'business-alerts'
+      group_interval: 15m
+
+    # AI service alerts
+    - match_re:
+        service: (ai|audit|meta-marketing)
+      receiver: 'ai-service-alerts'
+      group_interval: 15m
+
+# ==========================================
+# RECEIVERS (NOTIFICATION CHANNELS)
+# ==========================================
+receivers:
+  # Default notifications
+  - name: 'default-notifications'
+    email_configs:
+      - to: '${ALERT_EMAIL_DEFAULT}'
+        subject: '[Chateam] Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Severity**: {{ .Labels.severity }}
+          **Service**: {{ .Labels.service }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+          {{ if .Annotations.runbook_url }}**Runbook**: {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+
+  # Critical alerts - multiple channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL_CRITICAL}'
+        subject: '🚨 [CRITICAL] Chateam Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          🚨 **CRITICAL ALERT** 🚨
+
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Service**: {{ .Labels.service }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+          {{ if .Annotations.runbook_url }}**Runbook**: {{ .Annotations.runbook_url }}{{ end }}
+
+          **Immediate action required!**
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_CRITICAL}'
+        channel: '#alerts-critical'
+        title: '🚨 Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          **{{ .Annotations.summary }}**
+          Service: {{ .Labels.service }}
+          {{ .Annotations.description }}
+          {{ end }}
+        color: 'danger'
+        send_resolved: true
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_INTEGRATION_KEY}'
+        description: 'Critical Alert: {{ .GroupLabels.alertname }}'
+
+  # Database critical alerts
+  - name: 'database-critical'
+    email_configs:
+      - to: '${ALERT_EMAIL_DBA}'
+        subject: '🚨 [DB CRITICAL] {{ .GroupLabels.alertname }}'
+        body: |
+          🚨 **DATABASE CRITICAL ALERT** 🚨
+
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+
+          **Database team immediate response required!**
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_DBA}'
+        channel: '#database-alerts'
+        title: '🚨 Database Critical: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+
+  # Application critical alerts
+  - name: 'application-critical'
+    email_configs:
+      - to: '${ALERT_EMAIL_DEVOPS}'
+        subject: '🚨 [APP CRITICAL] {{ .GroupLabels.alertname }}'
+        body: |
+          🚨 **APPLICATION CRITICAL ALERT** 🚨
+
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+
+          **DevOps team immediate response required!**
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_DEVOPS}'
+        channel: '#devops-alerts'
+        title: '🚨 Application Critical: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+
+  # Warning alerts
+  - name: 'warning-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL_TEAM}'
+        subject: '⚠️ [WARNING] Chateam Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ **WARNING ALERT** ⚠️
+
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Service**: {{ .Labels.service }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+          {{ if .Annotations.runbook_url }}**Runbook**: {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_TEAM}'
+        channel: '#alerts-general'
+        title: '⚠️ Warning: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          **{{ .Annotations.summary }}**
+          Service: {{ .Labels.service }}
+          {{ .Annotations.description }}
+          {{ end }}
+        color: 'warning'
+        send_resolved: true
+
+  # Business alerts
+  - name: 'business-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL_BUSINESS}'
+        subject: '💼 [BUSINESS] Chateam Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          💼 **BUSINESS METRICS ALERT** 💼
+
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Service**: {{ .Labels.service }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+
+          **Business impact detected - review required**
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_BUSINESS}'
+        channel: '#business-alerts'
+        title: '💼 Business Alert: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+  # AI service alerts
+  - name: 'ai-service-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL_AI_TEAM}'
+        subject: '🤖 [AI] Chateam Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          🤖 **AI SERVICE ALERT** 🤖
+
+          {{ range .Alerts }}
+          **Alert**: {{ .Annotations.summary }}
+          **Service**: {{ .Labels.service }}
+          **Description**: {{ .Annotations.description }}
+          **Started**: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+
+          **AI services may need attention**
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_AI}'
+        channel: '#ai-alerts'
+        title: '🤖 AI Service Alert: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+# ==========================================
+# TEMPLATES
+# ==========================================
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

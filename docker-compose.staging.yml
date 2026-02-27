@@ -1,0 +1,280 @@
+version: '3.8'
+
+# ==========================================
+# DOCKER COMPOSE - STAGING ENVIRONMENT
+# ==========================================
+
+services:
+  # ==========================================
+  # APLICACIÓN PRINCIPAL - STAGING
+  # ==========================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=staging
+    container_name: chateam-app-staging
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=staging
+      - PORT=3000
+      - DB_HOST=postgres-staging
+      - DB_PORT=5432
+      - DB_NAME=chateam_staging
+      - DB_USER=chateam_staging
+      - DB_PASS=chateam_staging_password_2025
+      - REDIS_HOST=redis-staging
+      - REDIS_PORT=6379
+      - S3_ENDPOINT=http://minio-staging:9000
+      - S3_ACCESS_KEY=chateam_staging_user
+      - S3_SECRET_KEY=chateam_staging_secret_2025
+      - S3_BUCKET=chateam-staging-files
+      - FRONTEND_URL=http://staging.chateam.local:3001
+      - JWT_SECRET=chateam_jwt_staging_secret_2025
+      - TIMEZONE=America/Guayaquil
+      # Meta Marketing API (Sandbox)
+      - FB_ACCESS_TOKEN=${FB_ACCESS_TOKEN_STAGING}
+      - FB_GRAPH_VERSION=v18.0
+      - FB_AD_ACCOUNT_ID=${FB_AD_ACCOUNT_ID_STAGING}
+      # Stripe (Test Mode)
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY_TEST}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET_TEST}
+      # OpenAI (Lower tier for testing)
+      - OPENAI_API_KEY=${OPENAI_API_KEY_TEST}
+    depends_on:
+      - postgres-staging
+      - redis-staging
+      - minio-staging
+    volumes:
+      - ./public:/app/public
+      - staging_app_logs:/app/logs
+    networks:
+      - chateam-staging-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================
+  # WORKER - STAGING
+  # ==========================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      args:
+        - NODE_ENV=staging
+    container_name: chateam-worker-staging
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=staging
+      - DB_HOST=postgres-staging
+      - DB_PORT=5432
+      - DB_NAME=chateam_staging
+      - DB_USER=chateam_staging
+      - DB_PASS=chateam_staging_password_2025
+      - REDIS_HOST=redis-staging
+      - REDIS_PORT=6379
+      - S3_ENDPOINT=http://minio-staging:9000
+      - S3_ACCESS_KEY=chateam_staging_user
+      - S3_SECRET_KEY=chateam_staging_secret_2025
+      - S3_BUCKET=chateam-staging-files
+    depends_on:
+      - postgres-staging
+      - redis-staging
+    volumes:
+      - staging_worker_logs:/app/logs
+    networks:
+      - chateam-staging-network
+
+  # ==========================================
+  # POSTGRESQL - STAGING
+  # ==========================================
+  postgres-staging:
+    image: postgres:15-alpine
+    container_name: chateam-postgres-staging
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=chateam_staging
+      - POSTGRES_USER=chateam_staging
+      - POSTGRES_PASSWORD=chateam_staging_password_2025
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - chateam-staging-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chateam_staging -d chateam_staging"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ==========================================
+  # REDIS - STAGING
+  # ==========================================
+  redis-staging:
+    image: redis:7-alpine
+    container_name: chateam-redis-staging
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --requirepass chateam_staging_redis_2025
+    volumes:
+      - staging_redis_data:/data
+    networks:
+      - chateam-staging-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================
+  # MINIO S3 - STAGING
+  # ==========================================
+  minio-staging:
+    image: minio/minio:latest
+    container_name: chateam-minio-staging
+    restart: unless-stopped
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    environment:
+      - MINIO_ROOT_USER=chateam_staging_user
+      - MINIO_ROOT_PASSWORD=chateam_staging_secret_2025
+    volumes:
+      - staging_minio_data:/data
+    networks:
+      - chateam-staging-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================
+  # AUDIT SERVICE - STAGING
+  # ==========================================
+  audit-service-staging:
+    build:
+      context: ./audit-service
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=staging
+    container_name: chateam-audit-staging
+    restart: unless-stopped
+    ports:
+      - "3012:3000"
+    environment:
+      - NODE_ENV=staging
+      - OPENAI_API_KEY=${OPENAI_API_KEY_TEST}
+      - DB_HOST=postgres-staging
+      - DB_PORT=5432
+      - DB_NAME=chateam_staging
+      - DB_USER=chateam_staging
+      - DB_PASS=chateam_staging_password_2025
+    depends_on:
+      - postgres-staging
+    networks:
+      - chateam-staging-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+
+  # ==========================================
+  # NGINX - STAGING
+  # ==========================================
+  nginx-staging:
+    image: nginx:alpine
+    container_name: chateam-nginx-staging
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.staging.conf:/etc/nginx/nginx.conf
+      - staging_nginx_logs:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - chateam-staging-network
+
+  # ==========================================
+  # MONITOREO - STAGING
+  # ==========================================
+  prometheus-staging:
+    image: prom/prometheus:latest
+    container_name: chateam-prometheus-staging
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.staging.yml:/etc/prometheus/prometheus.yml
+      - staging_prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=72h'
+      - '--web.enable-lifecycle'
+    networks:
+      - chateam-staging-network
+
+  grafana-staging:
+    image: grafana/grafana:latest
+    container_name: chateam-grafana-staging
+    restart: unless-stopped
+    ports:
+      - "3011:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=chateam_staging_grafana_2025
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - staging_grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources.staging:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus-staging
+    networks:
+      - chateam-staging-network
+
+# ==========================================
+# VOLUMES - STAGING
+# ==========================================
+volumes:
+  staging_postgres_data:
+    driver: local
+  staging_redis_data:
+    driver: local
+  staging_minio_data:
+    driver: local
+  staging_prometheus_data:
+    driver: local
+  staging_grafana_data:
+    driver: local
+  staging_app_logs:
+    driver: local
+  staging_worker_logs:
+    driver: local
+  staging_nginx_logs:
+    driver: local
+
+# ==========================================
+# NETWORKS - STAGING
+# ==========================================
+networks:
+  chateam-staging-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

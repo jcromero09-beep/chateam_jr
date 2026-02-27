@@ -1,0 +1,262 @@
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║  VALIDACIÓN FASE 9: WHATSAPP CLOUD API INTEGRATION            ║
+║  JR Chateam v6.0.0                                            ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+
+═══ 1. Validación de Archivos Requeridos ═══
+
+ℹ Validando migrations...
+✓   ✓ 20251006_whatsapp_cloud_base.sql
+✓   ✓ 20251006_message_templates.sql
+✓   ✓ 20251006_media_management.sql
+✓   ✓ 20251006_webhooks_events.sql
+✓   ✓ 20251006_business_profiles.sql
+ℹ Validando models...
+✓   ✓ WhatsAppCloudConnection.ts
+✓   ✓ WhatsAppMessageTemplate.ts
+✓   ✓ WhatsAppMedia.ts
+✓   ✓ WhatsAppWebhookEvent.ts
+✓   ✓ WhatsAppBusinessProfile.ts
+ℹ Validando services...
+✓   ✓ CloudConnectionService.ts
+✓   ✓ MessageService.ts
+✓   ✓ TemplateService.ts
+✓   ✓ MediaService.ts
+✓   ✓ WebhookService.ts
+✓   ✓ BusinessProfileService.ts
+ℹ Validando controllers...
+✓   ✓ WhatsAppCloudController.ts
+ℹ Validando routes...
+✓   ✓ whatsappCloudRoutes.ts
+ℹ Validando config...
+✓   ✓ whatsappCloud.ts
+ℹ Validando helpers...
+✓   ✓ WhatsAppCloudAPI.ts
+✓   ✓ WhatsAppCloudWebhookVerifier.ts
+ℹ Validando docs...
+✓   ✓ FASE9_WHATSAPP_CLOUD_API.md
+
+═══ 2. Validación de Migraciones de Base de Datos ═══
+
+ℹ Validando 20251006_whatsapp_cloud_base.sql...
+✓   ✓ Tabla: whatsapp_cloud_connections
+✓   ✓ Tabla: whatsapp_cloud_phone_numbers
+✓   ✓ Función: create_whatsapp_cloud_connection
+✓   ✓ Función: validate_cloud_credentials
+ℹ   📊 245 líneas de código
+ℹ Validando 20251006_message_templates.sql...
+✓   ✓ Tabla: whatsapp_message_templates
+✓   ✓ Tabla: template_components
+✓   ✓ Tabla: template_submissions
+✓   ✓ Función: create_message_template
+✓   ✓ Función: submit_template_for_review
+ℹ   📊 312 líneas de código
+ℹ Validando 20251006_media_management.sql...
+✓   ✓ Tabla: whatsapp_media_library
+✓   ✓ Tabla: media_upload_sessions
+✓   ✓ Función: upload_media_to_cloud
+✓   ✓ Función: get_media_url
+ℹ   📊 198 líneas de código
+ℹ Validando 20251006_webhooks_events.sql...
+✓   ✓ Tabla: whatsapp_webhook_events
+✓   ✓ Tabla: webhook_subscriptions
+✓   ✓ Función: process_webhook_event
+✓   ✓ Función: subscribe_to_webhook
+ℹ   📊 276 líneas de código
+ℹ Validando 20251006_business_profiles.sql...
+✓   ✓ Tabla: whatsapp_business_profiles
+✓   ✓ Tabla: business_profile_updates
+✓   ✓ Función: update_business_profile
+✓   ✓ Función: get_business_profile
+ℹ   📊 156 líneas de código
+
+═══ 3. Validación de Modelos Sequelize ═══
+
+ℹ Validando WhatsAppCloudConnection...
+✓   ✓ Clase WhatsAppCloudConnection
+✓   ✓ Campos: 4/4
+✓   ✓ Asociaciones: 3/3
+✓   ✓ Decorators de Sequelize
+ℹ Validando WhatsAppMessageTemplate...
+✓   ✓ Clase WhatsAppMessageTemplate
+✓   ✓ Campos: 5/5
+✓   ✓ Asociaciones: 2/2
+✓   ✓ Decorators de Sequelize
+ℹ Validando WhatsAppMedia...
+✓   ✓ Clase WhatsAppMedia
+✓   ✓ Campos: 5/5
+✓   ✓ Asociaciones: 2/2
+✓   ✓ Decorators de Sequelize
+ℹ Validando WhatsAppWebhookEvent...
+✓   ✓ Clase WhatsAppWebhookEvent
+✓   ✓ Campos: 4/4
+✓   ✓ Asociaciones: 1/1
+✓   ✓ Decorators de Sequelize
+ℹ Validando WhatsAppBusinessProfile...
+✓   ✓ Clase WhatsAppBusinessProfile
+✓   ✓ Campos: 5/5
+✓   ✓ Asociaciones: 1/1
+✓   ✓ Decorators de Sequelize
+
+═══ 4. Validación de Servicios ═══
+
+ℹ Validando CloudConnectionService.ts...
+✓   ✓ Métodos: 4/4
+✓   ✓ 142 líneas de código
+✓   ✓ HTTP client (axios/fetch)
+✓   ✓ Logger implementado
+ℹ Validando MessageService.ts...
+✓   ✓ Métodos: 4/4
+✓   ✓ 187 líneas de código
+✓   ✓ HTTP client (axios/fetch)
+✓   ✓ Logger implementado
+ℹ Validando TemplateService.ts...
+✓   ✓ Métodos: 4/4
+✓   ✓ 156 líneas de código
+✓   ✓ HTTP client (axios/fetch)
+✓   ✓ Logger implementado
+ℹ Validando MediaService.ts...
+✓   ✓ Métodos: 4/4
+✓   ✓ 134 líneas de código
+✓   ✓ HTTP client (axios/fetch)
+✓   ✓ Logger implementado
+ℹ Validando WebhookService.ts...
+✓   ✓ Métodos: 4/4
+✓   ✓ 198 líneas de código
+✓   ✓ HTTP client (axios/fetch)
+✓   ✓ Logger implementado
+ℹ Validando BusinessProfileService.ts...
+✓   ✓ Métodos: 4/4
+✓   ✓ 95 líneas de código
+✓   ✓ HTTP client (axios/fetch)
+✓   ✓ Logger implementado
+
+═══ 5. Validación de Controladores y Rutas ═══
+
+ℹ Validando WhatsAppCloudController...
+✓   ✓ Controlador encontrado
+ℹ   📊 Métodos: 7/7
+ℹ Validando whatsappCloudRoutes...
+✓   ✓ Archivo de rutas encontrado
+ℹ   📊 Endpoints: 7/7
+✓   ✓ Middleware de autenticación (isAuth)
+
+═══ 6. Validación de Configuración y Helpers ═══
+
+ℹ Validando whatsappCloud.ts...
+✓   ✓ Archivo de configuración encontrado
+ℹ   📊 Configuraciones: 5/5
+ℹ Validando WhatsAppCloudAPI.ts...
+✓   ✓ Archivo encontrado
+ℹ   📊 Métodos: 3/3
+ℹ Validando WhatsAppCloudWebhookVerifier.ts...
+✓   ✓ Archivo encontrado
+ℹ   📊 Métodos: 2/2
+
+═══ 7. Validación de Documentación ═══
+
+ℹ Validando FASE9_WHATSAPP_CLOUD_API.md...
+✓   ✓ Archivo de documentación encontrado
+ℹ   📊 1,247 líneas de documentación
+✓   ✓ Documentación completa (1247 líneas)
+ℹ   📊 Secciones: 7/7
+✓   ✓ Secciones principales presentes
+
+═══ 8. Validación de Integraciones y Dependencias ═══
+
+ℹ Validando dependencias en package.json...
+✓   ✓ Todas las dependencias necesarias presentes
+ℹ Validando variables de entorno...
+✓   ✓ 4/4 variables de entorno documentadas
+
+═══ 📊 REPORTE FINAL DE VALIDACIÓN ═══
+
+Total de Pruebas: 92
+Exitosas: 89
+Fallidas: 0
+Advertencias: 3
+Tasa de Éxito: 96.7%
+Estado: EXCELENTE
+
+Resultados por Categoría:
+
+✓ Archivos: 20/20 (100%) | Advertencias: 0
+✓ Migraciones: 20/20 (100%) | Advertencias: 0
+✓ Modelos: 20/20 (100%) | Advertencias: 0
+✓ Servicios: 18/18 (100%) | Advertencias: 1
+✓ Controladores: 3/3 (100%) | Advertencias: 0
+✓ Rutas: 3/3 (100%) | Advertencias: 0
+✓ Configuración: 3/3 (100%) | Advertencias: 0
+✓ Helpers: 2/2 (100%) | Advertencias: 0
+✓ Documentación: 3/3 (100%) | Advertencias: 0
+✓ Dependencias: 2/2 (100%) | Advertencias: 2
+
+Recomendaciones:
+
+• Hay 3 advertencias - considere revisarlas
+• ¡Excelente! La implementación está completa
+
+✓ Validación completada exitosamente ✓
+
+================================================================================
+
+EJEMPLO DE SALIDA CON ERRORES:
+
+═══ 📊 REPORTE FINAL DE VALIDACIÓN ═══
+
+Total de Pruebas: 92
+Exitosas: 68
+Fallidas: 12
+Advertencias: 12
+Tasa de Éxito: 73.9%
+Estado: ACEPTABLE
+
+Resultados por Categoría:
+
+⚠ Archivos: 16/20 (80%) | Advertencias: 2
+✗ Migraciones: 14/20 (70%) | Advertencias: 3
+✓ Modelos: 18/20 (90%) | Advertencias: 1
+⚠ Servicios: 12/18 (67%) | Advertencias: 4
+✓ Controladores: 3/3 (100%) | Advertencias: 0
+✓ Rutas: 3/3 (100%) | Advertencias: 0
+✗ Configuración: 1/3 (33%) | Advertencias: 1
+✗ Helpers: 0/2 (0%) | Advertencias: 0
+✓ Documentación: 1/3 (33%) | Advertencias: 1
+✗ Dependencias: 0/2 (0%) | Advertencias: 0
+
+Errores Críticos:
+
+✗ Archivos - migrations: 20251006_media_management.sql
+  Archivo no encontrado: database/migrations/whatsapp-cloud/20251006_media_management.sql
+✗ Archivos - models: WhatsAppMedia.ts
+  Archivo no encontrado: src/models/WhatsAppMedia.ts
+✗ Migraciones - Tabla whatsapp_media_library
+  Tabla whatsapp_media_library no encontrada
+✗ Migraciones - Función upload_media_to_cloud
+  Función upload_media_to_cloud no encontrada
+✗ Servicios - MediaService.ts - Métodos
+  2/4 métodos encontrados
+✗ Configuración - whatsappCloud.ts
+  Archivo no encontrado
+✗ Helpers - WhatsAppCloudAPI.ts
+  Archivo no encontrado
+✗ Helpers - WhatsAppCloudWebhookVerifier.ts
+  Archivo no encontrado
+✗ Dependencias - package.json
+  2/4 dependencias encontradas
+✗ Documentación - FASE9_WHATSAPP_CLOUD_API.md
+  Documentación no encontrada
+
+  ... y 2 errores más
+
+Recomendaciones:
+
+• Revise los 12 errores críticos antes de continuar
+• Hay 12 advertencias - considere revisarlas
+• La implementación está casi completa - revise los elementos faltantes
+
+✗ Validación completada con errores ✗
+
+Exit code: 1

@@ -1,0 +1,131 @@
+# ==========================================
+# PROMETHEUS CONFIGURATION - CHATEAM
+# ==========================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# ==========================================
+# ALERTING RULES
+# ==========================================
+rule_files:
+  - "alerts.yml"
+
+# ==========================================
+# ALERTMANAGER CONFIGURATION
+# ==========================================
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+# ==========================================
+# SCRAPE CONFIGURATIONS
+# ==========================================
+scrape_configs:
+  # ==========================================
+  # PROMETHEUS SELF-MONITORING
+  # ==========================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ==========================================
+  # CHATEAM APPLICATION
+  # ==========================================
+  - job_name: 'chateam-app'
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # ==========================================
+  # CHATEAM WORKER
+  # ==========================================
+  - job_name: 'chateam-worker'
+    static_configs:
+      - targets: ['worker:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ==========================================
+  # AUDIT SERVICE
+  # ==========================================
+  - job_name: 'chateam-audit'
+    static_configs:
+      - targets: ['audit-service:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+
+  # ==========================================
+  # POSTGRESQL DATABASE
+  # ==========================================
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ==========================================
+  # REDIS CACHE
+  # ==========================================
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ==========================================
+  # NGINX LOAD BALANCER
+  # ==========================================
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:8080']
+    metrics_path: '/nginx_status'
+    scrape_interval: 15s
+
+  # ==========================================
+  # MINIO STORAGE
+  # ==========================================
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    metrics_path: '/minio/v2/metrics/cluster'
+    scrape_interval: 30s
+
+  # ==========================================
+  # NODE EXPORTER (Sistema)
+  # ==========================================
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 30s
+
+# ==========================================
+# RECORDING RULES
+# ==========================================
+recording_rules:
+  # API Response Time
+  - record: chateam:api_response_time_p95
+    expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+  # Error Rate
+  - record: chateam:error_rate
+    expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])
+
+  # Throughput
+  - record: chateam:requests_per_second
+    expr: rate(http_requests_total[1m])
+
+  # Database Connections
+  - record: chateam:db_connections_active
+    expr: pg_stat_activity_count{state="active"}
+
+  # Redis Memory Usage
+  - record: chateam:redis_memory_usage_percent
+    expr: (redis_memory_used_bytes / redis_memory_max_bytes) * 100

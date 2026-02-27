@@ -1,0 +1,289 @@
+import Company from "../../models/Company";
+import Whatsapp from "../../models/Whatsapp";
+import FacebookDataset from "../../models/FacebookDataset";
+import { MetaMarketing } from "../../meta-marketing/src";
+import {
+    getCompanyAccessToken,
+    getWABAId,
+    getChannelIdentifier
+} from "./FacebookAuthHelper";
+
+/**
+ * Sync Facebook datasets for companies with social media connections
+ * Supports Facebook Pages, Instagram accounts, and WhatsApp Business
+ * @param companyId - Optional: If provided, only sync for this company
+ */
+const SyncDatasets = async (companyId?: number): Promise<{
+    synced: number;
+    created: number;
+    errors: string[];
+}> => {
+    console.log(`🔄 [SyncDatasets] INICIO - companyId: ${companyId || 'ALL'}`);
+
+    // Build query - filter by companyId if provided
+    const whereClause: any = {};
+    if (companyId) {
+        whereClause.id = companyId;
+    }
+
+    // Get companies with social media connections
+    const companies = await Company.findAll({
+        where: whereClause,
+        include: [
+            {
+                model: Whatsapp,
+                as: "whatsapps",
+                where: {
+                    channel: ["facebook", "instagram", "whatsapp", "meta"]
+                },
+                required: true
+            }
+        ]
+    });
+
+    console.log(`📋 [SyncDatasets] Encontradas ${companies.length} compañías con conexiones sociales`);
+
+    let synced = 0;
+    let created = 0;
+    const errors: string[] = [];
+
+    for (const company of companies) {
+        console.log(`\n🏢 [SyncDatasets] Procesando Company: ${company.name} (ID: ${company.id})`);
+        console.log(`📱 [SyncDatasets] Conexiones: ${company.whatsapps?.length || 0}`);
+
+        try {
+            // Get access token for this company
+            console.log(`🔑 [SyncDatasets] Obteniendo access token para company ${company.id}...`);
+            const accessToken = await getCompanyAccessToken(company.id);
+            console.log(`✅ [SyncDatasets] Access token obtenido: ${accessToken.substring(0, 20)}...`);
+
+            const metaClient = new MetaMarketing({
+                accessToken,
+                apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || "v18.0"
+            });
+
+            for (const connection of company.whatsapps) {
+                console.log(`\n  📞 [SyncDatasets] Procesando conexión: ${connection.name} (ID: ${connection.id})`);
+                console.log(`  📞 [SyncDatasets] Canal: ${connection.channel}`);
+                console.log(`  📞 [SyncDatasets] facebookPageUserId: ${connection.facebookPageUserId || 'NULL'}`);
+                console.log(`  📞 [SyncDatasets] facebookUserId: ${connection.facebookUserId || 'NULL'}`);
+                console.log(`  📞 [SyncDatasets] tokenMeta: ${connection.tokenMeta ? connection.tokenMeta.substring(0, 20) + '...' : 'NULL'}`);
+
+                try {
+                    // Check if dataset already exists
+                    let dataset = await FacebookDataset.findOne({
+                        where: {
+                            companyId: company.id,
+                            whatsappId: connection.id
+                        }
+                    });
+
+                    if (dataset) {
+                        console.log(`  ⏭️ [SyncDatasets] Dataset ya existe (ID: ${dataset.id}, datasetId: ${dataset.datasetId})`);
+                        synced++;
+                        continue;
+                    }
+
+                    console.log(`  🆕 [SyncDatasets] No existe dataset, creando uno nuevo...`);
+
+                    let channelIdentifier = "";
+                    let datasetId = "";
+
+                    // Handle different channel types
+                    if (connection.channel === "facebook") {
+                        // Facebook Page
+                        channelIdentifier = connection.facebookPageUserId;
+                        console.log(`  📘 [SyncDatasets] Canal Facebook - facebookPageUserId: ${channelIdentifier || 'NULL'}`);
+
+                        if (!channelIdentifier) {
+                            const errMsg = `Facebook connection ${connection.id} (${connection.name}) missing facebookPageUserId`;
+                            console.error(`  ❌ [SyncDatasets] ${errMsg}`);
+                            errors.push(errMsg);
+                            continue;
+                        }
+
+                        // Get or create dataset for Facebook Page
+                        console.log(`  🔄 [SyncDatasets] Llamando a getOrCreateDataset(${channelIdentifier})...`);
+                        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
+                        console.log(`  ✅ [SyncDatasets] Dataset obtenido: ${datasetId}`);
+
+                    } else if (connection.channel === "instagram") {
+                        // Instagram Account
+                        channelIdentifier = connection.facebookUserId;
+                        console.log(`  📷 [SyncDatasets] Canal Instagram - facebookUserId: ${channelIdentifier || 'NULL'}`);
+
+                        if (!channelIdentifier) {
+                            const errMsg = `Instagram connection ${connection.id} (${connection.name}) missing facebookUserId`;
+                            console.error(`  ❌ [SyncDatasets] ${errMsg}`);
+                            errors.push(errMsg);
+                            continue;
+                        }
+
+                        // Get or create dataset for Instagram Account
+                        console.log(`  🔄 [SyncDatasets] Llamando a getOrCreateDataset(${channelIdentifier})...`);
+                        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
+                        console.log(`  ✅ [SyncDatasets] Dataset obtenido: ${datasetId}`);
+
+                    } else if (connection.channel === "whatsapp" || connection.channel === "meta") {
+                        // WhatsApp Business or Meta connection
+                        console.log(`  📲 [SyncDatasets] Canal ${connection.channel}`);
+                        console.log(`  📲 [SyncDatasets] phoneNumberId: ${connection.phoneNumberId || 'NULL'}`);
+                        console.log(`  📲 [SyncDatasets] facebookUserId (WABA ID): ${connection.facebookUserId || 'NULL'}`);
+                        console.log(`  📲 [SyncDatasets] tokenMeta: ${connection.tokenMeta ? 'PRESENTE' : 'NULL'}`);
+
+                        if (!connection.tokenMeta) {
+                            const errMsg = `${connection.channel} connection ${connection.id} (${connection.name}) missing tokenMeta (System User Token required)`;
+                            console.error(`  ❌ [SyncDatasets] ${errMsg}`);
+                            errors.push(errMsg);
+                            continue;
+                        }
+
+                        // El WABA ID debe estar guardado en facebookUserId
+                        // (confirmado: facebookUserId = WABA ID para conexiones WhatsApp/Meta)
+                        if (!connection.facebookUserId) {
+                            const errMsg = `${connection.channel} connection ${connection.id} (${connection.name}) missing facebookUserId (WABA ID). Configure el WABA ID en la conexión.`;
+                            console.error(`  ❌ [SyncDatasets] ${errMsg}`);
+                            errors.push(errMsg);
+                            continue;
+                        }
+
+                        const wabaId = connection.facebookUserId;
+                        console.log(`  ✅ [SyncDatasets] WABA ID a usar: ${wabaId}`);
+                        channelIdentifier = wabaId;
+
+                        // Para WhatsApp/Meta, usar el tokenMeta (System User Token) en lugar del App Access Token
+                        // El App Access Token no tiene permisos para datasets de WhatsApp
+                        console.log(`  🔑 [SyncDatasets] Creando cliente Meta con tokenMeta (System User Token)...`);
+                        const whatsappClient = new MetaMarketing({
+                            accessToken: connection.tokenMeta,
+                            apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || "v20.0"
+                        });
+
+                        // Get or create dataset for WABA usando el System User Token
+                        console.log(`  🔄 [SyncDatasets] Llamando a getOrCreateDataset(${wabaId}) con System User Token...`);
+                        datasetId = await whatsappClient.conversions.getOrCreateDataset(wabaId);
+                        console.log(`  ✅ [SyncDatasets] Dataset obtenido: ${datasetId}`);
+                    }
+
+                    // Save dataset to database
+                    console.log(`  💾 [SyncDatasets] Guardando dataset en BD...`);
+                    dataset = await FacebookDataset.create({
+                        companyId: company.id,
+                        whatsappId: connection.id,
+                        datasetId: datasetId,
+                        channel: connection.channel,
+                        channelIdentifier: channelIdentifier,
+                        channelSpecificId: channelIdentifier,
+                        status: "active"
+                    });
+
+                    created++;
+                    console.log(
+                        `  ✅ [SyncDatasets] Dataset creado con éxito! ID: ${dataset.id}, datasetId: ${datasetId}`
+                    );
+
+                } catch (error: any) {
+                    const errorMsg = `Error syncing dataset for ${connection.channel} ${connection.name} (ID: ${connection.id}): ${error.message}`;
+                    errors.push(errorMsg);
+                    console.error(`  ❌ [SyncDatasets] ${errorMsg}`);
+                    console.error(`  ❌ [SyncDatasets] Stack: ${error.stack}`);
+                }
+            }
+        } catch (error: any) {
+            const errorMsg = `Error syncing datasets for company ${company.name} (ID: ${company.id}): ${error.message}`;
+            errors.push(errorMsg);
+            console.error(`❌ [SyncDatasets] ${errorMsg}`);
+            console.error(`❌ [SyncDatasets] Stack: ${error.stack}`);
+        }
+    }
+
+    console.log(`\n🏁 [SyncDatasets] COMPLETADO - Synced: ${synced}, Created: ${created}, Errors: ${errors.length}`);
+    if (errors.length > 0) {
+        console.log(`📋 [SyncDatasets] Errores:`, errors);
+    }
+
+    return {
+        synced,
+        created,
+        errors
+    };
+};
+
+/**
+ * Sync dataset for a specific connection (Facebook/Instagram/WhatsApp)
+ */
+export const SyncDatasetForConnection = async (
+    companyId: number,
+    whatsappId: number
+): Promise<FacebookDataset> => {
+    // Check if dataset already exists
+    let dataset = await FacebookDataset.findOne({
+        where: {
+            companyId,
+            whatsappId
+        }
+    });
+
+    if (dataset) {
+        return dataset;
+    }
+
+    // Get connection
+    const connection = await Whatsapp.findByPk(whatsappId);
+    if (!connection) {
+        throw new Error(`Connection ${whatsappId} not found`);
+    }
+
+    // Get access token for company
+    const accessToken = await getCompanyAccessToken(companyId);
+
+    const metaClient = new MetaMarketing({
+        accessToken,
+        apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || "v18.0"
+    });
+
+    let channelIdentifier = "";
+    let datasetId = "";
+
+    // Handle different channel types
+    if (connection.channel === "facebook") {
+        channelIdentifier = connection.facebookPageUserId;
+        if (!channelIdentifier) {
+            throw new Error("Facebook connection missing facebookPageUserId");
+        }
+        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
+
+    } else if (connection.channel === "instagram") {
+        channelIdentifier = connection.facebookUserId;
+        if (!channelIdentifier) {
+            throw new Error("Instagram connection missing facebookUserId");
+        }
+        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
+
+    } else if (connection.channel === "whatsapp") {
+        const wabaId = await getWABAId(connection.tokenMeta);
+        if (!wabaId) {
+            throw new Error("Could not retrieve WABA ID for WhatsApp connection");
+        }
+        channelIdentifier = wabaId;
+        datasetId = await metaClient.conversions.getOrCreateDataset(wabaId);
+
+    } else {
+        throw new Error(`Unsupported channel type: ${connection.channel}`);
+    }
+
+    // Save dataset
+    dataset = await FacebookDataset.create({
+        companyId,
+        whatsappId,
+        datasetId,
+        channel: connection.channel,
+        channelIdentifier,
+        channelSpecificId: channelIdentifier,
+        status: "active"
+    });
+
+    return dataset;
+};
+
+export default SyncDatasets;

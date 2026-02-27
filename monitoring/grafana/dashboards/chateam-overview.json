@@ -1,0 +1,197 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ChaTeam Platform Overview",
+    "tags": ["chateam", "overview"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"chateam-app\"}",
+            "legendFormat": "App Status"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Response Time (95th percentile)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Requests per Second",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[1m])",
+            "legendFormat": "RPS"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 4,
+        "title": "Error Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m]) * 100",
+            "legendFormat": "Error Rate %"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        }
+      },
+      {
+        "id": 5,
+        "title": "HTTP Request Duration",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "99th percentile"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 4
+        }
+      },
+      {
+        "id": 6,
+        "title": "Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "nodejs_memory_usage_bytes{type=\"heap_used\"} / 1024 / 1024",
+            "legendFormat": "Heap Used (MB)"
+          },
+          {
+            "expr": "nodejs_memory_usage_bytes{type=\"heap_total\"} / 1024 / 1024",
+            "legendFormat": "Heap Total (MB)"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 4
+        }
+      },
+      {
+        "id": 7,
+        "title": "Active Campaigns",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "campaigns_active_total",
+            "legendFormat": "Active Campaigns"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 12
+        }
+      },
+      {
+        "id": 8,
+        "title": "Open Tickets",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "tickets_open_total",
+            "legendFormat": "Open Tickets"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 12
+        }
+      },
+      {
+        "id": 9,
+        "title": "Users Online",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "users_online_total",
+            "legendFormat": "Users Online"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 12
+        }
+      },
+      {
+        "id": 10,
+        "title": "Database Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "database_connections_active",
+            "legendFormat": "DB Connections"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 12
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,64 @@
+config:
+  target: 'http://localhost:3000'
+  phases:
+    - duration: 120
+      arrivalRate: 5
+      name: Warm up
+    - duration: 300
+      arrivalRate: 20
+      name: Sustained load
+    - duration: 60
+      arrivalRate: 50
+      name: Peak load
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+
+scenarios:
+  - name: "API Health Check"
+    weight: 30
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+
+  - name: "Create Ticket"
+    weight: 25
+    flow:
+      - post:
+          url: "/api/tickets"
+          headers:
+            Authorization: "Bearer test-token"
+          json:
+            contactId: 1
+            status: "open"
+            userId: 1
+            companyId: 1
+          expect:
+            - statusCode: 200
+
+  - name: "List Tickets"
+    weight: 25
+    flow:
+      - get:
+          url: "/api/tickets?pageNumber=1&status=open"
+          headers:
+            Authorization: "Bearer test-token"
+          expect:
+            - statusCode: 200
+
+  - name: "Audit Campaign"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/audit-campaigns"
+          headers:
+            Authorization: "Bearer test-token"
+          json:
+            campaignId: "1234567890"
+            time_window:
+              since: "2025-09-01"
+              until: "2025-09-07"
+          expect:
+            - statusCode: 200

@@ -1,0 +1,906 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Modal,
+  ModalDialog,
+  ModalClose,
+  Typography,
+  Stack,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Option,
+  Switch,
+  Button,
+  Tabs,
+  TabList,
+  Tab,
+  TabPanel,
+  Box,
+  Textarea,
+  Grid,
+  Divider,
+  IconButton,
+  Chip,
+} from "@mui/joy";
+import {
+  Refresh as RefreshIcon,
+  ContentCopy as CopyIcon,
+  Delete as DeleteIcon,
+} from "@mui/icons-material";
+import { toast } from "react-toastify";
+import api from "../../services/api";
+
+interface Schedule {
+  weekday: string;
+  weekdayEn: string;
+  startTimeA: string;
+  endTimeA: string;
+  startTimeB: string;
+  endTimeB: string;
+}
+
+interface Flow {
+  id: number;
+  name: string;
+}
+
+interface Queue {
+  id: number;
+  name: string;
+}
+
+interface Prompt {
+  id: number;
+  name: string;
+}
+
+interface WhatsAppModalProps {
+  open: boolean;
+  onClose: () => void;
+  whatsAppId?: number | null;
+  onSuccess?: () => void;
+}
+
+const defaultSchedules: Schedule[] = [
+  { weekday: "Lunes", weekdayEn: "monday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+  { weekday: "Martes", weekdayEn: "tuesday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+  { weekday: "Miércoles", weekdayEn: "wednesday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+  { weekday: "Jueves", weekdayEn: "thursday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+  { weekday: "Viernes", weekdayEn: "friday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+  { weekday: "Sábado", weekdayEn: "saturday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+  { weekday: "Domingo", weekdayEn: "sunday", startTimeA: "08:00", endTimeA: "12:00", startTimeB: "13:00", endTimeB: "18:00" },
+];
+
+function generateRandomCode(length: number): string {
+  const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * charset.length);
+    code += charset.charAt(randomIndex);
+  }
+  return code;
+}
+
+const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
+  open,
+  onClose,
+  whatsAppId,
+  onSuccess,
+}) => {
+  const inputFileRef = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<number>(0);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Form data
+  const [formData, setFormData] = useState({
+    name: "",
+    greetingMessage: "",
+    complationMessage: "",
+    outOfHoursMessage: "",
+    ratingMessage: "",
+    isDefault: false,
+    token: "",
+    maxUseBotQueues: 3,
+    expiresTicket: 0,
+    allowGroup: false,
+    groupAsTicket: "disabled",
+    timeUseBotQueues: "0",
+    timeSendQueue: "0",
+    sendIdQueue: 0,
+    expiresTicketNPS: "0",
+    expiresInactiveMessage: "",
+    timeInactiveMessage: "",
+    inactiveMessage: "",
+    maxUseBotQueuesNPS: 3,
+    whenExpiresTicket: "0",
+    timeCreateNewTicket: 0,
+    collectiveVacationEnd: "",
+    collectiveVacationStart: "",
+    collectiveVacationMessage: "",
+    promptId: null as number | null,
+    integrationId: null as number | null,
+  });
+
+  const [autoToken, setAutoToken] = useState("");
+  const [schedules, setSchedules] = useState<Schedule[]>(defaultSchedules);
+  const [selectedQueueIds, setSelectedQueueIds] = useState<number[]>([]);
+  const [flowIdWelcome, setFlowIdWelcome] = useState<number | null>(null);
+  const [flowIdNotPhrase, setFlowIdNotPhrase] = useState<number | null>(null);
+
+  // Lists
+  const [queues, setQueues] = useState<Queue[]>([]);
+  const [flows, setFlows] = useState<Flow[]>([]);
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [integrations, setIntegrations] = useState<any[]>([]);
+
+  // Attachment
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachmentName, setAttachmentName] = useState("");
+
+  // Load initial data
+  useEffect(() => {
+    if (open) {
+      fetchQueues();
+      fetchFlows();
+      fetchPrompts();
+      fetchIntegrations();
+
+      if (whatsAppId) {
+        fetchWhatsApp();
+      } else {
+        resetForm();
+        setAutoToken(generateRandomCode(30));
+      }
+    }
+  }, [open, whatsAppId]);
+
+  const fetchQueues = async () => {
+    try {
+      const { data } = await api.get("/queue");
+      setQueues(data);
+    } catch (err) {
+      console.error("Error fetching queues:", err);
+    }
+  };
+
+  const fetchFlows = async () => {
+    try {
+      const { data } = await api.get("/flowbuilder");
+      setFlows(data.flows || []);
+    } catch (err) {
+      console.error("Error fetching flows:", err);
+    }
+  };
+
+  const fetchPrompts = async () => {
+    try {
+      const { data } = await api.get("/prompt");
+      setPrompts(data.prompts || []);
+    } catch (err) {
+      console.error("Error fetching prompts:", err);
+    }
+  };
+
+  const fetchIntegrations = async () => {
+    try {
+      const { data } = await api.get("/queueIntegration");
+      setIntegrations(data.queueIntegrations || []);
+    } catch (err) {
+      console.error("Error fetching integrations:", err);
+    }
+  };
+
+  const fetchWhatsApp = async () => {
+    if (!whatsAppId) return;
+    try {
+      const { data } = await api.get(`/whatsapp/${whatsAppId}?session=0`);
+      setFormData({
+        name: data.name || "",
+        greetingMessage: data.greetingMessage || "",
+        complationMessage: data.complationMessage || "",
+        outOfHoursMessage: data.outOfHoursMessage || "",
+        ratingMessage: data.ratingMessage || "",
+        isDefault: data.isDefault || false,
+        token: data.token || "",
+        maxUseBotQueues: data.maxUseBotQueues || 3,
+        expiresTicket: data.expiresTicket || 0,
+        allowGroup: data.allowGroup || false,
+        groupAsTicket: data.groupAsTicket || "disabled",
+        timeUseBotQueues: data.timeUseBotQueues || "0",
+        timeSendQueue: data.timeSendQueue || "0",
+        sendIdQueue: data.sendIdQueue || 0,
+        expiresTicketNPS: data.expiresTicketNPS || "0",
+        expiresInactiveMessage: data.expiresInactiveMessage || "",
+        timeInactiveMessage: data.timeInactiveMessage || "",
+        inactiveMessage: data.inactiveMessage || "",
+        maxUseBotQueuesNPS: data.maxUseBotQueuesNPS || 3,
+        whenExpiresTicket: data.whenExpiresTicket || "0",
+        timeCreateNewTicket: data.timeCreateNewTicket || 0,
+        collectiveVacationEnd: data.collectiveVacationEnd || "",
+        collectiveVacationStart: data.collectiveVacationStart || "",
+        collectiveVacationMessage: data.collectiveVacationMessage || "",
+        promptId: data.promptId || null,
+        integrationId: data.integrationId || null,
+      });
+      setAutoToken(data.token || generateRandomCode(30));
+      setAttachmentName(data.greetingMediaAttachment || "");
+
+      if (data.queues) {
+        setSelectedQueueIds(data.queues.map((q: any) => q.id));
+      }
+
+      if (data.schedules && data.schedules.length > 0) {
+        setSchedules(data.schedules);
+      }
+
+      if (data.flowIdWelcome) {
+        setFlowIdWelcome(data.flowIdWelcome);
+      }
+      if (data.flowIdNotPhrase) {
+        setFlowIdNotPhrase(data.flowIdNotPhrase);
+      }
+    } catch (err) {
+      console.error("Error fetching whatsapp:", err);
+      toast.error("Error al cargar la conexión");
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      greetingMessage: "",
+      complationMessage: "",
+      outOfHoursMessage: "",
+      ratingMessage: "",
+      isDefault: false,
+      token: "",
+      maxUseBotQueues: 3,
+      expiresTicket: 0,
+      allowGroup: false,
+      groupAsTicket: "disabled",
+      timeUseBotQueues: "0",
+      timeSendQueue: "0",
+      sendIdQueue: 0,
+      expiresTicketNPS: "0",
+      expiresInactiveMessage: "",
+      timeInactiveMessage: "",
+      inactiveMessage: "",
+      maxUseBotQueuesNPS: 3,
+      whenExpiresTicket: "0",
+      timeCreateNewTicket: 0,
+      collectiveVacationEnd: "",
+      collectiveVacationStart: "",
+      collectiveVacationMessage: "",
+      promptId: null,
+      integrationId: null,
+    });
+    setSchedules(defaultSchedules);
+    setSelectedQueueIds([]);
+    setFlowIdWelcome(null);
+    setFlowIdNotPhrase(null);
+    setAttachment(null);
+    setAttachmentName("");
+    setTab(0);
+  };
+
+  const handleSave = async () => {
+    if (!formData.name) {
+      toast.error("El nombre es requerido");
+      return;
+    }
+
+    setLoading(true);
+
+    const whatsappData = {
+      ...formData,
+      flowIdWelcome: flowIdWelcome || null,
+      flowIdNotPhrase: flowIdNotPhrase || null,
+      queueIds: selectedQueueIds,
+      token: autoToken,
+      schedules,
+    };
+
+    try {
+      if (whatsAppId) {
+        await api.put(`/whatsapp/${whatsAppId}`, whatsappData);
+
+        if (attachment) {
+          const formDataFile = new FormData();
+          formDataFile.append("file", attachment);
+          await api.post(`/whatsapp/${whatsAppId}/media-upload`, formDataFile);
+        }
+
+        toast.success("Conexión actualizada con éxito");
+      } else {
+        const { data } = await api.post("/whatsapp", whatsappData);
+
+        if (attachment) {
+          const formDataFile = new FormData();
+          formDataFile.append("file", attachment);
+          await api.post(`/whatsapp/${data.id}/media-upload`, formDataFile);
+        }
+
+        toast.success("Conexión creada con éxito");
+      }
+
+      onSuccess?.();
+      handleClose();
+    } catch (err: any) {
+      console.error("Error saving whatsapp:", err);
+      toast.error(err.response?.data?.message || "Error al guardar");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  const handleRefreshToken = () => {
+    setAutoToken(generateRandomCode(30));
+  };
+
+  const handleCopyToken = () => {
+    navigator.clipboard.writeText(autoToken);
+    setCopied(true);
+    toast.success("Token copiado al portapapeles");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAttachment(file);
+      setAttachmentName(file.name);
+    }
+  };
+
+  const handleDeleteFile = () => {
+    setAttachment(null);
+    setAttachmentName("");
+    if (inputFileRef.current) {
+      inputFileRef.current.value = "";
+    }
+  };
+
+  const handleScheduleChange = (index: number, field: keyof Schedule, value: string) => {
+    const newSchedules = [...schedules];
+    newSchedules[index] = { ...newSchedules[index], [field]: value };
+    setSchedules(newSchedules);
+  };
+
+  return (
+    <Modal open={open} onClose={handleClose}>
+      <ModalDialog sx={{ width: "90%", maxWidth: 900, maxHeight: "90vh", overflow: "auto" }}>
+        <ModalClose />
+        <Typography level="h4" sx={{ mb: 2 }}>
+          {whatsAppId ? "Editar Conexión" : "Nueva Conexión"}
+        </Typography>
+
+        <Tabs value={tab} onChange={(_, v) => setTab(v as number)}>
+          <TabList>
+            <Tab>General</Tab>
+            <Tab>Mensajes</Tab>
+            <Tab>Chatbot</Tab>
+            <Tab>Flujos</Tab>
+            <Tab>Horarios</Tab>
+            <Tab>Integraciones</Tab>
+          </TabList>
+
+          {/* TAB GENERAL */}
+          <TabPanel value={0}>
+            <Stack spacing={2}>
+              <Grid container spacing={2}>
+                <Grid xs={12} md={6}>
+                  <FormControl required>
+                    <FormLabel>Nombre</FormLabel>
+                    <Input
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="Ej: WhatsApp Principal"
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={3}>
+                  <FormControl>
+                    <FormLabel>Por Defecto</FormLabel>
+                    <Switch
+                      checked={formData.isDefault}
+                      onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={3}>
+                  <FormControl>
+                    <FormLabel>Permitir Grupos</FormLabel>
+                    <Switch
+                      checked={formData.allowGroup}
+                      onChange={(e) => setFormData({ ...formData, allowGroup: e.target.checked })}
+                    />
+                  </FormControl>
+                </Grid>
+              </Grid>
+
+              <FormControl>
+                <FormLabel>Grupos como Ticket</FormLabel>
+                <Select
+                  value={formData.groupAsTicket}
+                  onChange={(_, v) => setFormData({ ...formData, groupAsTicket: v as string })}
+                >
+                  <Option value="disabled">Deshabilitado</Option>
+                  <Option value="enabled">Habilitado</Option>
+                </Select>
+              </FormControl>
+
+              {/* Token */}
+              <FormControl>
+                <FormLabel>Token API</FormLabel>
+                <Stack direction="row" spacing={1}>
+                  <Input value={autoToken} disabled sx={{ flex: 1 }} />
+                  <IconButton onClick={handleRefreshToken} title="Generar nuevo token">
+                    <RefreshIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={handleCopyToken}
+                    color={copied ? "success" : "neutral"}
+                    title="Copiar token"
+                  >
+                    <CopyIcon />
+                  </IconButton>
+                </Stack>
+              </FormControl>
+
+              {/* Archivo adjunto */}
+              <FormControl>
+                <FormLabel>Archivo de bienvenida (imagen/video)</FormLabel>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <input
+                    type="file"
+                    accept="video/*,image/*"
+                    ref={inputFileRef}
+                    style={{ display: "none" }}
+                    onChange={handleFileUpload}
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={() => inputFileRef.current?.click()}
+                  >
+                    Seleccionar archivo
+                  </Button>
+                  {attachmentName && (
+                    <Chip
+                      endDecorator={
+                        <IconButton size="sm" onClick={handleDeleteFile}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      }
+                    >
+                      {attachmentName}
+                    </Chip>
+                  )}
+                </Stack>
+              </FormControl>
+
+              {/* Redirección de cola */}
+              <Divider />
+              <Typography level="title-md">Redirección de Cola</Typography>
+              <Typography level="body-sm">
+                Envía automáticamente a una cola después de un tiempo de inactividad
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Cola destino</FormLabel>
+                    <Select
+                      value={formData.sendIdQueue}
+                      onChange={(_, v) => setFormData({ ...formData, sendIdQueue: v as number })}
+                    >
+                      <Option value={0}>Ninguna</Option>
+                      {queues.map((queue) => (
+                        <Option key={queue.id} value={queue.id}>
+                          {queue.name}
+                        </Option>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Tiempo (minutos)</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.timeSendQueue}
+                      onChange={(e) => setFormData({ ...formData, timeSendQueue: e.target.value })}
+                    />
+                  </FormControl>
+                </Grid>
+              </Grid>
+            </Stack>
+          </TabPanel>
+
+          {/* TAB MENSAJES */}
+          <TabPanel value={1}>
+            <Stack spacing={2}>
+              <FormControl>
+                <FormLabel>Mensaje de Bienvenida</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.greetingMessage}
+                  onChange={(e) => setFormData({ ...formData, greetingMessage: e.target.value })}
+                  placeholder="Mensaje automático de bienvenida"
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Mensaje de Conclusión</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.complationMessage}
+                  onChange={(e) => setFormData({ ...formData, complationMessage: e.target.value })}
+                  placeholder="Mensaje al cerrar ticket"
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Mensaje Fuera de Horario</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.outOfHoursMessage}
+                  onChange={(e) => setFormData({ ...formData, outOfHoursMessage: e.target.value })}
+                  placeholder="Mensaje cuando está fuera del horario de atención"
+                />
+              </FormControl>
+
+              <Divider />
+              <Typography level="title-md">Vacaciones Colectivas</Typography>
+
+              <FormControl>
+                <FormLabel>Mensaje de Vacaciones</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.collectiveVacationMessage}
+                  onChange={(e) => setFormData({ ...formData, collectiveVacationMessage: e.target.value })}
+                  placeholder="Mensaje durante vacaciones colectivas"
+                />
+              </FormControl>
+
+              <Grid container spacing={2}>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Fecha Inicio</FormLabel>
+                    <Input
+                      type="date"
+                      value={formData.collectiveVacationStart}
+                      onChange={(e) => setFormData({ ...formData, collectiveVacationStart: e.target.value })}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Fecha Fin</FormLabel>
+                    <Input
+                      type="date"
+                      value={formData.collectiveVacationEnd}
+                      onChange={(e) => setFormData({ ...formData, collectiveVacationEnd: e.target.value })}
+                    />
+                  </FormControl>
+                </Grid>
+              </Grid>
+            </Stack>
+          </TabPanel>
+
+          {/* TAB CHATBOT */}
+          <TabPanel value={2}>
+            <Stack spacing={2}>
+              <Grid container spacing={2}>
+                <Grid xs={12} md={4}>
+                  <FormControl>
+                    <FormLabel>Tiempo para nuevo ticket (min)</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.timeCreateNewTicket}
+                      onChange={(e) => setFormData({ ...formData, timeCreateNewTicket: parseInt(e.target.value) || 0 })}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={4}>
+                  <FormControl>
+                    <FormLabel>Máx. usos del chatbot</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.maxUseBotQueues}
+                      onChange={(e) => setFormData({ ...formData, maxUseBotQueues: parseInt(e.target.value) || 3 })}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={4}>
+                  <FormControl>
+                    <FormLabel>Tiempo envío chatbot (seg)</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.timeUseBotQueues}
+                      onChange={(e) => setFormData({ ...formData, timeUseBotQueues: e.target.value })}
+                    />
+                  </FormControl>
+                </Grid>
+              </Grid>
+
+              <Grid container spacing={2}>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Cerrar tickets después de (horas)</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.expiresTicket}
+                      onChange={(e) => setFormData({ ...formData, expiresTicket: parseInt(e.target.value) || 0 })}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Cerrar basado en</FormLabel>
+                    <Select
+                      value={formData.whenExpiresTicket}
+                      onChange={(_, v) => setFormData({ ...formData, whenExpiresTicket: v as string })}
+                    >
+                      <Option value="0">Último mensaje del cliente</Option>
+                      <Option value="1">Último mensaje del agente</Option>
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
+
+              <Divider />
+              <Typography level="title-md">Mensaje por Inactividad</Typography>
+
+              <FormControl>
+                <FormLabel>Mensaje antes de cerrar</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.expiresInactiveMessage}
+                  onChange={(e) => setFormData({ ...formData, expiresInactiveMessage: e.target.value })}
+                  placeholder="Mensaje que se envía antes de cerrar por inactividad"
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Tiempo para mensaje de inactividad (min)</FormLabel>
+                <Input
+                  type="number"
+                  value={formData.timeInactiveMessage}
+                  onChange={(e) => setFormData({ ...formData, timeInactiveMessage: e.target.value })}
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Mensaje de inactividad</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.inactiveMessage}
+                  onChange={(e) => setFormData({ ...formData, inactiveMessage: e.target.value })}
+                  placeholder="Mensaje de recordatorio por inactividad"
+                />
+              </FormControl>
+            </Stack>
+          </TabPanel>
+
+          {/* TAB FLUJOS */}
+          <TabPanel value={3}>
+            <Stack spacing={3}>
+              <Box>
+                <Typography level="title-md">Flujo de Bienvenida</Typography>
+                <Typography level="body-sm" sx={{ mb: 1 }}>
+                  Este flujo sólo se envía a los nuevos contactos, personas que no tienes
+                  en tu lista de contactos y que te han enviado un mensaje.
+                </Typography>
+                <FormControl>
+                  <Select
+                    value={flowIdWelcome ? String(flowIdWelcome) : ""}
+                    onChange={(_, v) => setFlowIdWelcome(v ? Number(v) : null)}
+                    placeholder="Seleccionar flujo"
+                  >
+                    <Option value="">Deshabilitado</Option>
+                    {flows.map((flow) => (
+                      <Option key={flow.id} value={String(flow.id)}>
+                        {flow.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+
+              <Box>
+                <Typography level="title-md">Flujo de Respuesta Estándar</Typography>
+                <Typography level="body-sm" sx={{ mb: 1 }}>
+                  La respuesta estándar se envía con cualquier carácter que no sea una
+                  palabra clave. Se activará si la llamada ya se ha cerrado.
+                </Typography>
+                <FormControl>
+                  <Select
+                    value={flowIdNotPhrase ? String(flowIdNotPhrase) : ""}
+                    onChange={(_, v) => setFlowIdNotPhrase(v ? Number(v) : null)}
+                    placeholder="Seleccionar flujo"
+                  >
+                    <Option value="">Deshabilitado</Option>
+                    {flows.map((flow) => (
+                      <Option key={flow.id} value={String(flow.id)}>
+                        {flow.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            </Stack>
+          </TabPanel>
+
+          {/* TAB HORARIOS */}
+          <TabPanel value={4}>
+            <Stack spacing={2}>
+              <Typography level="title-md">Horarios de Atención</Typography>
+              <Typography level="body-sm">
+                Configure los horarios de atención para cada día de la semana.
+                Fuera de estos horarios se enviará el mensaje de "Fuera de Horario".
+              </Typography>
+
+              {schedules.map((schedule, index) => (
+                <Box key={schedule.weekdayEn} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: "sm" }}>
+                  <Typography level="title-sm" sx={{ mb: 1 }}>
+                    {schedule.weekday}
+                  </Typography>
+                  <Grid container spacing={1}>
+                    <Grid xs={3}>
+                      <FormControl size="sm">
+                        <FormLabel>Turno 1 - Inicio</FormLabel>
+                        <Input
+                          type="time"
+                          value={schedule.startTimeA}
+                          onChange={(e) => handleScheduleChange(index, "startTimeA", e.target.value)}
+                        />
+                      </FormControl>
+                    </Grid>
+                    <Grid xs={3}>
+                      <FormControl size="sm">
+                        <FormLabel>Turno 1 - Fin</FormLabel>
+                        <Input
+                          type="time"
+                          value={schedule.endTimeA}
+                          onChange={(e) => handleScheduleChange(index, "endTimeA", e.target.value)}
+                        />
+                      </FormControl>
+                    </Grid>
+                    <Grid xs={3}>
+                      <FormControl size="sm">
+                        <FormLabel>Turno 2 - Inicio</FormLabel>
+                        <Input
+                          type="time"
+                          value={schedule.startTimeB}
+                          onChange={(e) => handleScheduleChange(index, "startTimeB", e.target.value)}
+                        />
+                      </FormControl>
+                    </Grid>
+                    <Grid xs={3}>
+                      <FormControl size="sm">
+                        <FormLabel>Turno 2 - Fin</FormLabel>
+                        <Input
+                          type="time"
+                          value={schedule.endTimeB}
+                          onChange={(e) => handleScheduleChange(index, "endTimeB", e.target.value)}
+                        />
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+                </Box>
+              ))}
+            </Stack>
+          </TabPanel>
+
+          {/* TAB INTEGRACIONES */}
+          <TabPanel value={5}>
+            <Stack spacing={2}>
+              <FormControl>
+                <FormLabel>Colas Asignadas</FormLabel>
+                <Select
+                  multiple
+                  value={selectedQueueIds}
+                  onChange={(_, v) => setSelectedQueueIds(v as number[])}
+                  placeholder="Seleccionar colas"
+                >
+                  {queues.map((queue) => (
+                    <Option key={queue.id} value={queue.id}>
+                      {queue.name}
+                    </Option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Integración</FormLabel>
+                <Select
+                  value={formData.integrationId ? String(formData.integrationId) : ""}
+                  onChange={(_, v) => setFormData({ ...formData, integrationId: v ? Number(v) : null })}
+                  placeholder="Seleccionar integración"
+                >
+                  <Option value="">Deshabilitado</Option>
+                  {integrations.map((integration) => (
+                    <Option key={integration.id} value={String(integration.id)}>
+                      {integration.name}
+                    </Option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Prompt de IA</FormLabel>
+                <Select
+                  value={formData.promptId ? String(formData.promptId) : ""}
+                  onChange={(_, v) => setFormData({ ...formData, promptId: v ? Number(v) : null })}
+                  placeholder="Seleccionar prompt"
+                >
+                  <Option value="">Ninguno</Option>
+                  {prompts.map((prompt) => (
+                    <Option key={prompt.id} value={String(prompt.id)}>
+                      {prompt.name}
+                    </Option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <Divider />
+              <Typography level="title-md">Evaluación NPS</Typography>
+
+              <FormControl>
+                <FormLabel>Mensaje de Evaluación</FormLabel>
+                <Textarea
+                  minRows={3}
+                  value={formData.ratingMessage}
+                  onChange={(e) => setFormData({ ...formData, ratingMessage: e.target.value })}
+                  placeholder="Mensaje para solicitar evaluación"
+                />
+              </FormControl>
+
+              <Grid container spacing={2}>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Máx. envíos NPS</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.maxUseBotQueuesNPS}
+                      onChange={(e) => setFormData({ ...formData, maxUseBotQueuesNPS: parseInt(e.target.value) || 3 })}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid xs={12} md={6}>
+                  <FormControl>
+                    <FormLabel>Cerrar NPS después de (min)</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.expiresTicketNPS}
+                      onChange={(e) => setFormData({ ...formData, expiresTicketNPS: e.target.value })}
+                    />
+                  </FormControl>
+                </Grid>
+              </Grid>
+            </Stack>
+          </TabPanel>
+        </Tabs>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Stack direction="row" spacing={1} justifyContent="flex-end">
+          <Button variant="outlined" color="neutral" onClick={handleClose} disabled={loading}>
+            Cancelar
+          </Button>
+          <Button color="primary" onClick={handleSave} loading={loading}>
+            {whatsAppId ? "Actualizar" : "Crear"}
+          </Button>
+        </Stack>
+      </ModalDialog>
+    </Modal>
+  );
+};
+
+export default WhatsAppModal;

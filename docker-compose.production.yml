@@ -1,0 +1,507 @@
+# ==========================================
+# CHATEAM PRODUCTION DOCKER COMPOSE
+# High Availability & Monitoring Setup
+# ==========================================
+
+version: "3.9"
+
+networks:
+  chateam-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  monitoring-network:
+    driver: bridge
+
+services:
+  # ==========================================
+  # APPLICATION TIER
+  # ==========================================
+
+  # Main Application (3 replicas)
+  app:
+    image: chateam/app:${VERSION:-latest}
+    env_file: .env.production
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads:ro
+      - app_logs:/app/logs
+    networks:
+      - chateam-network
+      - monitoring-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Background Workers (2 replicas)
+  worker:
+    image: chateam/worker:${VERSION:-latest}
+    env_file: .env.production
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.8'
+          memory: 512M
+        reservations:
+          cpus: '0.3'
+          memory: 256M
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/app/logs
+    networks:
+      - chateam-network
+      - monitoring-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "/app/health-check.js"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================================
+  # DATA TIER
+  # ==========================================
+
+  # PostgreSQL Primary
+  postgres:
+    image: postgres:15-alpine
+    container_name: chateam-postgres-prod
+    environment:
+      POSTGRES_DB: chateam_prod
+      POSTGRES_USER: chateam
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ./postgresql/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgresql/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - postgres_logs:/var/log/postgresql
+    networks:
+      - chateam-network
+      - monitoring-network
+    ports:
+      - "5432:5432"
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chateam -d chateam_prod"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # Redis Cluster
+  redis:
+    image: redis:7-alpine
+    container_name: chateam-redis-prod
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_prod_data:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+      - redis_logs:/var/log/redis
+    networks:
+      - chateam-network
+      - monitoring-network
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # MinIO S3 Storage
+  minio:
+    image: minio/minio:latest
+    container_name: chateam-minio-prod
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    volumes:
+      - minio_prod_data:/data
+      - minio_logs:/var/log/minio
+    networks:
+      - chateam-network
+      - monitoring-network
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # ==========================================
+  # MICROSERVICES TIER
+  # ==========================================
+
+  # AI Audit Service
+  audit-service:
+    image: chateam/audit:${VERSION:-latest}
+    env_file: .env.production
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2G
+        reservations:
+          cpus: '0.8'
+          memory: 1G
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - audit_logs:/app/logs
+    networks:
+      - chateam-network
+      - monitoring-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+    restart: unless-stopped
+
+  # Job Scheduler
+  scheduler:
+    image: chateam/scheduler:${VERSION:-latest}
+    container_name: chateam-scheduler-prod
+    env_file: .env.production
+    depends_on:
+      audit-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - scheduler_logs:/app/logs
+    networks:
+      - chateam-network
+      - monitoring-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "/app/health-check.js"]
+      interval: 120s
+      timeout: 15s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================================
+  # LOAD BALANCER & PROXY
+  # ==========================================
+
+  # NGINX Load Balancer
+  nginx:
+    image: chateam/nginx:${VERSION:-latest}
+    container_name: chateam-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - app
+      - audit-service
+    volumes:
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - chateam-network
+      - monitoring-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # ==========================================
+  # MONITORING STACK
+  # ==========================================
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chateam-prometheus-prod
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - monitoring-network
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--alertmanager.notification-queue-capacity=10000'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  # Alertmanager
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: chateam-alertmanager-prod
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./monitoring/templates:/etc/alertmanager/templates:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - monitoring-network
+    ports:
+      - "9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=https://alerts.chateam.com'
+      - '--cluster.advertise-address=0.0.0.0:9093'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chateam-grafana-prod
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+      - GF_SERVER_DOMAIN=monitoring.chateam.com
+      - GF_SERVER_ROOT_URL=https://monitoring.chateam.com
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - monitoring-network
+    ports:
+      - "3001:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # Node Exporter
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: chateam-node-exporter-prod
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring-network
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: chateam-redis-exporter-prod
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - monitoring-network
+    ports:
+      - "9121:9121"
+    restart: unless-stopped
+
+  # Postgres Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: chateam-postgres-exporter-prod
+    environment:
+      DATA_SOURCE_NAME: "postgresql://chateam:${DB_PASSWORD}@postgres:5432/chateam_prod?sslmode=disable"
+    networks:
+      - monitoring-network
+    ports:
+      - "9187:9187"
+    restart: unless-stopped
+
+# ==========================================
+# VOLUMES
+# ==========================================
+volumes:
+  # Application data
+  postgres_prod_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+  minio_prod_data:
+    driver: local
+
+  # Monitoring data
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+
+  # Logs
+  app_logs:
+    driver: local
+  worker_logs:
+    driver: local
+  audit_logs:
+    driver: local
+  scheduler_logs:
+    driver: local
+  nginx_logs:
+    driver: local
+  postgres_logs:
+    driver: local
+  redis_logs:
+    driver: local
+  minio_logs:
+    driver: local

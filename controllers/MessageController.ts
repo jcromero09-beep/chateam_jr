@@ -1,0 +1,1368 @@
+import { Request, Response } from "express";
+import AppError from "../errors/AppError";
+import fs from "fs";
+import GetTicketWbot from "../helpers/GetTicketWbot";
+import SetTicketMessagesAsRead from "../helpers/SetTicketMessagesAsRead";
+import { getIO } from "../libs/socket";
+import Message from "../models/Message";
+import Ticket from "../models/Ticket";
+import Queue from "../models/Queue";
+import User from "../models/User";
+import Whatsapp from "../models/Whatsapp";
+import { verify } from "jsonwebtoken";
+import authConfig from "../config/auth";
+import path from "path";
+import formatBody from "../helpers/Mustache";
+import { isNil, isNull } from "lodash";
+import { Mutex } from "async-mutex";
+import { sendIgMessageMedia } from "../services/FacebookServices/igMessageListener";
+import ListMessagesService from "../services/MessageServices/ListMessagesService";
+import ShowTicketService from "../services/TicketServices/ShowTicketService";
+import DeleteWhatsAppMessage from "../services/WbotServices/DeleteWhatsAppMessage";
+import SendWhatsAppMedia from "../services/WbotServices/SendWhatsAppMedia";
+import SendWhatsAppMessage from "../services/WbotServices/SendWhatsAppMessage";
+import CreateMessageService from "../services/MessageServices/CreateMessageService";
+import { sendInstagramAttachment } from "../services/FacebookServices/graphAPI";
+import { sendFacebookMessageMedia } from "../services/FacebookServices/sendFacebookMessageMedia";
+import sendFaceMessage from "../services/FacebookServices/sendFacebookMessage";
+import sendIGMessage from "../services/FacebookServices/igMessageListener";
+import ShowPlanCompanyService from "../services/CompanyService/ShowPlanCompanyService";
+import SendTelegramMessage from "../services/TelegramService/SendTelegramMessage";
+import ListMessagesServiceAll from "../services/MessageServices/ListMessagesServiceAll";
+import { sendTextDynamic as metaSendTextDynamic } from "../services/MetaServices/metaSendService";
+// Logger específico para messages
+//import messageLogger from "../utils/messageLogger";
+import ShowContactService from "../services/ContactServices/ShowContactService";
+import FindOrCreateTicketService from "../services/TicketServices/FindOrCreateTicketService";
+
+import Contact from "../models/Contact";
+import { verifyMessage, } from "../services/WbotServices/wbotMessageListener";
+import UpdateTicketService from "../services/TicketServices/UpdateTicketService";
+import ListSettingsService from "../services/SettingServices/ListSettingsService";
+import ShowMessageService, { GetWhatsAppFromMessage } from "../services/MessageServices/ShowMessageService";
+import CompaniesSettings from "../models/CompaniesSettings";
+import { verifyMessageFace, verifyMessageMedia } from "../services/FacebookServices/facebookMessageListener";
+import EditWhatsAppMessage from "../services/MessageServices/EditWhatsAppMessage";
+import CheckContactNumber from "../services/WbotServices/CheckNumber";
+import TranscribeAudioMessageToText from "../services/MessageServices/TranscribeAudioMessageService";
+import { generateWAMessageFromContent, generateWAMessageContent } from "@whiskeysockets/baileys";
+
+type IndexQuery = {
+    pageNumber: string;
+    ticketTrakingId: string;
+    selectedQueues?: string;
+};
+
+interface TokenPayload {
+    id: string;
+    username: string;
+    profile: string;
+    companyId: number;
+    iat: number;
+    exp: number;
+}
+
+
+type MessageData = {
+    body: string;
+    fromMe: boolean;
+    read: boolean;
+    quotedMsg?: Message;
+    number?: string;
+    isPrivate?: string;
+    vCard?: Contact;
+};
+
+// adicionar funções de botões, pix, etc.
+export const sendListMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const { title, text, buttonText, footer, sections } = req.body;
+
+    try {
+        const ticket = await Ticket.findByPk(ticketId);
+
+        if (!ticket) {
+            throw new AppError("Ticket no encontrado", 404);
+        }
+
+        const contact = await Contact.findByPk(ticket.contactId);
+
+        if (!contact) {
+            throw new AppError("Contacto no encontrado", 404);
+        }
+        const wbot = await GetTicketWbot(ticket);
+        const listMessage = {
+            text,
+            title,
+            buttonText,
+            footer,
+            sections
+        };
+
+        const number = `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`;
+        console.log('Numero do cliente:', number);
+
+        const sendMsg = await wbot.sendMessage(number, listMessage);
+        await verifyMessage(sendMsg, ticket, contact);
+
+        return res.status(200).json({ message: "Mensaje de lista enviado correctamente", sendMsg });
+    } catch (err) {
+        console.error("Error al enviar mensaje de lista: ", err);
+        throw new AppError("Error al enviar mensaje de lista", 500);
+    }
+};
+
+export const sendCopyMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const { title, description, buttonText, copyText } = req.body;
+
+    try {
+        const ticket = await Ticket.findByPk(ticketId);
+        if (!ticket) {
+            throw new AppError("Ticket not found", 404);
+        }
+        const contact = await Contact.findByPk(ticket.contactId);
+        if (!contact) {
+            throw new AppError("Contact not found", 404);
+        }
+        const whatsapp = await Whatsapp.findOne({ where: { id: ticket.whatsappId } });
+        if (!whatsapp || !whatsapp.number) {
+            console.error('Número de WhatsApp no encontrado para el ticket:', ticket.whatsappId);
+            throw new Error('Número de WhatsApp no encontrado');
+        }
+
+        const botNumber = whatsapp.number;
+        const wbot = await GetTicketWbot(ticket);
+        const copyMessage = {
+            viewOnceMessage: {
+                message: {
+                    interactiveMessage: {
+                        body: {
+                            text: title || 'Botón Copiar',
+                        },
+                        footer: {
+                            text: description || 'Botón Copiar',
+                        },
+                        nativeFlowMessage: {
+                            buttons: [
+                                {
+                                    name: 'cta_copy',
+                                    buttonParamsJson: JSON.stringify({
+                                        display_text: buttonText || 'Botón Copiar',
+                                        copy_code: copyText || 'Botón Copiar',
+                                    }),
+                                },
+                            ],
+                            messageParamsJson: JSON.stringify({
+                                from: 'apiv2',
+                                templateId: '4194019344155670',
+                            }),
+                        },
+                    },
+                },
+            },
+        };
+        const number = `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`;
+        const newMsg = generateWAMessageFromContent(number, copyMessage, {
+            userJid: botNumber,
+        });
+        await wbot.relayMessage(number, newMsg.message!, { messageId: newMsg.key.id });
+        if (newMsg) {
+            await wbot.upsertMessage(newMsg, 'notify');
+        }
+        return res.status(200).json({ message: "Mensaje de copia enviado correctamente", newMsg });
+
+    } catch (error) {
+        console.error('Error al enviar el mensaje de copia:', error);
+        throw new AppError("Error al enviar el mensaje de copia", 500);
+    }
+};
+
+export const sendCALLMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const { title, description, buttonText, copyText } = req.body;
+
+    try {
+        const ticket = await Ticket.findByPk(ticketId);
+        if (!ticket) {
+            throw new AppError("Ticket no encontrado", 404);
+        }
+        const contact = await Contact.findByPk(ticket.contactId);
+        if (!contact) {
+            throw new AppError("Contacto no encontrado", 404);
+        }
+        const whatsapp = await Whatsapp.findOne({ where: { id: ticket.whatsappId } });
+        if (!whatsapp || !whatsapp.number) {
+            console.error('Número de WhatsApp no encontrado para el billete:', ticket.whatsappId);
+            throw new Error('Número de WhatsApp no encontrado');
+        }
+
+        const botNumber = whatsapp.number;
+        const wbot = await GetTicketWbot(ticket);
+        const copyMessage = {
+            viewOnceMessage: {
+                message: {
+                    interactiveMessage: {
+                        body: {
+                            text: title || 'Botón Copiar',
+                        },
+                        footer: {
+                            text: description || 'Botón Copiar',
+                        },
+                        nativeFlowMessage: {
+                            buttons: [
+                                {
+                                    name: 'cta_call',
+                                    buttonParamsJson: JSON.stringify({
+                                        display_text: buttonText || 'Botón Copiar',
+                                        phoneNumber: copyText || 'Botón Copiar',
+                                    })
+                                },
+                            ],
+                            messageParamsJson: JSON.stringify({
+                                from: 'apiv2',
+                                templateId: '4194019344155670',
+                            }),
+                        },
+                    },
+                },
+            },
+        };
+        const number = `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`;
+        const newMsg = generateWAMessageFromContent(number, copyMessage, {
+            userJid: botNumber,
+        });
+        await wbot.relayMessage(number, newMsg.message!, { messageId: newMsg.key.id });
+        if (newMsg) {
+            await wbot.upsertMessage(newMsg, 'notify');
+        }
+        return res.status(200).json({ message: "Mensaje de copia enviado correctamente", newMsg });
+
+    } catch (error) {
+        console.error('Error al enviar el mensaje de copia:', error);
+        throw new AppError("Error al enviar el mensaje de copia", 500);
+    }
+};
+
+export const sendURLMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const { image, title, description, buttonText, copyText } = req.body;
+    try {
+        const ticket = await Ticket.findByPk(ticketId);
+        if (!ticket) {
+            throw new AppError("Ticket not found", 404);
+        }
+        const contact = await Contact.findByPk(ticket.contactId);
+        if (!contact) {
+            throw new AppError("Contact not found", 404);
+        }
+        const whatsapp = await Whatsapp.findOne({ where: { id: ticket.whatsappId } });
+        if (!whatsapp || !whatsapp.number) {
+            console.error('Número de WhatsApp no encontrado para el billete:', ticket.whatsappId);
+            throw new Error('Número de WhatsApp no encontrado');
+        }
+
+        const botNumber = whatsapp.number;
+        const wbot = await GetTicketWbot(ticket);
+        let copyMessage: any;
+
+        if (image) {
+            const base64Image = image.split(',')[1];
+            const imageMessageContent = await generateWAMessageContent(
+                {
+                    image: {
+                        url: `data:image/png;base64,${base64Image}`, // Use a URL data para imagem
+                    },
+                },
+                { upload: wbot.waUploadToServer! }
+            );
+
+            // Crie a estrutura com o header e a imagem
+            copyMessage = {
+                viewOnceMessage: {
+                    message: {
+                        interactiveMessage: {
+                            body: {
+                                text: title || 'Botón Copiar',  // Título da mensagem
+                            },
+                            footer: {
+                                text: description || 'Botón Copiar',  // Descrição da mensagem
+                            },
+                            header: {
+                                imageMessage: imageMessageContent,
+                                hasMediaAttachment: true,
+                            },
+                            nativeFlowMessage: {
+                                buttons: [
+                                    {
+                                        name: 'cta_url',
+                                        buttonParamsJson: JSON.stringify({
+                                            display_text: buttonText || 'Botón Copiar',
+                                            url: copyText || 'Botón Copiar',
+                                        })
+                                    },
+                                ],
+                                messageParamsJson: JSON.stringify({
+                                    from: 'apiv2',
+                                    templateId: '4194019344155670',
+                                }),
+                            },
+                        },
+                    },
+                },
+            };
+        } else {
+
+            copyMessage = {
+                viewOnceMessage: {
+                    message: {
+                        interactiveMessage: {
+                            body: {
+                                text: title || 'Botón Copiar',
+                            },
+                            footer: {
+                                text: description || 'Botón Copiar',
+                            },
+                            nativeFlowMessage: {
+                                buttons: [
+                                    {
+                                        name: 'cta_url',
+                                        buttonParamsJson: JSON.stringify({
+                                            display_text: buttonText || 'Botón Copiar',
+                                            url: copyText || 'Botón Copiar',
+                                        })
+                                    },
+                                ],
+                                messageParamsJson: JSON.stringify({
+                                    from: 'apiv2',
+                                    templateId: '4194019344155670',
+                                }),
+                            },
+                        },
+                    },
+                },
+            };
+        }
+        const number = `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`;
+        const newMsg = generateWAMessageFromContent(number, copyMessage, {
+            userJid: botNumber,
+        });
+        await wbot.relayMessage(number, newMsg.message!, { messageId: newMsg.key.id });
+        if (newMsg) {
+            await wbot.upsertMessage(newMsg, 'notify');
+        }
+        return res.status(200).json({ message: "Mensaje de copia enviado correctamente", newMsg });
+
+    } catch (error) {
+        console.error('Error al enviar el mensaje de copia:', error);
+        throw new AppError("Error al enviar el mensaje de copia", 500);
+    }
+};
+
+export const sendPIXMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const {
+        sendkey_type,
+        sendmerchant_name,
+        title,
+        sendvalue,
+        sendKey
+    }: {
+        sendkey_type: string;
+        sendmerchant_name: string;
+        title: string;
+        sendvalue: number;
+        sendKey: string;
+    } = req.body;
+
+    try {
+        const ticket = await Ticket.findByPk(ticketId);
+        if (!ticket) {
+            throw new AppError("Ticket no encontrado", 404);
+        }
+
+        const contact = await Contact.findByPk(ticket.contactId);
+        if (!contact) {
+            throw new AppError("Contacto no encontrado", 404);
+        }
+
+        const whatsapp = await Whatsapp.findOne({ where: { id: ticket.whatsappId } });
+        if (!whatsapp || !whatsapp.number) {
+            throw new Error('Número de WhatsApp no encontrado');
+        }
+
+        const number = `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`;
+        const botNumber = whatsapp.number;
+        const wbot = await GetTicketWbot(ticket);
+        const interactiveMsg = {
+            viewOnceMessage: {
+                message: {
+                    interactiveMessage: {
+                        nativeFlowMessage: {
+                            buttons: [
+                                {
+                                    name: "review_and_pay",
+                                    buttonParamsJson: JSON.stringify({
+                                        reference_id: generateRandomCode(),
+                                        type: 'physical-goods',
+                                        payment_configuration: 'merchant_categorization_code',
+                                        payment_settings: [
+                                            {
+                                                type: "pix_static_code",
+                                                pix_static_code: {
+                                                    key: sendKey,
+                                                    merchant_name: sendmerchant_name,
+                                                    key_type: sendkey_type
+                                                }
+                                            },
+                                            {
+                                                type: "cards",
+                                                cards: { enabled: false }
+                                            }
+                                        ],
+                                        currency: "BRL",
+                                        total_amount: {
+                                            value: sendvalue * 100,
+                                            offset: 100,
+                                        },
+                                        order: {
+                                            status: 'payment_requested',
+                                            items: [{
+                                                retailer_id: "custom-item",
+                                                name: title,
+                                                amount: {
+                                                    value: sendvalue * 100,
+                                                    offset: 100,
+                                                },
+                                                quantity: 1,
+                                                isCustomItem: true,
+                                                isQuantitySet: true,
+                                            }],
+                                            subtotal: {
+                                                value: sendvalue * 100,
+                                                offset: 100,
+                                            },
+                                            tax: null,
+                                            shipping: null,
+                                            discount: null,
+                                            order_type: "ORDER",
+                                        },
+                                        native_payment_methods: []
+                                    })
+                                }
+                            ],
+                        },
+                    },
+                },
+            },
+        };
+
+        const newMsg = generateWAMessageFromContent(number, interactiveMsg, { userJid: botNumber });
+
+        // Envio da mensagem
+        await wbot.relayMessage(number, newMsg.message!, { messageId: newMsg.key.id });
+        await wbot.upsertMessage(newMsg, 'notify');
+
+        return res.status(200).json({ message: "Mensaje enviado correctamente", newMsg });
+    } catch (error) {
+        console.error('Error al enviar el mensaje:', error);
+        return res.status(500).json({ message: "Error al enviar el mensaje" });
+    }
+};
+
+const generateRandomCode = (length: number = 11): string => {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let code = '';
+    for (let i = 0; i < length; i++) {
+        const randomIndex = Math.floor(Math.random() * characters.length);
+        code += characters[randomIndex];
+    }
+    return code;
+};
+
+//Transcrição de Audio
+export const transcribeAudioMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { fileName } = req.params;
+    const { companyId } = req.user;
+    try {
+        const transcribedText = await TranscribeAudioMessageToText(fileName, companyId);
+        if (typeof transcribedText === 'string') {
+            return res.status(500).send({ error: transcribedText });
+        }
+        return res.send(transcribedText);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).send({ error: 'Error al transcribir el mensaje de audio.' });
+    }
+};
+
+export const index = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const { pageNumber, selectedQueues: queueIdsStringified } = req.query as IndexQuery;
+    const { companyId, profile } = req.user;
+    let queues: number[] = [];
+
+    const user = await User.findByPk(req.user.id, {
+        include: [{ model: Queue, as: "queues" }]
+    });
+
+    if (queueIdsStringified) {
+        queues = JSON.parse(queueIdsStringified);
+    } else {
+        user.queues.forEach(queue => {
+            queues.push(queue.id);
+        });
+    }
+
+    const { count, messages, ticket, hasMore } = await ListMessagesService({
+        pageNumber,
+        ticketId,
+        companyId,
+        queues,
+        user
+    });
+
+    if (ticket.channel === "whatsapp" && ticket.whatsappId) {
+        SetTicketMessagesAsRead(ticket);
+    }
+
+    return res.json({ count, messages, ticket, hasMore });
+};
+
+function obterNomeEExtensaoDoArquivo(url) {
+    var urlObj = new URL(url);
+    var pathname = urlObj.pathname;
+    var filename = pathname.split('/').pop();
+    var parts = filename.split('.');
+
+    var nomeDoArquivo = parts[0];
+    var extensao = parts[1];
+
+    return `${nomeDoArquivo}.${extensao}`;
+}
+
+export const store = async (req: Request, res: Response): Promise<Response> => {
+    const requestId = Math.random().toString(36).substring(7);
+
+    // messageLogger.info('Iniciando envío de mensaje', {
+    //     requestId,
+    //     ticketId: req.params.ticketId,
+    //     companyId: req.user.companyId,
+    //     hasMedia: !!(req.files as Express.Multer.File[])?.length,
+    //     bodyLength: req.body.body?.length || 0
+    // });
+
+    try {
+        const { ticketId } = req.params;
+        const { body, quotedMsg, vCard, isPrivate = "false" }: MessageData = req.body;
+        const medias = req.files as Express.Multer.File[];
+        const { companyId } = req.user;
+
+        const ticket = await ShowTicketService(ticketId, companyId);
+
+        // messageLogger.info('Ticket encontrado', {
+        //     requestId,
+        //     ticketId,
+        //     channel: ticket.channel,
+        //     status: ticket.status,
+        //     contactId: ticket.contactId
+        // });
+
+        if (ticket.channel === "whatsapp" && ticket.whatsappId) {
+            SetTicketMessagesAsRead(ticket);
+        }
+        console.log('medias', medias)
+
+        if (medias && medias.length > 0) {
+
+            await Promise.all(
+                medias.map(async (media: Express.Multer.File, index) => {
+                    if (ticket.channel === "whatsapp") {
+                        await SendWhatsAppMedia({ media, ticket, body: Array.isArray(body) ? body[index] : body, isPrivate: isPrivate === "true", isForwarded: false });
+                    }
+                    console.log('ticket.channel', ticket.channel)
+
+                    if (["facebook"].includes(ticket.channel)) {
+                        try {
+                            console.log('sentMedia fa', media)
+                            const sentMedia = await sendFacebookMessageMedia({
+                                media,
+                                ticket,
+                                body: Array.isArray(body) ? body[index] : body
+                            });
+
+                            if (ticket.channel === "facebook") {
+                                console.log('2sentMedia fa', sentMedia)
+                                await verifyMessageMedia(sentMedia, ticket, ticket.contact, true);
+                            }
+                        } catch (error) {
+                            console.log(error);
+                        }
+                    }
+                    if (["instagram"].includes(ticket.channel)) {
+                        try {
+                            console.log('sentMedia ig', media)
+                            const sentMedia = await sendIgMessageMedia({
+                                media,
+                                ticket,
+                                body: Array.isArray(body) ? body[index] : body
+                            });
+
+                            if (ticket.channel === "instagram") {
+                                console.log('2 sentMedia ig', sentMedia)
+                                await verifyMessageMedia(sentMedia, ticket, ticket.contact, true);
+                            }
+                        } catch (error) {
+                            console.log(error);
+                        }
+                    }
+                    if (["telegram"].includes(ticket.channel)) {
+                        try {
+                            const SendTelegramMessage = require("../services/TelegramService/SendTelegramMessage").default;
+                            console.log('sentMedia telegram', media)
+                            const sentMedia = await SendTelegramMessage({
+                                body: Array.isArray(body) ? body[index] : body,
+                                ticket,
+                                mediaPath: media.path,
+                                mediaName: media.filename
+                            });
+
+                            if (ticket.channel === "telegram") {
+                                console.log('2 sentMedia telegram', sentMedia)
+                                // Telegram messages are already saved in TelegramMessageListener
+                            }
+                        } catch (error) {
+                            console.log(error);
+                        }
+                    }
+
+                    // NUEVO: Soporte para Telegram
+                    if (ticket.channel === "telegram") {
+                        try {
+                            // messageLogger.info('Enviando media por Telegram', {
+                            //     requestId,
+                            //     ticketId,
+                            //     filename: media.filename,
+                            //     mediaPath: media.path
+                            // });
+
+                            // console.log('Enviando media por Telegram:', media.filename);
+                            await SendTelegramMessage({
+                                body: Array.isArray(body) ? body[index] : body,
+                                ticket,
+                                mediaPath: media.path,
+                                mediaName: media.filename
+                            });
+
+                            // messageLogger.info('Media de Telegram enviada exitosamente', {
+                            //     requestId,
+                            //     ticketId,
+                            //     filename: media.filename
+                            // });
+                            // console.log('Media de Telegram enviada exitosamente');
+                        } catch (err) {
+                            // messageLogger.error('Error enviando media por Telegram', err, {
+                            //     requestId,
+                            //     ticketId,
+                            //     filename: media.filename
+                            // });
+                            // console.error('Error enviando media por Telegram:', err);
+                        }
+                    }
+
+                    //limpar arquivo nao utilizado mais após envio
+                    const filePath = path.resolve("public", `company${companyId}`, media.filename);
+                    const fileExists = fs.existsSync(filePath);
+
+                    if (fileExists && isPrivate === "false") {
+                        fs.unlinkSync(filePath);
+                    }
+                })
+            );
+        } else {
+            console.log('isPrivate', isPrivate, 'ticket.channel ', ticket.channel)
+            if (ticket.channel === "whatsapp" && isPrivate === "false") {
+                await SendWhatsAppMessage({ body, ticket, quotedMsg, vCard });
+            } else if (ticket.channel === "whatsapp" && isPrivate === "true") {
+                const messageData = {
+                    wid: `PVT${ticket.updatedAt.toString().replace(' ', '')}`,
+                    ticketId: ticket.id,
+                    contactId: undefined,
+                    body,
+                    fromMe: true,
+                    mediaType: !isNil(vCard) ? 'contactMessage' : 'extendedTextMessage',
+                    read: true,
+                    quotedMsgId: null,
+                    ack: 2,
+                    remoteJid: ticket.contact?.remoteJid,
+                    participant: null,
+                    dataJson: null,
+                    ticketTrakingId: null,
+                    isPrivate: isPrivate === "true"
+                };
+
+                await CreateMessageService({ messageData, companyId: ticket.companyId });
+                console.log('newMessage messagecontroller CreateMessageService')
+            } else if (["facebook"].includes(ticket.channel)) {
+                const sendText = await sendFaceMessage({ body, ticket, quotedMsg });
+            } else if (["instagram"].includes(ticket.channel)) {
+                const sendTextig = await sendIGMessage({ body, ticket });
+                console.log('msj', sendTextig)
+            }
+            else if (["meta"].includes(ticket.channel)) {
+                // Obtener la conexión WhatsApp del ticket para credenciales META
+                const whatsapp = await Whatsapp.findByPk(ticket.whatsappId);
+                // facebookPageUserId contiene el Phone Number ID de Meta (necesario para enviar)
+                const phoneNumberId = whatsapp?.facebookPageUserId || whatsapp?.number;
+                if (!whatsapp || !whatsapp.tokenMeta || !phoneNumberId) {
+                    console.error('[Meta] Error: Credenciales META no configuradas para whatsapp:', ticket.whatsappId);
+                    throw new AppError("Credenciales META no configuradas", 400);
+                }
+
+                const to = ticket.contact.number.replace("+", "");
+                console.log(`📤 [Meta] Enviando mensaje a ${to} via conexión META ${whatsapp.name} (PhoneNumberId: ${phoneNumberId})`);
+
+                try {
+                    await metaSendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
+                    console.log(`✅ [Meta] Mensaje enviado exitosamente`);
+                } catch (error: any) {
+                    console.error(`❌ [Meta] Error enviando mensaje:`, error.response?.data || error.message);
+                    throw new AppError("Error enviando mensaje por META", 500);
+                }
+            }
+            // NUEVO: Soporte para mensajes de texto de Telegram
+            else if (ticket.channel === "telegram") {
+                try {
+                    // messageLogger.info('Enviando mensaje de texto por Telegram', {
+                    //     requestId,
+                    //     ticketId,
+                    //     bodyLength: body?.length || 0
+                    // });
+
+                    // console.log('Enviando mensaje de texto por Telegram:', body);
+
+                    // Validar que hay contenido para enviar
+                    if (!body || body.trim() === "") {
+                        // messageLogger.warn('No hay contenido para enviar por Telegram', {
+                        //     requestId,
+                        //     ticketId
+                        // });
+                        // console.log('No hay contenido para enviar por Telegram, omitiendo...');
+                        return res.status(200).json({ message: "No content to send" });
+                    }
+
+                    await SendTelegramMessage({
+                        body,
+                        ticket,
+                        quotedMsg
+                    });
+
+                    // messageLogger.info('Mensaje de Telegram enviado exitosamente', {
+                    //     requestId,
+                    //     ticketId
+                    // });
+                    // console.log('Mensaje de Telegram enviado exitosamente');
+                } catch (err) {
+                    // messageLogger.error('Error enviando mensaje por Telegram', err, {
+                    //     requestId,
+                    //     ticketId
+                    // });
+                    // console.error('Error enviando mensaje por Telegram:', err);
+                    return res.status(400).json({
+                        error: "Error enviando mensaje",
+                        details: err.message
+                    });
+                }
+            }
+        }
+        // messageLogger.info('Mensaje enviado exitosamente', {
+        //     requestId,
+        //     ticketId,
+        //     channel: ticket.channel
+        // });
+        return res.send();
+    } catch (err) {
+        // messageLogger.error('Error al enviar mensaje', err, {
+        //     requestId,
+        //     ticketId: req.params.ticketId
+        // });
+        // console.log(err);
+        return res.status(400).json({ error: err.message });
+    }
+};
+
+export const forwardMessage = async (
+    req: Request,
+    res: Response
+): Promise<Response> => {
+    const requestId = Math.random().toString(36).substring(7);
+
+    try {
+        const { quotedMsg, signMessage, messageId, contactId } = req.body;
+        const { id: userId, companyId } = req.user;
+
+        // messageLogger.info('Iniciando reenvío de mensaje', {
+        //     requestId,
+        //     messageId,
+        //     contactId,
+        //     userId: parseInt(userId),
+        //     companyId
+        // });
+
+        const requestUser = await User.findByPk(userId);
+
+        if (!messageId || !contactId) {
+            // messageLogger.warn('MessageId o ContactId no encontrado', {
+            //     requestId,
+            //     messageId,
+            //     contactId
+            // });
+            return res.status(200).send("MessageId or ContactId not found");
+        }
+
+        const message = await ShowMessageService(messageId);
+        const contact = await ShowContactService(contactId, companyId);
+
+        if (!message) {
+            // messageLogger.warn('Mensaje no encontrado', {
+            //     requestId,
+            //     messageId
+            // });
+            return res.status(404).send("Message not found");
+        }
+        if (!contact) {
+            // messageLogger.warn('Contacto no encontrado', {
+            //     requestId,
+            //     contactId
+            // });
+            return res.status(404).send("Contact not found");
+        }
+
+        // messageLogger.info('Mensaje y contacto encontrados', {
+        //     requestId,
+        //     messageId,
+        //     contactId,
+        //     originalTicketId: message.ticketId
+        // });
+
+        const settings = await CompaniesSettings.findOne({
+            where: { companyId }
+        }
+        )
+
+        const whatsAppConnectionId = await GetWhatsAppFromMessage(message);
+        if (!whatsAppConnectionId) {
+            return res.status(404).send('Whatsapp from message not found');
+        }
+
+        const ticket = await ShowTicketService(message.ticketId, message.companyId);
+
+        const mutex = new Mutex();
+
+        const createTicket = await mutex.runExclusive(async () => {
+            const result = await FindOrCreateTicketService(
+                contact,
+                ticket?.whatsapp,
+                0,
+                ticket.companyId,
+                ticket.queueId,
+                requestUser.id,
+                contact.isGroup ? contact : null,
+                "whatsapp",
+                null,
+                true,
+                settings,
+                false,
+                false
+            );
+
+            return result;
+        });
+
+        let ticketData;
+
+        if (isNil(createTicket?.queueId)) {
+            ticketData = {
+                status: createTicket.isGroup ? "group" : "open",
+                userId: requestUser.id,
+                queueId: ticket.queueId
+            }
+        } else {
+            ticketData = {
+                status: createTicket.isGroup ? "group" : "open",
+                userId: requestUser.id
+            }
+        }
+
+        await UpdateTicketService({
+            ticketData,
+            ticketId: createTicket.id,
+            companyId: createTicket.companyId
+        });
+
+        let body = message.body;
+        if (message.mediaType === 'conversation' || message.mediaType === 'extendedTextMessage') {
+            await SendWhatsAppMessage({ body, ticket: createTicket, quotedMsg, isForwarded: message.fromMe ? false : true });
+        } else {
+
+            const mediaUrl = message.mediaUrl.replace(`:${process.env.PORT}`, '');
+            const fileName = obterNomeEExtensaoDoArquivo(mediaUrl);
+
+            if (body === fileName) {
+                body = "";
+            }
+
+            const publicFolder = path.join(__dirname, '..', '..', '..', 'backend', 'public');
+
+            const filePath = path.join(publicFolder, `company${createTicket.companyId}`, fileName)
+
+            const mediaSrc = {
+                fieldname: 'medias',
+                originalname: fileName,
+                encoding: '7bit',
+                mimetype: message.mediaType,
+                filename: fileName,
+                path: filePath
+            } as Express.Multer.File
+
+            await SendWhatsAppMedia({ media: mediaSrc, ticket: createTicket, body, isForwarded: message.fromMe ? false : true });
+        }
+
+        // messageLogger.info('Mensaje reenviado exitosamente', {
+        //     requestId,
+        //     messageId,
+        //     newTicketId: createTicket.id
+        // });
+
+        return res.send();
+    } catch (err) {
+        // messageLogger.error('Error al reenviar mensaje', err, {
+        //     requestId,
+        //     messageId: req.body.messageId || 'unknown'
+        // });
+        // console.log(err);
+        return res.status(400).json({ error: err.message });
+    }
+}
+
+export const remove = async (
+    req: Request,
+    res: Response
+): Promise<Response> => {
+    const requestId = Math.random().toString(36).substring(7);
+
+    try {
+        const { messageId } = req.params;
+        const { companyId } = req.user;
+
+        // messageLogger.info('Iniciando eliminación de mensaje', {
+        //     requestId,
+        //     messageId,
+        //     companyId
+        // });
+
+        const message = await DeleteWhatsAppMessage(messageId, companyId);
+        const io = getIO();
+
+        if (message.isPrivate) {
+            await Message.destroy({
+                where: {
+                    id: message.id
+                }
+            });
+            io.of(String(companyId))
+                // .to(message.ticketId.toString())
+                .emit(`company-${companyId}-appMessage`, {
+                    action: "delete",
+                    message
+                });
+        }
+
+        io.of(String(companyId))
+            // .to(message.ticketId.toString())
+            .emit(`company-${companyId}-appMessage`, {
+                action: "update",
+                message
+            });
+
+        // messageLogger.info('Mensaje eliminado exitosamente', {
+        //     requestId,
+        //     messageId,
+        //     isPrivate: message.isPrivate
+        // });
+
+        return res.send();
+    } catch (err) {
+        // messageLogger.error('Error al eliminar mensaje', err, {
+        //     requestId,
+        //     messageId: req.params.messageId
+        // });
+        // console.log(err);
+        return res.status(400).json({ error: err.message });
+    }
+};
+
+export const allMe = async (req: Request, res: Response): Promise<Response> => {
+
+    const dateStart: any = req.query.dateStart;
+    const dateEnd: any = req.query.dateEnd;
+    const fromMe: any = req.query.fromMe;
+
+    const { companyId } = req.user;
+
+    const { count } = await ListMessagesServiceAll({
+        companyId,
+        fromMe,
+        dateStart,
+        dateEnd
+    });
+
+    return res.json({ count });
+};
+
+export const send = async (req: Request, res: Response): Promise<Response> => {
+    const requestId = Math.random().toString(36).substring(7);
+    const messageData: MessageData = req.body;
+    const medias = req.files as Express.Multer.File[];
+
+    // messageLogger.info('Iniciando envío de mensaje externo', {
+    //     requestId,
+    //     number: messageData.number,
+    //     hasMedia: !!medias?.length,
+    //     bodyLength: messageData.body?.length || 0
+    // });
+
+    try {
+
+        const authHeader = req.headers.authorization;
+        const [, token] = authHeader.split(" ");
+
+        const whatsapp = await Whatsapp.findOne({ where: { token } });
+        const companyId = whatsapp.companyId;
+        const company = await ShowPlanCompanyService(companyId);
+        const sendMessageWithExternalApi = company.plan.useExternalApi
+
+        if (sendMessageWithExternalApi) {
+
+            if (!whatsapp) {
+                // messageLogger.error('WhatsApp no encontrado', new Error("La operación no pudo llevarse a cabo"), {
+                //     requestId,
+                //     token: token?.substring(0, 10) + '...'
+                // });
+                throw new Error("La operación no pudo llevarse a cabo");
+            }
+
+            if (messageData.number === undefined) {
+                // messageLogger.error('Número no proporcionado', new Error("El número es obligatorio"), {
+                //     requestId
+                // });
+                throw new Error("El número es obligatorio");
+            }
+
+            const number = messageData.number;
+            const body = messageData.body;
+
+            // messageLogger.info('Enviando mensaje con API externa', {
+            //     requestId,
+            //     whatsappId: whatsapp.id.toString(),
+            //     number,
+            //     companyId
+            // });
+
+            if (medias) {
+                await Promise.all(
+                    medias.map(async (media: Express.Multer.File) => {
+                        req.app.get("queues").messageQueue.add(
+                            "SendMessage",
+                            {
+                                whatsappId: whatsapp.id,
+                                data: {
+                                    number,
+                                    body: media.originalname.replace('/', '-'),
+                                    mediaPath: media.path
+                                }
+                            },
+                            { removeOnComplete: true, attempts: 3 }
+                        );
+                    })
+                );
+            } else {
+                req.app.get("queues").messageQueue.add(
+                    "SendMessage",
+                    {
+                        whatsappId: whatsapp.id,
+                        data: {
+                            number,
+                            body
+                        }
+                    },
+                    { removeOnComplete: true, attempts: 3 }
+                );
+            }
+
+            // messageLogger.info('Mensaje enviado a la cola exitosamente', {
+            //     requestId,
+            //     whatsappId: whatsapp.id.toString(),
+            //     number
+            // });
+
+            return res.send({ mensagem: "Mensaje enviado." });
+        }
+
+        // messageLogger.warn('Empresa sin acceso a API externa', {
+        //     requestId,
+        //     companyId
+        // });
+
+        return res.status(400).json({ error: 'Esta empresa no puede utilizar la API externa. Póngase en contacto con el servicio de asistencia para consultar nuestros planes.' });
+
+    } catch (err: any) {
+        // messageLogger.error('Error en envío de mensaje externo', err, {
+        //     requestId,
+        //     number: messageData.number
+        // });
+
+        // console.log(err);
+        if (Object.keys(err).length === 0) {
+            throw new AppError(
+                "No hemos podido enviar el mensaje, inténtelo de nuevo en unos instantes."
+            );
+        } else {
+            throw new AppError(err.message);
+        }
+    }
+};
+
+export const edit = async (req: Request, res: Response): Promise<Response> => {
+    const requestId = Math.random().toString(36).substring(7);
+
+    try {
+        const { messageId } = req.params;
+        const { companyId } = req.user;
+        const { body }: MessageData = req.body;
+
+        // messageLogger.info('Iniciando edición de mensaje', {
+        //     requestId,
+        //     messageId,
+        //     companyId,
+        //     bodyLength: body?.length || 0
+        // });
+
+        const { ticket, message } = await EditWhatsAppMessage({ messageId, body });
+
+        const io = getIO();
+        io.of(String(companyId))
+            // .to(String(ticket.id))
+            .emit(`company-${companyId}-appMessage`, {
+                action: "update",
+                message
+            });
+
+        io.of(String(companyId))
+            // .to(ticket.status)
+            // .to("notification")
+            // .to(String(ticket.id))
+            .emit(`company-${companyId}-ticket`, {
+                action: "update",
+                ticket
+            });
+
+        // messageLogger.info('Mensaje editado exitosamente', {
+        //     requestId,
+        //     messageId,
+        //     ticketId: ticket.id
+        // });
+
+        return res.send();
+    } catch (err) {
+        // messageLogger.error('Error al editar mensaje', err, {
+        //     requestId,
+        //     messageId: req.params.messageId
+        // });
+        // console.log(err);
+        return res.status(400).json({ error: err.message });
+    }
+}
+
+export const sendMessageFlow = async (
+    whatsappId: number,
+    body: any,
+    req: Request,
+    files?: Express.Multer.File[]
+): Promise<String> => {
+    const messageData = body;
+    const medias = files;
+
+    try {
+        const whatsapp = await Whatsapp.findByPk(whatsappId);
+
+        if (!whatsapp) {
+            throw new Error("La operación no pudo llevarse a cabo");
+        }
+
+        if (messageData.number === undefined) {
+            throw new Error("El número es obligatorio");
+        }
+
+        const numberToTest = messageData.number;
+        const body = messageData.body;
+
+        const companyId = messageData.companyId;
+
+        const CheckValidNumber = await CheckContactNumber(numberToTest, companyId);
+        const number = CheckValidNumber.replace(/\D/g, "");
+
+        if (medias) {
+            await Promise.all(
+                medias.map(async (media: Express.Multer.File) => {
+                    await req.app.get("queues").messageQueue.add(
+                        "SendMessage",
+                        {
+                            whatsappId,
+                            data: {
+                                number,
+                                body: media.originalname,
+                                mediaPath: media.path
+                            }
+                        },
+                        { removeOnComplete: true, attempts: 3 }
+                    );
+                })
+            );
+        } else {
+            req.app.get("queues").messageQueue.add(
+                "SendMessage",
+                {
+                    whatsappId,
+                    data: {
+                        number,
+                        body
+                    }
+                },
+
+                { removeOnComplete: false, attempts: 3 }
+            );
+        }
+
+        return "Mensagem enviada";
+    } catch (err: any) {
+        if (Object.keys(err).length === 0) {
+            throw new AppError(
+                "No hemos podido enviar el mensaje, inténtelo de nuevo en unos instantes."
+            );
+        } else {
+            throw new AppError(err.message);
+        }
+    }
+};
+
+// Nueva función para enviar mensaje rápido por ID
+export const sendQuickMessage = async (req: Request, res: Response): Promise<Response> => {
+    const { ticketId } = req.params;
+    const { quickMessageId } = req.body;
+    const { companyId } = req.user;
+
+    try {
+        // Validar que se envió el ID del mensaje rápido
+        if (!quickMessageId) {
+            throw new AppError("ID del mensaje rápido es requerido", 400);
+        }
+
+        // Buscar el ticket
+        const ticket = await ShowTicketService(ticketId, companyId);
+        if (!ticket) {
+            throw new AppError("Ticket no encontrado", 404);
+        }
+
+        // Buscar el mensaje rápido
+        const QuickMessage = (await import("../models/QuickMessage")).default;
+        const quickMessage = await QuickMessage.findOne({
+            where: {
+                id: quickMessageId,
+                companyId: companyId
+            }
+        });
+
+        if (!quickMessage) {
+            throw new AppError("Mensaje rápido no encontrado", 404);
+        }
+
+        // Marcar mensajes como leídos si es WhatsApp
+        if (ticket.channel === "whatsapp" && ticket.whatsappId) {
+            SetTicketMessagesAsRead(ticket);
+        }
+
+        // Si el mensaje rápido tiene media (archivo adjunto)
+        if (quickMessage.mediaPath && quickMessage.mediaName) {
+            // Construir la ruta del archivo
+            const publicFolder = path.join(__dirname, '..', '..', 'public');
+            const filePath = path.join(publicFolder, `company${companyId}`, 'quickMessage', quickMessage.mediaName);
+
+            // Verificar que el archivo existe
+            if (fs.existsSync(filePath)) {
+                // Obtener información del archivo
+                const stats = fs.statSync(filePath);
+
+                const mediaSrc: Express.Multer.File = {
+                    fieldname: 'medias',
+                    originalname: quickMessage.mediaName,
+                    encoding: '7bit',
+                    mimetype: 'application/octet-stream', // Se puede mejorar detectando el tipo real
+                    filename: quickMessage.mediaName,
+                    path: filePath,
+                    size: stats.size,
+                    stream: fs.createReadStream(filePath),
+                    destination: path.join(__dirname, '..', '..', 'public', `company${companyId}`, 'quickMessage'),
+                    buffer: Buffer.alloc(0) // Buffer vacío, ya que usamos stream
+                };
+
+                if (ticket.channel === "whatsapp") {
+                    await SendWhatsAppMedia({
+                        media: mediaSrc,
+                        ticket,
+                        body: quickMessage.message || "",
+                        isPrivate: false,
+                        isForwarded: false
+                    });
+                }
+                // Aquí puedes agregar soporte para otros canales como Facebook, Instagram, etc.
+
+            } else {
+                // Si el archivo no existe, solo enviar el texto
+                if (ticket.channel === "whatsapp") {
+                    await SendWhatsAppMessage({
+                        body: quickMessage.message,
+                        ticket,
+                        quotedMsg: null,
+                        vCard: null
+                    });
+                }
+            }
+        } else {
+            // Solo enviar texto
+            if (ticket.channel === "whatsapp") {
+                await SendWhatsAppMessage({
+                    body: quickMessage.message,
+                    ticket,
+                    quotedMsg: null,
+                    vCard: null
+                });
+            }
+            // Aquí puedes agregar soporte para otros canales
+        }
+
+        return res.status(200).json({
+            message: "Mensaje rápido enviado correctamente",
+            quickMessage: {
+                id: quickMessage.id,
+                shortcode: quickMessage.shortcode,
+                message: quickMessage.message,
+                hasMedia: !!(quickMessage.mediaPath && quickMessage.mediaName)
+            }
+        });
+
+    } catch (error) {
+        console.error('Error al enviar mensaje rápido:', error);
+        throw new AppError("Error al enviar mensaje rápido", 500);
+    }
+};

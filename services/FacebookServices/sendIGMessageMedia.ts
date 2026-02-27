@@ -1,0 +1,121 @@
+import fs from "fs";
+import AppError from "../../errors/AppError";
+import Ticket from "../../models/Ticket";
+import { sendInstagramAttachment } from "./graphAPI";
+// import { verifyMessage } from "./facebookMessageListener";
+
+interface Request {
+  ticket: Ticket;
+  media?: Express.Multer.File;
+  body?: string;
+  url?: string;
+}
+
+export const typeAttachment = (media: Express.Multer.File) => {
+  if (media.mimetype.includes("image")) {
+    return "image";
+  }
+  if (media.mimetype.includes("video")) {
+    return "video";
+  }
+  if (media.mimetype.includes("audio")) {
+    return "audio";
+  }
+
+  return "file";
+};
+
+export const sendFacebookMessageMedia = async ({
+  media,
+  ticket,
+  body
+}: Request): Promise<any> => {
+  try {
+  //  console.log('sendig', media)
+    const type = typeAttachment(media);
+    console.log('type', type)
+    const url = `${process.env.BACKEND_URL}/public/company${ticket.companyId}/${media.filename}`
+
+
+    const sendMessage = await sendInstagramAttachment(
+      ticket.whatsapp.facebookPageUserId,
+      ticket.contact.number,
+      type,
+      url,
+      ticket.whatsapp.facebookUserToken
+    );
+
+
+
+    console.log('enviado ig')
+
+    await ticket.update({ lastMessage: media.filename });
+
+    fs.unlinkSync(media.path);
+
+    return sendMessage;
+  } catch (err) {
+    throw new AppError("ERR_SENDING_FACEBOOK_MSG");
+  }
+};
+
+export const sendFacebookMessageMediaExternal = async ({
+  url,
+  ticket,
+  body
+}: Request): Promise<any> => {
+  try {
+    const type = "image"
+
+    // const domain = `${process.env.BACKEND_URL}/public/${media.filename}`
+
+    const sendMessage = await sendInstagramAttachment(
+      ticket.whatsapp.facebookPageUserId,
+      ticket.contact.number,
+      type,
+      url,
+      ticket.whatsapp.facebookUserToken
+    );
+
+    const randomName = Math.random().toString(36).substring(7);
+
+    await ticket.update({ lastMessage: body ||  `${randomName}.jpg}`});
+
+    // fs.unlinkSync(media.path);
+
+    return sendMessage;
+  } catch (err) {
+    throw new AppError("ERR_SENDING_FACEBOOK_MSG");
+  }
+};
+
+export const sendFacebookMessageFileExternal = async ({
+  url,
+  ticket,
+  body
+}: Request): Promise<any> => {
+  try {
+    const type = "file"
+
+    // const domain = `${process.env.BACKEND_URL}/public/${media.filename}`
+
+    const sendMessage = await sendInstagramAttachment(
+      ticket.whatsapp.facebookPageUserId,
+      ticket.contact.number,
+      type,
+      url,
+      ticket.whatsapp.facebookUserToken
+    );
+
+
+    const randomName = Math.random().toString(36).substring(7);
+
+    await ticket.update({ lastMessage: body ||  `${randomName}.pdf}`});
+
+    // fs.unlinkSync(media.path);
+
+    return sendMessage;
+  } catch (err) {
+    throw new AppError("ERR_SENDING_FACEBOOK_MSG");
+  }
+};

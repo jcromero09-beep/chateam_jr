@@ -1,0 +1,1018 @@
+import AppError from "../../errors/AppError.js";
+import { WebhookModel } from "../../models/Webhook.js";
+import { sendMessageFlow } from "../../controllers/MessageController.js";
+import { IConnections, INodes } from "./DispatchWebHookService.js";
+import { Request, Response } from "express";
+import { ParamsDictionary } from "express-serve-static-core";
+import { ParsedQs } from "qs";
+import CreateContactService from "../ContactServices/CreateContactService.js";
+import Contact from "../../models/Contact.js";
+import CreateTicketService from "../TicketServices/CreateTicketService.js";
+import CreateTicketServiceWebhook from "../TicketServices/CreateTicketServiceWebhook.js";
+import { SendMessage } from "../../helpers/SendMessage.js";
+import GetDefaultWhatsApp from "../../helpers/GetDefaultWhatsApp.js";
+import Ticket from "../../models/Ticket.js";
+import fs from "fs";
+import GetWhatsappWbot from "../../helpers/GetWhatsappWbot.js";
+import path from "path";
+import SendWhatsAppMedia from "../WbotServices/SendWhatsAppMedia.js";
+import SendWhatsAppMediaFlow, {
+  typeSimulation
+} from "../WbotServices/SendWhatsAppMediaFlow.js";
+import { randomizarCaminho } from "../../utils/randomizador.js";
+import { SendMessageFlow } from "../../helpers/SendMessageFlow.js";
+import formatBody from "../../helpers/Mustache.js";
+import SetTicketMessagesAsRead from "../../helpers/SetTicketMessagesAsRead.js";
+import SendWhatsAppMessage from "../WbotServices/SendWhatsAppMessage.js";
+import ShowTicketService from "../TicketServices/ShowTicketService.js";
+import CreateMessageService, {
+  MessageData
+} from "../MessageServices/CreateMessageService.js";
+import { randomString } from "../../utils/randomCode.js";
+import ShowQueueService from "../QueueService/ShowQueueService.js";
+import { getIO } from "../../libs/socket.js";
+import UpdateTicketService from "../TicketServices/UpdateTicketService.js";
+import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService.js";
+import ShowTicketUUIDService from "../TicketServices/ShowTicketFromUUIDService.js";
+import logger from "../../utils/logger.js";
+import CreateLogTicketService from "../TicketServices/CreateLogTicketService.js";
+import CompaniesSettings from "../../models/CompaniesSettings.js";
+import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService.js";
+import Bluebird from "bluebird";
+const { delay } = Bluebird;
+import typebotListener from "../TypebotServices/typebotListener.js";
+import { getWbot } from "../../libs/wbot.js";
+import { proto } from "@whiskeysockets/baileys";
+import { handleOpenAi } from "../IntegrationsServices/OpenAiService.js";
+import { IOpenAi } from "../../@types/openai.js";
+
+// __dirname is already available in CommonJS
+
+
+interface IAddContact {
+  companyId: number;
+  name: string;
+  phoneNumber: string;
+  email?: string;
+  dataMore?: any;
+}
+
+export const ActionsWebhookService = async (
+  whatsappId: number,
+  idFlowDb: number,
+  companyId: number,
+  nodes: INodes[],
+  connects: IConnections[],
+  nextStage: string,
+  dataWebhook: any,
+  details: any,
+  hashWebhookId: string,
+  pressKey?: string,
+  idTicket?: number,
+  numberPhrase: "" | { number: string; name: string; email: string } = "",
+  msg?: proto.IWebMessageInfo
+): Promise<string> => {
+  try {
+    // Validación crítica al inicio
+    if (!nodes || nodes.length === 0) {
+      console.error('❌ ERROR: nodes is undefined or empty in ActionsWebhookService');
+      return "error";
+    }
+
+    if (!connects) {
+      console.error('❌ ERROR: connects is undefined in ActionsWebhookService');
+      return "error";
+    }
+
+    const io = getIO();
+    let next = nextStage;
+    // console.log(
+    //   "ActionWebhookService | 53",
+    //   idFlowDb,
+    //   companyId,
+    //   nodes,
+    //   connects,
+    //   nextStage,
+    //   dataWebhook,
+    //   details,
+    //   hashWebhookId,
+    //   pressKey,
+    //   idTicket,
+    //   numberPhrase
+    // );
+    let createFieldJsonName = "";
+
+    const connectStatic = connects;
+    if (numberPhrase === "") {
+      try {
+        const nameInput = details?.inputs?.find(item => item.keyValue === "nome");
+        if (nameInput && nameInput.data) {
+          nameInput.data.split(",").map(dataN => {
+            const lineToData = details.keysFull.find(item => item === dataN);
+            let sumRes = "";
+            if (!lineToData) {
+              sumRes = dataN;
+            } else {
+              sumRes = constructJsonLine(lineToData, dataWebhook);
+            }
+            createFieldJsonName = createFieldJsonName + sumRes;
+          });
+        } else {
+          logger.error(`⚠️ nameInput not found or invalid, usando valor vacío`);
+          createFieldJsonName = "Cliente"; // Valor por defecto
+        }
+      } catch (error) {
+        logger.error(`❌ Error procesando nameInput: ${error.message}`);
+        createFieldJsonName = "Cliente"; // Valor por defecto en caso de error
+      }
+    } else {
+      createFieldJsonName = numberPhrase.name;
+    }
+
+    let numberClient = "";
+
+    if (numberPhrase === "") {
+      try {
+        const numberInput = details?.inputs?.find(
+          item => item.keyValue === "celular"
+        );
+
+        if (numberInput && numberInput.data) {
+          numberInput.data.split(",").map(dataN => {
+            const lineToDataNumber = details.keysFull.find(item => item === dataN);
+            let createFieldJsonNumber = "";
+            if (!lineToDataNumber) {
+              createFieldJsonNumber = dataN;
+            } else {
+              createFieldJsonNumber = constructJsonLine(
+                lineToDataNumber,
+                dataWebhook
+              );
+            }
+
+            numberClient = numberClient + createFieldJsonNumber;
+          });
+        } else {
+          logger.error(`⚠️ numberInput not found or invalid`);
+          numberClient = ""; // Continuará con valor vacío
+        }
+      } catch (error) {
+        logger.error(`❌ Error procesando numberInput: ${error.message}`);
+        numberClient = ""; // Continuará con valor vacío
+      }
+    } else {
+      numberClient = numberPhrase.number;
+    }
+
+    numberClient = removerNaoLetrasNumeros(numberClient);
+
+    if (numberClient.substring(0, 2) === "55") {
+      if (parseInt(numberClient.substring(2, 4)) >= 31) {
+        if (numberClient.length === 13) {
+          numberClient =
+            numberClient.substring(0, 4) + numberClient.substring(5, 13);
+        }
+      }
+    }
+
+    let createFieldJsonEmail = "";
+
+    if (numberPhrase === "") {
+      const emailInput = details.inputs.find(item => item.keyValue === "email");
+      emailInput.data.split(",").map(dataN => {
+        const lineToDataEmail = details.keysFull.find(item =>
+          item.endsWith("email")
+        );
+
+        let sumRes = "";
+        if (!lineToDataEmail) {
+          sumRes = dataN;
+        } else {
+          sumRes = constructJsonLine(lineToDataEmail, dataWebhook);
+        }
+
+        createFieldJsonEmail = createFieldJsonEmail + sumRes;
+      });
+    } else {
+      createFieldJsonEmail = numberPhrase.email;
+    }
+
+    const lengthLoop = nodes.length;
+    const whatsapp = await GetDefaultWhatsApp(whatsappId, companyId);
+
+    if (whatsapp.status !== "CONNECTED") {
+      return;
+    }
+
+    let execCount = 0;
+
+    let execFn = "";
+
+    let ticket = null;
+
+    let noAlterNext = false;
+
+    for (var i = 0; i < lengthLoop; i++) {
+      let nodeSelected: any;
+      let ticketInit: Ticket;
+
+      try {
+        if (pressKey) {
+       // console.log("UPDATE2...");
+          if (pressKey === "parar") {
+      // console.log("UPDATE3...");
+            if (idTicket) {
+         // console.log("UPDATE4...");
+              ticketInit = await Ticket.findOne({
+                where: { id: idTicket, whatsappId }
+              });
+              await ticket.update({
+                status: "closed"
+              });
+            }
+            break;
+          }
+
+          if (execFn === "") {
+        // console.log("UPDATE5...");
+            nodeSelected = {
+              type: "menu"
+            };
+          } else {
+        // console.log("UPDATE6...");
+            const nodeArray = nodes.filter(node => node.id === execFn);
+            nodeSelected = nodeArray && nodeArray.length > 0 ? nodeArray[0] : null;
+            if (!nodeSelected) {
+              logger.error(`⚠️ Node not found for execFn: ${execFn}`);
+              continue; // Salta este nodo
+            }
+          }
+        } else {
+      // console.log("UPDATE7...");
+          const otherNodeArray = nodes.filter(node => node.id === next);
+          const otherNode = otherNodeArray && otherNodeArray.length > 0 ? otherNodeArray[0] : null;
+          if (otherNode) {
+            nodeSelected = otherNode;
+          } else {
+            logger.error(`⚠️ Node not found for next: ${next}`);
+            continue; // Salta este nodo
+          }
+        }
+
+        if (!nodeSelected) {
+          logger.error(`⚠️ nodeSelected is null, skipping iteration ${i}`);
+          continue;
+        }
+
+        if (nodeSelected.type === "message") {
+
+          let msg;
+
+          const webhook = ticket?.dataWebhook;
+
+          if (webhook && webhook.hasOwnProperty && webhook.hasOwnProperty("variables")) {
+            msg = {
+              body: replaceMessages(webhook, nodeSelected?.data?.label || "")
+            };
+          } else {
+            msg = {
+              body: nodeSelected?.data?.label || ""
+            };
+          }
+
+        await SendMessage(whatsapp, {
+          number: numberClient,
+          body: msg.body
+        });
+        
+
+        //TESTE BOTÃO
+        //await SendMessageFlow(whatsapp, {
+        //  number: numberClient,
+        //  body: msg.body
+        //} )
+        await intervalWhats("1");
+      }
+  // console.log("273");
+      if (nodeSelected.type === "typebot") {
+    // console.log("275");
+        const wbot = getWbot(whatsapp.id);
+        await typebotListener({
+          wbot: wbot,
+          msg,
+          ticket,
+          typebot: nodeSelected.data.typebotIntegration
+        });
+      }
+
+      if (nodeSelected.type === "openai") {
+        let {
+          name,
+          prompt,
+          voice,
+          voiceKey,
+          voiceRegion,
+          maxTokens,
+          temperature,
+          apiKey,
+          queueId,
+          maxMessages
+        } = nodeSelected.data.typebotIntegration as IOpenAi;
+
+        let openAiSettings = {
+          name,
+          prompt,
+          voice,
+          voiceKey,
+          voiceRegion,
+          maxTokens: parseInt(maxTokens),
+          temperature: parseInt(temperature),
+          apiKey,
+          queueId: parseInt(queueId),
+          maxMessages: parseInt(maxMessages)
+        };
+
+        const contact = await Contact.findOne({
+          where: { number: numberClient, companyId }
+        });
+
+        const wbot = getWbot(whatsapp.id);
+
+        const ticketTraking = await FindOrCreateATicketTrakingService({
+          ticketId: ticket.id,
+          companyId,
+          userId: Number(null) || undefined,
+          whatsappId: whatsapp?.id
+        });
+
+        await handleOpenAi(
+          openAiSettings,
+          msg,
+          wbot,
+          ticket,
+          contact,
+          null,
+          ticketTraking
+        );
+      }
+
+      if (nodeSelected.type === "question") {
+        const webhook = ticket?.dataWebhook;
+        const variables = ticket?.dataWebhook?.variables;
+
+        if (!variables || variables === undefined || variables === null) {
+          const { message } = nodeSelected.data.typebotIntegration;
+          const ticketDetails = await ShowTicketService(ticket.id, companyId);
+
+          const bodyFila = formatBody(`${message}`, ticket.contact);
+
+          await delay(3000);
+          await typeSimulation(ticket, "composing");
+
+          await SendWhatsAppMessage({
+            body: bodyFila,
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+
+          SetTicketMessagesAsRead(ticketDetails);
+
+          await ticketDetails.update({
+            lastMessage: bodyFila
+          });
+
+          await ticket.update({
+            userId: Number(null) || undefined,
+            companyId: Number(companyId) || undefined,
+            lastFlowId: nodeSelected.id,
+            hashFlowId: hashWebhookId,
+            flowStopped: idFlowDb.toString()
+          });
+        }
+        break;
+      }
+
+      if (nodeSelected.type === "ticket") {
+        const queueId = nodeSelected.data?.data?.id || nodeSelected.data?.id;
+        const queue = await ShowQueueService(queueId, companyId);
+
+        await ticket.update({
+          status: "pending",
+          queueId: queue.id,
+          userId: ticket.userId,
+          companyId: Number(companyId) || undefined,
+          flowWebhook: true,
+          lastFlowId: nodeSelected.id,
+          hashFlowId: hashWebhookId,
+          flowStopped: idFlowDb.toString()
+        });
+
+        await FindOrCreateATicketTrakingService({
+          ticketId: ticket.id,
+          companyId,
+          whatsappId: ticket.whatsappId,
+          userId: ticket.userId
+        });
+
+        await UpdateTicketService({
+          ticketData: {
+            status: "pending",
+            queueId: queue.id
+          },
+          ticketId: ticket.id,
+          companyId
+        });
+
+        await CreateLogTicketService({
+          ticketId: ticket.id,
+          type: "queue",
+          queueId: queue.id
+        });
+
+        let settings = await CompaniesSettings.findOne({
+          where: {
+            companyId: companyId
+          }
+        });
+
+        const enableQueuePosition = settings.sendQueuePosition === "enabled";
+
+        if (enableQueuePosition) {
+          const count = await Ticket.findAndCountAll({
+            where: {
+              userId: Number(null) || undefined,
+              status: "pending",
+              companyId,
+              queueId: queue.id,
+              whatsappId: whatsapp.id,
+              isGroup: false
+            }
+          });
+
+          // Lógica para enviar posição da fila de atendimento
+          const qtd = count.count === 0 ? 1 : count.count;
+
+          const msgFila = `${settings.sendQueuePositionMessage} *${qtd}*`;
+
+          const ticketDetails = await ShowTicketService(ticket.id, companyId);
+
+          const bodyFila = formatBody(`${msgFila}`, ticket.contact);
+
+          await delay(3000);
+          await typeSimulation(ticket, "composing");
+
+          await SendWhatsAppMessage({
+            body: bodyFila,
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+
+          SetTicketMessagesAsRead(ticketDetails);
+
+          await ticketDetails.update({
+            lastMessage: bodyFila
+          });
+        }
+      }
+
+      if (nodeSelected.type === "singleBlock") {
+    // console.log("singleBlock")
+
+          for (var iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
+            const elementNowSelected = nodeSelected.data.seq[iLoc];
+        
+            // Asegura que 'ticket' esté cargado (evita NPE con ticket.dataWebhook)
+            if (!ticket && idTicket) {
+              ticket = await Ticket.findOne({ where: { id: idTicket, companyId } });
+            }
+        // console.log('idTicket',idTicket)
+        
+            // === BLOQUE NUEVO (copiado del que sí funciona) ===
+            const ticketUpdate = await Ticket.findOne({
+              where: { id: idTicket, companyId }
+            });
+        
+            if (ticketUpdate.status === "open") {
+              // fuerza corte del flujo
+              pressKey = "999";
+              execFn = undefined;
+        
+              await ticket.update({
+                lastFlowId: null,
+                dataWebhook: null,
+                queueId: Number(null) || undefined,
+                hashFlowId: null,
+                flowWebhook: false,
+                flowStopped: null
+              });
+
+          // console.log("ticket", ticket.lastFlowId,ticket.dataWebhook,ticket.hashFlowId,ticket.flowStopped,)
+        
+              // asegúrate de cortar también el for exterior:
+              next = "";    // ← clave para que el loop de arriba haga break
+              break;        // ← rompe este for interno
+            }
+        
+            if (ticketUpdate.status === "closed") {
+              pressKey = "999";
+              execFn = undefined;
+        
+              await ticket.reload();
+              io.of(String(companyId)).emit(`company-${ticket.companyId}-ticket`, {
+                action: "delete",
+                ticketId: ticket.id
+              });
+        
+              next = "";    // ← corta el loop exterior
+              break;
+            }
+
+          if (elementNowSelected.includes("message")) {
+            const bodyFor = nodeSelected.data.elements.filter(
+              item => item.number === elementNowSelected
+            )[0].value;
+
+            const ticketDetails = await ShowTicketService(idTicket, companyId);
+
+            let msg;
+
+            const webhook = ticket.dataWebhook;
+
+            if (webhook && webhook.hasOwnProperty("variables")) {
+              msg = replaceMessages(webhook.variables, bodyFor);
+            } else {
+              msg = bodyFor;
+            }
+
+            await delay(3000);
+            await typeSimulation(ticket, "composing");
+
+            await SendWhatsAppMessage({
+              body: msg,
+              ticket: ticketDetails,
+              quotedMsg: null
+            });
+
+            SetTicketMessagesAsRead(ticketDetails);
+
+            await ticketDetails.update({
+              lastMessage: formatBody(bodyFor, ticket.contact)
+            });
+
+            await intervalWhats("1");
+          }
+          if (elementNowSelected.includes("interval")) {
+            await intervalWhats(
+              nodeSelected.data.elements.filter(
+                item => item.number === elementNowSelected
+              )[0].value
+            );
+          }
+
+          if (elementNowSelected.includes("img")) {
+            await typeSimulation(ticket, "composing");
+
+            const filename = nodeSelected.data.elements.filter(
+              item => item.number === elementNowSelected
+            )[0].value;
+
+            // Usar process.cwd() para construir la ruta correcta
+            const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
+
+            // console.log('=== FLOW IMAGE ===');
+            // console.log('filename:', filename);
+            // console.log('mediaPath:', mediaPath);
+            // console.log('Archivo existe?:', fs.existsSync(mediaPath));
+
+            await SendMessage(whatsapp, {
+              number: numberClient,
+              body: "",
+              mediaPath: mediaPath,
+              mediaName: filename  // 🆕 Agregar mediaName para que getMessageOptions funcione correctamente
+            });
+            await intervalWhats("1");
+          }
+
+                    if (elementNowSelected.includes("pdf")) {
+                      await typeSimulation(ticket, "composing");
+
+                      const filename = nodeSelected.data.elements.find(
+                        item => item.number === elementNowSelected
+                      )?.value;
+
+                      // Usar process.cwd() para construir la ruta correcta
+                      const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
+
+                      // console.log('=== FLOW PDF ===');
+                      // console.log('filename:', filename);
+                      // console.log('mediaPath:', mediaPath);
+                      // console.log('Archivo existe?:', fs.existsSync(mediaPath));
+
+                      await SendMessage(whatsapp, {
+                        number: numberClient,
+                        body: "",
+                        mediaPath: mediaPath,
+                        mediaName: filename  // 🆕 Agregar mediaName para que getMessageOptions funcione correctamente
+                      });
+
+                      await intervalWhats("1");
+                    }
+
+          if (elementNowSelected.includes("audio")) {
+            const filename = nodeSelected.data.elements.filter(
+              item => item.number === elementNowSelected
+            )[0].value;
+
+            // Usar process.cwd() para construir la ruta correcta
+            const mediaDirectory = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
+
+        // console.log('=== FLOW AUDIO ===');
+        // console.log('filename:', filename);
+        // console.log('mediaDirectory:', mediaDirectory);
+        // console.log('Archivo existe?:', fs.existsSync(mediaDirectory));
+        // console.log('isRecord:', nodeSelected.data.elements.filter(item => item.number === elementNowSelected)[0].record);
+
+            const ticketInt = await Ticket.findOne({
+              where: { id: ticket.id }
+            });
+
+            await typeSimulation(ticket, "recording");
+
+            await SendWhatsAppMediaFlow({
+              media: mediaDirectory,
+              ticket: ticketInt,
+              isRecord: nodeSelected.data.elements.filter(
+                item => item.number === elementNowSelected
+              )[0].record
+            });
+            //fs.unlinkSync(mediaDirectory.split('.')[0] + 'A.mp3');
+            await intervalWhats("1");
+          }
+          if (elementNowSelected.includes("video")) {
+            const filename = nodeSelected.data.elements.filter(
+              item => item.number === elementNowSelected
+            )[0].value;
+
+            // Usar process.cwd() para construir la ruta correcta
+            const mediaDirectory = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
+
+        // console.log('=== FLOW VIDEO ===');
+        // console.log('filename:', filename);
+        // console.log('mediaDirectory:', mediaDirectory);
+        // console.log('Archivo existe?:', fs.existsSync(mediaDirectory));
+
+            const ticketInt = await Ticket.findOne({
+              where: { id: ticket.id }
+            });
+
+            await typeSimulation(ticket, "recording");
+
+            await SendWhatsAppMediaFlow({
+              media: mediaDirectory,
+              ticket: ticketInt
+            });
+            //fs.unlinkSync(mediaDirectory.split('.')[0] + 'A.mp3');
+            await intervalWhats("1");
+          }
+        }
+      }
+
+      let isRandomizer: boolean;
+      if (nodeSelected.type === "randomizer") {
+        const selectedRandom = randomizarCaminho(
+          nodeSelected.data.percent / 100
+        );
+
+        const resultConnect = connects.filter(
+          connect => connect.source === nodeSelected.id
+        );
+        if (selectedRandom === "A") {
+          next = resultConnect.filter(item => item.sourceHandle === "a")[0]
+            .target;
+          noAlterNext = true;
+        } else {
+          next = resultConnect.filter(item => item.sourceHandle === "b")[0]
+            .target;
+          noAlterNext = true;
+        }
+        isRandomizer = true;
+      }
+
+      let isMenu: boolean;
+
+      if (nodeSelected.type === "menu") {
+     //   console.log(650, "menu");
+        if (pressKey) {
+          const filterOne = connectStatic.filter(
+            confil => confil.source === next
+          );
+          const filterTwo = filterOne.filter(
+            filt2 => filt2.sourceHandle === "a" + pressKey
+          );
+          if (filterTwo.length > 0) {
+            execFn = filterTwo[0].target;
+          } else {
+            execFn = undefined;
+          }
+          // execFn =
+          //   connectStatic
+          //     .filter(confil => confil.source === next)
+          //     .filter(filt2 => filt2.sourceHandle === "a" + pressKey)[0]?.target ??
+          //   undefined;
+          if (execFn === undefined) {
+            break;
+          }
+          pressKey = "999";
+
+          const isNodeExist = nodes.filter(item => item.id === execFn);
+      // console.log(674, "menu");
+          if (isNodeExist.length > 0) {
+            isMenu = isNodeExist[0].type === "menu" ? true : false;
+          } else {
+            isMenu = false;
+          }
+        } else {
+      // console.log(681, "menu");
+          let optionsMenu = "";
+          nodeSelected.data.arrayOption.map(item => {
+            optionsMenu += `[${item.number}] ${item.value}\n`;
+          });
+
+          const menuCreate = `${nodeSelected.data.message}\n\n${optionsMenu}`;
+
+          const webhook = ticket.dataWebhook;
+
+          let msg;
+          if (webhook && webhook.hasOwnProperty("variables")) {
+            msg = {
+              body: replaceMessages(webhook, menuCreate),
+              number: numberClient,
+              companyId: companyId
+            };
+          } else {
+            msg = {
+              body: menuCreate,
+              number: numberClient,
+              companyId: companyId
+            };
+          }
+
+          const ticketDetails = await ShowTicketService(ticket.id, companyId);
+
+          const messageData: MessageData = {
+            wid: randomString(50),
+            ticketId: ticket.id,
+            body: msg.body,
+            fromMe: true,
+            read: true
+          };
+
+          //await CreateMessageService({ messageData: messageData, companyId });
+
+          //await SendWhatsAppMessage({ body: bodyFor, ticket: ticketDetails, quotedMsg: null })
+
+          // await SendMessage(whatsapp, {
+          //   number: numberClient,
+          //   body: msg.body
+          // });
+
+          await typeSimulation(ticket, "composing");
+
+          await SendWhatsAppMessage({
+            body: msg.body,
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+
+          SetTicketMessagesAsRead(ticketDetails);
+
+          await ticketDetails.update({
+            lastMessage: formatBody(msg.body, ticket.contact)
+          });
+          await intervalWhats("1");
+
+          if (ticket) {
+            ticket = await Ticket.findOne({
+              where: {
+                id: ticket.id,
+                whatsappId: Number(whatsappId) || undefined,
+                companyId: companyId
+              }
+            });
+          } else {
+            ticket = await Ticket.findOne({
+              where: {
+                id: idTicket,
+                whatsappId: Number(whatsappId) || undefined,
+                companyId: companyId
+              }
+            });
+          }
+
+          if (ticket) {
+            await ticket.update({
+              queueId: ticket.queueId ? ticket.queueId : null,
+              userId: Number(null) || undefined,
+              companyId: Number(companyId) || undefined,
+              flowWebhook: true,
+              lastFlowId: nodeSelected.id,
+              dataWebhook: dataWebhook,
+              hashFlowId: hashWebhookId,
+              flowStopped: idFlowDb.toString()
+            });
+          }
+
+          break;
+        }
+      }
+
+      let isContinue = false;
+
+      if (pressKey === "999" && execCount > 0) {
+    // console.log(587, "ActionsWebhookService | 587");
+
+        pressKey = undefined;
+        let result = connects.filter(connect => connect.source === execFn)[0];
+        if (typeof result === "undefined") {
+          next = "";
+        } else {
+          if (!noAlterNext) {
+            next = result.target;
+          }
+        }
+      } else {
+        let result;
+
+        if (isMenu) {
+          result = { target: execFn };
+          isContinue = true;
+          pressKey = undefined;
+        } else if (isRandomizer) {
+          isRandomizer = false;
+          result = next;
+        } else {
+          result = connects.filter(connect => connect.source === next)[0];
+        }
+
+        if (typeof result === "undefined") {
+          next = "";
+        } else {
+          if (!noAlterNext) {
+            next = result.target;
+          }
+        }
+    // console.log(619, "ActionsWebhookService");
+      }
+
+      if (!pressKey && !isContinue) {
+        const nextNode = connects.filter(
+          connect => connect.source === nodeSelected.id
+        ).length;
+
+       // console.log(626, "ActionsWebhookService");
+
+        if (nextNode === 0) {
+         // console.log(654, "ActionsWebhookService");
+
+          await Ticket.findOne({
+            where: { id: idTicket, whatsappId, companyId: companyId }
+          });
+          await ticket.update({
+            lastFlowId: null,
+            hashFlowId: null,
+            flowWebhook: true,
+            flowStopped: idFlowDb.toString()
+          });
+          break;
+        }
+      }
+
+      isContinue = false;
+
+      if (next === "") {
+        break;
+      }
+
+  // console.log(678, "ActionsWebhookService");
+
+  // console.log("UPDATE10...");
+      ticket = await Ticket.findOne({
+        where: { id: idTicket, whatsappId, companyId: companyId }
+      });
+
+      if (ticket.status === "closed") {
+        io.of(String(companyId))
+          // .to(oldStatus)
+          // .to(ticketId.toString())
+          .emit(`company-${ticket.companyId}-ticket`, {
+            action: "delete",
+            ticketId: ticket.id
+          });
+      }
+
+  // console.log("UPDATE12...");
+      await ticket.update({
+        whatsappId: Number(whatsappId) || undefined,
+        queueId: ticket?.queueId,
+        userId: Number(null) || undefined,
+        companyId: Number(companyId) || undefined,
+        flowWebhook: true,
+        lastFlowId: nodeSelected.id,
+        hashFlowId: hashWebhookId,
+        flowStopped: idFlowDb.toString()
+      });
+
+      noAlterNext = false;
+      execCount++;
+
+      } catch (nodeError) {
+        // Catch individual por nodo - NO crashea el flujo completo
+        logger.error(`❌ Error en nodo ${nodeSelected?.id || 'unknown'}: ${nodeError?.message}`);
+        logger.error(`Stack: ${nodeError?.stack}`);
+        // Continúa con el siguiente nodo en lugar de crashear
+        if (next === "") {
+          break; // Si no hay siguiente nodo, termina el flujo
+        }
+        continue; // Salta al siguiente nodo
+      }
+    }
+
+    return "ds";
+  } catch (error) {
+    logger.error(error);
+  }
+};
+
+const constructJsonLine = (line: string, json: any) => {
+  let valor = json;
+  const chaves = line.split(".");
+
+  if (chaves.length === 1) {
+    return valor[chaves[0]];
+  }
+
+  for (const chave of chaves) {
+    valor = valor[chave];
+  }
+  return valor;
+};
+
+function removerNaoLetrasNumeros(texto: string) {
+  // Substitui todos os caracteres que não são letras ou números por vazio
+  return texto.replace(/[^a-zA-Z0-9]/g, "");
+}
+
+const sendMessageWhats = async (
+  whatsId: number,
+  msg: any,
+  req: Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>
+) => {
+  sendMessageFlow(whatsId, msg, req);
+  return Promise.resolve();
+};
+
+const intervalWhats = (time: string) => {
+  const seconds = parseInt(time) * 1000;
+  return new Promise(resolve => setTimeout(resolve, seconds));
+};
+
+const replaceMessages = (variables, message) => {
+  return message.replace(
+    /{{\s*([^{}\s]+)\s*}}/g,
+    (match, key) => variables[key] || ""
+  );
+};
+
+const replaceMessagesOld = (
+  message: string,
+  details: any,
+  dataWebhook: any,
+  dataNoWebhook?: any
+) => {
+  const matches = message.match(/\{([^}]+)\}/g);
+
+  if (dataWebhook) {
+    let newTxt = message.replace(/{+nome}+/, dataNoWebhook.nome);
+    newTxt = newTxt.replace(/{+numero}+/, dataNoWebhook.numero);
+    newTxt = newTxt.replace(/{+email}+/, dataNoWebhook.email);
+    return newTxt;
+  }
+
+  if (matches && matches.includes("inputs")) {
+    const placeholders = matches.map(match => match.replace(/\{|\}/g, ""));
+    let newText = message;
+    placeholders.map(item => {
+      const value = details["inputs"].find(
+        itemLocal => itemLocal.keyValue === item
+      );
+      const lineToData = details["keysFull"].find(itemLocal =>
+        itemLocal.endsWith(`.${value.data}`)
+      );
+      const createFieldJson = constructJsonLine(lineToData, dataWebhook);
+      newText = newText.replace(`{${item}}`, createFieldJson);
+    });
+    return newText;
+  } else {
+    return message;
+  }
+};

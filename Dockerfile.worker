@@ -1,0 +1,57 @@
+# ==========================================
+# DOCKERFILE - CHATEAM WORKER
+# ==========================================
+
+FROM node:20-alpine AS base
+
+RUN apk add --no-cache \
+    curl \
+    git \
+    python3 \
+    make \
+    g++
+
+WORKDIR /app
+
+# ==========================================
+# ETAPA DE DEPENDENCIAS
+# ==========================================
+FROM base AS deps
+
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# ==========================================
+# ETAPA DE BUILD
+# ==========================================
+FROM base AS builder
+
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# ==========================================
+# ETAPA DE PRODUCCIÓN
+# ==========================================
+FROM node:20-alpine AS production
+
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S chateam -u 1001
+
+WORKDIR /app
+
+COPY --from=deps --chown=chateam:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=chateam:nodejs /app/dist ./dist
+COPY --from=builder --chown=chateam:nodejs /app/package.json ./package.json
+
+RUN mkdir -p logs && chown -R chateam:nodejs logs
+
+USER chateam
+
+# Health check para worker
+HEALTHCHECK --interval=60s --timeout=30s --start-period=10s --retries=3 \
+  CMD pgrep -f "node.*server" > /dev/null || exit 1
+
+# Comando específico para worker
+CMD ["node", "dist/server.js"]

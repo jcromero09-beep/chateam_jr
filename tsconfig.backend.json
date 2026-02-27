@@ -1,0 +1,46 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+      "target": "ES2021",
+      "module": "ES2022",
+      "moduleResolution": "node",
+      "outDir": "dist",
+      "rootDir": ".",
+      "strict": false,
+      "esModuleInterop": true,
+      "skipLibCheck": true,
+      "forceConsistentCasingInFileNames": true,
+      "declaration": true,
+      "declarationMap": true,
+      "sourceMap": true,
+      "resolveJsonModule": true
+    },
+    "include": [
+      "config/**/*",
+      "controllers/**/*",
+      "helpers/**/*",
+      "middleware/**/*",
+      "models/**/*",
+      "routes/**/*",
+      "services/**/*",
+      "utils/**/*",
+      "errors/**/*",
+      "libs/**/*",
+      "jobs/**/*",
+      "workers/**/*",
+      "dto/**/*",
+      "@types/**/*",
+      "*.ts",
+      "database/**/*",
+      "scripts/**/*"
+    ],
+    "exclude": [
+      "node_modules",
+      "dist",
+      "_legacy",
+      "frontend",
+      "meta-marketing",
+      "debug"
+    ]
+  }
+  

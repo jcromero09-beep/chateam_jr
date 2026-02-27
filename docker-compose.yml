@@ -1,0 +1,165 @@
+version: "3.9"
+
+networks:
+  chateam-network:
+    driver: bridge
+
+services:
+  # Aplicación principal
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chateam-app
+    env_file: .env
+    ports:
+      - "${PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    networks:
+      - chateam-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Worker para jobs
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: chateam-worker
+    env_file: .env
+    command: ["npm", "run", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - chateam-network
+    restart: unless-stopped
+
+  # Base de datos
+  postgres:
+    image: postgres:15-alpine
+    container_name: chateam-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-chateam}
+      POSTGRES_USER: ${DB_USER:-chateam_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - chateam-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chateam_app} -d ${DB_NAME:-chateam}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: chateam-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - chateam-network
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # MinIO (S3 compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: chateam-minio
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - chateam-network
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Microservicio de auditoría
+  audit-service:
+    build: ./audit-service
+    container_name: chateam-audit
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - minio
+    restart: unless-stopped
+
+  # Scheduler para auditorías
+  scheduler:
+    build: ./scheduler
+    container_name: chateam-scheduler
+    env_file: .env
+    depends_on:
+      - audit-service
+    restart: unless-stopped
+
+  # Inicialización de buckets
+  createbuckets:
+    image: minio/mc:latest
+    container_name: minio-createbuckets
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY};
+      mc mb -p local/${S3_BUCKET} || true;
+      mc anonymous set download local/${S3_BUCKET};
+      exit 0;
+      "
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

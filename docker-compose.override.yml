@@ -1,0 +1,59 @@
+version: "3.9"
+
+# Override para desarrollo local
+services:
+  app:
+    environment:
+      - NODE_ENV=development
+      - DEBUG=chateam:*
+    volumes:
+      - ./src:/app/src:ro
+      - /app/node_modules
+    command: npm run dev
+
+  worker:
+    environment:
+      - NODE_ENV=development
+      - DEBUG=chateam:*
+    volumes:
+      - ./src:/app/src:ro
+      - /app/node_modules
+
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=chateam_dev
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  audit-service:
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./audit-service/src:/app/src:ro
+      - /app/node_modules
+    command: npm run dev
+
+  # Servicios adicionales para desarrollo
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: chateam-mailhog
+    ports:
+      - "1025:1025"    # SMTP
+      - "8025:8025"    # Web interface
+
+  adminer:
+    image: adminer:latest
+    container_name: chateam-adminer
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres

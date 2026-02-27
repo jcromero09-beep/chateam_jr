@@ -1,0 +1,6 @@
+# Minuto Hora Día Mes DíaSemana Comando
+# Auditorías semanales los lunes a las 8:00 AM
+0 8 * * 1 curl -sS -X POST "http://audit-service:8080/api/audit-campaigns" \
+  -H "Content-Type: application/json" \
+  -d "{\"campaignId\":\"__FIRST__\",\"time_window\":{\"since\":\"$SINCE\",\"until\":\"$UNTIL\"},\"level\":\"campaign\"}" \
+  >/dev/null 2>&1

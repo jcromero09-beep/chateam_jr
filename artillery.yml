@@ -1,0 +1,82 @@
+config:
+  target: 'http://localhost:3000'
+  phases:
+    - duration: 60
+      arrivalRate: 10
+      name: "Warm up phase"
+    - duration: 120
+      arrivalRate: 20
+      name: "Load phase"
+    - duration: 60
+      arrivalRate: 5
+      name: "Cool down phase"
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+
+scenarios:
+  - name: "Health check"
+    weight: 10
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+
+  - name: "Get tickets list"
+    weight: 50
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "admin@company.com"
+            password: "admin123"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/v1/tickets"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          expect:
+            - statusCode: 200
+
+  - name: "Create ticket"
+    weight: 30
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "admin@company.com"
+            password: "admin123"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - post:
+          url: "/api/v1/tickets"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          json:
+            contactId: 1
+            title: "Load test ticket"
+            description: "Performance testing"
+          expect:
+            - statusCode: [200, 201]
+
+  - name: "Get contacts"
+    weight: 10
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "admin@company.com"
+            password: "admin123"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/v1/contacts"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          expect:
+            - statusCode: 200
