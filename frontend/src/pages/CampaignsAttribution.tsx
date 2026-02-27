@@ -397,8 +397,51 @@ export default function CampaignsAttribution() {
   const totalConversions = channelAttribution.reduce((acc, ch) => acc + getAttributionValue(ch), 0)
 
   const exportData = () => {
-    console.log('Exporting attribution data...')
-    // Implement export functionality
+    try {
+      if (channelAttribution.length === 0) {
+        toast.info('No hay datos de atribución para exportar')
+        return
+      }
+
+      const headers = [
+        'Canal', 'First Touch', 'Last Touch', 'Linear',
+        'Time Decay', 'Position Based', 'Data Driven',
+        'Conversiones', 'Revenue'
+      ]
+
+      const rows = channelAttribution.map((ch) => [
+        ch.channel,
+        ch.firstTouch,
+        ch.lastTouch,
+        ch.linear,
+        ch.timeDecay,
+        ch.positionBased,
+        ch.datadriven,
+        ch.conversions,
+        ch.revenue
+      ])
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map((row) => row.join(','))
+      ].join('\n')
+
+      const BOM = '\uFEFF'
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `atribucion-${attributionModel}-${new Date().toISOString().split('T')[0]}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast.success('Datos de atribución exportados')
+    } catch (error) {
+      console.error('Error exporting attribution data:', error)
+      toast.error('Error al exportar datos')
+    }
   }
 
   return (

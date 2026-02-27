@@ -69,6 +69,13 @@ router.get(
   (req, res) => auditController.getTokenStatus(req, res)
 );
 
+// Exporta recomendaciones como CSV
+router.get(
+  "/campaigns/audit/export",
+  isAuth,
+  (req, res) => auditController.exportRecommendations(req, res)
+);
+
 // ============================================================
 // AUDIT LEGACY ENDPOINTS (mantener compatibilidad)
 // ============================================================

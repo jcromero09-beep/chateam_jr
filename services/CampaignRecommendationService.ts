@@ -2,14 +2,15 @@ import OpenAI from "openai";
 import { Op } from "sequelize";
 import CampaignRecommendation from "../models/CampaignRecommendation";
 import AiTokenTransaction from "../models/AiTokenTransaction";
+import AISubplan from "../models/AISubplan";
 import AppError from "../errors/AppError";
 import { MarketingCache } from "./MetaMarketingService/MarketingCache";
 import AIProviderConfig from "../models/AIProviderConfig";
 import crypto from "crypto";
 import logger from "../utils/logger";
 
-// Limite de tokens hardcoded (se conectara a AISubplan despues)
-const TOKEN_LIMIT = 10000;
+// Fallback si la empresa no tiene un AISubplan activo
+const DEFAULT_TOKEN_LIMIT = 10000;
 
 interface TokenStatus {
   available: boolean;
@@ -134,8 +135,26 @@ export class CampaignRecommendationService {
 
   /**
    * Verifica el limite de tokens disponibles para el mes actual
+   * Obtiene el limite del AISubplan activo de la empresa (fallback: DEFAULT_TOKEN_LIMIT)
    */
   async checkTokenLimit(companyId: number): Promise<TokenStatus> {
+    // Obtener limite desde AISubplan de la empresa
+    let tokenLimit = DEFAULT_TOKEN_LIMIT;
+    try {
+      const aiSubplan = await AISubplan.findOne({
+        where: { companyId, isActive: true },
+        order: [["id", "DESC"]]
+      });
+      if (aiSubplan && aiSubplan.tokens > 0) {
+        tokenLimit = Number(aiSubplan.tokens);
+        logger.info(`[CampaignRecommendation] 📋 Token limit from AISubplan: ${tokenLimit} (plan: "${aiSubplan.name}")`);
+      } else {
+        logger.info(`[CampaignRecommendation] 📋 No active AISubplan found, using default: ${DEFAULT_TOKEN_LIMIT}`);
+      }
+    } catch (err: any) {
+      logger.warn(`[CampaignRecommendation] ⚠️ Error reading AISubplan, using default: ${err.message}`);
+    }
+
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -150,12 +169,12 @@ export class CampaignRecommendationService {
     });
 
     const totalUsed = transactions.reduce((sum, t) => sum + Math.abs(t.tokens), 0);
-    const remaining = Math.max(0, TOKEN_LIMIT - totalUsed);
+    const remaining = Math.max(0, tokenLimit - totalUsed);
 
     return {
       available: remaining > 0,
       used: totalUsed,
-      limit: TOKEN_LIMIT,
+      limit: tokenLimit,
       remaining
     };
   }
@@ -742,7 +761,7 @@ Responde SOLO con un JSON valido con esta estructura:
     }
 
     // Calcular scores basados en metricas
-    return campaigns.map((campaign: any) => {
+    return Promise.all(campaigns.map(async (campaign: any) => {
       const spend = campaign.spend || campaign.insights?.spend || 0;
       const impressions = campaign.impressions || campaign.insights?.impressions || 0;
       const clicks = campaign.clicks || campaign.insights?.clicks || 0;
@@ -757,8 +776,19 @@ Responde SOLO con un JSON valido con esta estructura:
       const budgetScore = spend > 0 && conversions > 0 ? Math.min(100, 100 - (spend / conversions / 10)) : 50;
       const performanceScore = (contentScore + timingScore + audienceScore + budgetScore) / 4;
 
-      // Contar recomendaciones activas para esta campana
-      // Nota: Esto se obtendra de la DB, por ahora retornamos 0
+      // Contar recomendaciones activas para esta campaña desde BD
+      let recCount = 0;
+      try {
+        recCount = await CampaignRecommendation.count({
+          where: {
+            campaignId: String(campaign.id),
+            companyId,
+            status: { [Op.ne]: "dismissed" }
+          }
+        });
+      } catch (err: any) {
+        logger.warn(`[CampaignRecommendation] ⚠️ Error contando recomendaciones para campaña ${campaign.id}: ${err.message}`);
+      }
 
       return {
         campaignId: String(campaign.id),
@@ -770,9 +800,9 @@ Responde SOLO con un JSON valido con esta estructura:
         audienceScore: Math.round(audienceScore),
         budgetScore: Math.round(budgetScore),
         performanceScore: Math.round(performanceScore),
-        recommendations: 0 // Se calculara con las recomendaciones de DB
+        recommendations: recCount
       };
-    });
+    }));
   }
 }
 

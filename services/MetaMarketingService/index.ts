@@ -1060,6 +1060,382 @@ export const getTokenStatus = async (companyId: number) => {
   return TokenManager.getTokenStatus(companyId);
 };
 
+// ============================================================
+// CRUD — CAMPAIGNS
+// ============================================================
+
+export const createCampaign = async (
+  companyId: number,
+  campaignData: {
+    name: string;
+    objective: string;
+    status?: "ACTIVE" | "PAUSED";
+    special_ad_categories?: string[];
+    daily_budget?: number;
+    lifetime_budget?: number;
+    start_time?: string;
+    stop_time?: string;
+    bid_strategy?: string;
+  },
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[createCampaign] 🚀 Creando campaña "${campaignData.name}" - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client, accountId } = await getMetaClient(companyId, whatsappId);
+    const campaign = await client.campaigns.createCampaign(accountId, campaignData);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "create_campaign",
+      endpoint: `/act_${accountId}/campaigns`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[createCampaign] ✅ Campaña creada: ${campaign.id}`);
+    return campaign;
+  } catch (error: any) {
+    logger.error(`[createCampaign] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/act_/campaigns`);
+  }
+};
+
+export const updateCampaign = async (
+  companyId: number,
+  campaignId: string,
+  updates: {
+    name?: string;
+    status?: "ACTIVE" | "PAUSED";
+    daily_budget?: number;
+    lifetime_budget?: number;
+    start_time?: string;
+    stop_time?: string;
+  },
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[updateCampaign] 🚀 Actualizando campaña ${campaignId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const campaign = await client.campaigns.updateCampaign(campaignId, updates);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "update_campaign",
+      endpoint: `/${campaignId}`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[updateCampaign] ✅ Campaña actualizada: ${campaignId}`);
+    return campaign;
+  } catch (error: any) {
+    logger.error(`[updateCampaign] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${campaignId}`);
+  }
+};
+
+export const deleteCampaign = async (
+  companyId: number,
+  campaignId: string,
+  whatsappId?: number
+): Promise<boolean> => {
+  logger.info(`[deleteCampaign] 🚀 Eliminando campaña ${campaignId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const result = await client.campaigns.deleteCampaign(campaignId);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "delete_campaign",
+      endpoint: `/${campaignId}`,
+      method: "DELETE",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[deleteCampaign] ✅ Campaña eliminada: ${campaignId}`);
+    return result;
+  } catch (error: any) {
+    logger.error(`[deleteCampaign] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${campaignId}`);
+  }
+};
+
+export const duplicateCampaign = async (
+  companyId: number,
+  campaignId: string,
+  newName: string,
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[duplicateCampaign] 🚀 Duplicando campaña ${campaignId} como "${newName}" - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const campaign = await client.campaigns.duplicateCampaign(campaignId, newName);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "duplicate_campaign",
+      endpoint: `/${campaignId}/duplicate`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[duplicateCampaign] ✅ Campaña duplicada: ${campaign.id}`);
+    return campaign;
+  } catch (error: any) {
+    logger.error(`[duplicateCampaign] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${campaignId}/duplicate`);
+  }
+};
+
+export const pauseAllInCampaign = async (
+  companyId: number,
+  campaignId: string,
+  whatsappId?: number
+): Promise<void> => {
+  logger.info(`[pauseAllInCampaign] 🚀 Pausando campaña + ads ${campaignId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    await client.campaigns.pauseAllInCampaign(campaignId);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "pause_all_campaign",
+      endpoint: `/${campaignId}/pause-all`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[pauseAllInCampaign] ✅ Campaña y ads pausados: ${campaignId}`);
+  } catch (error: any) {
+    logger.error(`[pauseAllInCampaign] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${campaignId}/pause-all`);
+  }
+};
+
+export const activateAllInCampaign = async (
+  companyId: number,
+  campaignId: string,
+  whatsappId?: number
+): Promise<void> => {
+  logger.info(`[activateAllInCampaign] 🚀 Activando campaña + ads ${campaignId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    await client.campaigns.activateAllInCampaign(campaignId);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "activate_all_campaign",
+      endpoint: `/${campaignId}/activate-all`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[activateAllInCampaign] ✅ Campaña y ads activados: ${campaignId}`);
+  } catch (error: any) {
+    logger.error(`[activateAllInCampaign] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${campaignId}/activate-all`);
+  }
+};
+
+// ============================================================
+// CRUD — AD SETS
+// ============================================================
+
+export const createAdSet = async (
+  companyId: number,
+  campaignId: string,
+  adsetData: {
+    name: string;
+    optimization_goal: string;
+    billing_event: string;
+    bid_amount?: number;
+    daily_budget?: number;
+    lifetime_budget?: number;
+    start_time?: string;
+    end_time?: string;
+    targeting: any;
+    status?: "ACTIVE" | "PAUSED";
+  },
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[createAdSet] 🚀 Creando ad set "${adsetData.name}" en campaña ${campaignId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const adset = await client.campaigns.createAdSet(campaignId, adsetData);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "create_adset",
+      endpoint: `/campaigns/${campaignId}/adsets`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[createAdSet] ✅ Ad set creado: ${adset.id}`);
+    return adset;
+  } catch (error: any) {
+    logger.error(`[createAdSet] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/campaigns/${campaignId}/adsets`);
+  }
+};
+
+export const updateAdSet = async (
+  companyId: number,
+  adsetId: string,
+  updates: {
+    name?: string;
+    status?: "ACTIVE" | "PAUSED";
+    daily_budget?: number;
+    lifetime_budget?: number;
+    targeting?: any;
+    bid_amount?: number;
+  },
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[updateAdSet] 🚀 Actualizando ad set ${adsetId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const adset = await client.campaigns.updateAdSet(adsetId, updates);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "update_adset",
+      endpoint: `/${adsetId}`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[updateAdSet] ✅ Ad set actualizado: ${adsetId}`);
+    return adset;
+  } catch (error: any) {
+    logger.error(`[updateAdSet] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${adsetId}`);
+  }
+};
+
+// ============================================================
+// CRUD — ADS
+// ============================================================
+
+export const createAd = async (
+  companyId: number,
+  adsetId: string,
+  adData: {
+    name: string;
+    creative: {
+      title?: string;
+      body?: string;
+      image_hash?: string;
+      video_id?: string;
+      call_to_action?: any;
+      object_story_spec?: any;
+    };
+    status?: "ACTIVE" | "PAUSED";
+  },
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[createAd] 🚀 Creando ad "${adData.name}" en ad set ${adsetId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const ad = await client.campaigns.createAd(adsetId, adData);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "create_ad",
+      endpoint: `/adsets/${adsetId}/ads`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[createAd] ✅ Ad creado: ${ad.id}`);
+    return ad;
+  } catch (error: any) {
+    logger.error(`[createAd] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/adsets/${adsetId}/ads`);
+  }
+};
+
+export const updateAd = async (
+  companyId: number,
+  adId: string,
+  updates: {
+    name?: string;
+    status?: "ACTIVE" | "PAUSED";
+    creative?: any;
+  },
+  whatsappId?: number
+): Promise<any> => {
+  logger.info(`[updateAd] 🚀 Actualizando ad ${adId} - companyId: ${companyId}`);
+  const timer = AuditLogger.startTimer();
+
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    const ad = await client.campaigns.updateAd(adId, updates);
+
+    await MarketingCache.invalidateCompany(companyId);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "update_ad",
+      endpoint: `/${adId}`,
+      method: "POST",
+      responseStatus: "success",
+      responseTime: timer()
+    });
+
+    logger.info(`[updateAd] ✅ Ad actualizado: ${adId}`);
+    return ad;
+  } catch (error: any) {
+    logger.error(`[updateAd] ❌ Error: ${error.message}`);
+    handleMetaError(error, companyId, `/${adId}`);
+  }
+};
+
 export default {
   testConnection,
   getAdAccounts,
@@ -1070,5 +1446,18 @@ export default {
   getAggregatedInsights,
   invalidateCache,
   getUsageStats,
-  getTokenStatus
+  getTokenStatus,
+  // CRUD Campaigns
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  duplicateCampaign,
+  pauseAllInCampaign,
+  activateAllInCampaign,
+  // CRUD AdSets
+  createAdSet,
+  updateAdSet,
+  // CRUD Ads
+  createAd,
+  updateAd
 };

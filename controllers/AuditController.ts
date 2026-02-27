@@ -680,4 +680,70 @@ export class AuditController {
       return res.status(500).json({ error: "Internal server error" });
     }
   }
+
+  /**
+   * Exporta recomendaciones como CSV descargable
+   * GET /campaigns/audit/export?format=csv
+   */
+  async exportRecommendations(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const { companyId } = req.user;
+      const { status, priority, category } = req.query;
+
+      const recommendationService = new CampaignRecommendationService();
+      const filters: any = {};
+      if (status) filters.status = status;
+      if (priority) filters.priority = priority;
+      if (category) filters.category = category;
+
+      const result = await recommendationService.getRecommendations(companyId, filters);
+      const recommendations = result.recommendations || [];
+
+      if (recommendations.length === 0) {
+        return res.status(200).json({
+          success: false,
+          message: "No hay recomendaciones para exportar"
+        });
+      }
+
+      // Generar CSV
+      const headers = [
+        "Campaña", "Tipo", "Prioridad", "Categoría",
+        "Título", "Descripción", "Impacto", "Esfuerzo",
+        "Ganancia Potencial", "Estado", "Fecha Creación"
+      ];
+
+      const rows = recommendations.map((rec: any) => [
+        `"${(rec.campaignName || "").replace(/"/g, '""')}"`,
+        rec.type || "",
+        rec.priority || "",
+        rec.category || "",
+        `"${(rec.title || "").replace(/"/g, '""')}"`,
+        `"${(rec.description || "").replace(/"/g, '""')}"`,
+        `"${(rec.impact || "").replace(/"/g, '""')}"`,
+        rec.effort || "",
+        `"${(rec.potentialGain || "").replace(/"/g, '""')}"`,
+        rec.status || "",
+        rec.createdAt ? new Date(rec.createdAt).toISOString().split("T")[0] : ""
+      ]);
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map((row: string[]) => row.join(","))
+      ].join("\n");
+
+      const BOM = "\uFEFF"; // UTF-8 BOM para Excel
+      const filename = `audit-recomendaciones-${new Date().toISOString().split("T")[0]}.csv`;
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(BOM + csvContent);
+    } catch (error) {
+      if (error instanceof AppError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error("Error exporting recommendations:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
 }

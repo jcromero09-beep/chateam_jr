@@ -88,4 +88,86 @@ router.get(
   MetaMarketingController.getTokenStatus
 );
 
+// ============================================================
+// CRUD — CAMPAIGNS
+// ============================================================
+
+// Create a new campaign
+router.post(
+  "/meta-marketing/campaigns",
+  isAuth,
+  MetaMarketingController.createCampaign
+);
+
+// Update an existing campaign
+router.put(
+  "/meta-marketing/campaigns/:id",
+  isAuth,
+  MetaMarketingController.updateCampaign
+);
+
+// Delete a campaign
+router.delete(
+  "/meta-marketing/campaigns/:id",
+  isAuth,
+  MetaMarketingController.deleteCampaign
+);
+
+// Duplicate a campaign
+router.post(
+  "/meta-marketing/campaigns/:id/duplicate",
+  isAuth,
+  MetaMarketingController.duplicateCampaign
+);
+
+// Pause campaign + all ads/adsets
+router.post(
+  "/meta-marketing/campaigns/:id/pause-all",
+  isAuth,
+  MetaMarketingController.pauseAllInCampaign
+);
+
+// Activate campaign + all ads/adsets
+router.post(
+  "/meta-marketing/campaigns/:id/activate-all",
+  isAuth,
+  MetaMarketingController.activateAllInCampaign
+);
+
+// ============================================================
+// CRUD — AD SETS
+// ============================================================
+
+// Create a new ad set
+router.post(
+  "/meta-marketing/adsets",
+  isAuth,
+  MetaMarketingController.createAdSet
+);
+
+// Update an existing ad set
+router.put(
+  "/meta-marketing/adsets/:id",
+  isAuth,
+  MetaMarketingController.updateAdSet
+);
+
+// ============================================================
+// CRUD — ADS
+// ============================================================
+
+// Create a new ad
+router.post(
+  "/meta-marketing/ads",
+  isAuth,
+  MetaMarketingController.createAd
+);
+
+// Update an existing ad
+router.put(
+  "/meta-marketing/ads/:id",
+  isAuth,
+  MetaMarketingController.updateAd
+);
+
 export default router;

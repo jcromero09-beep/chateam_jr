@@ -345,6 +345,363 @@ export const getTokenStatus = async (req: Request, res: Response): Promise<Respo
   }
 };
 
+// ============================================================
+// CRUD — CAMPAIGNS
+// ============================================================
+
+// Create a new campaign
+export const createCampaign = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { whatsappId } = req.query;
+  const { name, objective, status, special_ad_categories, daily_budget, lifetime_budget, start_time, stop_time, bid_strategy } = req.body;
+
+  logger.info(`[Controller:createCampaign] 🚀 REQUEST - companyId: ${companyId}, name: "${name}"`);
+
+  try {
+    if (!name || !objective) {
+      return res.status(400).json({
+        success: false,
+        message: "Los campos 'name' y 'objective' son requeridos"
+      });
+    }
+
+    if (daily_budget !== undefined && daily_budget <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "El presupuesto diario debe ser mayor a 0"
+      });
+    }
+
+    if (lifetime_budget !== undefined && lifetime_budget <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "El presupuesto total debe ser mayor a 0"
+      });
+    }
+
+    if (start_time && stop_time && new Date(stop_time) <= new Date(start_time)) {
+      return res.status(400).json({
+        success: false,
+        message: "La fecha de fin debe ser posterior a la fecha de inicio"
+      });
+    }
+
+    const campaign = await MetaMarketingService.createCampaign(
+      companyId,
+      { name, objective, status, special_ad_categories, daily_budget, lifetime_budget, start_time, stop_time, bid_strategy },
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:createCampaign] ✅ Campaña creada: ${campaign.id}`);
+    return res.status(201).json({ success: true, campaign });
+  } catch (error: any) {
+    logger.error(`[Controller:createCampaign] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al crear campaña"
+    });
+  }
+};
+
+// Update an existing campaign
+export const updateCampaign = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+  const updates = req.body;
+
+  logger.info(`[Controller:updateCampaign] 🚀 REQUEST - companyId: ${companyId}, campaignId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "campaignId es requerido" });
+    }
+
+    if (updates.daily_budget !== undefined && updates.daily_budget <= 0) {
+      return res.status(400).json({ success: false, message: "El presupuesto diario debe ser mayor a 0" });
+    }
+
+    const campaign = await MetaMarketingService.updateCampaign(
+      companyId,
+      id,
+      updates,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:updateCampaign] ✅ Campaña actualizada: ${id}`);
+    return res.status(200).json({ success: true, campaign });
+  } catch (error: any) {
+    logger.error(`[Controller:updateCampaign] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al actualizar campaña"
+    });
+  }
+};
+
+// Delete a campaign
+export const deleteCampaign = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+
+  logger.info(`[Controller:deleteCampaign] 🚀 REQUEST - companyId: ${companyId}, campaignId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "campaignId es requerido" });
+    }
+
+    const result = await MetaMarketingService.deleteCampaign(
+      companyId,
+      id,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:deleteCampaign] ✅ Campaña eliminada: ${id}`);
+    return res.status(200).json({ success: true, deleted: result });
+  } catch (error: any) {
+    logger.error(`[Controller:deleteCampaign] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al eliminar campaña"
+    });
+  }
+};
+
+// Duplicate a campaign
+export const duplicateCampaign = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+  const { newName } = req.body;
+
+  logger.info(`[Controller:duplicateCampaign] 🚀 REQUEST - companyId: ${companyId}, campaignId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "campaignId es requerido" });
+    }
+
+    const name = newName || `Copia - ${new Date().toISOString().split("T")[0]}`;
+    const campaign = await MetaMarketingService.duplicateCampaign(
+      companyId,
+      id,
+      name,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:duplicateCampaign] ✅ Campaña duplicada: ${campaign.id}`);
+    return res.status(201).json({ success: true, campaign });
+  } catch (error: any) {
+    logger.error(`[Controller:duplicateCampaign] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al duplicar campaña"
+    });
+  }
+};
+
+// Pause campaign and all its ads/adsets
+export const pauseAllInCampaign = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+
+  logger.info(`[Controller:pauseAllInCampaign] 🚀 REQUEST - companyId: ${companyId}, campaignId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "campaignId es requerido" });
+    }
+
+    await MetaMarketingService.pauseAllInCampaign(
+      companyId,
+      id,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:pauseAllInCampaign] ✅ Campaña y ads pausados: ${id}`);
+    return res.status(200).json({ success: true, message: "Campaña y todos sus anuncios pausados" });
+  } catch (error: any) {
+    logger.error(`[Controller:pauseAllInCampaign] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al pausar campaña"
+    });
+  }
+};
+
+// Activate campaign and all its ads/adsets
+export const activateAllInCampaign = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+
+  logger.info(`[Controller:activateAllInCampaign] 🚀 REQUEST - companyId: ${companyId}, campaignId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "campaignId es requerido" });
+    }
+
+    await MetaMarketingService.activateAllInCampaign(
+      companyId,
+      id,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:activateAllInCampaign] ✅ Campaña y ads activados: ${id}`);
+    return res.status(200).json({ success: true, message: "Campaña y todos sus anuncios activados" });
+  } catch (error: any) {
+    logger.error(`[Controller:activateAllInCampaign] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al activar campaña"
+    });
+  }
+};
+
+// ============================================================
+// CRUD — AD SETS
+// ============================================================
+
+// Create a new ad set
+export const createAdSet = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { whatsappId } = req.query;
+  const { campaignId, name, optimization_goal, billing_event, bid_amount, daily_budget, lifetime_budget, start_time, end_time, targeting, status } = req.body;
+
+  logger.info(`[Controller:createAdSet] 🚀 REQUEST - companyId: ${companyId}, campaignId: ${campaignId}`);
+
+  try {
+    if (!campaignId || !name || !optimization_goal || !billing_event || !targeting) {
+      return res.status(400).json({
+        success: false,
+        message: "Los campos 'campaignId', 'name', 'optimization_goal', 'billing_event' y 'targeting' son requeridos"
+      });
+    }
+
+    const adset = await MetaMarketingService.createAdSet(
+      companyId,
+      campaignId,
+      { name, optimization_goal, billing_event, bid_amount, daily_budget, lifetime_budget, start_time, end_time, targeting, status },
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:createAdSet] ✅ Ad set creado: ${adset.id}`);
+    return res.status(201).json({ success: true, adset });
+  } catch (error: any) {
+    logger.error(`[Controller:createAdSet] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al crear ad set"
+    });
+  }
+};
+
+// Update an existing ad set
+export const updateAdSet = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+  const updates = req.body;
+
+  logger.info(`[Controller:updateAdSet] 🚀 REQUEST - companyId: ${companyId}, adsetId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "adsetId es requerido" });
+    }
+
+    const adset = await MetaMarketingService.updateAdSet(
+      companyId,
+      id,
+      updates,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:updateAdSet] ✅ Ad set actualizado: ${id}`);
+    return res.status(200).json({ success: true, adset });
+  } catch (error: any) {
+    logger.error(`[Controller:updateAdSet] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al actualizar ad set"
+    });
+  }
+};
+
+// ============================================================
+// CRUD — ADS
+// ============================================================
+
+// Create a new ad
+export const createAd = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { whatsappId } = req.query;
+  const { adsetId, name, creative, status } = req.body;
+
+  logger.info(`[Controller:createAd] 🚀 REQUEST - companyId: ${companyId}, adsetId: ${adsetId}`);
+
+  try {
+    if (!adsetId || !name || !creative) {
+      return res.status(400).json({
+        success: false,
+        message: "Los campos 'adsetId', 'name' y 'creative' son requeridos"
+      });
+    }
+
+    const ad = await MetaMarketingService.createAd(
+      companyId,
+      adsetId,
+      { name, creative, status },
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:createAd] ✅ Ad creado: ${ad.id}`);
+    return res.status(201).json({ success: true, ad });
+  } catch (error: any) {
+    logger.error(`[Controller:createAd] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al crear ad"
+    });
+  }
+};
+
+// Update an existing ad
+export const updateAd = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = (req as any).user;
+  const { id } = req.params;
+  const { whatsappId } = req.query;
+  const updates = req.body;
+
+  logger.info(`[Controller:updateAd] 🚀 REQUEST - companyId: ${companyId}, adId: ${id}`);
+
+  try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: "adId es requerido" });
+    }
+
+    const ad = await MetaMarketingService.updateAd(
+      companyId,
+      id,
+      updates,
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:updateAd] ✅ Ad actualizado: ${id}`);
+    return res.status(200).json({ success: true, ad });
+  } catch (error: any) {
+    logger.error(`[Controller:updateAd] ❌ ERROR: ${error.message}`);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error al actualizar ad"
+    });
+  }
+};
+
 export default {
   testConnection,
   getAdAccounts,
@@ -357,5 +714,18 @@ export default {
   getDashboardData,
   invalidateCache,
   getUsageStats,
-  getTokenStatus
+  getTokenStatus,
+  // CRUD Campaigns
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  duplicateCampaign,
+  pauseAllInCampaign,
+  activateAllInCampaign,
+  // CRUD AdSets
+  createAdSet,
+  updateAdSet,
+  // CRUD Ads
+  createAd,
+  updateAd
 };

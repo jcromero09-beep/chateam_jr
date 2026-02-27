@@ -602,9 +602,37 @@ export default function CampaignsAudit() {
   const activeCount = recommendations.filter((r) => r.status === 'active').length
   const appliedCount = recommendations.filter((r) => r.status === 'applied').length
 
-  const exportReport = () => {
-    console.log('Exporting audit report...')
-    toast.info('Exportacion de reporte en desarrollo')
+  const exportReport = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (filter !== 'all') params.append('status', filter)
+
+      const response = await api.get(`/campaigns/audit/export?${params.toString()}`, {
+        responseType: 'blob'
+      })
+
+      // Si el backend retorna JSON (sin datos), manejarlo
+      if (response.headers['content-type']?.includes('application/json')) {
+        toast.info('No hay recomendaciones para exportar')
+        return
+      }
+
+      // Descargar archivo CSV
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `audit-recomendaciones-${new Date().toISOString().split('T')[0]}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast.success('Reporte exportado exitosamente')
+    } catch (error: any) {
+      console.error('Error exporting report:', error)
+      toast.error('Error al exportar reporte')
+    }
   }
 
   // Helper to count active filters
