@@ -4,7 +4,7 @@ import IntegrationConnection from '../../models/Integrations/IntegrationConnecti
 import IntegrationSyncLog from '../../models/Integrations/IntegrationSyncLog';
 import IntegrationEntityMapping from '../../models/Integrations/IntegrationEntityMapping';
 import IntegrationApiRequest from '../../models/Integrations/IntegrationApiRequest';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 
 export interface SyncResult {
   success: boolean;
@@ -66,7 +66,8 @@ export abstract class BaseIntegrationService {
   protected setupInterceptors(): void {
     this.httpClient.interceptors.request.use(
       (config) => {
-        config.metadata = { startTime: Date.now() };
+        // Usar as any porque metadata es una propiedad personalizada de timing
+        (config as any).metadata = { startTime: Date.now() };
         return config;
       },
       (error) => Promise.reject(error)
@@ -74,13 +75,13 @@ export abstract class BaseIntegrationService {
 
     this.httpClient.interceptors.response.use(
       async (response) => {
-        const duration = Date.now() - response.config.metadata.startTime;
+        const duration = Date.now() - (response.config as any).metadata.startTime;
         await this.logApiRequest(response.config, response, duration);
         return response;
       },
       async (error) => {
-        const duration = error.config?.metadata?.startTime
-          ? Date.now() - error.config.metadata.startTime
+        const duration = (error.config as any)?.metadata?.startTime
+          ? Date.now() - (error.config as any).metadata.startTime
           : 0;
         await this.logApiRequest(error.config, error.response, duration);
         return Promise.reject(error);

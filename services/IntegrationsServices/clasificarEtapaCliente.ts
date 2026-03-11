@@ -231,7 +231,18 @@ export const marcarTicketsDormant = async () => {
 
         
         const apiKey = await obtenerApiKeyPorTicketId(ticket.id);
-        await enqueueFollowupJob({ ticketId: ticket.id, tag, companyId: company.id, apiKey: apiKey, contactName:"", });
+        await enqueueFollowupJob({
+          ticketId: ticket.id,
+          tagId: tag.id,
+          tagKey: tag.key,
+          companyId: company.id,
+          apiKey: apiKey,
+          contactName: "",
+          currentFollowup: 0,
+          followupMessage1: "",
+          followupDelay1: 0,
+          followupCount: 0
+        });
 
       //  console.log(`📌 Ticket ${ticket.id} marcado como 'dormant' para la empresa ${company.name}`);
       }
@@ -261,12 +272,25 @@ export const actualizarRetargetingSiEsDormant = async (
         ticketId,
         tagId: retargetingTag.id,
       });
+      // Reset followup_count al re-activar desde dormant
+      await Ticket.update({ followup_count: 0 }, { where: { id: ticketId } });
       const apiKey = await obtenerApiKeyPorTicketId(ticketId);
       if (!apiKey) {
         console.log(`⚠️ No se encontró apiKey para el ticket ${ticketId}. No se programará seguimiento retargeting.`);
         return; // Sale, pero no lanza error ni corta todo el try
       }
-      await enqueueFollowupJob({ ticketId: ticketId, tag: retargetingTag, companyId, apiKey, contactName:"", });
+      await enqueueFollowupJob({
+        ticketId: ticketId,
+        tagId: retargetingTag.id,
+        tagKey: retargetingTag.key,
+        companyId,
+        apiKey,
+        contactName: "",
+        currentFollowup: 0,
+        followupMessage1: "",
+        followupDelay1: 0,
+        followupCount: 0
+      });
      // console.log(`🔁 Ticket ${ticketId} movido a 'retargeting' automáticamente`);
     }
   } catch (error) {

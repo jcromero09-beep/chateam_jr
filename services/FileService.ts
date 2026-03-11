@@ -1,16 +1,17 @@
-import { Transaction } from "sequelize";
+import { Transaction, Sequelize, QueryTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
-import Media, { MediaMeta } from "../models/Media";
+import Media from "../models/Media";
 import { TenantManager } from "../helpers/TenantManager";
 import { S3Service } from "./S3Service";
 import AppError from "../errors/AppError";
+import sequelize from "../database";
 
 export interface CreateFileOptions {
   fileName: string;
   contentType: string;
   sizeBytes: number;
   retentionDays?: number;
-  meta?: MediaMeta;
+  meta?: any;
   ownerUserId?: number;
 }
 
@@ -22,7 +23,28 @@ export interface FileUploadResult {
 }
 
 export class FileService {
-  constructor(private s3Service: S3Service) {}
+  private sequelize: Sequelize;
+
+  constructor(private s3Service: S3Service) {
+    this.sequelize = sequelize;
+  }
+
+  /**
+   * Helper para ejecutar operaciones en el schema del tenant
+   */
+  private async withTenant(companyId: number, transaction: Transaction, fn: () => Promise<any>): Promise<any> {
+    const tenant = await TenantManager.getTenantByIdentifier(String(companyId));
+    if (!tenant) {
+      throw new AppError("Company not found", 404);
+    }
+
+    await TenantManager.setSearchPath(tenant.schema_name);
+    try {
+      return await fn();
+    } finally {
+      await TenantManager.resetSearchPath();
+    }
+  }
 
   /**
    * Genera una URL presigned para subir un archivo
@@ -40,23 +62,24 @@ export class FileService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + retentionDays);
 
-    const schema = TenantManager.getSchemaName(companyId);
-
     // Crear registro en la base de datos
-    await TenantManager.withTenant(schema, transaction, async () => {
+    await this.withTenant(companyId, transaction, async () => {
       await Media.create({
         id: mediaId,
-        companyId,
-        ownerUserId: options.ownerUserId,
-        storageKey,
-        contentType: options.contentType,
-        sizeBytes: options.sizeBytes,
+        company_id: companyId,
+        original_name: options.fileName,
+        filename: `${mediaId}_${options.fileName}`,
+        mime_type: options.contentType,
+        size_bytes: options.sizeBytes,
+        storage_provider: 's3',
+        storage_key: storageKey,
         status: 'active',
-        expiresAt,
-        referencesCount: 0,
-        isLegalHold: false,
-        meta: options.meta || {}
-      }, { transaction });
+        expires_at: expiresAt,
+        references_count: 0,
+        is_legal_hold: false,
+        uploaded_by: options.ownerUserId || 0,
+        metadata: options.meta || {}
+      });
     });
 
     // Generar URL presigned para S3
@@ -82,12 +105,10 @@ export class FileService {
     actualSizeBytes: number,
     transaction: Transaction
   ): Promise<Media> {
-    const schema = TenantManager.getSchemaName(companyId);
-
     let media: Media | null = null;
 
-    await TenantManager.withTenant(schema, transaction, async () => {
-      media = await Media.findByPk(mediaId, { transaction });
+    await this.withTenant(companyId, transaction, async () => {
+      media = await Media.findByPk(mediaId);
 
       if (!media) {
         throw new AppError("Media not found", 404);
@@ -95,9 +116,9 @@ export class FileService {
 
       // Actualizar tamaño real del archivo
       await media.update({
-        sizeBytes: actualSizeBytes,
+        size_bytes: actualSizeBytes,
         status: 'active'
-      }, { transaction });
+      });
     });
 
     if (!media) {
@@ -105,7 +126,7 @@ export class FileService {
     }
 
     // Programar jobs de notificación de expiración
-    await this.scheduleExpirationJobs(mediaId, media.expiresAt);
+    await this.scheduleExpirationJobs(mediaId, media.expires_at);
 
     return media;
   }
@@ -118,18 +139,17 @@ export class FileService {
     companyId: number,
     transaction: Transaction
   ): Promise<Media> {
-    const schema = TenantManager.getSchemaName(companyId);
-
     let media: Media | null = null;
 
-    await TenantManager.withTenant(schema, transaction, async () => {
-      media = await Media.findByPk(mediaId, { transaction });
+    await this.withTenant(companyId, transaction, async () => {
+      media = await Media.findByPk(mediaId);
 
       if (!media) {
         throw new AppError("File not found", 404);
       }
 
-      if (!media.isAccessible()) {
+      // Verificar si el archivo está accesible (no expirado y no eliminado)
+      if (media.isExpired() || media.status === 'deleted') {
         throw new AppError("File not accessible", 403);
       }
     });
@@ -155,31 +175,28 @@ export class FileService {
     },
     transaction: Transaction
   ): Promise<{ files: Media[]; total: number }> {
-    const schema = TenantManager.getSchemaName(companyId);
     const { status, contentType, ownerUserId, page = 1, limit = 20 } = filters;
     const offset = (page - 1) * limit;
 
     let files: Media[] = [];
     let total = 0;
 
-    await TenantManager.withTenant(schema, transaction, async () => {
-      const whereClause: any = { companyId };
+    await this.withTenant(companyId, transaction, async () => {
+      const whereClause: any = { company_id: companyId };
 
       if (status) whereClause.status = status;
-      if (contentType) whereClause.contentType = contentType;
-      if (ownerUserId) whereClause.ownerUserId = ownerUserId;
+      if (contentType) whereClause.mime_type = contentType;
+      if (ownerUserId) whereClause.uploaded_by = ownerUserId;
 
       files = await Media.findAll({
         where: whereClause,
         limit,
         offset,
-        order: [['createdAt', 'DESC']],
-        transaction
+        order: [['created_at', 'DESC']]
       });
 
       total = await Media.count({
-        where: whereClause,
-        transaction
+        where: whereClause
       });
     });
 
@@ -194,30 +211,26 @@ export class FileService {
     companyId: number,
     transaction: Transaction
   ): Promise<void> {
-    const schema = TenantManager.getSchemaName(companyId);
-
-    await TenantManager.withTenant(schema, transaction, async () => {
+    await this.withTenant(companyId, transaction, async () => {
       const media = await Media.findOne({
-        where: { id: mediaId, companyId },
-        transaction
+        where: { id: mediaId, company_id: companyId }
       });
 
       if (!media) {
         throw new AppError("File not found", 404);
       }
 
-      if (media.referencesCount > 0) {
+      if (media.references_count > 0) {
         throw new AppError("Cannot delete file with active references", 400);
       }
 
       // Eliminar de S3
-      await this.s3Service.deleteObject(media.storageKey);
+      await this.s3Service.deleteObject(media.storage_key);
 
       // Marcar como eliminado
       await media.update({
-        status: 'deleted',
-        deletedAt: new Date()
-      }, { transaction });
+        status: 'deleted'
+      });
     });
   }
 
@@ -230,26 +243,23 @@ export class FileService {
     additionalDays: number,
     transaction: Transaction
   ): Promise<Media> {
-    const schema = TenantManager.getSchemaName(companyId);
-
     let media: Media | null = null;
 
-    await TenantManager.withTenant(schema, transaction, async () => {
+    await this.withTenant(companyId, transaction, async () => {
       media = await Media.findOne({
-        where: { id: mediaId, companyId },
-        transaction
+        where: { id: mediaId, company_id: companyId }
       });
 
       if (!media) {
         throw new AppError("File not found", 404);
       }
 
-      const newExpiration = new Date(media.expiresAt);
+      const newExpiration = new Date(media.expires_at);
       newExpiration.setDate(newExpiration.getDate() + additionalDays);
 
       await media.update({
-        expiresAt: newExpiration
-      }, { transaction });
+        expires_at: newExpiration
+      });
 
       // Reprogramar jobs de notificación
       await this.scheduleExpirationJobs(mediaId, newExpiration);
@@ -289,27 +299,24 @@ export class FileService {
    * Obtiene estadísticas de archivos por empresa
    */
   async getFileStats(companyId: number, transaction: Transaction): Promise<any> {
-    const schema = TenantManager.getSchemaName(companyId);
-
-    const result = await TenantManager.withTenant(schema, transaction, async () => {
+    const result = await this.withTenant(companyId, transaction, async () => {
       const stats = await Media.findAll({
         attributes: [
           'status',
-          [transaction.sequelize.fn('COUNT', transaction.sequelize.col('id')), 'count'],
-          [transaction.sequelize.fn('SUM', transaction.sequelize.col('size_bytes')), 'total_size']
+          [this.sequelize.fn('COUNT', this.sequelize.col('id')), 'count'],
+          [this.sequelize.fn('SUM', this.sequelize.col('size_bytes')), 'total_size']
         ],
         group: ['status'],
-        raw: true,
-        transaction
+        raw: true
       });
 
-      const totalFiles = await Media.count({ transaction });
-      const totalSize = await Media.sum('sizeBytes', { transaction });
+      const totalFiles = await Media.count();
+      const totalSize = await Media.sum('size_bytes');
 
       return {
         totalFiles,
         totalSizeBytes: totalSize || 0,
-        byStatus: stats.reduce((acc, stat) => {
+        byStatus: stats.reduce((acc: any, stat: any) => {
           acc[stat.status] = {
             count: parseInt(stat.count),
             sizeBytes: parseInt(stat.total_size) || 0

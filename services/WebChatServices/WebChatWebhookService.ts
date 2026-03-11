@@ -1,11 +1,10 @@
-import WebChatChannelService from './WebChatChannelService.js';
-import WebChatSessionService from './WebChatSessionService.js';
-import WebChatMessageService from './WebChatMessageService.js';
-import CreateTicketService from '../TicketService/CreateTicketService.js';
-import CreateContactService from '../ContactServices/CreateContactService.js';
-import FindOrCreateContactService from '../ContactServices/FindOrCreateContactService.js';
-import { logger } from '../../config/logger.js';
-import AppError from '../../errors/AppError.js';
+import WebChatChannelService from './WebChatChannelService';
+import WebChatSessionService from './WebChatSessionService';
+import WebChatMessageService from './WebChatMessageService';
+import CreateTicketService from '../TicketServices/CreateTicketService';
+import CreateContactService from '../ContactServices/CreateContactService';
+import logger from '../../config/logger';
+import AppError from '../../errors/AppError';
 
 interface InboundMessagePayload {
   channelId: string;
@@ -104,7 +103,7 @@ class WebChatWebhookService {
       // Find or create contact
       let contact;
       if (payload.contact.email) {
-        contact = await FindOrCreateContactService({
+        contact = await CreateContactService({
           name: payload.contact.name,
           email: payload.contact.email,
           number: payload.contact.phone || '',
@@ -118,7 +117,7 @@ class WebChatWebhookService {
               name: 'Channel',
               value: channel.name
             }
-          ]
+          ] as any
         });
       } else {
         // Create contact without email (use sessionId as identifier)
@@ -140,7 +139,7 @@ class WebChatWebhookService {
               name: 'SessionId',
               value: session.sessionId
             }
-          ]
+          ] as any
         });
       }
 
@@ -164,9 +163,9 @@ class WebChatWebhookService {
           contactId: contact.id,
           companyId: channel.companyId,
           status: 'open',
-          userId: undefined, // Will be assigned by queue
+          userId: 0, // Will be assigned by queue
           queueId,
-          channel: 'webchat'
+          whatsappId: "" // No WhatsApp associated for webchat
         });
 
         // Associate ticket with session
