@@ -16,9 +16,27 @@ export const createMetaClient = (phoneNumberId: string, accessToken: string) => 
   return {
     wa: waInstance,
     waPost: async (path: string, payload: any) => {
-      return waInstance.post(path, payload, {
-        headers: { "X-Idempotency-Key": uuid() },
-      });
+      try {
+        return await waInstance.post(path, payload, {
+          headers: { "X-Idempotency-Key": uuid() },
+        });
+      } catch (error: any) {
+        // Transformar el error de axios para evitar referencias circulares al propagarse
+        const safeError = new Error(error.message || 'Error de Meta');
+        safeError.name = error.name || 'AxiosError';
+        // Copiar propiedades importantes sin referencias circulares
+        if (error.response) {
+          (safeError as any).response = {
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data
+          };
+        }
+        if (error.code) {
+          (safeError as any).code = error.code;
+        }
+        throw safeError;
+      }
     }
   };
 };

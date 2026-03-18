@@ -39,13 +39,20 @@ export async function sendTextDynamic(to: string, body: string, phoneNumberId: s
     console.log("✅ [META-TEXT] Respuesta exitosa:", JSON.stringify(response.data, null, 2));
     return response;
   } catch (error: any) {
-    console.error("❌ [META-TEXT] ========== ERROR COMPLETO ==========");
+    // NO usar JSON.stringify(error) - tiene referencias circulares
+    console.error("❌ [META-TEXT] ========== ERROR ==========");
     console.error("❌ [META-TEXT] error.message:", error.message);
-    console.error("❌ [META-TEXT] error.response.status:", error.response?.status);
-    console.error("❌ [META-TEXT] error.response.statusText:", error.response?.statusText);
-    console.error("❌ [META-TEXT] error.response.data:", JSON.stringify(error.response?.data, null, 2));
-    console.error("❌ [META-TEXT] error.response.headers:", JSON.stringify(error.response?.headers, null, 2));
-    console.error("❌ [META-TEXT] ================================================");
+    console.error("❌ [META-TEXT] error.response?.status:", error.response?.status);
+    console.error("❌ [META-TEXT] error.response?.statusText:", error.response?.statusText);
+    // Solo stringify la data, no el objeto error completo
+    if (error.response?.data) {
+      const dataStr = typeof error.response.data === 'object'
+        ? JSON.stringify(error.response.data)
+        : String(error.response.data);
+      console.error("❌ [META-TEXT] error.response.data:", dataStr);
+    }
+    // No stringify headers - puede tener referencias circulares
+    console.error("❌ [META-TEXT] =============================");
     throw error;
   }
 }
@@ -78,13 +85,42 @@ export async function sendText(to: string, body: string) {
     console.log("✅ [META-TEXT-LEGACY] Respuesta exitosa:", JSON.stringify(response.data, null, 2));
     return response;
   } catch (error: any) {
-    console.error("❌ [META-TEXT-LEGACY] ERROR:", JSON.stringify(error.response?.data, null, 2));
+    // NO usar JSON.stringify(error) - tiene referencias circulares
+    console.error("❌ [META-TEXT-LEGACY] ERROR:", error.response?.data || error.message);
     throw error;
   }
 }
 
+// Interfaz extendida para botones con tipo y valores dinámicos
+interface TemplateButtonDynamic {
+  id: string;
+  index?: number;
+  type?: string;           // QUICK_REPLY, URL, PHONE_NUMBER, COPY_CODE
+  title?: string;
+  text?: string;
+  url?: string;            // URL con variables {{1}}, {{2}}...
+  phoneNumber?: string;
+  dynamicValue?: string;   // Valor dinámico proporcionado en el envío
+}
+
+// Reemplazar variables {{n}} en strings
+const replaceVariables = (content: string, params: string[]): string => {
+  return content.replace(/\{\{(\d+)\}\}/g, (match, p1) => {
+    const index = parseInt(p1) - 1;
+    return params[index] !== undefined ? params[index] : match;
+  });
+};
+
 // Versiones dinámicas
-export async function sendTemplateDynamic(to: string, name: string, phoneNumberId: string, accessToken: string, params: string[] = [], lang = "es") {
+export async function sendTemplateDynamic(
+  to: string,
+  name: string,
+  phoneNumberId: string,
+  accessToken: string,
+  params: string[] = [],
+  lang: string = "es",
+  buttons?: TemplateButtonDynamic[]
+): Promise<{ messagingMessageId: string }> {
   const client = createMetaClient(phoneNumberId, accessToken);
 
   // Construir el payload
@@ -98,14 +134,68 @@ export async function sendTemplateDynamic(to: string, name: string, phoneNumberI
     },
   };
 
-  // Solo agregar components si hay parámetros
+  // Construir components array
+  const components: any[] = [];
+
+  // Agregar parámetros del body si existen
+  // IMPORTANTE: Meta rechaza valores null/undefined, convertir a string vacío
   if (params && params.length > 0) {
-    payload.template.components = [
-      {
-        type: "body",
-        parameters: params.map((t) => ({ type: "text", text: t })),
-      },
-    ];
+    components.push({
+      type: "body",
+      parameters: params.map((t) => ({ type: "text", text: t ?? "" })),
+    });
+  }
+
+  // NOTA: Los botones NO se envían en el payload de envío
+  // Ya están definidos en la plantilla aprobada en Meta y se incluyen automáticamente
+  // Este código está comentado porque Meta los rechaza si se envían
+  /*
+  if (buttons && buttons.length > 0) {
+    const metaButtons = buttons.map((btn) => {
+      const title = (btn.title || btn.text || "Botón").substring(0, 25);
+      const btnType = btn.type || "QUICK_REPLY";
+      const finalId = btn.dynamicValue ? `${btn.id}|${btn.dynamicValue}` : btn.id;
+
+      switch (btnType) {
+        case "URL":
+          // Reemplazar variables en la URL
+          const finalUrl = btn.url ? replaceVariables(btn.url, params) : "";
+          return {
+            type: "url",
+            url: finalUrl,
+            text: title
+          };
+
+        case "PHONE_NUMBER":
+          return {
+            type: "phone_number",
+            phone_number: btn.phoneNumber || "",
+            text: title
+          };
+
+        case "COPY_CODE":
+          return {
+            type: "copy_code",
+            copy_code: btn.dynamicValue || btn.id.replace("btn_", ""),
+            text: title
+          };
+
+        case "QUICK_REPLY":
+        default:
+          return {
+            type: "quick_reply",
+            text: title
+          };
+      }
+    });
+
+    // Los botones NO se envían - ya están en la plantilla aprobada
+  }
+  // */
+
+  // Solo agregar components si hay parámetros o botones
+  if (components.length > 0) {
+    payload.template.components = components;
   }
 
   // Debug: mostrar el payload completo que se enviará a Meta
@@ -115,10 +205,19 @@ export async function sendTemplateDynamic(to: string, name: string, phoneNumberI
   console.log("📤 [META-TEMPLATE] template_name:", name);
   console.log("📤 [META-TEMPLATE] language:", lang);
   console.log("📤 [META-TEMPLATE] params:", JSON.stringify(params));
+  console.log("📤 [META-TEMPLATE] buttons:", JSON.stringify(buttons));
   console.log("📤 [META-TEMPLATE] PAYLOAD COMPLETO:", JSON.stringify(payload, null, 2));
   console.log("📤 [META-TEMPLATE] ================================================");
 
-  return client.waPost(`/messages`, payload);
+  const response = await client.waPost(`/messages`, payload) as any;
+
+  // Extraer el message_id de la respuesta de Meta
+  const messagingMessageId = response?.messages?.[0]?.id || response?.message_id || response?.id || null;
+
+  console.log("📤 [META-TEMPLATE] Message ID de Meta:", messagingMessageId);
+  console.log("📤 [META-TEMPLATE] Respuesta completa:", JSON.stringify(response));
+
+  return { messagingMessageId };
 }
 
 export async function sendButtonsDynamic(
@@ -147,7 +246,36 @@ export async function sendButtonsDynamic(
 }
 
 // Versiones legacy
-export async function sendTemplate(to: string, name: string, params: string[] = [], lang = "es_ES") {
+export async function sendTemplate(
+  to: string,
+  name: string,
+  params: string[] = [],
+  lang: string = "es_ES",
+  buttons?: { id: string; title: string }[]
+) {
+  // Construir components
+  const components: any[] = [];
+
+  if (params && params.length > 0) {
+    components.push({
+      type: "body",
+      parameters: params.map((t) => ({ type: "text", text: t })),
+    });
+  }
+
+  if (buttons && buttons.length > 0) {
+    components.push({
+      type: "buttons",
+      buttons: buttons.map((btn) => ({
+        type: "reply",
+        reply: {
+          id: btn.id,
+          title: btn.title.substring(0, 25)
+        }
+      }))
+    });
+  }
+
   return waPost(`/messages`, {
     messaging_product: "whatsapp",
     to,
@@ -155,16 +283,7 @@ export async function sendTemplate(to: string, name: string, params: string[] = 
     template: {
       name,
       language: { code: lang },
-      ...(params.length
-        ? {
-            components: [
-              {
-                type: "body",
-                parameters: params.map((t) => ({ type: "text", text: t })),
-              },
-            ],
-          }
-        : {}),
+      ...(components.length > 0 ? { components } : {}),
     },
   });
 }

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import * as Yup from "yup";
+import { Op } from "sequelize";
 import fs from "fs";
 import AppError from "../errors/AppError";
 import GetDefaultWhatsApp from "../helpers/GetDefaultWhatsApp";
@@ -17,6 +18,7 @@ import SendWhatsAppMessageLink from "../services/WbotServices/SendWhatsAppMessag
 import SendWhatsAppMessageAPI from "../services/WbotServices/SendWhatsAppMessageAPI";
 import SendWhatsAppMediaImage from "../services/WbotServices/SendWhatsappMediaImage";
 import ApiUsages from "../models/ApiUsages";
+import ApiFailedMessage from "../models/ApiFailedMessage";
 import { useDate } from "../utils/useDate";
 import moment from "moment";
 import CompaniesSettings from "../models/CompaniesSettings";
@@ -26,6 +28,8 @@ import { verifyMediaMessage, verifyMessage } from "../services/WbotServices/wbot
 import ShowQueueService from "../services/QueueService/ShowQueueService";
 import path from "path";
 import Contact from "../models/Contact";
+import { logInfo, logError, logWarn } from "../config/logger";
+import Ticket from "../models/Ticket";
 import FindOrCreateATicketTrakingService from "../services/TicketServices/FindOrCreateATicketTrakingService";
 import { Mutex } from "async-mutex";
 
@@ -58,6 +62,7 @@ type MessageData = {
   template_name?: string;
   template_params?: string[];
   template_lang?: string;
+  template_buttons?: { id: string; title: string }[];
 };
 
 interface ContactData {
@@ -303,7 +308,8 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     type = "text",
     template_name,
     template_params = [],
-    template_lang = "es"
+    template_lang = "es",
+    template_buttons = []
   }: MessageData = req.body;
 
   // — extraemos aquí los posibles campos de URL
@@ -400,13 +406,16 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
         }
 
         console.log(`📤 [API-META] Enviando TEMPLATE "${template_name}" a ${toNumber}`);
+        console.log(`📤 [API-META] Params: ${JSON.stringify(template_params)}`);
+        console.log(`📤 [API-META] Botones: ${JSON.stringify(template_buttons)}`);
         await sendTemplateDynamic(
           toNumber,
           template_name,
           phoneNumberId,
           accessToken,
           template_params || [],
-          template_lang || "es"
+          template_lang || "es",
+          template_buttons || []
         );
         console.log(`✅ [API-META] Template enviado exitosamente`);
 
@@ -451,6 +460,35 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
       await registerApiUsageWithStatus(companyId, false);
 
       const errorDetails = metaError.response?.data?.error || {};
+
+      // Guardar mensaje fallido para posible retry
+      try {
+        await ApiFailedMessage.create({
+          companyId,
+          whatsappId: whatsapp.id,
+          number: toNumber,
+          message: type === "template" ? `[Plantilla: ${template_name}]` : (body?.substring(0, 1000) || ""),
+          error: errorDetails.message || metaError.message,
+          errorCode: errorDetails.code || null,
+          errorSubcode: errorDetails.error_subcode || null,
+          fbtraceId: errorDetails.fbtrace_id || null,
+          status: "pending",
+          retryCount: 0,
+          ticketId: null,
+          endpoint: type === "template" ? "send-template" : "send",
+          metadata: {
+            type,
+            template_name: template_name || null,
+            template_params: template_params || null,
+            buttons: template_buttons || null,
+            body: body || null
+          }
+        });
+        console.log("✅ [API-META] Mensaje fallido registrado para retry");
+      } catch (saveErr) {
+        console.error("❌ [API-META] Error guardando mensaje fallido:", saveErr);
+      }
+
       return res.status(400).json({
         status: "ERROR",
         error: errorDetails.message || metaError.message || "Error enviando mensaje por META",
@@ -1364,24 +1402,25 @@ export const checkNumbers = async (req: Request, res: Response): Promise<void> =
  */
 export const sendTemplate = async (req: Request, res: Response): Promise<Response> => {
   console.log("\n");
-  console.log("📥 [API-TEMPLATE] ╔══════════════════════════════════════════════════════════╗");
-  console.log("📥 [API-TEMPLATE] ║          INICIO SEND-TEMPLATE                            ║");
-  console.log("📥 [API-TEMPLATE] ╚══════════════════════════════════════════════════════════╝");
-  console.log("📥 [API-TEMPLATE] Timestamp:", new Date().toISOString());
-  console.log("📥 [API-TEMPLATE] Method:", req.method);
-  console.log("📥 [API-TEMPLATE] URL:", req.originalUrl);
-  console.log("📥 [API-TEMPLATE] Content-Type:", req.headers['content-type']);
-  console.log("📥 [API-TEMPLATE] Authorization:", req.headers.authorization ? "Bearer ***" + req.headers.authorization.slice(-10) : "NO AUTH");
-  console.log("📥 [API-TEMPLATE] ──────────────────────────────────────────────────────────");
-  console.log("📥 [API-TEMPLATE] RAW BODY:", JSON.stringify(req.body, null, 2));
-  console.log("📥 [API-TEMPLATE] ──────────────────────────────────────────────────────────");
+  logInfo("📥 [API-TEMPLATE] ╔══════════════════════════════════════════════════════════╗");
+  logInfo("📥 [API-TEMPLATE] ║          INICIO SEND-TEMPLATE                            ║");
+  logInfo("📥 [API-TEMPLATE] ╚══════════════════════════════════════════════════════════╝");
+  logInfo(`📥 [API-TEMPLATE] Timestamp: ${new Date().toISOString()}`);
+  logInfo(`📥 [API-TEMPLATE] Method: ${req.method}`);
+  logInfo(`📥 [API-TEMPLATE] URL: ${req.originalUrl}`);
+  logInfo(`📥 [API-TEMPLATE] Content-Type: ${req.headers['content-type']}`);
+  logInfo(`📥 [API-TEMPLATE] Authorization: ${req.headers.authorization ? "Bearer ***" + req.headers.authorization.slice(-10) : "NO AUTH"}`);
+  logInfo("📥 [API-TEMPLATE] ──────────────────────────────────────────────────────────");
+  logInfo(`📥 [API-TEMPLATE] RAW BODY: ${JSON.stringify(req.body, null, 2)}`);
+  logInfo("📥 [API-TEMPLATE] ──────────────────────────────────────────────────────────");
 
-  const { number, template_id, params = [] } = req.body;
+  const { number, template_id, params = [], button_params = [], webhookUrl, externalId } = req.body;
 
-  console.log("📥 [API-TEMPLATE] Datos extraídos del body:");
+  logInfo("📥 [API-TEMPLATE] Datos extraídos del body:");
   console.log("   - number:", number, `(tipo: ${typeof number})`);
   console.log("   - template_id:", template_id, `(tipo: ${typeof template_id})`);
   console.log("   - params:", JSON.stringify(params), `(tipo: ${typeof params}, es array: ${Array.isArray(params)}, length: ${params?.length || 0})`);
+  console.log("   - button_params:", JSON.stringify(button_params), `(tipo: ${typeof button_params}, es array: ${Array.isArray(button_params)}, length: ${button_params?.length || 0})`);
 
   // Validar token de autorización
   const authHeader = req.headers.authorization;
@@ -1425,14 +1464,14 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
   });
 
   if (!template) {
-    console.log(`❌ [API-TEMPLATE] Plantilla ID ${template_id} no encontrada para company ${companyId}`);
+    logError(`❌ [API-TEMPLATE] Plantilla ID ${template_id} no encontrada para company ${companyId}`);
     return res.status(404).json({
       status: "ERROR",
       error: `Plantilla con ID ${template_id} no encontrada`
     });
   }
 
-  console.log("✅ [API-TEMPLATE] Plantilla encontrada:");
+  logInfo("✅ [API-TEMPLATE] Plantilla encontrada:");
   console.log("   - id:", template.id);
   console.log("   - name:", template.name);
   console.log("   - status:", template.status);
@@ -1494,55 +1533,297 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
 
   const toNumber = String(number).replace(/[\s\-\+]/g, "");
 
-  try {
-    console.log(`📤 [API-TEMPLATE] Enviando plantilla "${template.name}" a ${toNumber}`);
-    console.log(`📋 [API-TEMPLATE] Parámetros: ${JSON.stringify(params)}`);
+  // ============================================
+  // VALIDACIONES DE BOTONES
+  // ============================================
 
-    await sendTemplateDynamic(
-      toNumber,
-      template.name,
-      phoneNumberId,
-      accessToken,
-      params || [],
-      template.language || "es"
-    );
+  // Validar button_params si se proporciona
+  // Formato esperado: [{ type: "QUICK_REPLY", value: "mi_valor" }, { type: "URL", value: "https://..." }]
+  let processedButtonParams: { type: string; value: string }[] = [];
 
-    // Actualizar contador de uso de la plantilla
-    await template.update({
-      usageCount: (template.usageCount || 0) + 1,
-      lastUsedAt: new Date()
-    });
+  if (button_params && Array.isArray(button_params) && button_params.length > 0) {
+    const templateButtonCount = template.buttons?.length || 0;
 
-    console.log(`✅ [API-TEMPLATE] Plantilla enviada exitosamente`);
-
-    // Registrar uso de API
-    const { dateForPostgres } = useDate();
-    const hoje = dateForPostgres();
-    let apiUsage = await ApiUsages.findOne({ where: { dateUsed: hoje, companyId } });
-    if (!apiUsage) {
-      apiUsage = await ApiUsages.create({ companyId, dateUsed: hoje });
+    // Validar cantidad de button_params no exceda botones del template
+    if (button_params.length > templateButtonCount) {
+      logWarn(`⚠️ [API-TEMPLATE] button_params tiene ${button_params.length} elementos pero el template solo tiene ${templateButtonCount} botones`);
     }
-    await apiUsage.update({
-      usedOnDay: (apiUsage.dataValues["usedOnDay"] || 0) + 1,
-      usedText: (apiUsage.dataValues["usedText"] || 0) + 1,
-      successCount: (apiUsage.dataValues["successCount"] || 0) + 1,
-      updatedAt: new Date()
+
+    // Validar cada button_param
+    const validTypes = ["QUICK_REPLY", "URL", "PHONE_NUMBER", "COPY_CODE"];
+
+    for (let i = 0; i < button_params.length; i++) {
+      const bp = button_params[i];
+      const btnFromTemplate = template.buttons?.[i];
+
+      // Validar tipo si se proporciona
+      if (bp && typeof bp === 'object' && bp.type) {
+        if (!validTypes.includes(bp.type)) {
+          return res.status(400).json({
+            status: "ERROR",
+            error: `Tipo de botón inválido: "${bp.type}". Tipos válidos: ${validTypes.join(", ")}`,
+            button_index: i
+          });
+        }
+
+        // Validar que el tipo coincida con el botón del template
+        if (btnFromTemplate && btnFromTemplate.type !== bp.type) {
+          logWarn(`⚠️ [API-TEMPLATE] Tipo mismatch: button_params[${i}] es "${bp.type}" pero el template tiene "${btnFromTemplate.type}"`);
+        }
+      }
+
+      // Validar que el botón del template exista si se proporciona button_params
+      if (!btnFromTemplate) {
+        return res.status(400).json({
+          status: "ERROR",
+          error: `Se proporcionó button_params[${i}] pero el template no tiene un botón en ese índice`,
+          button_index: i,
+          template_button_count: templateButtonCount
+        });
+      }
+    }
+
+    // Procesar button_params
+    processedButtonParams = button_params.map((bp: any, idx: number) => {
+      // Soportar formato: { type, value } o simplemente { value } (asumir QUICK_REPLY)
+      if (typeof bp === 'object' && bp !== null) {
+        return {
+          type: bp.type || "QUICK_REPLY",
+          value: bp.value || bp.id || String(bp) || ""
+        };
+      }
+      // Si es string directo, asumir QUICK_REPLY
+      return { type: "QUICK_REPLY", value: String(bp) };
+    });
+  }
+
+  // Validar que si el template tiene botones URL, se proporcione button_params con URL válida
+  if (template.buttons && template.buttons.length > 0) {
+    const urlButtons = template.buttons.filter((b: any) => b.type === "URL");
+    if (urlButtons.length > 0) {
+      // Verificar que los botones URL tengan URL configurada
+      for (let i = 0; i < template.buttons.length; i++) {
+        const btn = template.buttons[i];
+        if (btn.type === "URL" && !btn.url) {
+          logWarn(`⚠️ [API-TEMPLATE] Botón URL en índice ${i} no tiene URL configurada en el template`);
+        }
+      }
+    }
+  }
+
+  try {
+    logInfo(`📤 [API-TEMPLATE] Enviando plantilla "${template.name}" a ${toNumber}`);
+    logInfo(`📋 [API-TEMPLATE] Parámetros: ${JSON.stringify(params)}`);
+    logInfo(`📋 [API-TEMPLATE] Botones del template: ${JSON.stringify(template.buttons)}`);
+    logInfo(`📋 [API-TEMPLATE] button_params procesados: ${JSON.stringify(processedButtonParams)}`);
+
+    // Mapear botones del template con tipos y valores dinámicos
+    const templateButtons: any[] = template.buttons ? template.buttons.map((btn: any, index: number) => {
+      const dynamicValue = processedButtonParams[index]?.value || "";
+
+      return {
+        id: btn.id,
+        index: btn.index,
+        type: btn.type || "QUICK_REPLY",
+        title: btn.text || btn.title || "Botón",
+        url: btn.url,
+        phoneNumber: btn.phoneNumber,
+        dynamicValue: dynamicValue,
+      };
+    }) : [];
+
+    // ===== NUEVO FLUJO: GUARDAR MENSAJE ANTES DE ENVIAR A META =====
+
+    // 1. Preparar contacto y ticket PRIMERO
+    let contact: any;
+    let ticket: any;
+
+    logInfo(`[API-TEMPLATE] 🔍 Preparando contacto y ticket para ${toNumber}`);
+
+    contact = await Contact.findOne({
+      where: { number: toNumber, companyId }
     });
 
-    return res.status(200).json({
-      status: "SUCCESS",
-      via: "meta_cloud_api",
+    if (!contact) {
+      contact = await Contact.create({
+        name: `Cliente ${toNumber}`,
+        number: toNumber,
+        companyId,
+        channel: "whatsapp"
+      });
+      logInfo(`✅ [API-TEMPLATE] Contacto creado: ${contact.id}`);
+    }
+
+    ticket = await Ticket.findOne({
+      where: {
+        contactId: contact.id,
+        status: { [Op.in]: ["open", "pending"] },
+        companyId
+      }
+    });
+
+    if (!ticket) {
+      ticket = await Ticket.create({
+        contactId: contact.id,
+        whatsappId: sendWhatsapp.id,
+        companyId,
+        status: "open",
+        channel: "whatsapp"
+      });
+      logInfo(`✅ [API-TEMPLATE] Ticket creado: ${ticket.id}`);
+    }
+
+    // 2. Crear mensaje con estado PENDING antes de enviar a Meta
+    const pendingWid = `PENDING_${externalId || Date.now()}`;
+    const messageBody = `[Plantilla: ${template.name}]${params && params.length > 0 ? "\n📋 Parámetros: " + params.join(", ") : ""}`;
+    const messageDataJson = {
+      templateId: template.id,
+      templateName: template.name,
+      language: template.language,
+      params,
+      webhookUrl,
+      externalId,
+      phone: toNumber,
+      sentAt: new Date().toISOString(),
+      status: 'pending'  // ← IMPORTANTE: Status pending hasta que Meta responda
+    };
+
+    logInfo(`[API-TEMPLATE] 💾 Guardando mensaje con wid=${pendingWid} ANTES de enviar a Meta`);
+
+    const message = await Message.create({
+      ticketId: ticket.id,
+      contactId: contact.id,
+      body: messageBody,
+      fromMe: true,
+      read: true,
+      mediaType: "template",
+      companyId,
+      ack: 1,  // ack=1 significa "enviado" pero aquí lo usamos como "pending"
+      dataJson: JSON.stringify(messageDataJson),
+      wid: pendingWid  // ← Guardar con ID temporal PENDING_<externalId>
+    });
+
+    logInfo(`[API-TEMPLATE] ✅ Mensaje creado - messageId: ${message.id} | wid: ${pendingWid}`);
+
+    // 3. Enviar plantilla a Meta
+    let templateResponse: any;
+    let sendSuccess = false;
+
+    try {
+      logInfo(`📤 [API-TEMPLATE] Enviando plantilla "${template.name}" a ${toNumber}`);
+
+      templateResponse = await sendTemplateDynamic(
+        toNumber,
+        template.name,
+        phoneNumberId,
+        accessToken,
+        params || [],
+        template.language || "es",
+        templateButtons
+      );
+
+      sendSuccess = true;
+      logInfo(`[API-TEMPLATE] ✅ Plantilla enviada - MessageID: ${templateResponse?.messagingMessageId} | to: ${toNumber}`);
+
+    } catch (metaError: any) {
+      // Si el envío a Meta falla, el mensaje YA existe en BD - lo actualizamos como failed
+      logError(`❌ [API-TEMPLATE] Error enviando plantilla a Meta: ${metaError.message}`);
+
+      // Extraer el mensaje de error real de Meta (muchas veces axios tiene problemas con errores de red)
+      let errorMessage = "Error desconocido";
+      try {
+        // Intentar obtener el mensaje de error de la respuesta de Meta
+        if (metaError.response?.data) {
+          const errorData = metaError.response.data;
+          // Si es un objeto con propiedad error o message
+          if (typeof errorData === 'object') {
+            errorMessage = errorData.error?.message || errorData.message || JSON.stringify(errorData);
+          } else {
+            errorMessage = String(errorData);
+          }
+        }
+        // Si el error es de red (conexión rechazada, timeout, etc.)
+        if (!metaError.response && metaError.code) {
+          errorMessage = `Error de red: ${metaError.code} - ${metaError.message}`;
+        }
+      } catch (extractError) {
+        errorMessage = `Error parseando error: ${metaError.message}`;
+      }
+
+      logError(`❌ [API-TEMPLATE] Error detallado: status=${metaError.response?.status}, code=${metaError.code}, message=${errorMessage}`);
+
+      await message.update({
+        dataJson: JSON.stringify({ ...messageDataJson, status: 'failed', error: errorMessage, metaStatus: metaError.response?.status, metaCode: metaError.code })
+      });
+
+      logInfo(`[API-TEMPLATE] ✅ Mensaje marcado como failed en BD - messageId: ${message.id} | wid: ${pendingWid} | error: ${errorMessage}`);
+    }
+
+    // 4. Actualizar mensaje según resultado del envío
+    if (sendSuccess && templateResponse?.messagingMessageId) {
+      // Éxito: actualizar wid al message_id real de Meta y marcar como sent
+      // IMPORTANTE: También guardar metaMessageId en dataJson para correlación de botones
+      await message.update({
+        wid: templateResponse.messagingMessageId,
+        ack: 2,
+        dataJson: JSON.stringify({
+          ...messageDataJson,
+          status: 'sent',
+          metaMessageId: templateResponse.messagingMessageId  // ← Para buscar por context.id de Meta
+        })
+      });
+      logInfo(`[API-TEMPLATE] ✅ Mensaje actualizado - wid: ${templateResponse.messagingMessageId} | metaMessageId guardado en dataJson | status: sent`);
+
+      // Actualizar contador de uso de la plantilla
+      await template.update({
+        usageCount: (template.usageCount || 0) + 1,
+        lastUsedAt: new Date()
+      });
+
+      // Registrar uso de API (solo en éxito)
+      const { dateForPostgres } = useDate();
+      const hoje = dateForPostgres();
+      let apiUsage = await ApiUsages.findOne({ where: { dateUsed: hoje, companyId } });
+      if (!apiUsage) {
+        apiUsage = await ApiUsages.create({ companyId, dateUsed: hoje });
+      }
+      await apiUsage.update({
+        usedOnDay: (apiUsage.dataValues["usedOnDay"] || 0) + 1,
+        usedText: (apiUsage.dataValues["usedText"] || 0) + 1,
+        successCount: (apiUsage.dataValues["successCount"] || 0) + 1,
+        updatedAt: new Date()
+      });
+
+      return res.status(200).json({
+        status: "SUCCESS",
+        via: "meta_cloud_api",
+        template: {
+          id: template.id,
+          name: template.name,
+          language: template.language
+        },
+        to: toNumber,
+        params_sent: params,
+        message_id: message.id,
+        meta_message_id: templateResponse.messagingMessageId
+      });
+    }
+
+    // Si el envío falló, retornar error pero el mensaje ya existe en BD
+    logError(`❌ [API-TEMPLATE] Falló envío a Meta - messageId: ${message.id} | wid: ${pendingWid}`);
+    return res.status(400).json({
+      status: "ERROR",
+      error: "Error enviando plantilla por META",
       template: {
         id: template.id,
-        name: template.name,
-        language: template.language
+        name: template.name
       },
-      to: toNumber,
-      params_sent: params
+      message_id: message.id,
+      // El mensaje existe en BD con status="failed" para correlación de botones
     });
 
   } catch (metaError: any) {
-    console.error(`❌ [API-TEMPLATE] Error enviando plantilla:`, metaError.response?.data || metaError.message);
+    logError(`❌ [API-TEMPLATE] Error enviando plantilla: ${JSON.stringify(metaError.response?.data) || metaError.message}`);
 
     // Registrar fallo
     const { dateForPostgres } = useDate();
@@ -1558,6 +1839,28 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     });
 
     const errorDetails = metaError.response?.data?.error || {};
+
+    // Guardar mensaje fallido para posible retry
+    try {
+      await ApiFailedMessage.create({
+        companyId,
+        whatsappId: sendWhatsapp.id,
+        number: toNumber,
+        message: `[Plantilla: ${template.name}]`,
+        error: errorDetails.message || metaError.message,
+        errorCode: errorDetails.code || null,
+        errorSubcode: errorDetails.error_subcode || null,
+        fbtraceId: errorDetails.fbtrace_id || null,
+        status: "pending",
+        retryCount: 0,
+        ticketId: null,
+        endpoint: "send-template",
+        metadata: { template_id: template.id, template_name: template.name, params: params }
+      });
+      logInfo("✅ [API-TEMPLATE] Mensaje fallido registrado para retry");
+    } catch (saveErr) {
+      logError(`❌ [API-TEMPLATE] Error guardando mensaje fallido: ${saveErr}`);
+    }
     return res.status(400).json({
       status: "ERROR",
       error: errorDetails.message || metaError.message || "Error enviando plantilla por META",
@@ -1570,6 +1873,182 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
         subcode: errorDetails.error_subcode,
         fbtrace_id: errorDetails.fbtrace_id
       }
+    });
+  }
+};
+// ==========================================
+// Controlador para Mensajes Fallidos API
+// ==========================================
+
+export const listFailedMessages = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user as any;
+    const { status, page = 1, limit = 20 } = req.query;
+
+    const where: any = { companyId };
+    if (status && status !== 'all') {
+      where.status = status;
+    }
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const { count, rows: messages } = await ApiFailedMessage.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: Number(limit),
+      offset,
+      include: [{
+        model: Whatsapp,
+        as: 'whatsapp',
+        attributes: ['id', 'name', 'number']
+      }]
+    });
+
+    return res.status(200).json({
+      success: true,
+      messages,
+      pagination: {
+        total: count,
+        page: Number(page),
+        limit: Number(limit),
+        pages: Math.ceil(count / Number(limit))
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Error listando mensajes fallidos:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Error al listar mensajes fallidos'
+    });
+  }
+};
+
+export const retryFailedMessage = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user as any;
+    const { id } = req.params;
+
+    const failedMessage = await ApiFailedMessage.findOne({
+      where: { id, companyId, status: 'pending' }
+    });
+
+    if (!failedMessage) {
+      return res.status(404).json({
+        success: false,
+        error: 'Mensaje fallido no encontrado o ya procesado'
+      });
+    }
+
+    // Obtener la conexión WhatsApp
+    const whatsapp = await Whatsapp.findByPk(failedMessage.whatsappId);
+    if (!whatsapp) {
+      return res.status(400).json({
+        success: false,
+        error: 'Conexión WhatsApp no encontrada'
+      });
+    }
+
+    // Reenviar el mensaje según el endpoint
+    const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
+    const accessToken = whatsapp.tokenMeta;
+
+    if (!accessToken || !phoneNumberId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Conexión META no configurada correctamente'
+      });
+    }
+
+    const toNumber = String(failedMessage.number).replace(/[\s\-\+]/g, "");
+    const metadata = failedMessage.metadata || {};
+
+    console.log(`🔄 [RETRY] Reenviando mensaje a ${toNumber}`);
+
+    if (failedMessage.endpoint === 'send-template') {
+      // Reenviar plantilla
+      console.log(`🔄 [RETRY] Template: ${metadata.template_name}, Params: ${JSON.stringify(metadata.params)}, Botones: ${JSON.stringify(metadata.buttons)}`);
+      await sendTemplateDynamic(
+        toNumber,
+        metadata.template_name,
+        phoneNumberId,
+        accessToken,
+        metadata.params || [],
+        'es',
+        metadata.buttons || []
+      );
+    } else {
+      // Reenviar texto normal
+      await sendTextDynamic(
+        toNumber,
+        failedMessage.message,
+        phoneNumberId,
+        accessToken
+      );
+    }
+
+    // Actualizar estado del mensaje fallido
+    await failedMessage.update({
+      status: 'retried',
+      retryCount: failedMessage.retryCount + 1
+    });
+
+    console.log(`✅ [RETRY] Mensaje reenviado exitosamente a ${toNumber}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Mensaje reenviado exitosamente',
+      retryCount: failedMessage.retryCount + 1
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error reenviando mensaje:', error.message);
+
+    // Actualizar el mensaje fallido con el nuevo error
+    const { id } = req.params;
+    const { companyId } = req.user as any;
+    
+    const failedMessage = await ApiFailedMessage.findOne({ where: { id, companyId } });
+    if (failedMessage) {
+      await failedMessage.update({
+        error: error.message,
+        retryCount: failedMessage.retryCount + 1
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Error al reenviar mensaje'
+    });
+  }
+};
+
+export const deleteFailedMessage = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user as any;
+    const { id } = req.params;
+
+    const failedMessage = await ApiFailedMessage.findOne({
+      where: { id, companyId }
+    });
+
+    if (!failedMessage) {
+      return res.status(404).json({
+        success: false,
+        error: 'Mensaje fallido no encontrado'
+      });
+    }
+
+    await failedMessage.destroy();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Mensaje fallido eliminado'
+    });
+  } catch (error: any) {
+    console.error('❌ Error eliminando mensaje fallido:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Error al eliminar mensaje fallido'
     });
   }
 };
