@@ -1,6 +1,17 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Box, Sheet, Typography, FormControl, FormLabel, Input, Button, Stack, Modal, ModalDialog, DialogTitle, DialogContent, DialogActions, Checkbox, Divider } from '@mui/joy'
+import {
+  Box,
+  Sheet,
+  Typography,
+  FormControl,
+  FormLabel,
+  Input,
+  Button,
+  Stack,
+  Checkbox,
+  Divider,
+} from '@mui/joy'
 import { WhatsApp as WhatsAppIcon } from '@mui/icons-material'
 import { toast } from 'react-toastify'
 import { useAuth } from '../hooks/useAuth'
@@ -10,63 +21,21 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [showForceDialog, setShowForceDialog] = useState(false)
-  const [forceMessage, setForceMessage] = useState('')
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  // WhatsApp contact number (from environment or default)
   const whatsappNumber = import.meta.env.VITE_WHATSAPP_CONTACT || '5491234567890'
 
-  const handleSubmit = async (e: React.FormEvent, force: boolean = false) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    // Evitar múltiples clicks
     if (loading) return
 
     setLoading(true)
-    let needsForceDialog = false
-
     try {
-      console.log('Attempting login with force:', force)
-      const result = await login(email, password, force)
-      console.log('Login result:', result)
-
+      const result = await login(email, password)
       if (result.success) {
         toast.success('Inicio de sesión exitoso')
         navigate('/')
-      } else if (result.needsForce) {
-        console.log('Showing force dialog')
-        // Mostrar diálogo para confirmar forzar login
-        setForceMessage(result.message || 'Ya existe una sesión activa. ¿Desea cerrarla y continuar?')
-        setShowForceDialog(true)
-        needsForceDialog = true
-        setLoading(false) // Reset loading para permitir forzar login
-      } else {
-        toast.error(result.error || 'Error al iniciar sesión')
-      }
-    } catch (error) {
-      console.error('Login error:', error)
-      toast.error('Error al iniciar sesión')
-    } finally {
-      // Solo reset loading si no se mostró el diálogo de force
-      if (!needsForceDialog) {
-        setLoading(false)
-      }
-    }
-  }
-
-  const handleForceLogin = async () => {
-    setShowForceDialog(false)
-    setLoading(true)
-
-    try {
-      const result = await login(email, password, true)
-      if (result.success) {
-        toast.success('Inicio de sesión exitoso')
-        navigate('/')
-      } else {
-        toast.error(result.error || 'Error al iniciar sesión')
       }
     } catch (error) {
       toast.error('Error al iniciar sesión')
@@ -81,7 +50,7 @@ export default function Login() {
   }
 
   const handleForgotPassword = () => {
-    toast.info('Funcionalidad de recuperación de contraseña próximamente')
+    navigate('/forgot-password')
   }
 
   return (
@@ -91,29 +60,37 @@ export default function Login() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: 'background.level1',
+        bgcolor: '#1e293b',
+        background: 'linear-gradient(135deg, #1e293b 0%, #152030 50%, #1a2535 100%)',
       }}
     >
       <Sheet
-        variant="outlined"
         sx={{
-          maxWidth: 400,
+          maxWidth: 420,
           width: '100%',
           mx: 2,
-          p: 4,
-          borderRadius: 'md',
-          boxShadow: 'md',
+          p: { xs: 3, sm: 4 },
+          borderRadius: 'xl',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          bgcolor: 'background.surface',
         }}
       >
         <Stack spacing={3}>
-          <Stack spacing={1} alignItems="center">
-            <Typography level="h3" component="h1" sx={{ color: 'primary.main' }}>
-              Chateam!
-            </Typography>
-            <Typography level="h4" component="span" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-              pro
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 1 }}>
+          {/* Logo + Branding */}
+          <Stack spacing={1.5} alignItems="center" sx={{ pt: 1 }}>
+            <Box
+              component="img"
+              src="/logo.png"
+              alt="ChatEAM"
+              sx={{ width: 72, height: 72 }}
+            />
+            <Box
+              component="img"
+              src="/chateam-logo.png"
+              alt="Chateam"
+              sx={{ height: 24 }}
+            />
+            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
               Plataforma de comunicación omnicanal
             </Typography>
           </Stack>
@@ -121,30 +98,32 @@ export default function Login() {
           <form onSubmit={handleSubmit}>
             <Stack spacing={2}>
               <FormControl required>
-                <FormLabel>Correo Electrónico *</FormLabel>
+                <FormLabel>Correo Electrónico</FormLabel>
                 <Input
                   type="email"
                   placeholder="tu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
+                  size="lg"
                 />
               </FormControl>
 
               <FormControl required>
-                <FormLabel>Contraseña *</FormLabel>
+                <FormLabel>Contraseña</FormLabel>
                 <Input
                   type="password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
+                  size="lg"
                 />
               </FormControl>
 
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Checkbox
-                  label="Recuerdame"
+                  label="Recuérdame"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                   size="sm"
@@ -152,73 +131,62 @@ export default function Login() {
                 <Typography
                   level="body-sm"
                   sx={{
-                    color: 'primary.main',
+                    color: 'primary.500',
                     cursor: 'pointer',
-                    '&:hover': { textDecoration: 'underline' }
+                    '&:hover': { textDecoration: 'underline' },
                   }}
                   onClick={handleForgotPassword}
                 >
-                  ¿Ha olvidado su contraseña?
+                  ¿Olvidaste tu contraseña?
                 </Typography>
               </Box>
 
-              <Stack direction="row" spacing={1}>
-                <Button
-                  variant="soft"
-                  color="primary"
-                  fullWidth
-                  component={Link}
-                  to="/signup"
-                >
-                  REGISTRARSE
-                </Button>
-                <Button
-                  type="submit"
-                  fullWidth
-                  loading={loading}
-                  color="primary"
-                >
-                  INGRESA
-                </Button>
-              </Stack>
-
-              <Divider sx={{ my: 1 }} />
+              <Button
+                type="submit"
+                fullWidth
+                loading={loading}
+                size="lg"
+                sx={{
+                  bgcolor: '#1e293b',
+                  '&:hover': { bgcolor: '#152030' },
+                  fontWeight: 600,
+                  fontSize: '0.95rem',
+                }}
+              >
+                Iniciar Sesión
+              </Button>
 
               <Button
                 variant="outlined"
+                color="neutral"
+                fullWidth
+                component={Link}
+                to="/signup"
+                size="lg"
+              >
+                Crear Cuenta
+              </Button>
+
+              <Divider sx={{ my: 0.5 }}>o</Divider>
+
+              <Button
+                variant="soft"
                 color="success"
                 fullWidth
                 startDecorator={<WhatsAppIcon />}
                 onClick={handleWhatsAppContact}
               >
-                CONTACTENOS POR WHATSAPP
+                Contáctanos por WhatsApp
               </Button>
             </Stack>
           </form>
 
           <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary' }}>
-            Copyright 2025 - CodigoPlus
+            Copyright {new Date().getFullYear()} - CodigoPlus
           </Typography>
         </Stack>
       </Sheet>
 
-      {/* Modal de confirmación para forzar login */}
-      <Modal open={showForceDialog} onClose={() => setShowForceDialog(false)}>
-        <ModalDialog variant="outlined" role="alertdialog">
-          <DialogTitle>Sesión Activa Detectada</DialogTitle>
-          <DialogContent>
-            {forceMessage}
-          </DialogContent>
-          <DialogActions>
-            <Button variant="plain" color="neutral" onClick={() => setShowForceDialog(false)}>
-              Cancelar
-            </Button>
-            <Button variant="solid" color="primary" onClick={handleForceLogin}>
-              Cerrar sesión anterior y continuar
-            </Button>
-          </DialogActions>
-        </ModalDialog>
-      </Modal>
     </Box>
   )
 }

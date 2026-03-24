@@ -3,7 +3,7 @@ import WebChatChannel from '../../models/WebChat/WebChatChannel.js';
 import Contact from '../../models/Contact.js';
 import Ticket from '../../models/Ticket.js';
 import Company from '../../models/Company.js';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 import AppError from '../../errors/AppError.js';
 import { Op } from 'sequelize';
 

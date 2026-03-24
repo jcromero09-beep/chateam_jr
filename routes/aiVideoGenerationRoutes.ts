@@ -11,6 +11,7 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import isAuth from "../middleware/isAuth";
+import validateAICredits from "../middleware/validateAICredits";
 import * as AIVideoGenerationController from "../controllers/AIVideoGenerationController";
 
 const aiVideoGenerationRoutes = express.Router();
@@ -136,6 +137,7 @@ aiVideoGenerationRoutes.post(
   "/",
   isAuth,
   generateLimiter, // Rate limiting mas estricto para generacion de video
+  validateAICredits("video", 1), // Verificar créditos antes de generar video
   AIVideoGenerationController.generate
 );
 
@@ -223,4 +225,4 @@ aiVideoGenerationRoutes.get(
 // ============================================================================
 
 export default aiVideoGenerationRoutes;
-console.log("📄 AI-VIDEO-ROUTES.TS LOADED\!");
+// console.log("📄 AI-VIDEO-ROUTES.TS LOADED\!");

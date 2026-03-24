@@ -1,5 +1,6 @@
 import { Op } from "sequelize";
 import AIProviderConfig from "../models/AIProviderConfig";
+import AppError from "../errors/AppError";
 
 // ID de la company del SuperAdmin (configuracion global de IA)
 const SUPERADMIN_COMPANY_ID = 1;
@@ -244,6 +245,46 @@ export async function getAvailableCapabilities(): Promise<AICapability[]> {
   return available;
 }
 
+/**
+ * Obtiene un API key para un proveedor, con fallback a variable de entorno.
+ * Utilizada por servicios como HeyGen, RealtimeAudio, Vision, FineTuning, etc.
+ *
+ * @param providerName - Nombre del proveedor (e.g. 'heygen', 'elevenlabs')
+ * @param envVar - Variable de entorno de fallback (e.g. 'HEYGEN_API_KEY')
+ * @param companyId - Company ID opcional, default SuperAdmin
+ * @returns API key string
+ */
+export async function getApiKeyWithFallback(
+  providerName: string,
+  envVar: string,
+  companyId?: number
+): Promise<string> {
+  // 1. Buscar en AIProviderConfig por nombre del proveedor
+  try {
+    const provider = await AIProviderConfig.findOne({
+      where: {
+        provider: providerName,
+        isActive: true,
+        companyId: companyId || SUPERADMIN_COMPANY_ID
+      }
+    });
+    if (provider?.apiKey) return provider.apiKey;
+  } catch (_e) {
+    // Silencioso, intentar fallback a env
+  }
+
+  // 2. Fallback a variable de entorno
+  const envKey = process.env[envVar];
+  if (envKey) return envKey;
+
+  // 3. Error si no hay clave disponible
+  throw new AppError(
+    `API key no configurada para proveedor "${providerName}". ` +
+    `Configure en Proveedores IA o defina la variable de entorno ${envVar}.`,
+    400
+  );
+}
+
 export default {
   SUPERADMIN_COMPANY_ID,
   getDefaultProviderForCapability,
@@ -253,5 +294,6 @@ export default {
   getDefaultProvidersOverview,
   validateSingleDefaultPerCapability,
   isCapabilityAvailable,
-  getAvailableCapabilities
+  getAvailableCapabilities,
+  getApiKeyWithFallback
 };

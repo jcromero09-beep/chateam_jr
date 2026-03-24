@@ -59,11 +59,22 @@ class Ticket extends Model<Ticket> {
   @Column(DataType.JSON)
   dataWebhook: {} | null;
 
+  @Default({})
+  @Column(DataType.JSON)
+  metadata: Record<string, any>;
+
+  @Column(DataType.STRING)
+  title: string;
+
   @Column(DataType.STRING)
   lastMessage: string;
 
   @Column(DataType.INTEGER)
   followup_count: number;
+
+  @Default(true)
+  @Column(DataType.BOOLEAN)
+  followupEnabled: boolean;
 
   @Default(false)
   @Column(DataType.BOOLEAN)

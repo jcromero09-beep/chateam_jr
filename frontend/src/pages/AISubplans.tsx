@@ -71,12 +71,15 @@ interface AISubplan {
   name: string
   description: string
   tokens: number
+  maxAgents: number  // Límite de agentes IA para este subplan
   priceUsd: number
   tokensConsumed: number  // Tokens consumidos del subplan
   isActive: boolean
   isPublic: boolean
   stripeProductId?: string
   stripePriceId?: string
+  paypalProductId?: string
+  paypalPriceId?: string
   createdAt: string
   updatedAt: string
   // COMENTADO: aiProviderConfig?: AIProviderConfig
@@ -87,6 +90,7 @@ interface FormData {
   name: string
   description: string
   tokens: number
+  maxAgents: number
   priceUsd: number
   isActive: boolean
   isPublic: boolean
@@ -97,6 +101,7 @@ const initialFormData: FormData = {
   name: '',
   description: '',
   tokens: 10000,
+  maxAgents: 3,
   priceUsd: 5,
   isActive: true,
   isPublic: false,
@@ -173,6 +178,7 @@ export default function AISubplans() {
       name: subplan.name,
       description: subplan.description || '',
       tokens: subplan.tokens,
+      maxAgents: subplan.maxAgents || 1,
       priceUsd: subplan.priceUsd,
       isActive: subplan.isActive,
       isPublic: subplan.isPublic,
@@ -262,6 +268,7 @@ export default function AISubplans() {
       const payload = {
         ...formData,
         tokens: Number(formData.tokens),
+        maxAgents: Number(formData.maxAgents),
         priceUsd: Number(formData.priceUsd),
       }
 
@@ -485,7 +492,8 @@ export default function AISubplans() {
                   <tr>
                     <th style={{ width: 200 }}>{i18n.t("aiModules.subplans.table.name")}</th>
                     {/* COMENTADO: <th style={{ width: 150 }}>Proveedor</th> */}
-                    <th style={{ width: 120, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.tokens")}</th>
+                    <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.tokens")}</th>
+                    <th style={{ width: 80, textAlign: 'right' }}>Agentes</th>
                     <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.used")}</th>
                     <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.remaining")}</th>
                     <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.price")}</th>
@@ -523,6 +531,11 @@ export default function AISubplans() {
                         <Typography level="body-sm" fontWeight="lg">
                           {formatNumber(subplan.tokens)}
                         </Typography>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <Chip size="sm" color="primary">
+                          {subplan.maxAgents || 1}
+                        </Chip>
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <Typography level="body-sm">
@@ -676,6 +689,18 @@ export default function AISubplans() {
                     value={formData.tokens}
                     onChange={(e) => setFormData({ ...formData, tokens: parseInt(e.target.value) || 0 })}
                     slotProps={{ input: { min: 0 } }}
+                  />
+                </FormControl>
+              </Grid>
+              <Grid xs={12} md={6}>
+                <FormControl required>
+                  <FormLabel>{i18n.t("aiModules.subplans.modal.maxAgentsLabel") || "Límite de Agentes IA"}</FormLabel>
+                  <Input
+                    type="number"
+                    startDecorator={<SubplanIcon />}
+                    value={formData.maxAgents}
+                    onChange={(e) => setFormData({ ...formData, maxAgents: parseInt(e.target.value) || 1 })}
+                    slotProps={{ input: { min: 1, max: 100 } }}
                   />
                 </FormControl>
               </Grid>

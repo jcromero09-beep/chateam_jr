@@ -13,15 +13,23 @@ import {
   CircularProgress,
   Divider,
   Alert,
+  Input,
+  FormControl,
+  FormLabel,
 } from '@mui/joy'
 import {
   Token as TokenIcon,
   ShoppingCart as CartIcon,
   Check as CheckIcon,
   AccountBalanceWallet as WalletIcon,
+  CreditCard as StripeIcon,
+  Payment as PayPalIcon,
+  Receipt as ComprobanteIcon,
 } from '@mui/icons-material'
 import { toast } from 'react-toastify'
 import api from '../services/api'
+
+type PaymentMethod = 'stripe' | 'paypal' | 'comprobante' | null
 
 interface AISubplan {
   id: number
@@ -30,6 +38,7 @@ interface AISubplan {
   tokens: number
   priceUsd: number
   stripePriceId?: string
+  paypalPriceId?: string
 }
 
 interface TokenInfo {
@@ -49,10 +58,21 @@ export default function SubplanModal({ open, onClose, onSuccess, currentTokenInf
   const [subplans, setSubplans] = useState<AISubplan[]>([])
   const [loading, setLoading] = useState(true)
   const [purchasing, setPurchasing] = useState<number | null>(null)
+  const [selectedSubplan, setSelectedSubplan] = useState<AISubplan | null>(null)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(null)
+
+  // Comprobante fields
+  const [comprobanteDescripcion, setComprobanteDescripcion] = useState('')
+  const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
+  const [uploadingComprobante, setUploadingComprobante] = useState(false)
 
   useEffect(() => {
     if (open) {
       fetchSubplans()
+      setSelectedSubplan(null)
+      setPaymentMethod(null)
+      setComprobanteDescripcion('')
+      setComprobanteFile(null)
     }
   }, [open])
 
@@ -69,26 +89,83 @@ export default function SubplanModal({ open, onClose, onSuccess, currentTokenInf
     }
   }
 
-  const handlePurchase = async (subplan: AISubplan) => {
+  // Seleccionar subplan para compra
+  const handleSelectSubplan = (subplan: AISubplan) => {
+    setSelectedSubplan(subplan)
+    setPaymentMethod(null)
+  }
+
+  // Seleccionar método de pago
+  const handleSelectPaymentMethod = (method: PaymentMethod) => {
+    setPaymentMethod(method)
+  }
+
+  // Procesar pago según método seleccionado
+  const handlePurchase = async () => {
+    if (!selectedSubplan || !paymentMethod) return
+
     try {
-      setPurchasing(subplan.id)
+      setPurchasing(selectedSubplan.id)
 
-      const { data } = await api.post('/ai/subplan-purchase/checkout', {
-        subplanId: subplan.id
-      })
+      if (paymentMethod === 'stripe') {
+        // Stripe checkout
+        const { data } = await api.post('/ai/subplan-purchase/checkout', {
+          subplanId: selectedSubplan.id
+        })
 
-      if (data.sessionUrl) {
-        // Redirigir a Stripe Checkout
-        window.location.href = data.sessionUrl
-      } else {
-        toast.error('Error al iniciar proceso de pago')
+        if (data.sessionUrl) {
+          window.location.href = data.sessionUrl
+        } else {
+          toast.error('Error al iniciar proceso de pago')
+        }
+      } else if (paymentMethod === 'paypal') {
+        // PayPal checkout
+        const { data } = await api.post('/ai/subplan-purchase/paypal', {
+          subplanId: selectedSubplan.id
+        })
+
+        if (data.approvalUrl) {
+          window.location.href = data.approvalUrl
+        } else {
+          toast.error('Error al iniciar pago PayPal')
+        }
+      } else if (paymentMethod === 'comprobante') {
+        // Comprobante - requiere archivo
+        if (!comprobanteFile) {
+          toast.error('Por favor seleccione un archivo de comprobante')
+          setPurchasing(null)
+          return
+        }
+
+        setUploadingComprobante(true)
+        const formData = new FormData()
+        formData.append('file', comprobanteFile)
+        formData.append('subplanId', String(selectedSubplan.id))
+        formData.append('descripcion', comprobanteDescripcion || 'Comprobante de pago de tokens IA')
+
+        const { data } = await api.post('/ai/subplan-purchase/comprobante', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+
+        toast.success('Comprobante subido exitosamente. Su compra será procesada en breve.')
+        onSuccess?.()
+        onClose()
       }
     } catch (error: any) {
       console.error('Error creating checkout:', error)
       toast.error(error.response?.data?.error || 'Error al procesar compra')
     } finally {
       setPurchasing(null)
+      setUploadingComprobante(false)
     }
+  }
+
+  // Volver a la lista de subplans
+  const handleBackToSubplans = () => {
+    setSelectedSubplan(null)
+    setPaymentMethod(null)
+    setComprobanteDescripcion('')
+    setComprobanteFile(null)
   }
 
   const formatNumber = (num: number) => num.toLocaleString('es-ES')
@@ -222,8 +299,7 @@ export default function SubplanModal({ open, onClose, onSuccess, currentTokenInf
                         variant={isActive ? 'soft' : 'solid'}
                         color={isActive ? 'success' : 'primary'}
                         startDecorator={isActive ? <CheckIcon /> : <CartIcon />}
-                        onClick={() => handlePurchase(subplan)}
-                        loading={isPurchasing}
+                        onClick={() => handleSelectSubplan(subplan)}
                         disabled={isPurchasing}
                       >
                         {isActive ? 'Recargar' : 'Comprar'}
@@ -234,6 +310,179 @@ export default function SubplanModal({ open, onClose, onSuccess, currentTokenInf
               )
             })}
           </Grid>
+        )}
+
+        {/* Sección de métodos de pago */}
+        {selectedSubplan && (
+          <>
+            <Divider sx={{ my: 3 }} />
+
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={handleBackToSubplans}
+              sx={{ mb: 2 }}
+            >
+              ← Volver a paquetes
+            </Button>
+
+            <Box sx={{ p: 2, bgcolor: 'background.level1', borderRadius: 'sm' }}>
+              <Typography level="title-md" sx={{ mb: 2 }}>
+                Paquete seleccionado: <strong>{selectedSubplan.name}</strong>
+              </Typography>
+              <Typography level="body-md" sx={{ mb: 3 }}>
+                {formatNumber(Number(selectedSubplan.tokens))} tokens por {formatCurrency(selectedSubplan.priceUsd)} USD
+              </Typography>
+
+              <Typography level="title-sm" sx={{ mb: 2 }}>
+                Selecciona método de pago:
+              </Typography>
+
+              <Grid container spacing={2}>
+                {/* Stripe */}
+                <Grid xs={12} md={4}>
+                  <Card
+                    variant={paymentMethod === 'stripe' ? 'solid' : 'outlined'}
+                    color={paymentMethod === 'stripe' ? 'primary' : 'neutral'}
+                    onClick={() => handleSelectPaymentMethod('stripe')}
+                    sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: 'primary.500' } }}
+                  >
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <StripeIcon sx={{ fontSize: 40, mb: 1 }} />
+                      <Typography level="title-sm">Stripe</Typography>
+                      <Typography level="body-xs" sx={{ color: paymentMethod === 'stripe' ? 'inherit' : 'text.tertiary' }}>
+                        Pago con tarjeta
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* PayPal */}
+                <Grid xs={12} md={4}>
+                  <Card
+                    variant={paymentMethod === 'paypal' ? 'solid' : 'outlined'}
+                    color={paymentMethod === 'paypal' ? 'warning' : 'neutral'}
+                    onClick={() => handleSelectPaymentMethod('paypal')}
+                    sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: 'warning.500' } }}
+                  >
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <PayPalIcon sx={{ fontSize: 40, mb: 1, color: paymentMethod === 'paypal' ? 'inherit' : '#0070ba' }} />
+                      <Typography level="title-sm">PayPal</Typography>
+                      <Typography level="body-xs" sx={{ color: paymentMethod === 'paypal' ? 'inherit' : 'text.tertiary' }}>
+                        Pago con PayPal
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Comprobante */}
+                <Grid xs={12} md={4}>
+                  <Card
+                    variant={paymentMethod === 'comprobante' ? 'solid' : 'outlined'}
+                    color={paymentMethod === 'comprobante' ? 'success' : 'neutral'}
+                    onClick={() => handleSelectPaymentMethod('comprobante')}
+                    sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: 'success.500' } }}
+                  >
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <ComprobanteIcon sx={{ fontSize: 40, mb: 1 }} />
+                      <Typography level="title-sm">Comprobante</Typography>
+                      <Typography level="body-xs" sx={{ color: paymentMethod === 'comprobante' ? 'inherit' : 'text.tertiary' }}>
+                        Transferencia
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              {/* Formulario de Comprobante */}
+              {paymentMethod === 'comprobante' && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'background.surface', borderRadius: 'sm' }}>
+                  <Typography level="title-sm" sx={{ mb: 2 }}>
+                    Sube tu comprobante de transferencia
+                  </Typography>
+
+                  <Alert color="primary" sx={{ mb: 2 }}>
+                    Realiza la transferencia a la cuenta indicada y sube el comprobante.
+                  </Alert>
+
+                  <FormControl sx={{ mb: 2 }}>
+                    <FormLabel>Descripción (opcional)</FormLabel>
+                    <Input
+                      size="sm"
+                      placeholder="Notas sobre el pago..."
+                      value={comprobanteDescripcion}
+                      onChange={(e) => setComprobanteDescripcion(e.target.value)}
+                    />
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel>Archivo de comprobante</FormLabel>
+                    <Box
+                      sx={{
+                        border: '2px dashed',
+                        borderColor: comprobanteFile ? 'success.main' : 'neutral.outlinedBorder',
+                        borderRadius: 'sm',
+                        p: 2,
+                        textAlign: 'center',
+                        bgcolor: comprobanteFile ? 'success.softBg' : 'background.surface',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        '&:hover': { borderColor: 'success.500' }
+                      }}
+                      onClick={() => document.getElementById('comprobante-file')?.click()}
+                    >
+                      <input
+                        type="file"
+                        id="comprobante-file"
+                        accept="image/*,.pdf"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0]
+                          if (file) setComprobanteFile(file)
+                        }}
+                      />
+                      {comprobanteFile ? (
+                        <Box>
+                          <CheckIcon sx={{ color: 'success.main', mb: 1 }} />
+                          <Typography level="body-sm">{comprobanteFile.name}</Typography>
+                        </Box>
+                      ) : (
+                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                          Click para seleccionar archivo
+                        </Typography>
+                      )}
+                    </Box>
+                  </FormControl>
+
+                  <Button
+                    fullWidth
+                    variant="solid"
+                    color="success"
+                    onClick={handlePurchase}
+                    disabled={!comprobanteFile}
+                    loading={uploadingComprobante}
+                    sx={{ mt: 2 }}
+                  >
+                    Enviar Comprobante
+                  </Button>
+                </Box>
+              )}
+
+              {/* Botón de compra para Stripe/PayPal */}
+              {paymentMethod && paymentMethod !== 'comprobante' && (
+                <Button
+                  fullWidth
+                  variant="solid"
+                  color={paymentMethod === 'stripe' ? 'primary' : 'warning'}
+                  onClick={handlePurchase}
+                  loading={purchasing === selectedSubplan.id}
+                  sx={{ mt: 3 }}
+                >
+                  {paymentMethod === 'stripe' ? 'Pagar con Stripe' : 'Pagar con PayPal'}
+                </Button>
+              )}
+            </Box>
+          </>
         )}
       </ModalDialog>
     </Modal>

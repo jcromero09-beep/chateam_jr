@@ -17,6 +17,7 @@ export type Module =
   // Gestión
   | 'dashboard'
   | 'reports'
+  | 'superadmin'
   | 'realtime_chats'
   // Operativo
   | 'tickets'
@@ -114,9 +115,59 @@ export type Module =
   | 'openai_settings'
   | 'openai_history'
   | 'ai_image_generation'
+  | 'ai_video_generation'
   | 'ai_subplans'
   | 'permissions_manager'
   | 'facebook_conversions'
+  // Plataforma IA
+  | 'ai_platform'
+  | 'ai_agents'
+  | 'ai_knowledge_base'
+  | 'ai_chatbot_builder'
+  | 'ai_writer'
+  | 'ai_audio'
+  | 'ai_multimodal'
+  | 'ai_credits'
+  | 'ai_scheduler'
+  | 'ai_observability'
+  | 'ai_fine_tuning'
+  | 'ai_heygen'
+  | 'ai_ab_testing'
+  | 'ai_affiliates'
+  // Agentes IA
+  | 'agent_comments'
+  | 'agent_devices'
+  | 'agent_identity'
+  // Coexistencia & Migración
+  | 'coexistence'
+  | 'migration'
+  // UGC
+  | 'ugc_dashboard'
+  | 'ugc_campaigns'
+  | 'ugc_creators'
+  | 'ugc_analytics'
+  | 'ugc_optimization'
+  | 'ugc_settings'
+  | 'ugc_social_accounts'
+  | 'ugc_social_posts'
+  | 'ugc_video_studio'
+  // Campañas extras
+  | 'campaigns_ai'
+  | 'campaigns_rules'
+  // Afiliados (módulo independiente)
+  | 'affiliates'
+  | 'affiliate_programs'
+  | 'affiliate_referrals'
+  | 'affiliate_wallet'
+  | 'affiliate_withdrawals'
+  | 'affiliate_links'
+  | 'affiliate_tiers'
+  // Email extras
+  | 'email_provider_settings'
+  | 'email_credit_packs'
+  // Comment Auto-Reply (Auto-Respondedor de Comentarios)
+  | 'comment_autoreply'
+  | 'comment_autoreply_campaigns'
 
 // Matriz de permisos por rol y módulo (legacy, se mantiene para compatibilidad)
 // true = acceso completo, false = sin acceso, 'read' = solo lectura
@@ -134,6 +185,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     dashboard: true,
     reports: true,
     realtime_chats: true,
+    superadmin: true,
     // Operativo
     tickets: true,
     quick_replies: true,
@@ -230,9 +282,59 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     openai_settings: true,
     openai_history: true,
     ai_image_generation: true,
+    ai_video_generation: true,
     ai_subplans: true,
     permissions_manager: true,
     facebook_conversions: true,
+    // Plataforma IA
+    ai_platform: true,
+    ai_agents: true,
+    ai_knowledge_base: true,
+    ai_chatbot_builder: true,
+    ai_writer: true,
+    ai_audio: true,
+    ai_multimodal: true,
+    ai_credits: true,
+    ai_scheduler: true,
+    ai_observability: true,
+    ai_fine_tuning: true,
+    ai_heygen: true,
+    ai_ab_testing: true,
+    ai_affiliates: true,
+    // Agentes IA
+    agent_comments: true,
+    agent_devices: true,
+    agent_identity: true,
+    // Coexistencia & Migración
+    coexistence: true,
+    migration: true,
+    // UGC
+    ugc_dashboard: true,
+    ugc_campaigns: true,
+    ugc_creators: true,
+    ugc_analytics: true,
+    ugc_optimization: true,
+    ugc_settings: true,
+    ugc_social_accounts: true,
+    ugc_social_posts: true,
+    ugc_video_studio: true,
+    // Campañas extras
+    campaigns_ai: true,
+    campaigns_rules: true,
+    // Afiliados
+    affiliates: true,
+    affiliate_programs: true,
+    affiliate_referrals: true,
+    affiliate_wallet: true,
+    affiliate_withdrawals: true,
+    affiliate_links: true,
+    affiliate_tiers: true,
+    // Email extras
+    email_provider_settings: true,
+    email_credit_packs: true,
+    // Comment Auto-Reply
+    comment_autoreply: true,
+    comment_autoreply_campaigns: true,
   },
   // Admin: Gestión completa de empresa (sin algunas configuraciones globales)
   admin: {
@@ -240,6 +342,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     dashboard: true,
     reports: true,
     realtime_chats: true,
+    superadmin: true,
     // Operativo
     tickets: true,
     quick_replies: true,
@@ -336,11 +439,218 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     openai_settings: true,
     openai_history: true,
     ai_image_generation: true,
+    ai_video_generation: true,
     ai_subplans: true,
     permissions_manager: true,
     facebook_conversions: true,
+    // Plataforma IA
+    ai_platform: true,
+    ai_agents: true,
+    ai_knowledge_base: true,
+    ai_chatbot_builder: true,
+    ai_writer: true,
+    ai_audio: true,
+    ai_multimodal: true,
+    ai_credits: true,
+    ai_scheduler: true,
+    ai_observability: true,
+    ai_fine_tuning: true,
+    ai_heygen: true,
+    ai_ab_testing: true,
+    ai_affiliates: true,
+    // Agentes IA
+    agent_comments: true,
+    agent_devices: true,
+    agent_identity: true,
+    // Coexistencia & Migración
+    coexistence: true,
+    migration: true,
+    // UGC
+    ugc_dashboard: true,
+    ugc_campaigns: true,
+    ugc_creators: true,
+    ugc_analytics: true,
+    ugc_optimization: true,
+    ugc_settings: true,
+    ugc_social_accounts: true,
+    ugc_social_posts: true,
+    ugc_video_studio: true,
+    // Campañas extras
+    campaigns_ai: true,
+    campaigns_rules: true,
+    // Afiliados
+    affiliates: true,
+    affiliate_programs: true,
+    affiliate_referrals: true,
+    affiliate_wallet: true,
+    affiliate_withdrawals: true,
+    affiliate_links: true,
+    affiliate_tiers: true,
+    // Email extras
+    email_provider_settings: true,
+    email_credit_packs: true,
+    // Comment Auto-Reply
+    comment_autoreply: true,
+    comment_autoreply_campaigns: true,
   },
 
+  // Supervisor: Como admin pero sin gestión empresarial
+  supervisor: {
+    // Gestión
+    dashboard: true,
+    reports: true,
+    realtime_chats: true,
+    superadmin: true,
+    // Operativo
+    tickets: true,
+    quick_replies: true,
+    kanban: true,
+    contacts: true,
+    schedules: true,
+    tags: true,
+    customer_origins: true,
+    customer_origins_reports: true,
+    internal_chats: true,
+    // Campañas
+    campaigns: true,
+    campaigns_contacts: true,
+    campaigns_settings: 'read',
+    campaigns_insights: true,
+    campaigns_attribution: true,
+    campaigns_audit: 'read',
+    // Marketing
+    marketing: true,
+    marketing_insights: true,
+    marketing_attribution: true,
+    marketing_audit: 'read',
+    // Flowbuilder
+    flowbuilder: true,
+    flowbuilder_campaign: true,
+    flowbuilder_conversation: true,
+    // Administración
+    announcements: true,
+    api_messages: true,
+    users: 'read',
+    queues: 'read',
+    prompts: true,
+    queue_integrations: 'read',
+    connections: 'read',
+    all_connections: false,
+    invoices: false,
+    files: true,
+    financial: false,
+    settings: 'read',
+    terms: 'read',
+    companies: false,
+    plans: false,
+    // General
+    analytics: true,
+    leads: true,
+    billing: 'read',
+    company: 'read',
+    profile: true,
+    notifications: true,
+    help: true,
+    feedback: true,
+    email_marketing: true,
+    email_marketing_campaigns: true,
+    email_marketing_analytics: true,
+    email_marketing_templates: true,
+    webchat: true,
+    webchat_settings: 'read',
+    webchat_chats: true,
+    webchat_analytics: true,
+    webchat_history: true,
+    integrations: 'read',
+    appointments: true,
+    appointments_dashboard: true,
+    appointments_calendar: true,
+    appointments_services: 'read',
+    appointments_availability: true,
+    appointments_bookings: true,
+    appointments_reminders: true,
+    appointments_reports: true,
+    whatsapp_dashboard: true,
+    whatsapp_numbers: 'read',
+    whatsapp_templates: true,
+    whatsapp_campaigns: true,
+    whatsapp_webhooks: 'read',
+    whatsapp_analytics: true,
+    whatsapp_settings: 'read',
+    whatsapp_tester: true,
+    whatsapp_monitor: true,
+    integrations_dashboard: true,
+    integrations_billie: true,
+    integrations_aria_lite: true,
+    integrations_smarttrack: true,
+    integrations_sgr: true,
+    integrations_webhooks: 'read',
+    integrations_logs: 'read',
+    integrations_settings: 'read',
+    integrations_testing: true,
+    openai_dashboard: true,
+    openai_prompts: true,
+    openai_models: 'read',
+    openai_analytics: true,
+    openai_testing: true,
+    openai_templates: true,
+    openai_settings: 'read',
+    openai_history: true,
+    ai_image_generation: true,
+    ai_video_generation: true,
+    ai_subplans: false,
+    permissions_manager: false,
+    facebook_conversions: true,
+    // Plataforma IA
+    ai_platform: true,
+    ai_agents: true,
+    ai_knowledge_base: true,
+    ai_chatbot_builder: true,
+    ai_writer: true,
+    ai_audio: true,
+    ai_multimodal: true,
+    ai_credits: 'read',
+    ai_scheduler: 'read',
+    ai_observability: true,
+    ai_fine_tuning: 'read',
+    ai_heygen: true,
+    ai_ab_testing: true,
+    ai_affiliates: true,
+    // Agentes IA
+    agent_comments: true,
+    agent_devices: true,
+    agent_identity: true,
+    // Coexistencia & Migración
+    coexistence: 'read',
+    migration: false,
+    // UGC
+    ugc_dashboard: true,
+    ugc_campaigns: true,
+    ugc_creators: true,
+    ugc_analytics: true,
+    ugc_optimization: true,
+    ugc_settings: 'read',
+    ugc_social_accounts: true,
+    ugc_social_posts: true,
+    ugc_video_studio: true,
+    // Campañas extras
+    campaigns_ai: true,
+    campaigns_rules: 'read',
+    // Afiliados
+    affiliates: true,
+    affiliate_programs: 'read',
+    affiliate_referrals: 'read',
+    affiliate_wallet: 'read',
+    affiliate_withdrawals: false,
+    affiliate_links: 'read',
+    affiliate_tiers: false,
+    // Email extras
+    email_provider_settings: 'read',
+    email_credit_packs: 'read',
+    // Comment Auto-Reply
+    comment_autoreply: true,
+    comment_autoreply_campaigns: true,
+  },
 
   // User: Acceso básico operativo
   user: {
@@ -348,6 +658,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     dashboard: 'read', // Solo lectura
     reports: 'read', // Solo lectura de reportes
     realtime_chats: 'read', // Solo lectura de chats
+    superadmin: false,
     // Operativo
     tickets: true, // Puede trabajar con tickets
     quick_replies: true, // Puede usar mensajes rápidos
@@ -355,6 +666,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     contacts: true, // Puede trabajar con contactos
     schedules: 'read', // Solo lectura de agendas
     tags: 'read', // Solo lectura de etiquetas
+    customer_origins: true, // Acceso completo a orígenes
+    customer_origins_reports: true, // Acceso completo a reportes
     internal_chats: true, // Puede usar chats internos
     // Administración - Campañas
     campaigns: false, // Sin acceso a campañas
@@ -442,9 +755,59 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     openai_settings: false, // Sin acceso a configuración
     openai_history: 'read', // Solo lectura de historial
     ai_image_generation: 'read', // Solo lectura de generación de imágenes
+    ai_video_generation: false, // Sin acceso a generación de videos
     ai_subplans: false, // Sin acceso a subplanes
     permissions_manager: false, // Sin acceso a gestión de permisos
     facebook_conversions: false, // Sin acceso a conversiones de Facebook
+    // Plataforma IA
+    ai_platform: 'read',
+    ai_agents: false,
+    ai_knowledge_base: 'read',
+    ai_chatbot_builder: false,
+    ai_writer: false,
+    ai_audio: false,
+    ai_multimodal: false,
+    ai_credits: 'read',
+    ai_scheduler: false,
+    ai_observability: false,
+    ai_fine_tuning: false,
+    ai_heygen: false,
+    ai_ab_testing: false,
+    ai_affiliates: false,
+    // Agentes IA
+    agent_comments: false,
+    agent_devices: false,
+    agent_identity: false,
+    // Coexistencia & Migración
+    coexistence: false,
+    migration: false,
+    // UGC
+    ugc_dashboard: false,
+    ugc_campaigns: false,
+    ugc_creators: false,
+    ugc_analytics: false,
+    ugc_optimization: false,
+    ugc_settings: false,
+    ugc_social_accounts: false,
+    ugc_social_posts: false,
+    ugc_video_studio: false,
+    // Campañas extras
+    campaigns_ai: false,
+    campaigns_rules: false,
+    // Afiliados
+    affiliates: 'read',
+    affiliate_programs: 'read',
+    affiliate_referrals: 'read',
+    affiliate_wallet: 'read',
+    affiliate_withdrawals: false,
+    affiliate_links: false,
+    affiliate_tiers: false,
+    // Email extras
+    email_provider_settings: false,
+    email_credit_packs: false,
+    // Comment Auto-Reply
+    comment_autoreply: false,
+    comment_autoreply_campaigns: false,
   },
 }
 
@@ -523,6 +886,7 @@ export const DEFAULT_PLAN_PERMISSIONS: InterfacePermissions = {
   dashboard: true,
   reports: true,
   realtime_chats: true,
+    superadmin: true,
   // Operativo
   tickets: true,
   quick_replies: true,
@@ -530,6 +894,8 @@ export const DEFAULT_PLAN_PERMISSIONS: InterfacePermissions = {
   contacts: true,
   schedules: true,
   tags: true,
+  customer_origins: true,
+  customer_origins_reports: true,
   internal_chats: true,
   // Administración - Campañas
   campaigns: true,
@@ -617,9 +983,56 @@ export const DEFAULT_PLAN_PERMISSIONS: InterfacePermissions = {
   openai_settings: true,
   openai_history: true,
   ai_image_generation: true,
+  ai_video_generation: true,
   ai_subplans: true,
   permissions_manager: false, // Solo superadmin
   facebook_conversions: true, // Conversiones de Facebook
+  // Plataforma IA
+  ai_platform: true,
+  ai_agents: true,
+  ai_knowledge_base: true,
+  ai_chatbot_builder: true,
+  ai_writer: true,
+  ai_audio: true,
+  ai_multimodal: true,
+  ai_credits: true,
+  ai_scheduler: true,
+  ai_observability: true,
+  ai_fine_tuning: true,
+  ai_heygen: true,
+  ai_ab_testing: true,
+  ai_affiliates: true,
+  // Agentes IA
+  agent_comments: true,
+  agent_devices: true,
+  agent_identity: true,
+  // Coexistencia & Migración
+  coexistence: true,
+  migration: true,
+  // UGC
+  ugc_dashboard: true,
+  ugc_campaigns: true,
+  ugc_creators: true,
+  ugc_analytics: true,
+  ugc_optimization: true,
+  ugc_settings: true,
+  ugc_social_accounts: true,
+  ugc_social_posts: true,
+  ugc_video_studio: true,
+  // Campañas extras
+  campaigns_ai: true,
+  campaigns_rules: true,
+  // Afiliados
+  affiliates: true,
+  affiliate_programs: true,
+  affiliate_referrals: true,
+  affiliate_wallet: true,
+  affiliate_withdrawals: true,
+  affiliate_links: true,
+  affiliate_tiers: true,
+  // Email extras
+  email_provider_settings: true,
+  email_credit_packs: true,
 }
 
 /**

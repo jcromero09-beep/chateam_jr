@@ -43,6 +43,12 @@ type StoreData = {
   queueId: number | string;
   statusTicket: string;
   openTicket: string;
+  // ========================================
+  // CAMPOS NUEVOS PARA PLANTILLAS META
+  // ========================================
+  useTemplate: boolean;
+  whastsAppTemplateId: number | null;
+  templateParams: Record<string, string>;
 };
 
 type FindParams = {

@@ -1,7 +1,7 @@
 import { BaseIntegrationService, SyncResult } from './BaseIntegrationService';
 import Ticket from '../../models/Ticket';
 import Contact from '../../models/Contact';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 import { getIO } from '../../libs/socket';
 
 /**
@@ -139,7 +139,7 @@ class SmartTrackIntegrationService extends BaseIntegrationService {
                 'shipment',
                 ticket.id,
                 trackingNumber,
-                { subject: ticket.subject },
+                { subject: ticket.title },
                 { tracking_number: trackingNumber }
               );
               result.recordsCreated++;
@@ -209,7 +209,7 @@ class SmartTrackIntegrationService extends BaseIntegrationService {
     if (mapping) {
       const ticket = await Ticket.findByPk(mapping.localEntityId);
       if (ticket) {
-        const metadata = ticket.metadata || {};
+        const metadata = (ticket as any).metadata || {};
         metadata.smarttrack_shipment = shipment;
         metadata.tracking_number = shipment.tracking_number;
         metadata.delivery_status = shipment.status;
@@ -231,10 +231,10 @@ class SmartTrackIntegrationService extends BaseIntegrationService {
         name: contact?.name,
         email: contact?.email,
         phone: contact?.number,
-        address: ticket.metadata?.shipping_address || {}
+        address: (ticket as any).metadata?.shipping_address || {}
       },
-      items: ticket.metadata?.items || [],
-      service_level: ticket.metadata?.service_level || 'standard',
+      items: (ticket as any).metadata?.items || [],
+      service_level: (ticket as any).metadata?.service_level || 'standard',
       metadata: {
         jrchateam_ticket_id: ticket.id.toString(),
         jrchateam_company_id: ticket.companyId.toString()
@@ -291,7 +291,7 @@ class SmartTrackIntegrationService extends BaseIntegrationService {
     if (mapping) {
       const ticket = await Ticket.findByPk(mapping.localEntityId);
       if (ticket) {
-        const metadata = ticket.metadata || {};
+        const metadata = (ticket as any).metadata || {};
         metadata.delivery_status = status;
         metadata.last_location = location;
         metadata.last_update = timestamp;
@@ -330,7 +330,7 @@ class SmartTrackIntegrationService extends BaseIntegrationService {
     if (mapping) {
       const ticket = await Ticket.findByPk(mapping.localEntityId);
       if (ticket) {
-        const metadata = ticket.metadata || {};
+        const metadata = (ticket as any).metadata || {};
         metadata.delivery_status = 'delivered';
         metadata.delivered_at = delivered_at;
         metadata.signed_by = signed_by;
@@ -371,7 +371,7 @@ class SmartTrackIntegrationService extends BaseIntegrationService {
     if (mapping) {
       const ticket = await Ticket.findByPk(mapping.localEntityId);
       if (ticket) {
-        const metadata = ticket.metadata || {};
+        const metadata = (ticket as any).metadata || {};
         metadata.delivery_exception = {
           type: exception_type,
           description,

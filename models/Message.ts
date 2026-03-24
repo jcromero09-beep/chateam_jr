@@ -8,6 +8,7 @@ import {
   PrimaryKey,
   AutoIncrement,
   Default,
+  AllowNull,
   BelongsTo,
   ForeignKey
 } from "sequelize-typescript";
@@ -50,11 +51,14 @@ class Message extends Model<Message> {
   body: string;
 
   @Column(DataType.STRING)
-  get mediaUrl(): string | null {
-    if (this.getDataValue("mediaUrl")) {
-      
-      return `${process.env.BACKEND_URL}${process.env.PROXY_PORT ?`:${process.env.PROXY_PORT}`:""}/public/company${this.companyId}/${this.getDataValue("mediaUrl")}`;
+  mediaUrl: string;
 
+  // El getter mediaUrl ahora simplemente retorna el valor de la BD
+  // La construcción de la URL completa se hace en el frontend
+  // para evitar duplicación: /public/companyX/http://backend/public/companyX/archivo.jpg
+  get mediaUrlWithBaseUrl(): string | null {
+    if (this.getDataValue("mediaUrl")) {
+      return `${process.env.BACKEND_URL || ''}${process.env.PROXY_PORT ? `:${process.env.PROXY_PORT}` : ''}/public/company${this.companyId}/${this.getDataValue("mediaUrl")}`;
     }
     return null;
   }
@@ -146,6 +150,39 @@ class Message extends Model<Message> {
   @Default(false)
   @Column(DataType.BOOLEAN)
   isPinned: boolean;
+
+  // ===== Campo de Coexistencia Meta =====
+
+  @AllowNull(true)
+  @Column(DataType.STRING(50))
+  sourceChannel: string;
+
+  // ===== Campos para Agentes IA =====
+
+  @AllowNull(true)
+  @Column(DataType.STRING(100))
+  agentUsed: string;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(100))
+  intent: string;
+
+  @AllowNull(true)
+  @Column(DataType.DECIMAL(3, 2))
+  confidenceScore: number;
+
+  // ===== Campos para Cola de Mensajes Offline =====
+
+  @Default("pending")
+  @Column(DataType.ENUM("pending", "sent", "failed", "deleted"))
+  messageStatus: "pending" | "sent" | "failed" | "deleted";
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  sendAttempts: number;
+
+  @Column(DataType.DATE(6))
+  sentAt: Date;
 }
 
 export default Message;

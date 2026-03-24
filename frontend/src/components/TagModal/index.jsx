@@ -13,6 +13,8 @@ import DialogActions from "@material-ui/core/DialogActions";
 import DialogContent from "@material-ui/core/DialogContent";
 import DialogTitle from "@material-ui/core/DialogTitle";
 import CircularProgress from "@material-ui/core/CircularProgress";
+import FormControlLabel from "@material-ui/core/FormControlLabel";
+import Checkbox from "@material-ui/core/Checkbox";
 import { Colorize } from "@material-ui/icons";
 import { ColorBox } from 'material-ui-color';
 
@@ -88,9 +90,12 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 		color: getRandomHexColor(),
 		kanban: kanban,
 		timeLane: 0,
+		timeLaneUnit: "hours",
 		nextLaneId: 0,
 		greetingMessageLane: "",
 		rollbackLaneId: 0,
+		enableFollowup: true,
+		followupType: "once",
 	};
 
 	const [tag, setTag] = useState(initialState);
@@ -118,9 +123,7 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 		const fetchTag = async () => {
 			if (!tagId) return;
 			try {
-				console.log("🟡 Obteniendo tag con ID:", tagId);
 				const { data } = await api.get(`/tags/${tagId}`);
-				console.log("✅ Datos recibidos para edición:", data);
 
 				setTag(prevState => ({ ...prevState, ...data }));
 				if (data.nextLaneId) {
@@ -255,10 +258,10 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 
 									{kanban === 1 && (
 										<>
-											<Grid item xs={12} md={6} xl={6}>
+											<Grid item xs={12} md={4} xl={4}>
 												<Field
 													as={TextField}
-													label="Tiempo (minutos)"
+													label="Tiempo en columna"
 													name="timeLane"
 													error={touched.timeLane && Boolean(errors.timeLane)}
 													helperText={touched.timeLane && errors.timeLane}
@@ -266,6 +269,28 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 													margin="dense"
 													fullWidth
 												/>
+											</Grid>
+
+											<Grid item xs={12} md={2} xl={2}>
+												<FormControl
+													variant="outlined"
+													margin="dense"
+													fullWidth
+												>
+													<InputLabel id="timeLaneUnit-label">Unidad</InputLabel>
+													<Select
+														labelId="timeLaneUnit-label"
+														id="timeLaneUnit"
+														name="timeLaneUnit"
+														value={values.timeLaneUnit || "hours"}
+														label="Unidad"
+														onChange={(e) => setFieldValue("timeLaneUnit", e.target.value)}
+													>
+														<MenuItem value="minutes">Minutos</MenuItem>
+														<MenuItem value="hours">Horas</MenuItem>
+														<MenuItem value="days">Días</MenuItem>
+													</Select>
+												</FormControl>
 											</Grid>
 
 											<Grid item xs={12} md={6} xl={6}>
@@ -348,6 +373,44 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 													</Field>
 												</FormControl>
 											</Grid>
+
+											<Grid item xs={12} md={12} xl={12}>
+												<FormControlLabel
+													control={
+														<Checkbox
+															checked={values.enableFollowup !== false}
+															onChange={(e) => setFieldValue("enableFollowup", e.target.checked)}
+															color="primary"
+														/>
+													}
+													label="Activar seguimiento automático"
+												/>
+											</Grid>
+
+											{values.enableFollowup !== false && (
+												<Grid item xs={12} md={12} xl={12}>
+													<FormControl
+														variant="outlined"
+														margin="dense"
+														fullWidth
+														className={classes.formControl}
+													>
+														<InputLabel id="followupType-label">Tipo de Seguimiento</InputLabel>
+														<Select
+															labelId="followupType-label"
+															id="followupType"
+															name="followupType"
+															value={values.followupType || "once"}
+															label="Tipo de Seguimiento"
+															onChange={(e) => setFieldValue("followupType", e.target.value)}
+														>
+															<MenuItem value="once">Solo 1 vez</MenuItem>
+															<MenuItem value="multiple">Múltiples hasta 3</MenuItem>
+															<MenuItem value="adaptive">Adaptativo - IA decide</MenuItem>
+														</Select>
+													</FormControl>
+												</Grid>
+											)}
 										</>
 									)}
 								</Grid>

@@ -1,58 +1,441 @@
 import { extendTheme } from '@mui/joy/styles'
 import { generatePalette } from './generatePalette'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PALETAS DE COLOR LOTRU
+// Exportadas para uso en selectores de paleta (admin, branding, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const palatinateBlue = {
+  50: '#ececfe',
+  100: '#dad8fd',
+  200: '#c7c5fc',
+  300: '#8f8bfa',
+  400: '#6964f8',
+  500: '#443df6',
+  600: '#3d37dd',
+  700: '#292594',
+  800: '#221f7b',
+  900: '#14124a',
+} as const
+
+export const crayolaBlue = {
+  50: '#eef4ff',
+  100: '#d9e6ff',
+  200: '#bcd4ff',
+  300: '#8ebaff',
+  400: '#5994ff',
+  500: '#2d68ff',
+  600: '#1b49f5',
+  700: '#1436e1',
+  800: '#172cb6',
+  900: '#192b8f',
+} as const
+
+export const seaGreen = {
+  50: '#eefbf2',
+  100: '#d6f5df',
+  200: '#b1e9c4',
+  300: '#7ed7a2',
+  400: '#48bf7b',
+  500: '#26a360',
+  600: '#18834c',
+  700: '#157546',
+  800: '#115433',
+  900: '#0f452c',
+} as const
+
+export const malachiteGreen = {
+  50: '#f0fdf2',
+  100: '#dcfce3',
+  200: '#bbf7c9',
+  300: '#87eea0',
+  400: '#4bdd6f',
+  500: '#25d050',
+  600: '#17a23a',
+  700: '#167f31',
+  800: '#16652b',
+  900: '#145326',
+} as const
+
+export const metalicOrange = {
+  50: '#fffaeb',
+  100: '#fff2c6',
+  200: '#ffe288',
+  300: '#ffce4a',
+  400: '#ffbb29',
+  500: '#f99607',
+  600: '#dd6f02',
+  700: '#b74c06',
+  800: '#943a0c',
+  900: '#7a300d',
+} as const
+
+export const carminePink = {
+  50: '#fef2f2',
+  100: '#ffe1e1',
+  200: '#ffc9c9',
+  300: '#fea3a3',
+  400: '#fb6e6e',
+  500: '#f23a3a',
+  600: '#e02222',
+  700: '#bc1919',
+  800: '#9c1818',
+  900: '#811b1b',
+} as const
+
 /**
- * Tema personalizado JR Chateam v6.0.0
- *
- * Tema corporativo con soporte para modo claro y oscuro
- * Optimizado para la plataforma omnicanal empresarial
- * Soporta colores dinamicos via buildChateamTheme()
+ * Gradientes Lotru — disponibles via theme.vars.palette.gradient[1..4]
  */
-export function buildChateamTheme(primaryLight = '#5BC2D2', primaryDark = '#6FD4E4') {
+export const lotruGradients = {
+  1: 'linear-gradient(120deg, #eefadc 0%, #fce5f3 100%)',
+  2: 'linear-gradient(120deg, #cee7fe 0%, #eefadc 100%)',
+  3: 'linear-gradient(120deg, #f9d8e7 0%, #cee7fe 100%)',
+  4: 'linear-gradient(120deg, #c6d4f9 0%, #f9d8e7 100%)',
+} as const
+
+/**
+ * Opciones predefinidas de paleta primaria (usadas en el selector de paleta del admin).
+ * Las claves coinciden con el sistema Lotru para compatibilidad futura.
+ */
+export const PREDEFINED_PRIMARY_PALETTES = {
+  palatinateBlue,
+  crayolaBlue,
+  seaGreen,
+} as const
+
+export type PredefinedPaletteName = keyof typeof PREDEFINED_PRIMARY_PALETTES
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OVERRIDES DE COMPONENTES — Patrón Lotru
+// ─────────────────────────────────────────────────────────────────────────────
+
+const componentOverrides = {
+  // ── Breadcrumbs ──────────────────────────────────────────────────────────
+  JoyBreadcrumbs: {
+    styleOverrides: {
+      root: { padding: 0 },
+    },
+  },
+
+  // ── Button ───────────────────────────────────────────────────────────────
+  JoyButton: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        borderRadius: 'var(--joy-radius-md)',
+        fontWeight: 600,
+        textTransform: 'none' as const,
+        transition: 'all 0.2s ease-in-out',
+        ...(ownerState.variant === 'outlined' && {
+          boxShadow: 'var(--joy-shadow-xs)',
+        }),
+        ...(ownerState.variant === 'solid' &&
+          ownerState.color === 'neutral' && {
+            '--variant-solidBg': 'var(--joy-palette-neutral-900)',
+            '--variant-solidHoverBg': 'var(--joy-palette-neutral-700)',
+          }),
+      }),
+    },
+  },
+
+  // ── Card ─────────────────────────────────────────────────────────────────
+  JoyCard: {
+    styleOverrides: {
+      root: {
+        borderRadius: 'var(--joy-radius-lg)',
+        boxShadow: 'var(--joy-shadow-xs)',
+        transition: 'all 0.2s ease-in-out',
+      },
+    },
+  },
+
+  // ── Drawer ───────────────────────────────────────────────────────────────
+  JoyDrawer: {
+    styleOverrides: {
+      backdrop: { backdropFilter: 'none' },
+    },
+  },
+
+  // ── IconButton ───────────────────────────────────────────────────────────
+  JoyIconButton: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        borderRadius: 'var(--joy-radius-sm)',
+        transition: 'all 0.2s ease-in-out',
+        ...(ownerState.variant === 'outlined' && {
+          boxShadow: 'var(--joy-shadow-sm)',
+        }),
+        ...(ownerState.variant === 'solid' &&
+          ownerState.color === 'neutral' && {
+            '--variant-solidBg': 'var(--joy-palette-neutral-900)',
+            '--variant-solidHoverBg': 'var(--joy-palette-neutral-700)',
+          }),
+      }),
+    },
+  },
+
+  // ── Input ────────────────────────────────────────────────────────────────
+  JoyInput: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        transition: 'all 0.2s ease-in-out',
+        ...(ownerState.variant === 'outlined' && {
+          boxShadow: 'var(--joy-shadow-xs)',
+        }),
+      }),
+    },
+  },
+
+  // ── Link ─────────────────────────────────────────────────────────────────
+  JoyLink: {
+    styleOverrides: {
+      root: {
+        textDecorationColor: 'var(--joy-palette-text-primary)',
+        '&:hover': { color: 'var(--joy-palette-text-primary)' },
+      },
+    },
+  },
+
+  // ── Modal ────────────────────────────────────────────────────────────────
+  JoyModal: {
+    styleOverrides: {
+      backdrop: { backdropFilter: 'none' },
+      root: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      },
+    },
+  },
+
+  // ── ModalDialog ──────────────────────────────────────────────────────────
+  JoyModalDialog: {
+    styleOverrides: {
+      root: {
+        borderRadius: 'var(--joy-radius-lg)',
+        boxShadow: 'var(--joy-shadow-xl)',
+      },
+    },
+  },
+
+  // ── Select ───────────────────────────────────────────────────────────────
+  JoySelect: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        borderRadius: 'var(--joy-radius-sm)',
+        ...(ownerState.variant === 'outlined' && {
+          boxShadow: 'var(--joy-shadow-xs)',
+        }),
+      }),
+    },
+  },
+
+  // ── Sheet ────────────────────────────────────────────────────────────────
+  JoySheet: {
+    styleOverrides: {
+      root: {
+        borderRadius: 'var(--joy-radius-md)',
+      },
+    },
+  },
+
+  // ── Stack ────────────────────────────────────────────────────────────────
+  JoyStack: {
+    defaultProps: { useFlexGap: true },
+  },
+
+  // ── Table ────────────────────────────────────────────────────────────────
+  JoyTable: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        '--Table-headerUnderlineThickness': '1px',
+        '--TableRow-stripeBackground': 'var(--joy-palette-background-level1)',
+        '--TableCell-borderColor': 'var(--joy-palette-divider)',
+        '& thead th': {
+          fontWeight: 600,
+          fontSize: '0.75rem',
+          letterSpacing: '0.5px',
+        },
+        ...(ownerState.borderAxis === 'header' && {
+          '& thead th:not([colspan])': {
+            borderBottom:
+              'var(--Table-headerUnderlineThickness) solid var(--TableCell-borderColor)',
+          },
+        }),
+      }),
+    },
+  },
+
+  // ── Tabs ─────────────────────────────────────────────────────────────────
+  JoyTabs: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        ...(ownerState.variant === 'custom' && {
+          backgroundColor: 'transparent',
+          '& .MuiTabList-root': {
+            backgroundColor: 'var(--joy-palette-background-level1)',
+            borderRadius: 'var(--joy-radius-md)',
+            boxShadow: 'none',
+            gap: '4px',
+            padding: '4px',
+          },
+          '& .MuiTab-root': {
+            borderRadius: 'var(--joy-radius-md)',
+            flex: '1 1 auto',
+            '&:after': { display: 'none' },
+            '&.Mui-selected': {
+              backgroundColor: 'var(--joy-palette-background-surface)',
+              boxShadow: 'var(--joy-shadow-sm)',
+            },
+            '&:not(&.Mui-selected):hover': {
+              backgroundColor: 'var(--joy-palette-background-level2)',
+            },
+          },
+        }),
+      }),
+    },
+  },
+
+  // ── Textarea ─────────────────────────────────────────────────────────────
+  JoyTextarea: {
+    styleOverrides: {
+      root: ({ ownerState }: { ownerState: Record<string, unknown> }) => ({
+        transition: 'all 0.2s ease-in-out',
+        ...(ownerState.variant === 'outlined' && {
+          boxShadow: 'var(--joy-shadow-xs)',
+        }),
+      }),
+    },
+  },
+
+  // ── Chip ─────────────────────────────────────────────────────────────────
+  JoyChip: {
+    styleOverrides: {
+      root: {
+        borderRadius: 'var(--joy-radius-sm)',
+        fontWeight: 500,
+      },
+    },
+  },
+
+  // ── List ─────────────────────────────────────────────────────────────────
+  JoyList: {
+    styleOverrides: {
+      root: { '--List-gap': '4px' },
+    },
+  },
+
+  // ── ListItem ─────────────────────────────────────────────────────────────
+  JoyListItem: {
+    styleOverrides: {
+      root: { borderRadius: '6px' },
+    },
+  },
+
+  // ── ListItemButton ───────────────────────────────────────────────────────
+  JoyListItemButton: {
+    styleOverrides: {
+      root: {
+        borderRadius: 'var(--joy-radius-sm)',
+        transition: 'all 0.15s ease-in-out',
+        '&:hover': {
+          backgroundColor: 'var(--joy-palette-background-level2)',
+        },
+        '&.Mui-selected': {
+          backgroundColor: 'var(--joy-palette-primary-500)',
+          color: 'var(--joy-palette-common-white)',
+          fontWeight: 600,
+          '&:hover': {
+            backgroundColor: 'var(--joy-palette-primary-600)',
+          },
+        },
+      },
+    },
+  },
+
+  // ── Avatar ───────────────────────────────────────────────────────────────
+  JoyAvatar: {
+    styleOverrides: {
+      root: { fontWeight: 600 },
+    },
+  },
+
+  // ── Badge ────────────────────────────────────────────────────────────────
+  JoyBadge: {
+    styleOverrides: {
+      root: { fontWeight: 600 },
+    },
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIPOGRAFÍA — Patrón Lotru
+// h1-h4 y title-* usan 'Inter' como fuente de display
+// El cuerpo usa 'Be Vietnam Pro'
+// ─────────────────────────────────────────────────────────────────────────────
+
+const typographyOverrides = {
+  h1: {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-xl)',
+  },
+  h2: {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-xl)',
+  },
+  h3: {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-lg)',
+  },
+  h4: {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-lg)',
+  },
+  'title-lg': {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-lg)',
+  },
+  'title-md': {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-lg)',
+  },
+  'title-sm': {
+    fontFamily: 'var(--joy-fontFamily-display)',
+    fontWeight: 'var(--joy-fontWeight-lg)',
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildChateamTheme — Constructor principal
+//
+// Preserva el color primario dinámico via generatePalette() para multi-tenancy.
+// Los colores semánticos (success, warning, danger, neutral) usan las paletas
+// Lotru exactas para consistencia visual con el sistema de diseño.
+//
+// @param primaryLight  Color hex para modo claro (default: palatinateBlue #443df6)
+// @param primaryDark   Color hex para modo oscuro (default: palatinateBlue #443df6)
+// ─────────────────────────────────────────────────────────────────────────────
+export function buildChateamTheme(
+  primaryLight = '#3b82f6',
+  primaryDark = '#3b82f6',
+) {
   const lightPalette = generatePalette(primaryLight)
   const darkPalette = generatePalette(primaryDark)
 
   return extendTheme({
+    // ── Color Schemes ──────────────────────────────────────────────────────
     colorSchemes: {
       light: {
         palette: {
+          // Color primario dinámico — preservado para multi-tenancy
           primary: lightPalette,
-          success: {
-            50: '#e8f5e9',
-            100: '#c8e6c9',
-            200: '#a5d6a7',
-            300: '#81c784',
-            400: '#66bb6a',
-            500: '#4caf50',
-            600: '#43a047',
-            700: '#388e3c',
-            800: '#2e7d32',
-            900: '#1b5e20',
-          },
-          warning: {
-            50: '#fff3e0',
-            100: '#ffe0b2',
-            200: '#ffcc80',
-            300: '#ffb74d',
-            400: '#ffa726',
-            500: '#ff9800',
-            600: '#fb8c00',
-            700: '#f57c00',
-            800: '#ef6c00',
-            900: '#e65100',
-          },
-          danger: {
-            50: '#ffebee',
-            100: '#ffcdd2',
-            200: '#ef9a9a',
-            300: '#e57373',
-            400: '#ef5350',
-            500: '#f44336',
-            600: '#e53935',
-            700: '#d32f2f',
-            800: '#c62828',
-            900: '#b71c1c',
-          },
+
+          // Colores semánticos Lotru
+          success: { ...malachiteGreen },
+          warning: { ...metalicOrange },
+          danger: { ...carminePink },
+
+          // Neutros (incluye token 950 de Lotru)
           neutral: {
             50: '#fafafa',
             100: '#f5f5f5',
@@ -64,60 +447,46 @@ export function buildChateamTheme(primaryLight = '#5BC2D2', primaryDark = '#6FD4
             700: '#616161',
             800: '#424242',
             900: '#212121',
+            outlinedBorder: 'var(--joy-palette-neutral-200)',
           },
+
+          // Fondos — ChatEAM
           background: {
-            body: '#f5f7fa',
+            backdrop: 'rgba(9, 10, 11, 0.8)',
+            body: '#f8f9fa',
             surface: '#ffffff',
-            level1: '#f8f9fa',
-            level2: '#f0f2f5',
-            level3: '#e9ecef',
+            level1: '#f1f3f5',
+            level2: '#e9ecef',
+            level3: '#dee2e6',
           },
+
+          // Divisor
+          divider: 'var(--joy-palette-neutral-200)',
+
+          // Colores comunes
+          common: { black: '#000000', white: '#ffffff' },
+
+          // Texto — Lotru light
           text: {
-            primary: '#1a1a1a',
-            secondary: '#4a4a4a',
-            tertiary: '#757575',
+            primary: 'var(--joy-palette-neutral-900)',
+            secondary: 'var(--joy-palette-neutral-700)',
+            tertiary: 'var(--joy-palette-neutral-500)',
           },
-        },
+        } as any,
+        shadowOpacity: '0.04',
       },
+
       dark: {
         palette: {
+          // Color primario dinámico — preservado para multi-tenancy
           primary: darkPalette,
-          success: {
-            50: '#e8f5e9',
-            100: '#c8e6c9',
-            200: '#a5d6a7',
-            300: '#81c784',
-            400: '#66bb6a',
-            500: '#4caf50',
-            600: '#43a047',
-            700: '#388e3c',
-            800: '#2e7d32',
-            900: '#1b5e20',
-          },
-          warning: {
-            50: '#fff3e0',
-            100: '#ffe0b2',
-            200: '#ffcc80',
-            300: '#ffb74d',
-            400: '#ffa726',
-            500: '#ff9800',
-            600: '#fb8c00',
-            700: '#f57c00',
-            800: '#ef6c00',
-            900: '#e65100',
-          },
-          danger: {
-            50: '#ffebee',
-            100: '#ffcdd2',
-            200: '#ef9a9a',
-            300: '#e57373',
-            400: '#ef5350',
-            500: '#f44336',
-            600: '#e53935',
-            700: '#d32f2f',
-            800: '#c62828',
-            900: '#b71c1c',
-          },
+
+          // Colores semánticos Lotru
+          success: { ...malachiteGreen },
+          warning: { ...metalicOrange },
+          danger: { ...carminePink },
+
+          // Neutros (incluye token 950 de Lotru)
           neutral: {
             50: '#f5f5f5',
             100: '#e0e0e0',
@@ -129,27 +498,48 @@ export function buildChateamTheme(primaryLight = '#5BC2D2', primaryDark = '#6FD4
             700: '#303030',
             800: '#212121',
             900: '#121212',
+            outlinedBorder: 'var(--joy-palette-neutral-700)',
           },
+
+          // Fondos — Lotru dark
           background: {
-            body: '#0a0e27',
-            surface: '#141b2d',
-            level1: '#1a2332',
-            level2: '#1f2a37',
-            level3: '#24303f',
+            backdrop: 'rgba(9, 10, 11, 0.9)',
+            body: 'var(--joy-palette-neutral-900)',
+            surface: 'var(--joy-palette-neutral-900)',
+            level1: 'var(--joy-palette-neutral-800)',
+            level2: 'var(--joy-palette-neutral-700)',
+            level3: 'var(--joy-palette-neutral-600)',
           },
+
+          // Divisor
+          divider: 'var(--joy-palette-neutral-700)',
+
+          // Gradientes Lotru
+          gradient: lotruGradients,
+
+          // Colores comunes
+          common: { black: '#000000', white: '#ffffff' },
+
+          // Texto — Lotru dark
           text: {
-            primary: '#ffffff',
-            secondary: '#b8c5d6',
-            tertiary: '#8a96a3',
+            primary: 'var(--joy-palette-common-white)',
+            secondary: 'var(--joy-palette-neutral-200)',
+            tertiary: 'var(--joy-palette-neutral-500)',
           },
-        },
+        } as any,
+        shadowOpacity: '0.3',
       },
     },
+
+    // ── Tipografía — Lotru ─────────────────────────────────────────────────
+    // body: 'Be Vietnam Pro' (Lotru), display: 'Inter' (headings)
     fontFamily: {
-      body: '"Inter", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", sans-serif',
-      display: '"Inter", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", sans-serif',
-      code: '"Fira Code", "Consolas", "Monaco", "Courier New", monospace',
+      body: "'Be Vietnam Pro', var(--joy-fontFamily-fallback)",
+      display: "'Inter', var(--joy-fontFamily-fallback)",
+      code: "'Roboto Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace",
     },
+
+    // ── Escala tipográfica ─────────────────────────────────────────────────
     fontSize: {
       xs: '0.75rem',
       sm: '0.875rem',
@@ -160,17 +550,23 @@ export function buildChateamTheme(primaryLight = '#5BC2D2', primaryDark = '#6FD4
       xl3: '1.875rem',
       xl4: '2.25rem',
     },
+
+    // ── Pesos ─────────────────────────────────────────────────────────────
     fontWeight: {
       sm: 300,
       md: 400,
       lg: 500,
       xl: 600,
     },
+
+    // ── Interlineado ──────────────────────────────────────────────────────
     lineHeight: {
       sm: 1.25,
       md: 1.5,
       lg: 1.75,
     },
+
+    // ── Radios ────────────────────────────────────────────────────────────
     radius: {
       xs: '2px',
       sm: '4px',
@@ -178,6 +574,8 @@ export function buildChateamTheme(primaryLight = '#5BC2D2', primaryDark = '#6FD4
       lg: '12px',
       xl: '16px',
     },
+
+    // ── Sombras ───────────────────────────────────────────────────────────
     shadow: {
       xs: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
       sm: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
@@ -185,174 +583,18 @@ export function buildChateamTheme(primaryLight = '#5BC2D2', primaryDark = '#6FD4
       lg: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
       xl: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
     },
-    components: {
-      JoyButton: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.md,
-            fontWeight: 600,
-            textTransform: 'none' as const,
-            transition: 'all 0.2s ease-in-out',
-            '&:hover': {
-              transform: 'translateY(-1px)',
-              boxShadow: theme.vars.shadow.md,
-            },
-            '&:active': {
-              transform: 'translateY(0)',
-            },
-          }),
-        },
-      },
-      JoyCard: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.lg,
-            boxShadow: theme.vars.shadow.sm,
-            transition: 'all 0.2s ease-in-out',
-            '&:hover': {
-              boxShadow: theme.vars.shadow.md,
-            },
-          }),
-        },
-      },
-      JoySheet: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.md,
-          }),
-        },
-      },
-      JoyInput: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.sm,
-            transition: 'all 0.2s ease-in-out',
-            '&:focus-within': {
-              boxShadow: `0 0 0 2px ${theme.vars.palette.primary[500]}33`,
-            },
-          }),
-        },
-      },
-      JoyTextarea: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.sm,
-            transition: 'all 0.2s ease-in-out',
-            '&:focus-within': {
-              boxShadow: `0 0 0 2px ${theme.vars.palette.primary[500]}33`,
-            },
-          }),
-        },
-      },
-      JoySelect: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.sm,
-          }),
-        },
-      },
-      JoyChip: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.sm,
-            fontWeight: 500,
-          }),
-        },
-      },
-      JoyModal: {
-        styleOverrides: {
-          root: {
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          },
-        },
-      },
-      JoyModalDialog: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.lg,
-            boxShadow: theme.vars.shadow.xl,
-          }),
-        },
-      },
-      JoyTable: {
-        styleOverrides: {
-          root: {
-            '& thead th': {
-              fontWeight: 600,
-              textTransform: 'uppercase' as const,
-              fontSize: '0.75rem',
-              letterSpacing: '0.5px',
-            },
-          },
-        },
-      },
-      JoyList: {
-        styleOverrides: {
-          root: {
-            '--List-gap': '4px',
-          },
-        },
-      },
-      JoyListItem: {
-        styleOverrides: {
-          root: {
-            borderRadius: '6px',
-          },
-        },
-      },
-      JoyListItemButton: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.sm,
-            transition: 'all 0.15s ease-in-out',
-            '&:hover': {
-              backgroundColor: theme.vars.palette.background.level2,
-            },
-            '&.Mui-selected': {
-              backgroundColor: theme.vars.palette.primary[500],
-              color: theme.vars.palette.common.white,
-              fontWeight: 600,
-              '&:hover': {
-                backgroundColor: theme.vars.palette.primary[600],
-              },
-            },
-          }),
-        },
-      },
-      JoyIconButton: {
-        styleOverrides: {
-          root: ({ theme }) => ({
-            borderRadius: theme.vars.radius.sm,
-            transition: 'all 0.2s ease-in-out',
-            '&:hover': {
-              transform: 'scale(1.05)',
-            },
-            '&:active': {
-              transform: 'scale(0.95)',
-            },
-          }),
-        },
-      },
-      JoyAvatar: {
-        styleOverrides: {
-          root: {
-            fontWeight: 600,
-          },
-        },
-      },
-      JoyBadge: {
-        styleOverrides: {
-          root: {
-            fontWeight: 600,
-          },
-        },
-      },
-    },
+
+    // ── Overrides de tipografía heading/title — Lotru ─────────────────────
+    typography: typographyOverrides,
+
+    // ── Overrides de componentes — Lotru + ChatEAM ────────────────────────
+    components: componentOverrides,
   })
 }
 
-// Default para backward compatibility
+// ─────────────────────────────────────────────────────────────────────────────
+// Exportaciones de compatibilidad hacia atrás
+// chateamTheme usa el nuevo default palatinateBlue (#443df6)
+// ─────────────────────────────────────────────────────────────────────────────
 export const chateamTheme = buildChateamTheme()
 export default chateamTheme

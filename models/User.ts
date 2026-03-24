@@ -174,6 +174,18 @@ class User extends Model<User> {
   @Column(DataType.STRING)
   allowConnections: string;
 
+  @Default(null)
+  @Column(DataType.STRING)
+  resetPasswordToken: string;
+
+  @Default(null)
+  @Column(DataType.DATE)
+  resetPasswordExpires: Date;
+
+  @Default({})
+  @Column(DataType.JSON)
+  metadata: Record<string, any>;
+
   @BeforeDestroy
   static async updateChatbotsUsersReferences(user: User) {
     // Atualizar os registros na tabela Chatbots onde optQueueId é igual ao ID da fila que será excluída

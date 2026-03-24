@@ -572,14 +572,26 @@ const getSenderMessage = (
 
 const getContactMessage = async (msg: proto.IWebMessageInfo, wbot: Session) => {
   const isGroup = msg.key.remoteJid.includes("g.us");
-  const rawNumber = msg.key.remoteJid.replace(/\D/g, "");
+
+  // ========== Usar remoteJidAlt si existe ==========
+  // NOTA: remoteJidAlt existe en tiempo de ejecución pero no está en los tipos de TypeScript
+  // Por eso usamos (msg.key as any) para acceder a la propiedad
+  let remoteJidToUse = msg.key.remoteJid;
+  const msgKey = msg.key as any;
+
+  if (msgKey.remoteJidAlt && msgKey.remoteJidAlt.includes("@s.whatsapp.net")) {
+    remoteJidToUse = msgKey.remoteJidAlt;
+  }
+
+  const rawNumber = remoteJidToUse.replace(/\D/g, "");
+
   return isGroup
     ? {
         id: getSenderMessage(msg, wbot),
         name: msg.pushName
       }
     : {
-        id: msg.key.remoteJid,
+        id: remoteJidToUse,
         name: msg.key.fromMe ? rawNumber : msg.pushName
       };
 };
@@ -886,16 +898,68 @@ const verifyContact = async (
   //   profilePicUrl = `${process.env.FRONTEND_URL}/nopicture.png`;
   // }
 
+  // 📝 LOG: Ver datos crudos del contacto
+  // console.log("📝 [verifyContact BAILEYS] ==============================");
+  // console.log("📝 [verifyContact] msgContact.id (raw):", msgContact.id);
+  // console.log("📝 [verifyContact] msgContact.id type:", typeof msgContact.id);
+  // console.log("📝 [verifyContact] msgContact.id contains @lid:", msgContact.id?.includes("@lid"));
+  // console.log("📝 [verifyContact] msgContact.id contains @s.whatsapp.net:", msgContact.id?.includes("@s.whatsapp.net"));
+  // console.log("📝 [verifyContact] msgContact.name:", msgContact.name);
+  // console.log("📝 [verifyContact] companyId:", companyId);
+  // console.log("📝 [verifyContact] wbot.id:", wbot.id);
+
+  // Extract number from JID
+  const rawNumber = msgContact.id.replace(/\D/g, "");
+  // console.log("📝 [verifyContact] rawNumber (digits only):", rawNumber);
+  // console.log("📝 [verifyContact] rawNumber length:", rawNumber?.length);
+
+  // Validate if it's a LID (Meta internal ID) vs real phone number
+  const isLID = msgContact.id?.includes("@lid");
+  const isSWA = msgContact.id?.includes("@s.whatsapp.net");
+  const isGroup = msgContact.id?.includes("@g.us");
+  // console.log("📝 [verifyContact] isLID:", isLID, "| isSWA:", isSWA, "| isGroup:", isGroup);
+
+  // Use number as name if name has no letters (only emojis, numbers, etc.)
+  const rawName = msgContact.name || rawNumber;
+  // Check if name has letters
+  const hasLettersInName = /[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/.test(rawName);
+  const name = hasLettersInName ? rawName : rawNumber;
+
+  // Determine channel based on JID format
+  let channel = "whatsapp";
+  if (isLID) {
+    channel = "meta";
+    // console.log("⚠️ [verifyContact] DETECTED LID FORMAT - switching channel to META!");
+  }
+
+  // ========== NUEVO: Extraer phoneNumberId cuando viene con @lid ==========
+  // El número del LID (68616598909016) es el phoneNumberId del cliente
+  let phoneNumberId = undefined;
+  if (isLID && msgContact.id) {
+    phoneNumberId = msgContact.id.replace("@lid", "");
+    // console.log("📝 [verifyContact] phoneNumberId extraído del LID:", phoneNumberId);
+  }
+
   const contactData = {
-    name: msgContact.name || msgContact.id.replace(/\D/g, ""),
-    number: msgContact.id.replace(/\D/g, ""),
+    name: name,
+    number: rawNumber,
     profilePicUrl,
-    isGroup: msgContact.id.includes("g.us"),
+    isGroup,
     companyId,
     remoteJid: msgContact.id,
     whatsappId: wbot.id,
-    wbot
+    wbot,
+    channel, // Changed from hardcoded "whatsapp" to dynamic
+    phoneNumberId // Extraído del LID
   };
+
+  // 📝 LOG: Ver datos procesados
+  // console.log("📝 [verifyContact] FINAL channel:", contactData.channel);
+  // console.log("📝 [verifyContact] number (processed):", contactData.number);
+  // console.log("📝 [verifyContact] name (processed):", contactData.name, "(raw was:", rawName, ")");
+  // console.log("📝 [verifyContact] isGroup:", contactData.isGroup);
+  // console.log("📝 [verifyContact] remoteJid:", contactData.remoteJid);
+  // console.log("📝 [verifyContact] ==============================");
 
   if (contactData.isGroup) {
     contactData.number = msgContact.id.replace("@g.us", "");
@@ -1013,7 +1077,6 @@ export const verifyMediaMessage = async (
     try {
       const folder = path.resolve(
         __dirname,
-        "..",
         "..",
         "..",
         "public",
@@ -1518,6 +1581,7 @@ const verifyQueue = async (
     // console.log("log... 1195");
 
     //inicia integração dialogflow/n8n
+    // Verificacion de integracion
     if (!msg.key.fromMe && !ticket.isGroup && queues[0].integrationId) {
       const integrations = await ShowQueueIntegrationService(
         queues[0].integrationId,
@@ -1624,13 +1688,7 @@ const verifyQueue = async (
     if (!isNil(queues[0].fileListId)) {
       // console.log("log... 1278");
       try {
-        const publicFolder = path.resolve(
-          __dirname,
-          "..",
-          "..",
-          "..",
-          "public"
-        );
+        const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
         const files = await ShowFileService(
           queues[0].fileListId,
@@ -2465,7 +2523,7 @@ const verifyQueue = async (
       if (!isNil(choosenQueue.fileListId)) {
         try {
 
-          const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+          const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
           const files = await ShowFileService(choosenQueue.fileListId, ticket.companyId)
 
@@ -2953,7 +3011,7 @@ const verifyQueue = async (
       if (!isNil(choosenQueue.fileListId)) {
         try {
 
-          const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+          const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
           const files = await ShowFileService(choosenQueue.fileListId, ticket.companyId)
 
@@ -3443,7 +3501,7 @@ export const handleRating = async (
     if (ticket.channel === "meta") {
 
   const to = ticket.contact.number.replace("+", "");
-  console.log('enviando',to)
+  // console.log('enviando',to)
   await metaSendText(to, formatBody(body, ticket));
     }
 
@@ -3662,7 +3720,7 @@ const flowbuilderIntegration = async (
         email: contact.email
       };
 
-console.log('ActionsWebhookService', 1 )
+  // console.log('ActionsWebhookService', 1 )
 
       await ActionsWebhookService(
         whatsapp.id,
@@ -3965,13 +4023,179 @@ export const handleMessageIntegration = async (
       ticket.id
     );
     debouncedSentMessage();
+  /* COMENTADO: Typebot - Ya no funcional con IA
   } else if (queueIntegration.type === "typebot") {
     // await typebots(ticket, msg, wbot, queueIntegration);
     await typebotListener({ ticket, msg, wbot, typebot: queueIntegration });
+  */
+  } else if (queueIntegration.type === "supervisor_ai") {
+    // ═══════════════════════════════════════════════════════════════
+    // 🤖 ORQUESTADOR IA MULTI-AGENTE — SupervisorService
+    // Clasifica intención → despacha al agente correcto → responde
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ CONDICIONES PARA NO RESPONDER
+    // Lógica: isBot=true es "override" - si está en true, el bot siempre responde
+
+    // 1. Si está desactivado manualmente (isBot = false)
+    if (ticket.isBot === false) {
+      logger.info(`[SupervisorAI] Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
+      return;
+    }
+
+    const isBotActivo = ticket.isBot === true;
+
+    // 2. Si tiene usuario asignado Y el bot NO está activo manualmente
+    if (ticket.userId && !isBotActivo) {
+      logger.info(`[SupervisorAI] Ticket ${ticket.id} tiene usuario asignado - no responde`);
+      return;
+    }
+    // 3. Si está abierto Y el bot NO está activo manualmente
+    if (ticket.status === 'open' && !isBotActivo) {
+      logger.info(`[SupervisorAI] Ticket ${ticket.id} está en estado open - no responde`);
+      return;
+    }
+    // 4. Si está cerrado (nunca responde)
+    if (ticket.status === 'closed') {
+      logger.info(`[SupervisorAI] Ticket ${ticket.id} está cerrado - no responde`);
+      return;
+    }
+
+    // Responde si: isBot !== false (incluye true y null)
+    // - Si isBot = true → SIEMPRE responde (override)
+    // - Si isBot = null o true → responde si no tiene userId o status open
+    try {
+      const body = getBodyMessage(msg);
+      if (!body || body.trim().length === 0) return;
+
+      const SupervisorService = require("../AIAgentServices/SupervisorService").default;
+
+      // Cargar historial del ticket (últimos 20 mensajes para contexto)
+      const recentMessages = await Message.findAll({
+        where: { ticketId: ticket.id },
+        order: [["createdAt", "DESC"]],
+        limit: 20
+      });
+      const ticketHistory = recentMessages.reverse().map((m: any) => ({
+        role: m.fromMe ? "assistant" : "user",
+        content: m.body || ""
+      }));
+
+      logger.info(
+        `[SupervisorAI] Procesando msg empresa=${companyId} ticket=${ticket.id}: "${body.substring(0, 60)}..."`
+      );
+
+      console.log("[SupervisorAI] Llamando al orquestador con mensaje:", body?.substring(0, 50));
+      const aiResponse = await SupervisorService.processMessage({
+        message: body,
+        companyId,
+        ticketId: ticket.id,
+        contactId: contact?.id,
+        whatsappId: whatsapp?.id,
+        ticketHistory
+      });
+
+      console.log("[SupervisorAI] Respuesta - agente:", aiResponse.agentUsed, "confianza:", aiResponse.confidence);
+      console.log("[SupervisorAI] Mensaje respuesta:", aiResponse.message?.substring(0, 100));
+
+      if (aiResponse.shouldEscalate) {
+        // ═══════════════════════════════════════════════════════════════
+        // Derivar a humano - buscar cola por defecto del WhatsApp
+        // ═══════════════════════════════════════════════════════════════
+        try {
+          const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+
+          // Guardar el mensaje de escalada
+          await SupervisorActionsService.saveAgentMessage({
+            ticketId: ticket.id,
+            companyId,
+            content: aiResponse.message,
+            agentUsed: aiResponse.agentUsed,
+            intent: aiResponse.intent,
+            confidence: aiResponse.confidence
+          });
+
+          // Derivar a cola humana
+          await SupervisorActionsService.escalateToHuman(
+            ticket.id,
+            companyId,
+            whatsapp?.id,
+            aiResponse.escalationReason
+          );
+
+          // Mensaje de escalada
+          const escalationMsg =
+            "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️";
+          await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: escalationMsg }, "text");
+
+          logger.info(
+            `[SupervisorAI] Escalado a humano: ticket=${ticket.id}, razón=${aiResponse.escalationReason}`
+          );
+        } catch (escalationError: any) {
+          logger.error(`[SupervisorAI] Error en escalada: ${escalationError.message}`);
+          // Continuar con el flujo aunque falle la escalada
+          await sendMessageWithAntiBan(
+            wbot,
+            msg.key.remoteJid!,
+            { text: "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️" },
+            "text"
+          );
+        }
+      } else {
+        // ═══════════════════════════════════════════════════════════════
+        // Guardar respuesta del agente IA en la BD + clasificar etapa
+        // ═══════════════════════════════════════════════════════════════
+        try {
+          const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+
+          // Guardar mensaje del agente
+          await SupervisorActionsService.saveAgentMessage({
+            ticketId: ticket.id,
+            companyId,
+            content: aiResponse.message,
+            agentUsed: aiResponse.agentUsed,
+            intent: aiResponse.intent,
+            confidence: aiResponse.confidence
+          });
+
+          // Clasificar etapa del ticket
+          await SupervisorActionsService.classifyTicketStage(
+            ticket.id,
+            companyId,
+            aiResponse.intent,
+            aiResponse.agentUsed
+          );
+        } catch (actionError: any) {
+          logger.warn(`[SupervisorActions] Error guardando mensaje: ${actionError.message}`);
+        }
+
+        // Enviar respuesta del agente IA
+        await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: aiResponse.message }, "text");
+        logger.info(
+          `[SupervisorAI] Respuesta enviada: ticket=${ticket.id}, agente=${aiResponse.agentUsed}, ` +
+          `confianza=${aiResponse.confidence}, latencia=${aiResponse.totalLatencyMs}ms`
+        );
+      }
+
+      // Marcar que está usando integración para que los siguientes mensajes sigan llegando aquí
+      if (!ticket.useIntegration) {
+        await ticket.update({ useIntegration: true, integrationId: queueIntegration.id });
+      }
+    } catch (err) {
+      logger.error(`[SupervisorAI] Error procesando msg ticket=${ticket.id}: ${err.message}`);
+      // Fallback: no romper el flujo, enviar mensaje genérico
+      await sendMessageWithAntiBan(
+        wbot,
+        msg.key.remoteJid!,
+        { text: "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏" },
+        "text"
+      );
+      await ticket.update({ useIntegration: false, status: "pending" });
+    }
+    return;
   } else if (queueIntegration.type === "flowbuilder") {
     if (!isMenu) {
       const integrations = await ShowQueueIntegrationService(
-        whatsapp.integrationId,
+        ticket.whatsapp?.integrationId,
         companyId
       );
       await flowbuilderIntegration(
@@ -4040,7 +4264,7 @@ const flowBuilderQueue = async (
   ) {
     return;
   }
-  console.log('ActionsWebhookService', 6 )
+  // console.log('ActionsWebhookService', 6 )
   await ActionsWebhookService(
     whatsapp.id,
     parseInt(ticket.flowStopped),
@@ -4057,7 +4281,7 @@ const flowBuilderQueue = async (
     msg
   );
 
-  //const integrations = await ShowQueueIntegrationService(whatsapp.integrationId, companyId);
+  //const integrations = await ShowQueueIntegrationService(ticket.whatsapp?.integrationId, companyId);
   //await handleMessageIntegration(msg, wbot, companyId, integrations, ticket, contact, isFirstMsg)
 };
 
@@ -4067,10 +4291,7 @@ const handleMessage = async (
   companyId: number,
   isImported: boolean = false
 ): Promise<void> => {
-  // console.log("log... 2874");
-
   if (!isValidMsg(msg)) {
-    // console.log("log... 2877");
     return;
   }
 
@@ -4159,32 +4380,32 @@ const handleMessage = async (
     }
 
     const isGroup = msg.key.remoteJid?.endsWith("@g.us");
-    console.log("🔹 isGroup:", isGroup);
+    // console.log("🔹 isGroup:", isGroup);
 
     const whatsapp = await ShowWhatsAppService(wbot.id!, companyId);
-    console.log("📱 WhatsApp config:", { id: whatsapp.id, name: whatsapp.name, allowGroup: whatsapp.allowGroup });
+    // console.log("📱 WhatsApp config:", { id: whatsapp.id, name: whatsapp.name, allowGroup: whatsapp.allowGroup });
 
     if (!whatsapp.allowGroup && isGroup) {
-      console.log("⛔ Grupo bloqueado por configuración - mensaje ignorado");
+      // console.log("⛔ Grupo bloqueado por configuración - mensaje ignorado");
       return;
     }
 
     if (isGroup) {
-      console.log("👥 PROCESANDO GRUPO...");
+      // console.log("👥 PROCESANDO GRUPO...");
       const grupoMeta = await wbot.groupMetadata(msg.key.remoteJid);
       const msgGroupContact = {
         id: grupoMeta.id,
         name: grupoMeta.subject
       };
-      console.log("👥 Metadata del grupo:", { id: grupoMeta.id, name: grupoMeta.subject });
+      // console.log("👥 Metadata del grupo:", { id: grupoMeta.id, name: grupoMeta.subject });
       groupContact = await verifyContact(msgGroupContact, wbot, companyId);
-      console.log("✅ Contacto de grupo creado/actualizado:", { id: groupContact.id, name: groupContact.name });
+      // console.log("✅ Contacto de grupo creado/actualizado:", { id: groupContact.id, name: groupContact.name });
     }
 
-    console.log("\n🔹 PASO 1: CREAR/VERIFICAR CONTACTO");
-    console.log("📞 Datos del contacto a verificar:", { name: msgContact.name, id: msgContact.id });
+    // console.log("\n🔹 PASO 1: CREAR/VERIFICAR CONTACTO");
+    // console.log("📞 Datos del contacto a verificar:", { name: msgContact.name, id: msgContact.id });
     const contact = await verifyContact(msgContact, wbot, companyId);
-    console.log("✅ Contacto verificado:", { id: contact.id, name: contact.name, number: contact.number });
+    // console.log("✅ Contacto verificado:", { id: contact.id, name: contact.name, number: contact.number });
 
     let unreadMessages = 0;
 
@@ -4201,16 +4422,16 @@ const handleMessage = async (
       );
     }
 
-    console.log("\n🔹 PASO 2: OBTENER CONFIGURACIONES DE LA EMPRESA");
+    // console.log("\n🔹 PASO 2: OBTENER CONFIGURACIONES DE LA EMPRESA");
     const settings = await CompaniesSettings.findOne({
       where: { companyId }
     });
-    console.log("⚙️ Settings obtenidas:", {
-      enableLGPD: settings?.enableLGPD,
-      closeTicketOnTransfer: settings?.closeTicketOnTransfer,
-      transferMessage: settings?.transferMessage,
-      DirectTicketsToWallets: settings?.DirectTicketsToWallets
-    });
+    // console.log("⚙️ Settings obtenidas:", {
+    //   enableLGPD: settings?.enableLGPD,
+    //   closeTicketOnTransfer: settings?.closeTicketOnTransfer,
+    //   transferMessage: settings?.transferMessage,
+    //   DirectTicketsToWallets: settings?.DirectTicketsToWallets
+    // });
 
     const enableLGPD = settings.enableLGPD === "enabled";
 
@@ -4222,17 +4443,17 @@ const handleMessage = async (
       },
       order: [["id", "DESC"]]
     });
-    console.log("🎫 ¿Es primer mensaje del contacto?:", isFirstMsg ? "No (ticket existente)" : "Sí (nuevo contacto)");
+    // console.log("🎫 ¿Es primer mensaje del contacto?:", isFirstMsg ? "No (ticket existente)" : "Sí (nuevo contacto)");
 
-    console.log("\n🔹 PASO 3: BUSCAR/CREAR TICKET");
-    console.log("📝 Parámetros para FindOrCreateTicketService:", {
-      contactId: contact.id,
-      whatsappId: whatsapp.id,
-      unreadMessages,
-      queueId,
-      userId,
-      isGroup: !!groupContact
-    });
+    // console.log("\n🔹 PASO 3: BUSCAR/CREAR TICKET");
+    // console.log("📝 Parámetros para FindOrCreateTicketService:", {
+    //   contactId: contact.id,
+    //   whatsappId: whatsapp.id,
+    //   unreadMessages,
+    //   queueId,
+    //   userId,
+    //   isGroup: !!groupContact
+    // });
 
     const mutex = new Mutex();
     const ticket = await mutex.runExclusive(async () => {
@@ -4252,15 +4473,15 @@ const handleMessage = async (
       return result;
     });
 
-    console.log("✅ Ticket obtenido:", {
-      id: ticket.id,
-      status: ticket.status,
-      contactId: ticket.contactId,
-      userId: ticket.userId,
-      queueId: ticket.queueId,
-      isGroup: ticket.isGroup,
-      isBot: ticket.isBot
-    });
+    // console.log("✅ Ticket obtido:", {
+    //   id: ticket.id,
+    //   status: ticket.status,
+    //   contactId: ticket.contactId,
+    //   userId: ticket.userId,
+    //   queueId: ticket.queueId,
+    //   isGroup: ticket.isGroup,
+    //   isBot: ticket.isBot
+    // });
 
     let bodyRollbackTag = "";
     let bodyNextTag = "";
@@ -4708,6 +4929,7 @@ const handleMessage = async (
       return;
     }
 
+    /* COMENTADO: IA Legacy con Typebot - Reemplazado por SupervisorAI
     // console.log('por entrar')
     if (isOpenai && !isNil(flow) && !ticket.queue) {
       // console.log('por dentro')
@@ -4759,14 +4981,14 @@ const handleMessage = async (
         companyId,
         apiKey
       });
-      
+
 
 
       return;
     }
+    */
 
-
-
+    /* COMENTADO: IA Legacy (OpenAI) - Reemplazado por SupervisorAI
     //openai na conexao
     if (
       !ticket.queue &&
@@ -4831,28 +5053,32 @@ const handleMessage = async (
         promptId: prompt.id  // 👈 AGREGAR promptId para stageClassifier
       });
     }
+    */
 
     // console.log('por entrar 2')
 
     // console.log('por entrar 2')
 
-    //integraçao na conexao
+    console.log("DEBUG: Verificando integracion - ticket.isBot:", ticket.isBot, "whatsappId:", ticket.whatsappId, "integrationId:", ticket.whatsapp?.integrationId, "promptId:", ticket.whatsapp?.promptId, "useIntegration:", ticket.useIntegration);
+
+    // ============================================================
+    // NUEVA LÓGICA: Solo SupervisorAI (promptId=999) o FlowBuilder (integrationId)
+    // ============================================================
+
+    // 1. FLOWBUILDER: Si tiene integrationId → ejecutar flujo
+    const hasIntegration = !isNil(ticket.whatsapp?.integrationId);
+
     if (
       !ticket.imported &&
       !msg.key.fromMe &&
       !ticket.isGroup &&
-      !ticket.queue &&
       !ticket.user &&
-      ticket.isBot &&
-      !isNil(whatsapp.integrationId) &&
+      hasIntegration &&
       !ticket.useIntegration
-    ) 
-    {
-
-      // console.log('por dentro 2')
-      // console.log("3245");
+    ) {
+      console.log("🔍 [FlowBuilder] Ejecutando flujo - integrationId:", ticket.whatsapp?.integrationId);
       const integrations = await ShowQueueIntegrationService(
-        whatsapp.integrationId,
+        ticket.whatsapp?.integrationId,
         companyId
       );
 
@@ -4870,34 +5096,44 @@ const handleMessage = async (
       return;
     }
 
-    // console.log('por entrar 3')
-    // integração flowbuilder
+    // 2. SUPERVISOR AI: Si promptId === 999 → ejecutar orquestador
+    const hasSupervisorAI = ticket.whatsapp?.promptId === 999;
+
     if (
       !ticket.imported &&
       !msg.key.fromMe &&
       !ticket.isGroup &&
       !ticket.user &&
-      !isNil(whatsapp.integrationId) &&
+      hasSupervisorAI &&
       !ticket.useIntegration
     ) {
-      // console.log('por dentro3 ')
-      const integrations = await ShowQueueIntegrationService(
-        whatsapp.integrationId,
+      console.log("🔍 [SupervisorAI] Ejecutando orquestador - promptId:", ticket.whatsapp?.promptId);
+
+      // Crear integración falsa para supervisor_ai
+      const supervisorIntegration = {
+        id: 999,
+        name: "Orquestador IA",
+        type: "supervisor_ai",
         companyId
-      );
+      } as QueueIntegrations;
+
       await handleMessageIntegration(
         msg,
         wbot,
         companyId,
-        integrations,
+        supervisorIntegration,
         ticket,
         isMenu,
         whatsapp,
         contact,
         isFirstMsg
       );
+      return;
     }
 
+    // 3. Si no hay integración → verificar colas (fallback)
+
+    /* COMENTADO: Typebot ya no funcional
     if (
       !isNil(ticket.typebotSessionId) &&
       ticket.typebotStatus &&
@@ -4923,6 +5159,7 @@ const handleMessage = async (
       });
       return;
     }
+    */
 
     if (
       !ticket.imported &&
@@ -5232,11 +5469,27 @@ const verifyRecentCampaign = async (
           confirmedAt: moment(),
           confirmation: true
         });
+
+        // Obtener la campaña para acceder a statusTicket y openTicket
+        const campaign = await Campaign.findByPk(campaignShipping.campaignId);
+
+        // ========================================================
+        // USAR CONFIGURACIÓN DE ESTADO DEL TICKET DE LA CAMPAÑA
+        // ========================================================
+        const ticketStatus = campaign?.statusTicket || 'open';  // 'open' | 'closed'
+        const openTicket = campaign?.openTicket || 'enabled';    // 'enabled' | 'disabled'
+
+        logInfo(`[CAMPAIGN] Campaña ${campaign?.name}: ticketStatus=${ticketStatus}, openTicket=${openTicket}`);
+
+        // Incluir configuración del ticket en el job
         await campaignQueue.add(
           "DispatchCampaign",
           {
             campaignShippingId: campaignShipping.id,
-            campaignId: campaignShipping.campaignId
+            campaignId: campaignShipping.campaignId,
+            // Incluir configuración del ticket
+            ticketStatus,
+            openTicket
           },
           {
             delay: parseToMilliseconds(randomValue(0, 10))
@@ -5301,10 +5554,28 @@ const verifyCampaignMessageAndCloseTicket = async (
 };
 
 const filterMessages = (msg: WAMessage): boolean => {
+  // DEBUG: Log COMPLETO del mensaje entrante
+  // console.log("\n🆕 ===== NUEVO MENSAJE DETECTADO =====");
+  // console.log("   key:", msg.key?.id);
+  // console.log("   remoteJid:", msg.key?.remoteJid);
+  // console.log("   fromMe:", msg.key?.fromMe);
+  // console.log("   message:", JSON.stringify(msg.message)?.substring(0, 200));
+  // console.log("   messageStubType:", msg.messageStubType);
+  // console.log("   protocolMessage:", msg.message?.protocolMessage ? "SÍ" : "no");
+
   msgDB.save(msg);
 
+  // DEBUG: Log detallado de cada mensaje
+  // const msgType = msg.message?.protocolMessage ? 'protocolMessage' :
+  //                 msg.messageStubType ? `stubType:${msg.messageStubType}` :
+  //                 'regular';
+  // console.log("🔍 filterMessages - msgType:", msgType, "| key:", msg.key?.id);
+
   if (msg.message?.protocolMessage?.editedMessage) return true;
-  if (msg.message?.protocolMessage) return false;
+  if (msg.message?.protocolMessage) {
+    // console.log("❌ FILTRADO: protocolMessage detectado");
+    return false;
+  }
 
   if (
     [
@@ -5313,9 +5584,12 @@ const filterMessages = (msg: WAMessage): boolean => {
       WAMessageStubType.E2E_IDENTITY_CHANGED,
       WAMessageStubType.CIPHERTEXT
     ].includes(msg.messageStubType!)
-  )
+  ) {
+    // console.log("❌ FILTRADO: messageStubType:", msg.messageStubType);
     return false;
+  }
 
+  // console.log("✅ MENSAJE PASÓ EL FILTRO");
   return true;
 };
 
@@ -5323,39 +5597,50 @@ const filterMessages = (msg: WAMessage): boolean => {
 const processingWids = new Set<string>();
 
 const wbotMessageListener = (wbot: Session, companyId: number): void => {
+  // console.log("🎧 [wbotMessageListener] Registrando listener para companyId:", companyId, "wbot.id:", wbot.id);
+
+  // Log fuera del try para capturar cualquier error
+  // console.log("🔔 [wbotMessageListener] Esperando mensajes...");
   wbot.ev.on("messages.upsert", async (messageUpsert: ImessageUpsert) => {
-    console.log("\n🔵 ===== MENSAJE RECIBIDO - INICIO DEL FLUJO =====");
-    console.log("📍 Ubicación: wbotMessageListener");
-    console.log("🏢 CompanyId:", companyId);
-    console.log("📱 WhatsApp ID:", wbot.id);
-    console.log("📊 Total mensajes en batch:", messageUpsert.messages.length);
+    // console.log("🔔 [wbotMessageListener] EVENTO messages.upsert DISPARADO!");
+    // console.log("📊 messages.length:", messageUpsert.messages?.length);
+
+    try {
+      // console.log("\n🔵 ===== MENSAJE RECIBIDO - INICIO DEL FLUJO =====");
+      // console.log("📍 Ubicación: wbotMessageListener");
+      // console.log("🏢 CompanyId:", companyId);
+      // console.log("📱 WhatsApp ID:", wbot.id);
+      // console.log("📊 Total mensajes en batch:", messageUpsert.messages.length);
 
     const messages = messageUpsert.messages
       .filter(filterMessages)
       .map(msg => msg);
 
     if (!messages) {
-      console.log("❌ No hay mensajes válidos después del filtro");
+      // console.log("❌ No hay mensajes válidos después del filtro");
       return;
     }
 
-    console.log("✅ Mensajes válidos después del filtro:", messages.length);
+    // console.log("✅ Mensajes válidos después del filtro:", messages.length);
 
     messages.forEach(async (message: proto.IWebMessageInfo) => {
-      console.log("\n🔷 --- PROCESANDO MENSAJE INDIVIDUAL ---");
-      console.log("📝 Message ID (wid):", message.key.id);
-      console.log("📞 From:", message.key.remoteJid);
-      console.log("👤 FromMe:", message.key.fromMe);
+      // console.log("\n🔷 --- PROCESANDO MENSAJE INDIVIDUAL ---");
+      // console.log("📝 Message ID (wid):", message.key.id);
+      // console.log("📞 From:", message.key.remoteJid);
+      // console.log("👤 FromMe:", message.key.fromMe);
+      // console.log("📎 Message type:", message.message ? Object.keys(message.message)[0] : "sin mensaje");
 
       // Guard: evitar procesamiento concurrente del mismo wid
       const widKey = `${companyId}:${message.key.id}`;
       if (processingWids.has(widKey)) {
-        console.log("⚠️ [wbotMessageListener] wid ya en procesamiento, ignorando duplicado:", message.key.id);
+        // console.log("⚠️ [wbotMessageListener] wid ya en procesamiento, ignorando duplicado:", message.key.id);
         return;
       }
       processingWids.add(widKey);
       // Auto-limpiar después de 10s para evitar memory leak
       setTimeout(() => processingWids.delete(widKey), 10000);
+
+      // console.log("🔄 Buscando si mensaje ya existe en BD...");
 
       if (
         message?.messageStubParameters?.length &&
@@ -5372,9 +5657,13 @@ const wbotMessageListener = (wbot: Session, companyId: number): void => {
         where: { wid: message.key.id!, companyId }
       });
 
+      console.log("🔍 Message exists:", messageExists);
+
       if (!messageExists) {
+        console.log("🔄 Mensaje NO existe, creando...");
         let isCampaign = false;
         let body = await getBodyMessage(message);
+        console.log("📝 Body:", body?.substring(0, 100));
         const fromMe = message?.key?.fromMe;
         if (fromMe) {
           isCampaign = /\u200c/.test(body);
@@ -5437,6 +5726,9 @@ const wbotMessageListener = (wbot: Session, companyId: number): void => {
     //     await verifyCampaignMessageAndCloseTicket(message, companyId);
     //   }
     // });
+    } catch (err) {
+      console.error("❌ Error en messages.upsert:", err);
+    }
   });
 
   wbot.ev.on("messages.update", (messageUpdate: WAMessageUpdate[]) => {
@@ -5487,9 +5779,10 @@ const wbotMessageListener = (wbot: Session, companyId: number): void => {
   //     await handleMsgAck(msg, ack);
   //   });
   // })
-  // wbot.ev.on("presence.update", (events: any) => {
-  //   // console.log(events)
-  // })
+
+  wbot.ev.on("presence.update", (events: any) => {
+    console.log("👁️ [wbotMessageListener] Presence update:", JSON.stringify(events));
+  })
 
   wbot.ev.on("contacts.update", (contacts: any) => {
     contacts.forEach(async (contact: any) => {
@@ -5555,4 +5848,3 @@ export {
   handleMsgAck,
   sendMessageWithAntiBan // 🛡️ Exportar función anti-ban
 };
-

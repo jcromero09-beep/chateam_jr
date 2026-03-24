@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import BullQueue from 'bull';
-import { REDIS_URI_MSG_CONN } from "../config/redis";
+import { REDIS_URI_CONNECTION } from "../config/redis";
 import configLoader from '../services/ConfigLoaderService/configLoaderService';
 import * as jobs from '../jobs';
 import logger from '../utils/logger';
@@ -25,14 +25,31 @@ const queueOptions = {
 
 interface Job {
   key: string;
-  handle: (data: any) => Promise<void>;
+  handle: any;
 }
 
-const queues = Object.values(jobs).map((job: any) => {
+// Filtrar solo jobs con estructura válida { key, handle }
+const validJobs = Object.values(jobs).filter((job: any) => {
+  // Aceptar jobs con key o jobs que son funciones (handle directo)
+  return job && (job.key || typeof job === 'function');
+});
+console.log('[queue.ts] Jobs válidos encontrados:', validJobs.map((j: any) => j.key || j.name || 'function'));
+
+const queues = validJobs.map((job: any) => {
+  const jobKey = job.key || job.name;
+  // Si el job es un objeto con handle, usarlo; si es función, usarla directamente
+  let jobHandle;
+  if (typeof job === 'function') {
+    jobHandle = job;
+  } else if (job.handle) {
+    jobHandle = typeof job.handle === 'function' ? job.handle : job.handle.handle;
+  } else {
+    jobHandle = job;
+  }
   return {
-    bull: new BullQueue(job.key, REDIS_URI_MSG_CONN, queueOptions),
-    name: job.key,
-    handle: job.handle,
+    bull: new BullQueue(jobKey, REDIS_URI_CONNECTION, queueOptions),
+    name: jobKey,
+    handle: jobHandle,
   };
 });
 export default {

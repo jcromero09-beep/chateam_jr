@@ -75,14 +75,21 @@ const validateApiKeyFormat = (provider: string, apiKey: string): { valid: boolea
  * Lista todas las configuraciones de proveedores de IA
  */
 export const listProviders = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user as { companyId: number };
+  const authUser = req.user as { companyId: number; super?: boolean };
+  const { companyId, super: isSuperAdmin } = authUser;
 
-  devLog(`[AIConfig] listProviders - companyId: ${companyId}`);
+  devLog(`[AIConfig] listProviders - companyId: ${companyId}, isSuperAdmin: ${isSuperAdmin}`);
 
   try {
+    // Superadmin ve proveedores globales + los de su company
+    // Empresas ven solo los de su company
+    const whereClause = isSuperAdmin
+      ? { [Op.or]: [{ companyId }, { companyId: null }] }
+      : { companyId };
+
     const providers = await AIProviderConfig.findAll({
-      where: { companyId },
-      order: [["isDefault", "DESC"], ["createdAt", "DESC"]]
+      where: whereClause,
+      order: [["companyId", "ASC"], ["isDefault", "DESC"], ["createdAt", "DESC"]]
     });
 
     // Enmascarar API keys antes de enviar
@@ -139,7 +146,13 @@ export const getProvider = async (req: Request, res: Response): Promise<Response
  * Crea una nueva configuracion de proveedor
  */
 export const createProvider = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user as { companyId: number };
+  const authUser = req.user as { companyId: number; super?: boolean };
+  const { companyId: userCompanyId, super: isSuperAdmin } = authUser;
+
+  // Superadmin puede crear proveedores globales (companyId: null)
+  // Empresas solo pueden crear proveedores para su company
+  const targetCompanyId = isSuperAdmin && req.body.companyId === null ? null : userCompanyId;
+
   const {
     provider, name, apiKey, apiSecret, baseUrl, settings, isDefault,
     textGenerationEnabled, translationEnabled, imageGenerationEnabled,
@@ -148,7 +161,7 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
     imageAnalysisPricing, speechToTextPricing
   } = req.body;
 
-  devLog(`[AIConfig] createProvider - provider: ${provider}, name: ${name}, companyId: ${companyId}`);
+  devLog(`[AIConfig] createProvider - provider: ${provider}, name: ${name}, companyId: ${targetCompanyId}, isSuperAdmin: ${isSuperAdmin}`);
   devLog(`[AIConfig] createProvider - apiKey: ${maskApiKey(apiKey)}`);
 
   try {
@@ -167,7 +180,7 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
 
     // Verificar si ya existe una config para este proveedor
     const existing = await AIProviderConfig.findOne({
-      where: { companyId, provider, name }
+      where: { companyId: targetCompanyId, provider, name }
     });
 
     if (existing) {
@@ -179,14 +192,14 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
     if (isDefault) {
       await AIProviderConfig.update(
         { isDefault: false },
-        { where: { companyId } }
+        { where: { companyId: targetCompanyId } }
       );
       devLog(`[AIConfig] createProvider - Removed default from other providers`);
     }
 
     // Guardar API key sin encriptar
     const newProvider = await AIProviderConfig.create({
-      companyId,
+      companyId: targetCompanyId,
       provider,
       name,
       apiKey: apiKey,

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import AppError from "../errors/AppError";
 import fs from "fs";
+import queueLib from "../libs/queue";
 import GetTicketWbot from "../helpers/GetTicketWbot";
 import SetTicketMessagesAsRead from "../helpers/SetTicketMessagesAsRead";
 import { getIO } from "../libs/socket";
@@ -22,6 +23,7 @@ import DeleteWhatsAppMessage from "../services/WbotServices/DeleteWhatsAppMessag
 import SendWhatsAppMedia from "../services/WbotServices/SendWhatsAppMedia";
 import SendWhatsAppMessage from "../services/WbotServices/SendWhatsAppMessage";
 import CreateMessageService from "../services/MessageServices/CreateMessageService";
+import ProcessPendingMessagesService from "../services/MessageServices/ProcessPendingMessagesService";
 import { sendInstagramAttachment } from "../services/FacebookServices/graphAPI";
 import { sendFacebookMessageMedia } from "../services/FacebookServices/sendFacebookMessageMedia";
 import sendFaceMessage from "../services/FacebookServices/sendFacebookMessage";
@@ -682,7 +684,46 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
         } else {
             console.log('isPrivate', isPrivate, 'ticket.channel ', ticket.channel)
             if (ticket.channel === "whatsapp" && isPrivate === "false") {
-                await SendWhatsAppMessage({ body, ticket, quotedMsg, vCard });
+                // NUEVO: Guardar mensaje en BD primero con estado "pending", luego encolar envío
+                const messageData = {
+                    wid: `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                    ticketId: ticket.id,
+                    contactId: undefined,
+                    body,
+                    fromMe: true,
+                    mediaType: 'extendedTextMessage',
+                    read: true,
+                    quotedMsgId: quotedMsg?.id || null,
+                    ack: 0, // 0 = pending (no confirmado aún)
+                    remoteJid: ticket.contact?.remoteJid,
+                    participant: null,
+                    dataJson: null,
+                    ticketTrakingId: null,
+                    isPrivate: false,
+                    messageStatus: 'pending', // Estado inicial - esperando envío
+                    sendAttempts: 0,
+                    whatsappId: ticket.whatsappId
+                };
+
+                // Guardar mensaje en BD primero
+                const createdMessage = await CreateMessageService({ messageData, companyId: ticket.companyId });
+                console.log('[MessageController] Mensaje guardado con status pending, ID:', createdMessage.id);
+
+                // Procesar envío directamente en backend (no usar worker)
+                try {
+                    await ProcessPendingMessagesService(ticket.whatsappId);
+                    console.log('[MessageController] Mensaje procesado, ID:', createdMessage.id);
+                } catch (processError) {
+                    console.error('[MessageController] Error procesando mensaje:', processError);
+                    // El mensaje queda como pending, se reintentará después
+                }
+
+                // Responder al frontend inmediatamente
+                return res.status(200).json({
+                    success: true,
+                    message: createdMessage,
+                    pending: true
+                });
             } else if (ticket.channel === "whatsapp" && isPrivate === "true") {
                 const messageData = {
                     wid: `PVT${ticket.updatedAt.toString().replace(' ', '')}`,
@@ -714,20 +755,48 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 const whatsapp = await Whatsapp.findByPk(ticket.whatsappId);
                 // facebookPageUserId contiene el Phone Number ID de Meta (necesario para enviar)
                 const phoneNumberId = whatsapp?.facebookPageUserId || whatsapp?.number;
+
+                // ── LOG DIAGNÓSTICO COMPLETO ──────────────────────────────
+                console.log("📤 [META-SEND] ========== INICIO ENVÍO META ==========");
+                console.log("📤 [META-SEND] ticketId:", ticket.id);
+                console.log("📤 [META-SEND] whatsappId del ticket:", ticket.whatsappId);
+                console.log("📤 [META-SEND] whatsapp encontrado:", whatsapp ? `id=${whatsapp.id} name=${whatsapp.name} status=${whatsapp.status}` : "NO ENCONTRADO ❌");
+                console.log("📤 [META-SEND] phoneNumberId (facebookPageUserId):", whatsapp?.facebookPageUserId || "undefined");
+                console.log("📤 [META-SEND] phoneNumberId (number):", whatsapp?.number || "undefined");
+                console.log("📤 [META-SEND] phoneNumberId resuelto:", phoneNumberId || "undefined ❌");
+                console.log("📤 [META-SEND] tokenMeta existe:", whatsapp?.tokenMeta ? `SI (${whatsapp.tokenMeta.substring(0, 20)}...)` : "NO ❌");
+                console.log("📤 [META-SEND] coexistenceEnabled:", (whatsapp as any)?.coexistenceEnabled);
+                console.log("📤 [META-SEND] coexistenceStatus:", (whatsapp as any)?.coexistenceStatus);
+                // ─────────────────────────────────────────────────────────
+
                 if (!whatsapp || !whatsapp.tokenMeta || !phoneNumberId) {
-                    console.error('[Meta] Error: Credenciales META no configuradas para whatsapp:', ticket.whatsappId);
+                    console.error('[META-SEND] ❌ Credenciales incompletas — whatsapp:', !!whatsapp, '| tokenMeta:', !!whatsapp?.tokenMeta, '| phoneNumberId:', phoneNumberId);
                     throw new AppError("Credenciales META no configuradas", 400);
                 }
 
                 const to = ticket.contact.number.replace("+", "");
-                console.log(`📤 [Meta] Enviando mensaje a ${to} via conexión META ${whatsapp.name} (PhoneNumberId: ${phoneNumberId})`);
+                const msgBody = formatBody(body, ticket);
+                console.log(`📤 [META-SEND] Destinatario (to): "${to}"`);
+                console.log(`📤 [META-SEND] Cuerpo mensaje (primeros 100 chars): "${msgBody?.substring(0, 100)}"`);
+                console.log("📤 [META-SEND] URL destino Graph API:", `https://graph.facebook.com/v24.0/${phoneNumberId}/messages`);
 
                 try {
-                    await metaSendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-                    console.log(`✅ [Meta] Mensaje enviado exitosamente`);
+                    await metaSendTextDynamic(to, msgBody, phoneNumberId, whatsapp.tokenMeta);
+                    console.log(`✅ [META-SEND] ¡Mensaje enviado exitosamente! ticketId=${ticket.id} to=${to}`);
                 } catch (error: any) {
-                    console.error(`❌ [Meta] Error enviando mensaje:`, error.response?.data || error.message);
-                    throw new AppError("Error enviando mensaje por META", 500);
+                    const metaError = error.response?.data?.error;
+                    console.error("❌ [META-SEND] ========== ERROR COMPLETO META ==========");
+                    console.error("❌ [META-SEND] HTTP Status:", error.response?.status);
+                    console.error("❌ [META-SEND] error.message:", error.message);
+                    console.error("❌ [META-SEND] Meta error.code:", metaError?.code);
+                    console.error("❌ [META-SEND] Meta error.error_subcode:", metaError?.error_subcode);
+                    console.error("❌ [META-SEND] Meta error.type:", metaError?.type);
+                    console.error("❌ [META-SEND] Meta error.message:", metaError?.message);
+                    console.error("❌ [META-SEND] Meta error.error_user_msg:", metaError?.error_user_msg);
+                    console.error("❌ [META-SEND] Meta error.fbtrace_id:", metaError?.fbtrace_id);
+                    console.error("❌ [META-SEND] Payload completo:", JSON.stringify(error.response?.data, null, 2));
+                    console.error("❌ [META-SEND] =====================================================");
+                    throw new AppError(`Error Meta API (code ${metaError?.code || "?"}): ${metaError?.message || error.message}`, 500);
                 }
             }
             // NUEVO: Soporte para mensajes de texto de Telegram
@@ -771,6 +840,32 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                     return res.status(400).json({
                         error: "Error enviando mensaje",
                         details: err.message
+                    });
+                }
+            }
+            // TIKTOK: Solo lectura — guardar como nota interna
+            else if (ticket.channel === "tiktok") {
+                try {
+                    const CreateMessageService = (await import("../services/MessageServices/CreateMessageService")).default;
+                    await CreateMessageService({
+                        messageData: {
+                            wid: `TIKTOK_NOTE_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                            ticketId: ticket.id,
+                            contactId: ticket.contactId,
+                            body: body || "",
+                            fromMe: true,
+                            read: true,
+                            mediaType: "chat",
+                            isPrivate: true,
+                            companyId: ticket.companyId,
+                        } as any,
+                        companyId: ticket.companyId,
+                    });
+                    console.log(`[TikTok] Nota interna guardada en ticket ${ticket.id}`);
+                } catch (err: any) {
+                    return res.status(400).json({
+                        error: "Error guardando nota TikTok",
+                        details: err.message,
                     });
                 }
             }

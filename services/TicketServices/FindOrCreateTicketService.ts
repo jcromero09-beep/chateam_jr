@@ -34,17 +34,17 @@ const FindOrCreateTicketService = async (
   isTransfered?: boolean,
   isCampaign: boolean = false
 ): Promise<Ticket> => {
-  console.log("\n  🔸 [FindOrCreateTicketService] INICIO");
-  console.log("  📋 Parámetros:", {
-    contactId: contact.id,
-    whatsappId: whatsapp.id,
-    unreadMessages,
-    queueId,
-    userId,
-    isGroup: !!groupContact,
-    channel,
-    isCampaign
-  });
+  // console.log("\n  🔸 [FindOrCreateTicketService] INICIO");
+  // console.log("  📋 Parámetros:", {
+  //   contactId: contact.id,
+  //   whatsappId: whatsapp.id,
+  //   unreadMessages,
+  //   queueId,
+  //   userId,
+  //   isGroup: !!groupContact,
+  //   channel,
+  //   isCampaign
+  // });
 
   let openAsLGPD = false
   if (settings.enableLGPD) {
@@ -55,12 +55,12 @@ const FindOrCreateTicketService = async (
       (settings.lgpdConsent === "enabled" ||
         (settings.lgpdConsent === "disabled" && isNil(contact?.lgpdAcceptedAt)))
   }
-  console.log("  🔒 openAsLGPD:", openAsLGPD);
+  // console.log("  🔒 openAsLGPD:", openAsLGPD);
 
   const io = getIO();
   const DirectTicketsToWallets = settings.DirectTicketsToWallets;
 
-  console.log("  🔍 Buscando ticket ABIERTO existente...");
+  // console.log("  🔍 Buscando ticket ABIERTO existente...");
   let ticket = await Ticket.findOne({
     where: {
       status: {
@@ -77,37 +77,30 @@ const FindOrCreateTicketService = async (
 
 
   if (ticket) {
-    console.log("  ✅ Ticket ABIERTO encontrado:", {
-      id: ticket.id,
-      status: ticket.status,
-      userId: ticket.userId,
-      queueId: ticket.queueId
-    });
-
     if (isCampaign) {
       await ticket.update({
         userId: userId !== ticket.userId ? ticket.userId : userId,
         queueId: queueId !== ticket.queueId ? ticket.queueId : queueId,
       })
-      console.log("  📢 Ticket actualizado para campaña");
+      // console.log("  📢 Ticket actualizado para campaña");
     } else {
       await ticket.update({ unreadMessages, isBot: false });
-      console.log("  📝 Ticket actualizado - unreadMessages:", unreadMessages);
+      // console.log("  📝 Ticket actualizado - unreadMessages:", unreadMessages);
     }
 
     ticket = await ShowTicketService(ticket.id, companyId);
-    console.log("  ✅ [FindOrCreateTicketService] FIN - Ticket existente retornado\n");
+    // console.log("  ✅ [FindOrCreateTicketService] FIN - Ticket existente retornado\n");
 
     return ticket
 
   }
 
   const timeCreateNewTicket = whatsapp.timeCreateNewTicket;
-  console.log("  ❌ No hay ticket abierto");
-  console.log("  ⏱️ timeCreateNewTicket:", timeCreateNewTicket, "minutos");
+  // console.log("  ❌ No hay ticket abierto");
+  // console.log("  ⏱️ timeCreateNewTicket:", timeCreateNewTicket, "minutos");
 
   if (!ticket && timeCreateNewTicket !== 0) {
-    console.log("  🔍 Buscando ticket CERRADO reciente (últimos", timeCreateNewTicket, "minutos)...");
+    // console.log("  🔍 Buscando ticket CERRADO reciente (últimos", timeCreateNewTicket, "minutos)...");
 
     // @ts-ignore: Unreachable code error
     if (timeCreateNewTicket !== 0 && timeCreateNewTicket !== "0") {
@@ -130,23 +123,23 @@ const FindOrCreateTicketService = async (
     }
 
     if (ticket && ticket.status !== "nps") {
-      console.log("  ✅ Ticket cerrado reciente encontrado:", ticket.id);
-      console.log("  🔄 REABRIENDO ticket como 'pending'...");
+      // console.log("  ✅ Ticket cerrado reciente encontrado:", ticket.id);
+      // console.log("  🔄 REABRIENDO ticket como 'pending'...");
       await ticket.update({
         status: "pending",
         unreadMessages,
         companyId,
       });
-      console.log("  ✅ Ticket reabierto");
+      // console.log("  ✅ Ticket reabierto");
     } else if (ticket) {
-      console.log("  ℹ️ Ticket encontrado pero es NPS, no se reabre");
+      // console.log("  ℹ️ Ticket encontrado pero es NPS, no se reabre");
     } else {
-      console.log("  ❌ No hay ticket cerrado reciente");
+      // console.log("  ❌ No hay ticket cerrado reciente");
     }
   }
 
   if (!ticket) {
-    console.log("\n  🆕 CREANDO NUEVO TICKET...");
+    // console.log("\n  🆕 CREANDO NUEVO TICKET...");
 
     const ticketData: any = {
       contactId: groupContact ? groupContact.id : contact.id,
@@ -180,41 +173,32 @@ const FindOrCreateTicketService = async (
       }
     }
 
-    console.log("  💾 Creando ticket en BD...");
+    // console.log("  💾 Creando ticket en BD...");
     ticket = await Ticket.create(
       ticketData
     );
-    console.log("  ✅ Ticket creado con ID:", ticket.id);
+    // console.log("  ✅ Ticket creado con ID:", ticket.id);
   }
 
 
   if (queueId != 0 && !isNil(queueId)) {
-    console.log("  🎯 Asignando cola (queueId):", queueId);
+    // console.log("  🎯 Asignando cola (queueId):", queueId);
     await ticket.update({ queueId: queueId });
   }
 
   if (userId != 0 && !isNil(userId)) {
-    console.log("  👤 Asignando usuario (userId):", userId);
+    // console.log("  👤 Asignando usuario (userId):", userId);
     await ticket.update({ userId: userId });
   }
 
-  console.log("  🔄 Obteniendo ticket completo con relaciones...");
+  // console.log("  🔄 Obteniendo ticket completo con relaciones...");
   ticket = await ShowTicketService(ticket.id, companyId);
 
-  console.log("  📝 Creando log del ticket...");
+  // console.log("  📝 Creando log del ticket...");
   await CreateLogTicketService({
     ticketId: ticket.id,
     type: openAsLGPD ? "lgpd" : "create"
   });
-
-  console.log("  ✅ [FindOrCreateTicketService] FIN:", {
-    id: ticket.id,
-    status: ticket.status,
-    contactId: ticket.contactId,
-    userId: ticket.userId,
-    queueId: ticket.queueId
-  });
-  console.log("");
 
   return ticket;
 };

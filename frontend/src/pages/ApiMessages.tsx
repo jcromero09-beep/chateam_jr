@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Typography,
   Stack,
@@ -17,7 +18,16 @@ import {
   Option,
   CircularProgress,
   Divider,
-  Sheet
+  Sheet,
+  Table,
+  SheetProps,
+  IconButton,
+  Tooltip as JoyTooltip,
+  Modal,
+  ModalDialog,
+  DialogTitle,
+  DialogContent,
+  Alert
 } from '@mui/joy'
 import {
   Api as ApiIcon,
@@ -27,15 +37,20 @@ import {
   Error as ErrorIcon,
   TrendingUp as TrendingUpIcon,
   Dashboard as DashboardIcon,
-  Description as DescriptionIcon
+  Description as DescriptionIcon,
+  Refresh as RefreshIcon,
+  Delete as DeleteIcon,
+  Visibility as VisibilityIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material'
+import { toast } from 'sonner'
 import {
   BarChart,
   Bar,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   Legend,
   ResponsiveContainer,
   PieChart,
@@ -82,12 +97,41 @@ interface DetailedStats {
   }>
 }
 
+interface FailedMessage {
+  id: number
+  companyId: number
+  whatsappId: number | null
+  number: string | null
+  message: string | null
+  error: string | null
+  errorCode: string | null
+  errorSubcode: string | null
+  fbtraceId: string | null
+  status: 'pending' | 'retried' | 'failed'
+  retryCount: number
+  ticketId: number | null
+  endpoint: string
+  metadata: any
+  createdAt: string
+  updatedAt: string
+}
+
 export default function ApiMessages() {
-  const [tabIndex, setTabIndex] = useState(0)
+  const [searchParams] = useSearchParams()
+  const initialTab = parseInt(searchParams.get("tab") || "0", 10)
+  const [tabIndex, setTabIndex] = useState(initialTab)
   const [period, setPeriod] = useState<string>('week')
   const [loading, setLoading] = useState(true)
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [detailedStats, setDetailedStats] = useState<DetailedStats | null>(null)
+
+  // Failed Messages State
+  const [failedMessages, setFailedMessages] = useState<FailedMessage[] | null>(null)
+  const [failedLoading, setFailedLoading] = useState(false)
+  const [retryingId, setRetryingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [selectedFailed, setSelectedFailed] = useState<FailedMessage | null>(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   useEffect(() => {
     fetchStats()
@@ -108,6 +152,80 @@ export default function ApiMessages() {
       setLoading(false)
     }
   }
+
+  const fetchFailedMessages = async () => {
+    setFailedLoading(true)
+    try {
+      const res = await api.get('/api/messages/failed-messages')
+      setFailedMessages(res.data.messages || [])
+    } catch (err) {
+      console.error('Error fetching failed messages:', err)
+      toast.error('Error al cargar mensajes fallidos')
+    } finally {
+      setFailedLoading(false)
+    }
+  }
+
+  const handleRetry = async (id: number) => {
+    setRetryingId(id)
+    try {
+      await api.post(`/api/messages/failed-messages/${id}/retry`)
+      toast.success('Mensaje reenviado correctamente')
+      await fetchFailedMessages()
+    } catch (err: any) {
+      console.error('Error retrying message:', err)
+      toast.error(err.response?.data?.message || 'Error al reintentar mensaje')
+    } finally {
+      setRetryingId(null)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('¿Estás seguro de eliminar este mensaje fallido?')) return
+
+    setDeletingId(id)
+    try {
+      await api.delete(`/api/messages/failed-messages/${id}`)
+      toast.success('Mensaje eliminado correctamente')
+      await fetchFailedMessages()
+    } catch (err: any) {
+      console.error('Error deleting message:', err)
+      toast.error(err.response?.data?.message || 'Error al eliminar mensaje')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const openDetails = (msg: FailedMessage) => {
+    setSelectedFailed(msg)
+    setDetailsOpen(true)
+  }
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleString('es-ES', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return 'warning'
+      case 'retried': return 'success'
+      case 'failed': return 'danger'
+      default: return 'neutral'
+    }
+  }
+
+  // Cargar mensajes fallidos cuando se cambie a la pestaña
+  useEffect(() => {
+    if (tabIndex === 2) {
+      fetchFailedMessages()
+    }
+  }, [tabIndex])
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
@@ -291,7 +409,7 @@ export default function ApiMessages() {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="date" />
                         <YAxis />
-                        <Tooltip />
+                        <RechartsTooltip />
                         <Legend />
                         <Bar dataKey="Exitosos" fill={COLORS.success} />
                         <Bar dataKey="Fallidos" fill={COLORS.failed} />
@@ -326,7 +444,7 @@ export default function ApiMessages() {
                             <Cell key={`cell-${index}`} fill={index === 0 ? COLORS.success : COLORS.failed} />
                           ))}
                         </Pie>
-                        <Tooltip />
+                        <RechartsTooltip />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -473,6 +591,334 @@ export default function ApiMessages() {
     </Stack>
   )
 
+  // Failed Messages Tab Content
+  const FailedMessagesContent = () => {
+  // Ensure failedMessages is always an array
+  const messages = Array.isArray(failedMessages) ? failedMessages : []
+
+  return (
+    <Stack spacing={3}>
+      {/* Header con botón de actualizar */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography level="h4">
+          Mensajes Fallidos
+        </Typography>
+        <Button
+          size="sm"
+          variant="outlined"
+          onClick={fetchFailedMessages}
+          startDecorator={<RefreshIcon />}
+        >
+          Actualizar
+        </Button>
+      </Box>
+
+      {failedLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress />
+        </Box>
+      ) : messages.length === 0 ? (
+        <Alert color="success" variant="soft" startDecorator={<CheckCircleIcon />}>
+          No hay mensajes fallidos. ¡Todos los envíos fueron exitosos!
+        </Alert>
+      ) : (
+        <>
+          {/* Resumen de estados */}
+          <Grid container spacing={2}>
+            <Grid xs={12} sm={4}>
+              <Card sx={{ borderLeft: '4px solid #f59e0b' }}>
+                <CardContent>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Pendientes
+                  </Typography>
+                  <Typography level="h3" sx={{ color: '#f59e0b' }}>
+                    {messages.filter(m => m.status === 'pending').length}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid xs={12} sm={4}>
+              <Card sx={{ borderLeft: '4px solid #4caf50' }}>
+                <CardContent>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Reenviados
+                  </Typography>
+                  <Typography level="h3" sx={{ color: '#4caf50' }}>
+                    {messages.filter(m => m.status === 'retried').length}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid xs={12} sm={4}>
+              <Card sx={{ borderLeft: '4px solid #f44336' }}>
+                <CardContent>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Fallidos Definitivos
+                  </Typography>
+                  <Typography level="h3" sx={{ color: '#f44336' }}>
+                    {messages.filter(m => m.status === 'failed').length}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* Tabla de mensajes fallidos */}
+          <Sheet variant="outlined" sx={{ overflowX: 'auto' }}>
+            <Table>
+              <thead>
+                <tr>
+                  <th>Número</th>
+                  <th>Mensaje</th>
+                  <th>Error</th>
+                  <th>Endpoint</th>
+                  <th>Estado</th>
+                  <th>Reintentos</th>
+                  <th>Fecha</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {messages.map((msg) => (
+                  <tr key={msg.id}>
+                    <td>
+                      <Typography level="body-sm" sx={{ fontWeight: 600 }}>
+                        {msg.number || 'N/A'}
+                      </Typography>
+                    </td>
+                    <td style={{ maxWidth: 200 }}>
+                      <JoyTooltip title={msg.message || ''}>
+                        <Typography level="body-sm" sx={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {msg.message?.substring(0, 50) || '(Sin mensaje)'}
+                          {msg.message && msg.message.length > 50 ? '...' : ''}
+                        </Typography>
+                      </JoyTooltip>
+                    </td>
+                    <td style={{ maxWidth: 200 }}>
+                      <JoyTooltip title={msg.error || ''}>
+                        <Typography level="body-sm" sx={{
+                          color: 'danger.main',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {msg.error?.substring(0, 40) || 'Error desconocido'}
+                          {msg.error && msg.error.length > 40 ? '...' : ''}
+                        </Typography>
+                      </JoyTooltip>
+                    </td>
+                    <td>
+                      <Chip size="sm" variant="soft">
+                        {msg.endpoint}
+                      </Chip>
+                    </td>
+                    <td>
+                      <Chip
+                        size="sm"
+                        color={getStatusColor(msg.status) as any}
+                      >
+                        {msg.status === 'pending' ? 'Pendiente' :
+                         msg.status === 'retried' ? 'Reenviado' : 'Fallido'}
+                      </Chip>
+                    </td>
+                    <td>
+                      <Typography level="body-sm">
+                        {msg.retryCount}
+                      </Typography>
+                    </td>
+                    <td>
+                      <Typography level="body-sm" sx={{ fontSize: '0.75rem' }}>
+                        {formatDate(msg.createdAt)}
+                      </Typography>
+                    </td>
+                    <td>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <JoyTooltip title="Ver detalles">
+                          <IconButton
+                            size="sm"
+                            variant="plain"
+                            color="primary"
+                            onClick={() => openDetails(msg)}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </JoyTooltip>
+                        {msg.status === 'pending' && (
+                          <JoyTooltip title="Reintentar">
+                            <IconButton
+                              size="sm"
+                              variant="plain"
+                              color="success"
+                              onClick={() => handleRetry(msg.id)}
+                              disabled={retryingId === msg.id}
+                            >
+                              {retryingId === msg.id ? (
+                                <CircularProgress size="sm" />
+                              ) : (
+                                <RefreshIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </JoyTooltip>
+                        )}
+                        <JoyTooltip title="Eliminar">
+                          <IconButton
+                            size="sm"
+                            variant="plain"
+                            color="danger"
+                            onClick={() => handleDelete(msg.id)}
+                            disabled={deletingId === msg.id}
+                          >
+                            {deletingId === msg.id ? (
+                              <CircularProgress size="sm" />
+                            ) : (
+                              <DeleteIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </JoyTooltip>
+                      </Box>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Sheet>
+        </>
+      )}
+
+      {/* Modal de detalles */}
+      <Modal open={detailsOpen} onClose={() => setDetailsOpen(false)}>
+        <ModalDialog>
+          <DialogTitle>
+            <WarningIcon sx={{ color: 'warning.main', mr: 1 }} />
+            Detalles del Mensaje Fallido
+          </DialogTitle>
+          <DialogContent>
+            {selectedFailed && (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <Box>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Número
+                  </Typography>
+                  <Typography level="body-md">
+                    {selectedFailed.number || 'N/A'}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Mensaje
+                  </Typography>
+                  <Sheet variant="soft" sx={{ p: 1, borderRadius: 'sm', maxHeight: 100, overflow: 'auto' }}>
+                    <Typography level="body-sm">
+                      {selectedFailed.message || '(Sin mensaje)'}
+                    </Typography>
+                  </Sheet>
+                </Box>
+                <Box>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Error
+                  </Typography>
+                  <Sheet variant="soft" color="danger" sx={{ p: 1, borderRadius: 'sm', maxHeight: 100, overflow: 'auto' }}>
+                    <Typography level="body-sm" sx={{ color: 'danger.main' }}>
+                      {selectedFailed.error || 'Error desconocido'}
+                    </Typography>
+                  </Sheet>
+                </Box>
+                <Grid container spacing={2}>
+                  <Grid xs={6}>
+                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                      Código de Error
+                    </Typography>
+                    <Typography level="body-md">
+                      {selectedFailed.errorCode || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid xs={6}>
+                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                      Subcódigo
+                    </Typography>
+                    <Typography level="body-md">
+                      {selectedFailed.errorSubcode || 'N/A'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+                <Box>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    FBTrace ID
+                  </Typography>
+                  <Typography level="body-sm" sx={{ fontFamily: 'monospace' }}>
+                    {selectedFailed.fbtraceId || 'N/A'}
+                  </Typography>
+                </Box>
+                <Grid container spacing={2}>
+                  <Grid xs={6}>
+                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                      Endpoint
+                    </Typography>
+                    <Chip size="sm">
+                      {selectedFailed.endpoint}
+                    </Chip>
+                  </Grid>
+                  <Grid xs={6}>
+                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                      Estado
+                    </Typography>
+                    <Chip
+                      size="sm"
+                      color={getStatusColor(selectedFailed.status) as any}
+                    >
+                      {selectedFailed.status}
+                    </Chip>
+                  </Grid>
+                </Grid>
+                <Grid container spacing={2}>
+                  <Grid xs={6}>
+                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                      Reintentos
+                    </Typography>
+                    <Typography level="body-md">
+                      {selectedFailed.retryCount}
+                    </Typography>
+                  </Grid>
+                  <Grid xs={6}>
+                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                      Ticket ID
+                    </Typography>
+                    <Typography level="body-md">
+                      {selectedFailed.ticketId || 'N/A'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+                <Box>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Metadata
+                  </Typography>
+                  <Sheet variant="soft" sx={{ p: 1, borderRadius: 'sm', maxHeight: 150, overflow: 'auto' }}>
+                    <Typography level="body-sm" component="pre" sx={{ fontSize: '0.75rem', m: 0 }}>
+                      {JSON.stringify(selectedFailed.metadata, null, 2) || 'N/A'}
+                    </Typography>
+                  </Sheet>
+                </Box>
+                <Box>
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    Fecha de Creación
+                  </Typography>
+                  <Typography level="body-md">
+                    {formatDate(selectedFailed.createdAt)}
+                  </Typography>
+                </Box>
+              </Stack>
+            )}
+          </DialogContent>
+        </ModalDialog>
+      </Modal>
+    </Stack>
+  )
+  }
+
   return (
     <Container maxWidth="xl">
       <Stack spacing={3}>
@@ -500,6 +946,10 @@ export default function ApiMessages() {
               <DescriptionIcon sx={{ mr: 1 }} />
               Documentacion API
             </Tab>
+            <Tab>
+              <ErrorIcon sx={{ mr: 1 }} />
+              Mensajes Fallidos
+            </Tab>
           </TabList>
 
           <TabPanel value={0} sx={{ p: 0, pt: 2 }}>
@@ -508,6 +958,10 @@ export default function ApiMessages() {
 
           <TabPanel value={1} sx={{ p: 0, pt: 2 }}>
             <DocumentationContent />
+          </TabPanel>
+
+          <TabPanel value={2} sx={{ p: 0, pt: 2 }}>
+            <FailedMessagesContent />
           </TabPanel>
         </Tabs>
       </Stack>

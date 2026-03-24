@@ -140,6 +140,10 @@ class Contact extends Model<Contact> {
 
   @AllowNull(true)
   @Column(DataType.STRING)
+  tiktokUserId: string;
+
+  @AllowNull(true)
+  @Column(DataType.STRING)
   phoneNumberId: string;
 
   // Address fields for Facebook Conversion API
@@ -158,6 +162,10 @@ class Contact extends Model<Contact> {
   @AllowNull(true)
   @Column(DataType.STRING)
   zipcode: string;
+
+  @Default({})
+  @Column(DataType.JSON)
+  metadata: Record<string, any>;
 
   // Appointments relation
   @HasMany(() => Appointment)

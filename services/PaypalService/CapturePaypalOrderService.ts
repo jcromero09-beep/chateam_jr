@@ -146,6 +146,27 @@ const CapturePaypalOrderService = async ({
       paymentMethod: "paypal"
     });
 
+    // Provisionar créditos IA para el nuevo ciclo
+    try {
+      const ProvisionCreditsService = require('../AICreditServices/ProvisionCreditsService');
+      await ProvisionCreditsService({ companyId, planId, mode: "renew" });
+      console.log(`✅ Créditos IA provisionados via PayPal: company=${companyId}, plan=${planId}`);
+    } catch (e: any) {
+      console.error(`❌ Error provisionando créditos IA:`, e.message);
+      Sentry.captureException(e);
+    }
+
+    // Provisionar créditos de email si es un plan de email
+    try {
+      const EmailPlanService = require('../EmailPlanService').default;
+      if (invoice.isEmailPlan && invoice.emailPlanId) {
+        await EmailPlanService.provisionEmailCredits(companyId, invoice.emailPlanId, "renew");
+        console.log(`✅ Créditos de email provisionados via PayPal: company=${companyId}, emailPlan=${invoice.emailPlanId}`);
+      }
+    } catch (e: any) {
+      console.error(`❌ Error provisionando créditos de email:`, e.message);
+    }
+
     // Reiniciar sesiones de WhatsApp
     try {
       const whatsapps = await ListWhatsAppsService({ companyId });

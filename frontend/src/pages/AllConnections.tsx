@@ -26,6 +26,7 @@ import {
   WhatsApp as WhatsAppIcon,
   Telegram as TelegramIcon,
   Business as CompanyIcon,
+  MusicNote as MusicNoteIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
 
@@ -141,6 +142,8 @@ export default function AllConnections() {
         return <InstagramIcon sx={{ color: '#E4405F' }} />
       case 'telegram':
         return <TelegramIcon sx={{ color: '#0088CC' }} />
+      case 'tiktok':
+        return <MusicNoteIcon sx={{ color: '#000000' }} />
       default:
         return <WhatsAppIcon sx={{ color: '#25D366' }} />
     }

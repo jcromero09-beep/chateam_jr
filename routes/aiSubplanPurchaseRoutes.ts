@@ -1,8 +1,11 @@
 import express from "express";
 import isAuth from "../middleware/isAuth";
+import multer from "multer";
 import * as AISubplanPurchaseController from "../controllers/AISubplanPurchaseController";
 
 const routes = express.Router();
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * Rutas para compra de subplans de tokens IA
@@ -17,5 +20,11 @@ routes.get("/available", isAuth, AISubplanPurchaseController.listAvailableSubpla
 
 // Crear sesión de checkout de Stripe para comprar subplan
 routes.post("/checkout", isAuth, AISubplanPurchaseController.createSubplanCheckout);
+
+// Crear orden de PayPal para comprar subplan
+routes.post("/paypal", isAuth, AISubplanPurchaseController.createSubplanPaypalOrder);
+
+// Procesar pago por comprobante (upload de archivo)
+routes.post("/comprobante", isAuth, upload.single('file'), AISubplanPurchaseController.processSubplanComprobante);
 
 export default routes;

@@ -37,6 +37,7 @@
     "formik": "^2.4.9",
     "i18next": "^25.7.4",
     "i18next-browser-languagedetector": "^8.2.0",
+    "lucide-react": "^0.575.0",
     "material-ui-color": "^1.2.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

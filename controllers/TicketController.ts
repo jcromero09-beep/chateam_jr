@@ -427,3 +427,28 @@ export const closeAll = async (req: Request, res: Response): Promise<Response> =
 
   return res.status(200).json();
 };
+
+// Toggle followupEnabled para un ticket específico
+export const toggleFollowup = async (req: Request, res: Response): Promise<Response> => {
+  const { ticketId } = req.params;
+  const { companyId } = req.user;
+
+  try {
+    const ticket = await Ticket.findOne({
+      where: { id: ticketId, companyId }
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    // Toggle el valor actual
+    const newValue = !ticket.followupEnabled;
+    await ticket.update({ followupEnabled: newValue });
+
+    return res.json({ followupEnabled: newValue });
+  } catch (error) {
+    console.error('Error toggling followup:', error);
+    return res.status(500).json({ error: 'Error al togglear followup' });
+  }
+};

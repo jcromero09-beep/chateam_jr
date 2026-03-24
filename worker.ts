@@ -4,8 +4,10 @@ import 'reflect-metadata';
 import './database';
 
 import logger from './utils/logger';
-import { startQueueProcess, startCampaignScheduler } from './queues';
+import { startQueueProcess, startCampaignScheduler, getAllQueues } from './queues';
 import { startFacebookConversionScheduler } from './scheduler/FacebookConversionScheduler';
+import { startMetaCoexistenceScheduler } from './scheduler/MetaCoexistenceScheduler';
+import { startAppointmentCleanupScheduler } from './scheduler/AppointmentCleanupScheduler';
 
 async function startWorker() {
   try {
@@ -28,6 +30,14 @@ async function startWorker() {
     // ✅ NUEVO: Iniciar el scheduler de Facebook Conversions
     logger.info('📤 Iniciando scheduler de Facebook Conversions...');
     startFacebookConversionScheduler();
+
+    // ✅ Iniciar schedulers de Meta Coexistencia (token refresh + liveness)
+    logger.info('🔄 Iniciando scheduler de Meta Coexistencia...');
+    startMetaCoexistenceScheduler();
+
+    // ✅ Iniciar scheduler de limpieza de citas (1 AM daily)
+    logger.info('🧹 Iniciando scheduler de limpieza de citas...');
+    startAppointmentCleanupScheduler();
 
     logger.info('✅ Worker iniciado correctamente - Procesando campañas con scheduler autónomo');
     logger.info('📋 El worker ahora:');
@@ -56,16 +66,24 @@ process.on('unhandledRejection', (reason, p) => {
   );
 });
 
-// ✅ Manejo graceful de cierre del worker
-process.on('SIGTERM', () => {
-  logger.info('🔄 Worker recibió SIGTERM - Cerrando procesos...');
+// ✅ Manejo graceful de cierre del worker — cierra colas Bull para evitar jobs stuck
+async function gracefulShutdown(signal: string) {
+  logger.info(`🔄 Worker recibió ${signal} - Cerrando colas Bull gracefully...`);
+  try {
+    const allQueues = getAllQueues();
+    const closePromises = allQueues.map(q => q.close().catch(err => {
+      logger.warn(`⚠️ Error cerrando cola: ${err.message}`);
+    }));
+    await Promise.allSettled(closePromises);
+    logger.info(`✅ Worker: ${allQueues.length} colas cerradas correctamente`);
+  } catch (err: any) {
+    logger.error(`❌ Error en graceful shutdown: ${err.message}`);
+  }
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  logger.info('🔄 Worker recibió SIGINT - Cerrando procesos...');
-  process.exit(0);
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // ✅ Iniciar el worker
 startWorker();

@@ -42,7 +42,16 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     timeLane,
     nextLaneId,
     greetingMessageLane,
-    rollbackLaneId } = req.body;
+    rollbackLaneId,
+    description,
+    followupEnabled,
+    followupCount,
+    followupMessage1,
+    followupDelay1,
+    followupMessage2,
+    followupDelay2,
+    followupMessage3,
+    followupDelay3 } = req.body;
   const { companyId } = req.user;
 //console.log('tags', req.body)
   const tag = await CreateService({
@@ -53,7 +62,16 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     timeLane,
     nextLaneId,
     greetingMessageLane,
-    rollbackLaneId
+    rollbackLaneId,
+    description,
+    followupEnabled,
+    followupCount,
+    followupMessage1,
+    followupDelay1,
+    followupMessage2,
+    followupDelay2,
+    followupMessage3,
+    followupDelay3
   });
 
   const io = getIO();

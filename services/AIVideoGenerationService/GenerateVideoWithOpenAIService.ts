@@ -27,6 +27,7 @@ import { getDefaultProviderForCapability } from "../AIProviderService";
 
 // Servicios de creditos
 import CalculateVideoCostService from "../AIVideoCreditService/CalculateVideoCostService";
+import { AI_VIDEO_CONFIG } from "../../config/aiVideoPricing";
 
 // Cola Bull para procesamiento async
 import Bull from "bull";

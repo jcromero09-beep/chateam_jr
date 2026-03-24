@@ -16,6 +16,7 @@ import Message from "./Message";
 
 import Plan from "./Plan";
 import AISubplan from "./AISubplan";
+import EmailPlan from "./EmailPlan";
 import Queue from "./Queue";
 import Setting from "./Setting";
 import Ticket from "./Ticket";
@@ -109,6 +110,13 @@ class Company extends Model<Company> {
   updatedAtFolder: string;
 
   // ============================================================================
+  // Campo de Referido (Afiliados MLM)
+  // ============================================================================
+
+  @Column({ type: DataType.STRING(50), allowNull: true })
+  referredByCode: string;
+
+  // ============================================================================
   // Campos para Generación de Imágenes con IA
   // ============================================================================
 
@@ -125,12 +133,30 @@ class Company extends Model<Company> {
   @Column({ type: DataType.BIGINT, defaultValue: 0 })
   aiTokenBalance: number;
 
+  // Tokens comprados manualmente (adicionales al plan)
+  @Column({ type: DataType.BIGINT, defaultValue: 0 })
+  aiTokensPurchased: number;
+
   @ForeignKey(() => AISubplan)
   @Column({ type: DataType.INTEGER, allowNull: true })
   activeAISubplanId: number;
 
   @BelongsTo(() => AISubplan)
   activeAISubplan: AISubplan;
+
+  // ============================================================================
+  // Campos para Email Plan Activo
+  // ============================================================================
+
+  @Column({ type: DataType.BIGINT, defaultValue: 0 })
+  emailCreditsTotal: number;
+
+  @ForeignKey(() => EmailPlan)
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  activeEmailPlanId: number;
+
+  @BelongsTo(() => EmailPlan)
+  activeEmailPlan: EmailPlan;
 
   @HasMany(() => User, {
     onUpdate: "CASCADE",

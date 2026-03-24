@@ -101,12 +101,6 @@ export default function UploadReceipt({ values, onClose, onSuccess }: UploadRece
                 formData.append('duration', values.months?.toString() || '1')
             }
 
-            // Log form data for debugging
-            console.log('Uploading receipt with data:')
-            for (const [key, value] of formData.entries()) {
-                console.log(`${key}:`, value)
-            }
-
             await api.post('/recepts', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',

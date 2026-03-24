@@ -531,7 +531,7 @@ export default function CampaignsAttribution() {
                 <XAxis dataKey="channel" />
                 <YAxis />
                 <RechartsTooltip
-                  formatter={(value: number) => [`${value} conversiones`, 'Conversiones Atribuidas']}
+                  formatter={((value: number) => [`${value} conversiones`, 'Conversiones Atribuidas']) as any}
                 />
                 <Legend />
                 <Bar

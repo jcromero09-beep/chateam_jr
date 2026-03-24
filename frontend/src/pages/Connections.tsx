@@ -72,6 +72,10 @@ interface Connection {
   companyId: number
   createdAt: string
   updatedAt: string
+  // Campos de Coexistencia Meta
+  coexistenceEnabled?: boolean
+  coexistenceStatus?: string
+  lastAppOpenedAt?: string
 }
 
 // Constantes para Instagram OAuth
@@ -842,13 +846,28 @@ export default function Connections() {
                         <Typography level="body-xs">{connection.number || '-'}</Typography>
                       </td>
                       <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(connection.status)}
-                          startDecorator={getStatusIcon(connection.status)}
-                        >
-                          {connection.status}
-                        </Chip>
+                        <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                          <Chip
+                            size="sm"
+                            color={getStatusColor(connection.status)}
+                            startDecorator={getStatusIcon(connection.status)}
+                          >
+                            {connection.status}
+                          </Chip>
+                          {connection.coexistenceEnabled && (
+                            <Chip
+                              size="sm"
+                              variant="soft"
+                              color={
+                                connection.coexistenceStatus === 'active' ? 'success'
+                                  : connection.coexistenceStatus === 'disabled' ? 'danger'
+                                  : 'warning'
+                              }
+                            >
+                              Coex: {connection.coexistenceStatus || 'N/A'}
+                            </Chip>
+                          )}
+                        </Stack>
                       </td>
                       <td>
                         {connection.battery !== undefined ? (

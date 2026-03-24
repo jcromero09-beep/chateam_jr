@@ -120,7 +120,7 @@ class EmailCampaignRecipient extends Model {
   @BelongsTo(() => Contact)
   contact: Contact;
 
-  @HasMany(() => EmailTrackingEvent)
+  @HasMany(() => EmailTrackingEvent, { foreignKey: 'recipientId' })
   trackingEvents: EmailTrackingEvent[];
 }
 

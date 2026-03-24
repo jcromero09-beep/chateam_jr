@@ -150,7 +150,7 @@ const wbotMonitor = async (
           })
         );
 
-        const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+        const publicFolder = path.resolve(__dirname, "..", "..", "public");
         if (!fs.existsSync(path.join(publicFolder, `company${companyId}`))) {
           fs.mkdirSync(path.join(publicFolder, `company${companyId}`), { recursive: true })
           fs.chmodSync(path.join(publicFolder, `company${companyId}`), 0o777)

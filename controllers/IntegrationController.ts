@@ -8,7 +8,7 @@ import BillieIntegrationService from '../services/IntegrationServices/BillieInte
 import AriaLiteIntegrationService from '../services/IntegrationServices/AriaLiteIntegrationService';
 import SmartTrackIntegrationService from '../services/IntegrationServices/SmartTrackIntegrationService';
 import SGRIntegrationService from '../services/IntegrationServices/SGRIntegrationService';
-import { logger } from '../config/logger.js';
+import logger from '../config/logger.js';
 import crypto from 'crypto';
 
 // ============ PROVIDERS ============

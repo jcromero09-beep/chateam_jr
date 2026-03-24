@@ -38,6 +38,10 @@ import {
   Refresh as RefreshIcon,
   Sync as SyncIcon,
   CloudUpload as CloudUploadIcon,
+  TouchApp as TouchAppIcon,
+  Link as LinkIcon,
+  Phone as PhoneIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
 
@@ -91,6 +95,7 @@ interface FormData {
   footerContent: string
   variableExamples: string[]
   whatsappId?: number
+  buttons?: TemplateButton[]
 }
 
 interface MetaErrorInfo {
@@ -112,6 +117,7 @@ const initialFormData: FormData = {
   bodyContent: '',
   footerContent: '',
   variableExamples: [],
+  buttons: [],
 }
 
 export default function WhatsAppTemplates() {
@@ -197,6 +203,7 @@ export default function WhatsAppTemplates() {
       footerContent: template.footerContent || '',
       variableExamples: template.variableExamples || [],
       whatsappId: template.whatsappId,
+      buttons: template.buttons || [],
     })
     setOpenModal(true)
   }
@@ -793,6 +800,182 @@ export default function WhatsAppTemplates() {
               </Grid>
             </Box>
           )}
+
+          {/* Botones interactivos */}
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <TouchAppIcon sx={{ fontSize: 20 }} />
+              <Typography level="title-sm">
+                Botones Interactivos (Opcional)
+              </Typography>
+              <Chip size="sm" variant="outlined">
+                {formData.buttons?.length || 0}/10
+              </Chip>
+            </Box>
+            <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
+              Agrega hasta 10 botones para que el usuario interactúe (Aceptar, Rechazar, etc.)
+            </Typography>
+
+            {/* Lista de botones agregados */}
+            {formData.buttons && formData.buttons.length > 0 && (
+              <Sheet variant="outlined" sx={{ p: 1.5, mb: 1, borderRadius: 'sm' }}>
+                {formData.buttons?.map((btn, idx) => (
+                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Chip
+                      size="sm"
+                      color={btn.type === 'QUICK_REPLY' ? 'primary' : btn.type === 'URL' ? 'success' : 'warning'}
+                      startDecorator={
+                        btn.type === 'QUICK_REPLY' ? <TouchAppIcon /> :
+                        btn.type === 'URL' ? <LinkIcon /> :
+                        btn.type === 'PHONE_NUMBER' ? <PhoneIcon /> :
+                        <ContentCopyIcon />
+                      }
+                    >
+                      {btn.type === 'QUICK_REPLY' ? 'Respuesta rápida' :
+                       btn.type === 'URL' ? 'Enlace' :
+                       btn.type === 'PHONE_NUMBER' ? 'Teléfono' : 'Copiar código'}
+                    </Chip>
+                    <Typography level="body-sm" sx={{ flex: 1 }}>
+                      {btn.text}
+                    </Typography>
+                    {btn.type === 'URL' && btn.url && (
+                      <Typography level="body-xs" sx={{ color: 'text.tertiary', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {btn.url}
+                      </Typography>
+                    )}
+                    {btn.type === 'PHONE_NUMBER' && btn.phoneNumber && (
+                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                        {btn.phoneNumber}
+                      </Typography>
+                    )}
+                    <IconButton
+                      size="sm"
+                      variant="plain"
+                      color="danger"
+                      onClick={() => {
+                        const newButtons = [...(formData.buttons || [])]
+                        newButtons.splice(idx, 1)
+                        setFormData(prev => ({ ...prev, buttons: newButtons }))
+                      }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Sheet>
+            )}
+
+            {/* Agregar nuevo botón */}
+            {(!formData.buttons || formData.buttons.length < 10) && (
+              <Button
+                size="sm"
+                variant="outlined"
+                startDecorator={<AddIcon />}
+                onClick={() => {
+                  const newButton: TemplateButton = {
+                    type: 'QUICK_REPLY',
+                    text: ''
+                  }
+                  setFormData(prev => ({
+                    ...prev,
+                    buttons: [...(prev.buttons || []), newButton]
+                  }))
+                }}
+              >
+                Agregar Botón
+              </Button>
+            )}
+
+            {/* Formulario para editar el último botón */}
+            {formData.buttons && formData.buttons.length > 0 && (
+              <Box sx={{ mt: 1.5, p: 1.5, bgcolor: 'background.level1', borderRadius: 'sm' }}>
+                <Grid container spacing={1}>
+                  <Grid xs={4}>
+                    <FormControl size="sm">
+                      <FormLabel>Tipo</FormLabel>
+                      <Select
+                        size="sm"
+                        value={formData.buttons[formData.buttons.length - 1].type}
+                        onChange={(_, val) => {
+                          const newButtons = [...formData.buttons!]
+                          newButtons[newButtons.length - 1] = {
+                            ...newButtons[newButtons.length - 1],
+                            type: val as any,
+                            url: val === 'URL' ? '' : undefined,
+                            phoneNumber: val === 'PHONE_NUMBER' ? '' : undefined
+                          }
+                          setFormData(prev => ({ ...prev, buttons: newButtons }))
+                        }}
+                      >
+                        <Option value="QUICK_REPLY">💬 Respuesta rápida</Option>
+                        <Option value="URL">🔗 Enlace (URL)</Option>
+                        <Option value="PHONE_NUMBER">📞 Teléfono</Option>
+                        <Option value="COPY_CODE">📋 Copiar código</Option>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid xs={formData.buttons[formData.buttons.length - 1].type === 'QUICK_REPLY' ? 8 : 4}>
+                    <FormControl size="sm">
+                      <FormLabel>Texto del botón</FormLabel>
+                      <Input
+                        size="sm"
+                        placeholder="Ej: Aceptar, Rechazar, Ver más..."
+                        value={formData.buttons[formData.buttons.length - 1].text}
+                        onChange={(e) => {
+                          const newButtons = [...formData.buttons!]
+                          newButtons[newButtons.length - 1] = {
+                            ...newButtons[newButtons.length - 1],
+                            text: e.target.value.slice(0, 25)
+                          }
+                          setFormData(prev => ({ ...prev, buttons: newButtons }))
+                        }}
+                      />
+                    </FormControl>
+                  </Grid>
+                  {formData.buttons[formData.buttons.length - 1].type === 'URL' && (
+                    <Grid xs={4}>
+                      <FormControl size="sm">
+                        <FormLabel>URL</FormLabel>
+                        <Input
+                          size="sm"
+                          placeholder="https://..."
+                          value={formData.buttons[formData.buttons.length - 1].url || ''}
+                          onChange={(e) => {
+                            const newButtons = [...formData.buttons!]
+                            newButtons[newButtons.length - 1] = {
+                              ...newButtons[newButtons.length - 1],
+                              url: e.target.value
+                            }
+                            setFormData(prev => ({ ...prev, buttons: newButtons }))
+                          }}
+                        />
+                      </FormControl>
+                    </Grid>
+                  )}
+                  {formData.buttons[formData.buttons.length - 1].type === 'PHONE_NUMBER' && (
+                    <Grid xs={4}>
+                      <FormControl size="sm">
+                        <FormLabel>Teléfono</FormLabel>
+                        <Input
+                          size="sm"
+                          placeholder="+1234567890"
+                          value={formData.buttons[formData.buttons.length - 1].phoneNumber || ''}
+                          onChange={(e) => {
+                            const newButtons = [...formData.buttons!]
+                            newButtons[newButtons.length - 1] = {
+                              ...newButtons[newButtons.length - 1],
+                              phoneNumber: e.target.value
+                            }
+                            setFormData(prev => ({ ...prev, buttons: newButtons }))
+                          }}
+                        />
+                      </FormControl>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+            )}
+          </Box>
 
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 3 }}>
             <Button variant="outlined" color="neutral" onClick={() => setOpenModal(false)}>

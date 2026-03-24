@@ -91,8 +91,8 @@ export default function EmailMarketingTemplates() {
 
   // Create list form
   const [listName, setListName] = useState('')
-  const [listFromEmail, setListFromEmail] = useState('noreply@ariasofts.com')
-  const [listFromName, setListFromName] = useState('Ariasofts')
+  const [listFromEmail, setListFromEmail] = useState('')
+  const [listFromName, setListFromName] = useState('')
   const [listFormLoading, setListFormLoading] = useState(false)
 
   // Create contact form
@@ -208,8 +208,8 @@ export default function EmailMarketingTemplates() {
 
   const resetListForm = () => {
     setListName('')
-    setListFromEmail('noreply@ariasofts.com')
-    setListFromName('Ariasofts')
+    setListFromEmail('')
+    setListFromName('')
   }
 
   // ---- Create Contact ----
@@ -710,7 +710,7 @@ export default function EmailMarketingTemplates() {
               <FormLabel>Email remitente</FormLabel>
               <Input
                 type="email"
-                placeholder="noreply@ariasofts.com"
+                placeholder="noreply@tuempresa.com"
                 value={listFromEmail}
                 onChange={(e) => setListFromEmail(e.target.value)}
               />
@@ -718,7 +718,7 @@ export default function EmailMarketingTemplates() {
             <FormControl required>
               <FormLabel>Nombre remitente</FormLabel>
               <Input
-                placeholder="Ariasofts"
+                placeholder="Tu Empresa"
                 value={listFromName}
                 onChange={(e) => setListFromName(e.target.value)}
               />

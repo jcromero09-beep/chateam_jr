@@ -52,6 +52,27 @@ export const createSubplanSchema = Yup.object().shape({
     .optional()
     .default(false),
 
+  // Integraciones de pago
+  stripeProductId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null),
+
+  stripePriceId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null),
+
+  paypalProductId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null),
+
+  paypalPriceId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null),
+
   companyId: Yup.number()
     .required("El ID de compañía es requerido")
     .integer("El ID de compañía debe ser un número entero")
@@ -97,7 +118,28 @@ export const updateSubplanSchema = Yup.object().shape({
     .optional(),
 
   isPublic: Yup.boolean()
+    .optional(),
+
+  // Integraciones de pago
+  stripeProductId: Yup.string()
     .optional()
+    .nullable()
+    .default(null),
+
+  stripePriceId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null),
+
+  paypalProductId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null),
+
+  paypalPriceId: Yup.string()
+    .optional()
+    .nullable()
+    .default(null)
 });
 
 /**

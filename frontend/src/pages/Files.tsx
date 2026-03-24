@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import api from '../services/api'
 import {
   Container,
   Typography,
@@ -116,189 +117,10 @@ export default function Files() {
   const fetchFiles = async () => {
     setLoading(true)
     try {
-      // In production, replace with actual API call
-      // const response = await api.get('/files')
-      // setFiles(response.data)
-
-      // Mock data
-      const mockFiles: FileItem[] = [
-        {
-          id: 1,
-          name: 'Presentacion_Ventas_Q1_2025.pdf',
-          type: 'pdf',
-          extension: 'pdf',
-          size: 2456789,
-          mimeType: 'application/pdf',
-          path: '/files/presentations/',
-          url: '/files/presentations/presentacion-ventas-q1-2025.pdf',
-          thumbnail: '/thumbnails/presentation-q1.jpg',
-          uploadedBy: 'María García',
-          uploadedAt: '2025-01-10T10:30:00',
-          lastModified: '2025-01-10T10:30:00',
-          tags: ['ventas', 'Q1', '2025'],
-          category: 'presentations',
-          isFavorite: true,
-          isPublic: false,
-          downloads: 45,
-          aiProcessed: true,
-          aiSummary:
-            'Presentación de resultados de ventas del primer trimestre 2025. Incluye métricas de rendimiento, análisis de mercado y proyecciones.',
-          aiTags: ['ventas', 'presentación', 'Q1', 'análisis'],
-        },
-        {
-          id: 2,
-          name: 'Contrato_Cliente_TechSolutions.docx',
-          type: 'document',
-          extension: 'docx',
-          size: 145678,
-          mimeType:
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          path: '/files/contracts/',
-          url: '/files/contracts/contrato-cliente-techsolutions.docx',
-          uploadedBy: 'Carlos Rodríguez',
-          uploadedAt: '2025-01-09T15:20:00',
-          lastModified: '2025-01-09T16:45:00',
-          tags: ['contrato', 'cliente', 'TechSolutions'],
-          category: 'contracts',
-          isFavorite: false,
-          isPublic: false,
-          downloads: 12,
-          aiProcessed: true,
-          aiSummary:
-            'Contrato de servicios para cliente TechSolutions SA. Incluye términos de servicio, precio y condiciones de pago.',
-        },
-        {
-          id: 3,
-          name: 'Logo_Empresa_2025.png',
-          type: 'image',
-          extension: 'png',
-          size: 456789,
-          mimeType: 'image/png',
-          path: '/files/branding/',
-          url: '/files/branding/logo-empresa-2025.png',
-          thumbnail: '/files/branding/logo-empresa-2025.png',
-          uploadedBy: 'Laura Martínez',
-          uploadedAt: '2025-01-08T11:00:00',
-          lastModified: '2025-01-08T11:00:00',
-          tags: ['logo', 'branding', '2025'],
-          category: 'branding',
-          isFavorite: true,
-          isPublic: true,
-          downloads: 89,
-          aiProcessed: true,
-          aiSummary: 'Logo corporativo actualizado para el año 2025. Alta resolución, fondo transparente.',
-          aiTags: ['logo', 'branding', 'corporativo'],
-        },
-        {
-          id: 4,
-          name: 'Video_Tutorial_Producto.mp4',
-          type: 'video',
-          extension: 'mp4',
-          size: 45678901,
-          mimeType: 'video/mp4',
-          path: '/files/videos/',
-          url: '/files/videos/video-tutorial-producto.mp4',
-          thumbnail: '/thumbnails/video-tutorial.jpg',
-          uploadedBy: 'Roberto Sánchez',
-          uploadedAt: '2025-01-07T09:30:00',
-          lastModified: '2025-01-07T09:30:00',
-          tags: ['tutorial', 'video', 'producto'],
-          category: 'videos',
-          isFavorite: false,
-          isPublic: true,
-          downloads: 234,
-          aiProcessed: true,
-          aiSummary:
-            'Tutorial en video demostrando las principales características del producto.',
-          aiTags: ['tutorial', 'video', 'demo', 'producto'],
-        },
-        {
-          id: 5,
-          name: 'Base_Datos_Clientes_2024.xlsx',
-          type: 'document',
-          extension: 'xlsx',
-          size: 3456789,
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          path: '/files/databases/',
-          url: '/files/databases/base-datos-clientes-2024.xlsx',
-          uploadedBy: 'Isabel Torres',
-          uploadedAt: '2025-01-06T14:15:00',
-          lastModified: '2025-01-10T10:20:00',
-          tags: ['clientes', 'database', '2024'],
-          category: 'databases',
-          isFavorite: true,
-          isPublic: false,
-          downloads: 67,
-          aiProcessed: true,
-          aiSummary: 'Base de datos completa de clientes del año 2024 con información de contacto y transacciones.',
-        },
-        {
-          id: 6,
-          name: 'Factura_INV_2025_001.pdf',
-          type: 'pdf',
-          extension: 'pdf',
-          size: 234567,
-          mimeType: 'application/pdf',
-          path: '/files/invoices/',
-          url: '/files/invoices/factura-inv-2025-001.pdf',
-          uploadedBy: 'Fernando Ruiz',
-          uploadedAt: '2025-01-05T16:45:00',
-          lastModified: '2025-01-05T16:45:00',
-          tags: ['factura', 'invoice', '2025'],
-          category: 'invoices',
-          isFavorite: false,
-          isPublic: false,
-          downloads: 23,
-          aiProcessed: true,
-          aiSummary: 'Factura número 001 de 2025 para cliente TechSolutions por $15,000 USD.',
-          aiContent: 'FACTURA #INV-2025-001\nCliente: TechSolutions SA\nMonto: $15,000 USD',
-        },
-        {
-          id: 7,
-          name: 'Codigo_Fuente_Proyecto.zip',
-          type: 'archive',
-          extension: 'zip',
-          size: 12345678,
-          mimeType: 'application/zip',
-          path: '/files/projects/',
-          url: '/files/projects/codigo-fuente-proyecto.zip',
-          uploadedBy: 'Patricia Gómez',
-          uploadedAt: '2025-01-04T10:00:00',
-          lastModified: '2025-01-04T10:00:00',
-          tags: ['código', 'proyecto', 'backup'],
-          category: 'projects',
-          isFavorite: false,
-          isPublic: false,
-          downloads: 5,
-          aiProcessed: false,
-        },
-        {
-          id: 8,
-          name: 'Script_Automatizacion.py',
-          type: 'code',
-          extension: 'py',
-          size: 12345,
-          mimeType: 'text/x-python',
-          path: '/files/scripts/',
-          url: '/files/scripts/script-automatizacion.py',
-          uploadedBy: 'Miguel Fernández',
-          uploadedAt: '2025-01-03T13:20:00',
-          lastModified: '2025-01-08T09:15:00',
-          tags: ['python', 'script', 'automatización'],
-          category: 'scripts',
-          isFavorite: true,
-          isPublic: false,
-          downloads: 18,
-          aiProcessed: true,
-          aiSummary:
-            'Script Python para automatizar tareas de procesamiento de datos.',
-          aiContent: '# Script de automatización para procesamiento de datos...',
-        },
-      ]
-
-      setFiles(mockFiles)
-    } catch (error) {
-      console.error('Error fetching files:', error)
+      const response = await api.get('/files')
+      setFiles(response.data ?? [])
+    } catch {
+      setFiles([])
     } finally {
       setLoading(false)
     }
@@ -366,23 +188,12 @@ export default function Files() {
 
     try {
       setUploadProgress(0)
-      // Simulate upload progress
-      const interval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval)
-            setOpenUploadModal(false)
-            fetchFiles()
-            return 100
-          }
-          return prev + 10
-        })
-      }, 200)
-
-      // In production, use actual file upload API
-      // const formData = new FormData()
-      // Array.from(uploadedFiles).forEach(file => formData.append('files', file))
-      // await api.post('/files/upload', formData)
+      const formData = new FormData()
+      Array.from(uploadedFiles).forEach((file) => formData.append('files', file))
+      await api.post('/files/upload', formData)
+      setUploadProgress(100)
+      setOpenUploadModal(false)
+      fetchFiles()
     } catch (error) {
       console.error('Error uploading files:', error)
     }
@@ -391,7 +202,6 @@ export default function Files() {
   // Handle download
   const handleDownload = (file: FileItem) => {
     window.open(file.url, '_blank')
-    console.log('Downloading file:', file.name)
   }
 
   // Handle delete
@@ -627,7 +437,11 @@ export default function Files() {
                 {filteredFiles.length === 0 ? (
                   <tr>
                     <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron archivos</Typography>
+                      <Typography>
+                        {files.length === 0
+                          ? 'No hay archivos subidos. Arrastra o selecciona archivos para comenzar.'
+                          : 'No se encontraron archivos con los filtros aplicados.'}
+                      </Typography>
                     </td>
                   </tr>
                 ) : (

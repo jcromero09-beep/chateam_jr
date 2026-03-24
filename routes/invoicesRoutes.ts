@@ -14,4 +14,4 @@ invoiceRoutes.put("/invoices/:id", isAuth, InvoicesController.update);
 
 
 export default invoiceRoutes;
-console.log("📄 INVOICES-ROUTES.TS LOADED\!");
+// console.log("📄 INVOICES-ROUTES.TS LOADED\!");

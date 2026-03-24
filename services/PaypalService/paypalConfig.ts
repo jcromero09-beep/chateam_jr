@@ -1,11 +1,11 @@
 import paypal from "@paypal/checkout-server-sdk";
-import Setting from "../../models/Setting";
+import Company from "../../models/Company";
+import User from "../../models/User";
 import AppError from "../../errors/AppError";
 
 /**
  * Configuración del SDK de PayPal
- * Obtiene las credenciales desde la base de datos (modelo Setting)
- * y configura el entorno de PayPal (sandbox/producción)
+ * Obtiene las credenciales desde la company del SuperAdmin (igual que Stripe)
  */
 
 let cachedClient: paypal.core.PayPalHttpClient | null = null;
@@ -17,25 +17,29 @@ export const getPayPalClient = async (): Promise<paypal.core.PayPalHttpClient> =
   }
 
   try {
-    // Obtener credenciales de PayPal desde Settings (companyId: 1 es el admin/principal)
-    const companyId = 1;
+    // Obtener el superadmin para encontrar su company
+    const superAdmin = await User.findOne({ where: { super: true } });
+    if (!superAdmin) {
+      throw new AppError("SuperAdmin no encontrado", 500);
+    }
 
-    const [paypalModeSettings, paypalClientIdSettings, paypalSecretSettings] = await Promise.all([
-      Setting.findOne({ where: { companyId, key: "paypalmode" } }),
-      Setting.findOne({ where: { companyId, key: "paypalclientid" } }),
-      Setting.findOne({ where: { companyId, key: "paypalsecret" } })
-    ]);
+    // Obtener la company del superadmin
+    const superAdminCompany = await Company.findByPk(superAdmin.companyId);
+    if (!superAdminCompany) {
+      throw new AppError("Company del SuperAdmin no encontrada", 500);
+    }
 
-    const paypalMode = paypalModeSettings?.value || "sandbox";
-    const paypalClientId = paypalClientIdSettings?.value;
-    const paypalSecret = paypalSecretSettings?.value;
+    const paypalClientId = superAdminCompany.paypalClientId;
+    const paypalSecret = superAdminCompany.paypalSecretKey;
 
     // Validar que existan las credenciales
     if (!paypalClientId || !paypalSecret) {
-      throw new AppError("Credenciales de PayPal no configuradas. Por favor, configure paypalclientid y paypalsecret en Settings.", 500);
+      throw new AppError("Credenciales de PayPal no configuradas. Configure paypalClientId y paypalSecretKey en la empresa del SuperAdmin.", 500);
     }
 
-    // Configurar el entorno de PayPal
+    // Configurar el entorno de PayPal (usar sandbox por defecto si no está configurado)
+    // El modo se puede configurar via variable de entorno o se asume sandbox para desarrollo
+    const paypalMode = process.env.PAYPAL_MODE || "sandbox";
     let environment: paypal.core.SandboxEnvironment | paypal.core.LiveEnvironment;
 
     if (paypalMode === "production" || paypalMode === "live") {

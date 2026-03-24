@@ -64,6 +64,7 @@ type ModuleCategory =
   | 'appointments'
   | 'whatsapp'
   | 'integraciones'
+  | 'afiliados'
   | 'openai'
   | 'general'
 
@@ -74,6 +75,7 @@ const moduleCategories: Record<Module, ModuleCategory> = {
   reports: 'gestion',
   realtime_chats: 'gestion',
   analytics: 'gestion',
+  superadmin: 'administracion',
 
   // Operativo
   tickets: 'operativo',
@@ -188,8 +190,68 @@ const moduleCategories: Record<Module, ModuleCategory> = {
 
   // IA Features
   ai_image_generation: 'openai',
+  ai_video_generation: 'openai',
   ai_subplans: 'openai',
   facebook_conversions: 'campanas',
+  comment_autoreply: 'openai',
+  comment_autoreply_campaigns: 'openai',
+
+  // Customer Origins
+  customer_origins: 'operativo',
+  customer_origins_reports: 'operativo',
+
+  // Plataforma IA
+  ai_platform: 'openai',
+  ai_agents: 'openai',
+  ai_knowledge_base: 'openai',
+  ai_chatbot_builder: 'openai',
+  ai_writer: 'openai',
+  ai_audio: 'openai',
+  ai_multimodal: 'openai',
+  ai_credits: 'openai',
+  ai_scheduler: 'openai',
+  ai_observability: 'openai',
+  ai_fine_tuning: 'openai',
+  ai_heygen: 'openai',
+  ai_ab_testing: 'openai',
+  ai_affiliates: 'openai',
+
+  // Agentes IA
+  agent_comments: 'openai',
+  agent_devices: 'openai',
+  agent_identity: 'openai',
+
+  // Coexistencia & Migración
+  coexistence: 'administracion',
+  migration: 'administracion',
+
+  // UGC
+  ugc_dashboard: 'campanas',
+  ugc_campaigns: 'campanas',
+  ugc_creators: 'campanas',
+  ugc_analytics: 'campanas',
+  ugc_optimization: 'campanas',
+  ugc_settings: 'campanas',
+  ugc_social_accounts: 'campanas',
+  ugc_social_posts: 'campanas',
+  ugc_video_studio: 'campanas',
+
+  // Campañas extras
+  campaigns_ai: 'campanas',
+  campaigns_rules: 'campanas',
+
+  // Afiliados
+  affiliates: 'afiliados',
+  affiliate_programs: 'afiliados',
+  affiliate_referrals: 'afiliados',
+  affiliate_wallet: 'afiliados',
+  affiliate_withdrawals: 'afiliados',
+  affiliate_links: 'afiliados',
+  affiliate_tiers: 'afiliados',
+
+  // Email extras
+  email_provider_settings: 'email',
+  email_credit_packs: 'email',
 }
 
 // Nombres de las categorias
@@ -204,6 +266,7 @@ const categoryNames: Record<ModuleCategory, string> = {
   appointments: 'Citas',
   whatsapp: 'WhatsApp Cloud API',
   integraciones: 'Integraciones Internas',
+  afiliados: 'Afiliados',
   openai: 'OpenAI Integration',
   general: 'General',
 }

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js'
 import { Box, Typography, Alert, CircularProgress, Stack } from '@mui/joy'
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypalService'
+import { getPaymentConfig } from '../services/paymentConfigService'
 
 export interface PayPalButtonProps {
   invoiceId: number
@@ -30,15 +31,31 @@ export default function PayPalButton({
 }: PayPalButtonProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [clientId, setClientId] = useState<string>('')
 
-  // Obtener el Client ID de PayPal desde las variables de entorno
-  const clientId = import.meta.env.VITE_PAYPAL_CLIENT_ID || ''
+  // Obtener el Client ID de PayPal desde el backend (Company del SuperAdmin)
+  useEffect(() => {
+    const fetchPayPalConfig = async () => {
+      try {
+        const response = await getPaymentConfig()
+        if (response.success && response.data.paypalClientId) {
+          setClientId(response.data.paypalClientId)
+        }
+      } catch (err) {
+        console.error('Error fetching PayPal config:', err)
+      }
+    }
+    fetchPayPalConfig()
+  }, [])
 
   if (!clientId) {
     return (
-      <Alert color="danger">
-        PayPal Client ID no configurado. Por favor configure VITE_PAYPAL_CLIENT_ID en las variables de entorno.
-      </Alert>
+      <Box sx={{ py: 2, textAlign: 'center' }}>
+        <CircularProgress size="sm" />
+        <Typography level="body-sm" sx={{ mt: 1 }}>
+          Cargando configuración de PayPal...
+        </Typography>
+      </Box>
     )
   }
 

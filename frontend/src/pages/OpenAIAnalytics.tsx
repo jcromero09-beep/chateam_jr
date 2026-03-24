@@ -297,7 +297,7 @@ export default function OpenAIAnalytics() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                    <Tooltip formatter={((value: number) => formatCurrency(value)) as any} />
                     <Legend />
                     <Area type="monotone" dataKey="cost" stroke="#10b981" fill="#10b981" name="Costo (USD)" />
                   </AreaChart>
@@ -337,7 +337,7 @@ export default function OpenAIAnalytics() {
                           <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                      <Tooltip formatter={((value: number) => formatCurrency(value)) as any} />
                     </PieChart>
                   </ResponsiveContainer>
                   <Box sx={{ mt: 2 }}>
@@ -390,7 +390,7 @@ export default function OpenAIAnalytics() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip formatter={(value: number) => formatNumber(value)} />
+                    <Tooltip formatter={((value: number) => formatNumber(value)) as any} />
                     <Legend />
                     <Bar dataKey="tokens" fill="#3b82f6" name="Tokens" />
                   </BarChart>

@@ -3,6 +3,7 @@ import fs from "fs";
 import axios from "axios";
 import moment from "moment";
 import { join } from "path";
+import logger from "../../utils/logger";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
@@ -845,90 +846,93 @@ const hasMedia =
 // Nombre del contacto para clasificador
 const contactName = contact?.name || "Cliente";
 
-// Dispara IA únicamente cuando aplica
-if (
-  !ticket.queue &&            // no está en una cola específica
-  !ticket.userId &&           // no está asignado a un agente
-  !contact?.disableBot &&     // el contacto no bloquea bot
-  !isEcho &&                  // evitamos eco
-  isSocial &&                 // solo FB/IG
-  !hasMedia &&                // sin adjuntos (solo texto)
-  textBody.trim()             // hay texto
-) {
-  // Config activa de OpenAI
+  /* COMENTADO: IA Legacy (OpenAI Social) - Reemplazado por SupervisorAI
+  // Dispara IA únicamente cuando aplica
+  if (
+    !ticket.queue &&            // no está en una cola específica
+    !ticket.userId &&           // no está asignado a un agente
+    !contact?.disableBot &&     // el contacto no bloquea bot
+    !isEcho &&                  // evitamos eco
+    isSocial &&                 // solo FB/IG
+    !hasMedia &&                // sin adjuntos (solo texto)
+    textBody.trim()             // hay texto
+  ) {
+    // Config activa de OpenAI
 
-    const promptId = getSession?.promptId;
-  
+      const promptId = getSession?.promptId;
 
-      const openAiSettings = await Prompt.findOne({ where: { id: promptId } });
-  
-    
-  
-    // Fallback: si no hay promptId o no encontró, busca por empresa/cola
-  
-  
-    if (!openAiSettings?.apiKey || !openAiSettings?.prompt) {
-      //console.log("OpenAI deshabilitado o sin credenciales.");
-    } else {
-      // //console.log("OpenAI listo:", {
-      //   companyId: ticket.companyId,
-      //   queueId: ticket.queueId,
-      //   key: openAiSettings.apiKey
-      // });
-    }
 
-  if (openAiSettings?.apiKey && openAiSettings?.prompt) {
-    const ticketTraking = await FindOrCreateATicketTrakingService({
-      ticketId: ticket.id,
-      companyId,
-      whatsappId: getSession?.id,
-      userId: ticket.userId
-    });
+        const openAiSettings = await Prompt.findOne({ where: { id: promptId } });
 
-    // Respuesta IA (texto → texto) sin wbot
-    await handleOpenAiSocial(
-      openAiSettings,   // IOpenAi
-      ticket,
-      contact,
-      textBody.trim(),  // texto entrante
-      undefined,        // mediaSent
-      ticketTraking
-    );
 
-    // Clasificar etapa del cliente (corrige variables)
-    try {
-      await agregarAColaDeClasificacion({
-        texto: textBody.trim(),
-        ticketId: ticket.id,
-        contactName,
-        companyId: ticket.companyId,
-        apiKey: openAiSettings.apiKey
-      });
-    } catch (err) {
-      console.warn("Clasificación falló:", err);
-    }
-  
- 
-          await agregarAColaDeClasificacion({
-            texto: textBody.trim(), 
-            ticketId: ticket.id,
-            contactName,
-            companyId,
-            apiKey: openAiSettings?.apiKey
-          });
-      
-          // //console.log("AI Social OK", {
-          //   companyId: ticket.companyId,
-          //   queueId: ticket.queueId
-          // });
-        } else {
-          //console.log("OpenAI deshabilitado o sin credenciales.");
-        }
+      // Fallback: si no hay promptId o no encontró, busca por empresa/cola
+
+
+      if (!openAiSettings?.apiKey || !openAiSettings?.prompt) {
+        //console.log("OpenAI deshabilitado o sin credenciales.");
+      } else {
+        // //console.log("OpenAI listo:", {
+        //   companyId: ticket.companyId,
+        //   queueId: ticket.queueId,
+        //   key: openAiSettings.apiKey
+        // });
       }
- 
+
+    if (openAiSettings?.apiKey && openAiSettings?.prompt) {
+      const ticketTraking = await FindOrCreateATicketTrakingService({
+        ticketId: ticket.id,
+        companyId,
+        whatsappId: getSession?.id,
+        userId: ticket.userId
+      });
+
+      // Respuesta IA (texto → texto) sin wbot
+      await handleOpenAiSocial(
+        openAiSettings,   // IOpenAi
+        ticket,
+        contact,
+        textBody.trim(),  // texto entrante
+        undefined,        // mediaSent
+        ticketTraking
+      );
+
+      // Clasificar etapa del cliente (corrige variables)
+      try {
+        await agregarAColaDeClasificacion({
+          texto: textBody.trim(),
+          ticketId: ticket.id,
+          contactName,
+          companyId: ticket.companyId,
+          apiKey: openAiSettings.apiKey
+        });
+      } catch (err) {
+        console.warn("Clasificación falló:", err);
+      }
 
 
-      // //console.log({ ticket })
+            await agregarAColaDeClasificacion({
+              texto: textBody.trim(),
+              ticketId: ticket.id,
+              contactName,
+              companyId,
+              apiKey: openAiSettings?.apiKey
+            });
+
+            // //console.log("AI Social OK", {
+            //   companyId: ticket.companyId,
+            //   queueId: ticket.queueId
+            // });
+          } else {
+            //console.log("OpenAI deshabilitado o sin credenciales.");
+          }
+        }
+
+
+
+        // //console.log({ ticket })
+  */
+
+        // FlowBuilder o SupervisorAI
 
       if (
         !ticket.fromMe &&
@@ -958,24 +962,246 @@ if (
         !ticket.useIntegration
       ) {
 
+        // ═══════════════════════════════════════════════════════════════
+        // NUEVA LÓGICA: Solo SupervisorAI (promptId=999) o FlowBuilder (integrationId)
+        // ═══════════════════════════════════════════════════════════════
+
+        // 1. SUPERVISOR AI: Si promptId === 999 → ejecutar orquestador
+        const hasSupervisorAI = getSession.promptId === 999;
+
+        if (hasSupervisorAI) {
+          console.log(`[DEBUG-SUPERVISOR-FB] Ejecutando SupervisorAI - promptId: ${getSession.promptId}`);
+
+          // ✅ CONDICIONES PARA NO RESPONDER
+          // Lógica: isBot=true es "override" - si está en true, el bot siempre responde
+
+          // 1. Si está desactivado manualmente (isBot = false)
+          if (ticket.isBot === false) {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
+            return;
+          }
+
+          const isBotActivo = ticket.isBot === true;
+
+          // 2. Si tiene usuario asignado Y el bot NO está activo manualmente
+          if (ticket.userId && !isBotActivo) {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} tiene usuario asignado - no responde`);
+            return;
+          }
+          // 3. Si está abierto Y el bot NO está activo manualmente
+          if (ticket.status === 'open' && !isBotActivo) {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} está en estado open - no responde`);
+            return;
+          }
+          // 4. Si está cerrado
+          if (ticket.status === 'closed') {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} está cerrado - no responde`);
+            return;
+          }
+
+          // ═══════════════════════════════════════════════════════════════
+          // 🤖 ORQUESTADOR IA MULTI-AGENTE — SupervisorService (Facebook)
+          // ═══════════════════════════════════════════════════════════════
+          try {
+            const body = message.message?.text || "";
+            if (!body || body.trim().length === 0) return;
+
+            const SupervisorService = require("../AIAgentServices/SupervisorService").default;
+            const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+
+            // Cargar historial del ticket
+            const Message = require("../../models/Message").default;
+            const recentMessages = await Message.findAll({
+              where: { ticketId: ticket.id },
+              order: [["createdAt", "DESC"]],
+              limit: 20
+            });
+            const ticketHistory = recentMessages.reverse().map((m: any) => ({
+              role: m.fromMe ? "assistant" : "user",
+              content: m.body || ""
+            }));
+
+            logger.info(
+              `[SupervisorAI-FB] Procesando msg empresa=${companyId} ticket=${ticket.id}: "${body.substring(0, 60)}..."`
+            );
+
+            const aiResponse = await SupervisorService.processMessage({
+              message: body,
+              companyId,
+              ticketId: ticket.id,
+              contactId: contact?.id,
+              whatsappId: getSession?.id,
+              ticketHistory
+            });
+
+            if (aiResponse.shouldEscalate) {
+              await SupervisorActionsService.saveAgentMessage({
+                ticketId: ticket.id,
+                companyId,
+                content: aiResponse.message,
+                agentUsed: aiResponse.agentUsed,
+                intent: aiResponse.intent,
+                confidence: aiResponse.confidence
+              });
+
+              await SupervisorActionsService.escalateToHuman(
+                ticket.id,
+                companyId,
+                getSession?.id,
+                aiResponse.escalationReason
+              );
+
+              // Enviar mensaje de escalación
+              await sendText(contact.number, "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️", getSession.facebookUserToken);
+            } else {
+              await SupervisorActionsService.saveAgentMessage({
+                ticketId: ticket.id,
+                companyId,
+                content: aiResponse.message,
+                agentUsed: aiResponse.agentUsed,
+                intent: aiResponse.intent,
+                confidence: aiResponse.confidence
+              });
+
+              await SupervisorActionsService.classifyTicketStage(
+                ticket.id,
+                companyId,
+                aiResponse.intent,
+                aiResponse.agentUsed
+              );
+
+              logger.info(`[SupervisorAI-FB] Enviando respuesta: "${aiResponse.message.substring(0, 50)}..."`);
+
+              await sendText(contact.number, aiResponse.message, getSession.facebookUserToken);
+            }
+
+            if (!ticket.useIntegration) {
+              await ticket.update({ useIntegration: true });
+            }
+
+            logger.info(`[SupervisorAI-FB] ✅ Completado: agente=${aiResponse.agentUsed}, intent=${aiResponse.intent}`);
+            return;
+          } catch (err: any) {
+            logger.error(`[SupervisorAI-FB] ❌ Error: ${err.message}`);
+            await sendText(contact.number, "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", getSession.facebookUserToken);
+            await ticket.update({ useIntegration: false, status: "pending" });
+          }
+        }
+
+        // 2. FLOWBUILDER: Si tiene integrationId → ejecutar flujo
         const integrations = await ShowQueueIntegrationService(getSession.integrationId, companyId);
 
-        if (integrations.type === "flowbuilder") {
-          await ticket.update({
-            queueId: ticket.queueId ? ticket.queueId : null,
-            dataWebhook: {
-              status: "process",
-            },
-          });
+        if (integrations?.type === "flowbuilder") {
 
-          await flowbuilderIntegration(
-            ticket,
-            companyId,
-            isFirstMsg,
-            getSession,
-            contact,
-            message
-          )
+          // 1. Si está desactivado manualmente (isBot = false)
+          if (ticket.isBot === false) {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
+            return;
+          }
+
+          const isBotActivo = ticket.isBot === true;
+
+          // 2. Si tiene usuario asignado Y el bot NO está activo manualmente
+          if (ticket.userId && !isBotActivo) {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} tiene usuario asignado - no responde`);
+            return;
+          }
+          // 3. Si está abierto Y el bot NO está activo manualmente
+          if (ticket.status === 'open' && !isBotActivo) {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} está en estado open - no responde`);
+            return;
+          }
+          // 4. Si está cerrado
+          if (ticket.status === 'closed') {
+            logger.info(`[SupervisorAI-FB] Ticket ${ticket.id} está cerrado - no responde`);
+            return;
+          }
+
+          // ═══════════════════════════════════════════════════════════════
+          // 🤖 ORQUESTADOR IA MULTI-AGENTE — SupervisorService (Facebook)
+          // ═══════════════════════════════════════════════════════════════
+          try {
+            const body = message.message?.text || "";
+            if (!body || body.trim().length === 0) return;
+
+            const SupervisorService = require("../AIAgentServices/SupervisorService").default;
+            const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+
+            // Cargar historial del ticket
+            const Message = require("../../models/Message").default;
+            const recentMessages = await Message.findAll({
+              where: { ticketId: ticket.id },
+              order: [["createdAt", "DESC"]],
+              limit: 20
+            });
+            const ticketHistory = recentMessages.reverse().map((m: any) => ({
+              role: m.fromMe ? "assistant" : "user",
+              content: m.body || ""
+            }));
+
+            logger.info(
+              `[SupervisorAI-FB] Procesando msg empresa=${companyId} ticket=${ticket.id}: "${body.substring(0, 60)}..."`
+            );
+
+            const aiResponse = await SupervisorService.processMessage({
+              message: body,
+              companyId,
+              ticketId: ticket.id,
+              contactId: contact?.id,
+              whatsappId: undefined, // Facebook no tiene whatsappId
+              ticketHistory
+            });
+
+            if (aiResponse.shouldEscalate) {
+              await SupervisorActionsService.saveAgentMessage({
+                ticketId: ticket.id,
+                companyId,
+                content: aiResponse.message,
+                agentUsed: aiResponse.agentUsed,
+                intent: aiResponse.intent,
+                confidence: aiResponse.confidence
+              });
+
+              await SupervisorActionsService.escalateToHuman(
+                ticket.id,
+                companyId,
+                undefined,
+                aiResponse.escalationReason
+              );
+
+              // Enviar mensaje de escalada
+              await sendText(message.sender.id, "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️", getSession.facebookUserToken);
+            } else {
+              await SupervisorActionsService.saveAgentMessage({
+                ticketId: ticket.id,
+                companyId,
+                content: aiResponse.message,
+                agentUsed: aiResponse.agentUsed,
+                intent: aiResponse.intent,
+                confidence: aiResponse.confidence
+              });
+
+              await SupervisorActionsService.classifyTicketStage(
+                ticket.id,
+                companyId,
+                aiResponse.intent,
+                aiResponse.agentUsed
+              );
+
+              await sendText(message.sender.id, aiResponse.message, getSession.facebookUserToken);
+            }
+
+            if (!ticket.useIntegration) {
+              await ticket.update({ useIntegration: true, integrationId: integrations.id });
+            }
+
+            logger.info(`[SupervisorAI-FB] Completado: ticket=${ticket.id}, agente=${aiResponse.agentUsed}`);
+          } catch (err: any) {
+            logger.error(`[SupervisorAI-FB] Error: ${err.message}`);
+            await sendText(message.sender.id, "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", getSession.facebookUserToken);
+            await ticket.update({ useIntegration: false, status: "pending" });
+          }
+          return;
         }
 
       }

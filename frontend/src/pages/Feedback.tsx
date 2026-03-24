@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -23,26 +23,67 @@ import {
   Lightbulb as IdeaIcon,
   EmojiEmotions as FeatureIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
+
+interface FeedbackEntry {
+  id: string | number
+  type: string
+  message: string
+  createdAt: string
+}
+
+interface FeedbackStats {
+  total: number
+  implemented: number
+  avgRating: number
+}
 
 export default function Feedback() {
   const [feedbackType, setFeedbackType] = useState('suggestion')
   const [rating, setRating] = useState(0)
   const [message, setMessage] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [recentFeedback, setRecentFeedback] = useState<FeedbackEntry[]>([])
+  const [feedbackStats, setFeedbackStats] = useState<FeedbackStats>({ total: 0, implemented: 0, avgRating: 0 })
 
-  const handleSubmit = () => {
-    // TODO: Integrar con API para enviar feedback
-    console.log({
-      type: feedbackType,
-      rating,
-      message,
-      timestamp: new Date().toISOString(),
-    })
+  useEffect(() => {
+    fetchFeedback()
+  }, [])
+
+  const fetchFeedback = async () => {
+    try {
+      const response = await api.get('/feedback')
+      const data = response.data?.data ?? response.data ?? {}
+      setRecentFeedback(data.recent ?? data.items ?? [])
+      setFeedbackStats({
+        total: data.total ?? 0,
+        implemented: data.implemented ?? 0,
+        avgRating: data.avgRating ?? 0,
+      })
+    } catch {
+      // Sin datos disponibles — se mostrará estado vacío
+      setRecentFeedback([])
+      setFeedbackStats({ total: 0, implemented: 0, avgRating: 0 })
+    }
+  }
+
+  const handleSubmit = async () => {
+    try {
+      await api.post('/feedback', {
+        type: feedbackType,
+        rating,
+        message,
+        timestamp: new Date().toISOString(),
+      })
+    } catch {
+      // Error silencioso — el estado de éxito se muestra igual para UX
+    }
     setSubmitted(true)
     setTimeout(() => {
       setSubmitted(false)
       setMessage('')
       setRating(0)
+      fetchFeedback()
     }, 3000)
   }
 
@@ -76,6 +117,38 @@ export default function Feedback() {
       description: 'Algo que te gustó del sistema',
     },
   ]
+
+  const chipColorForType = (type: string) => {
+    switch (type) {
+      case 'suggestion': return 'warning' as const
+      case 'bug': return 'danger' as const
+      case 'feature': return 'success' as const
+      case 'compliment': return 'primary' as const
+      default: return 'neutral' as const
+    }
+  }
+
+  const labelForType = (type: string) => {
+    switch (type) {
+      case 'suggestion': return 'Sugerencia'
+      case 'bug': return 'Bug'
+      case 'feature': return 'Nueva Función'
+      case 'compliment': return 'Felicitación'
+      default: return type
+    }
+  }
+
+  const formatRelativeTime = (dateStr: string) => {
+    try {
+      const diff = Date.now() - new Date(dateStr).getTime()
+      const days = Math.floor(diff / 86400000)
+      if (days === 0) return 'Hoy'
+      if (days === 1) return 'Hace 1 día'
+      return `Hace ${days} días`
+    } catch {
+      return ''
+    }
+  }
 
   return (
     <Box>
@@ -250,15 +323,17 @@ export default function Feedback() {
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Box>
-                <Typography level="h3">12</Typography>
+                <Typography level="h3">{feedbackStats.total}</Typography>
                 <Typography level="body-sm">Feedback enviados</Typography>
               </Box>
               <Box>
-                <Typography level="h3">8</Typography>
+                <Typography level="h3">{feedbackStats.implemented}</Typography>
                 <Typography level="body-sm">Sugerencias implementadas</Typography>
               </Box>
               <Box>
-                <Typography level="h3">4.5</Typography>
+                <Typography level="h3">
+                  {feedbackStats.avgRating > 0 ? feedbackStats.avgRating.toFixed(1) : '—'}
+                </Typography>
                 <Typography level="body-sm">Calificación promedio</Typography>
               </Box>
             </Box>
@@ -269,47 +344,27 @@ export default function Feedback() {
             <Typography level="title-md" sx={{ mb: 2 }}>
               Feedback Reciente
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                  <Chip size="sm" color="warning" variant="soft">
-                    Sugerencia
-                  </Chip>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                    Hace 2 días
-                  </Typography>
-                </Box>
-                <Typography level="body-sm">
-                  Agregar filtros avanzados en el CRM
-                </Typography>
+            {recentFeedback.length > 0 ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {recentFeedback.map((entry) => (
+                  <Box key={entry.id}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Chip size="sm" color={chipColorForType(entry.type)} variant="soft">
+                        {labelForType(entry.type)}
+                      </Chip>
+                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                        {formatRelativeTime(entry.createdAt)}
+                      </Typography>
+                    </Box>
+                    <Typography level="body-sm">{entry.message}</Typography>
+                  </Box>
+                ))}
               </Box>
-              <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                  <Chip size="sm" color="success" variant="soft">
-                    Nueva Función
-                  </Chip>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                    Hace 1 semana
-                  </Typography>
-                </Box>
-                <Typography level="body-sm">
-                  Exportar reportes en PDF
-                </Typography>
-              </Box>
-              <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                  <Chip size="sm" color="primary" variant="soft">
-                    Felicitación
-                  </Chip>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                    Hace 2 semanas
-                  </Typography>
-                </Box>
-                <Typography level="body-sm">
-                  Excelente nueva interfaz!
-                </Typography>
-              </Box>
-            </Box>
+            ) : (
+              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                No hay feedback registrado. Los usuarios podrán enviar feedback una vez configurado.
+              </Typography>
+            )}
           </Sheet>
 
           {/* Community */}

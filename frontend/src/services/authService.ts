@@ -48,10 +48,11 @@ class AuthService {
    * Logout de usuario
    */
   async logout(): Promise<void> {
+    // Flag isLoggingOut ya activado por useAuth.logout() antes de llegar aquí
     try {
-      await api.post('/api/auth/logout')
+      await api.delete('/api/auth/logout')
     } catch (error) {
-      console.error('Error during logout:', error)
+      console.warn('Logout request failed:', error)
     } finally {
       // Limpiar tokens independientemente del resultado
       localStorage.removeItem('token')

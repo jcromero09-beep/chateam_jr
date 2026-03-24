@@ -63,6 +63,11 @@ class AISubplan extends Model<AISubplan> {
   @Column(DataType.BIGINT)
   tokensConsumed!: number;
 
+  // Límite de agentes IA para este subplan
+  @Default(1)
+  @Column(DataType.INTEGER)
+  maxAgents!: number;
+
   @Default(true)
   @Column(DataType.BOOLEAN)
   isActive!: boolean;
@@ -77,6 +82,13 @@ class AISubplan extends Model<AISubplan> {
 
   @Column(DataType.STRING(255))
   stripePriceId!: string;
+
+  // Integración PayPal (opcional)
+  @Column(DataType.STRING(255))
+  paypalProductId!: string;
+
+  @Column(DataType.STRING(255))
+  paypalPriceId!: string;
 
   @CreatedAt
   createdAt!: Date;

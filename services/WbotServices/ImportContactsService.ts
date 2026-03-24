@@ -19,7 +19,7 @@ const ImportContactsService = async (companyId?: number, whatsappId?: number): P
     const contactsString = await ShowBaileysService(wbot.id);
     phoneContacts = JSON.parse(JSON.stringify(contactsString.contacts));
 
-    const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+    const publicFolder = path.resolve(__dirname, "..", "..", "public");
     const beforeFilePath = path.join(publicFolder,`company${companyId}`, 'contatos_antes.txt');
     fs.writeFile(beforeFilePath, JSON.stringify(phoneContacts, null, 2), (err) => {
       if (err) {
@@ -34,7 +34,7 @@ const ImportContactsService = async (companyId?: number, whatsappId?: number): P
     logger.error(`Could not get whatsapp contacts from phone. Err: ${err}`);
   }
 
-  const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+  const publicFolder = path.resolve(__dirname, "..", "..", "public");
   const afterFilePath = path.join(publicFolder,`company${companyId}`, 'contatos_depois.txt');
   fs.writeFile(afterFilePath, JSON.stringify(phoneContacts, null, 2), (err) => {
     if (err) {

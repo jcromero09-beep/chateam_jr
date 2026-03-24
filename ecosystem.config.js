@@ -40,7 +40,7 @@ module.exports = {
       name: "chateam-frontend",
       cwd: "/home/deploy/chateam_jr/frontend",
       script: "node_modules/.bin/vite",
-      args: "--host 0.0.0.0",
+      args: "preview --host 0.0.0.0 --port 3000",
       exec_mode: "fork",
       env: {
         NODE_ENV: "production"

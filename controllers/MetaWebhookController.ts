@@ -13,7 +13,14 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe") {
-    // Buscar cualquier conexión Meta con este verify token
+    // 1. Verificar contra el VERIFY_TOKEN global (suscripción App-level)
+    const globalVerifyToken = process.env.VERIFY_TOKEN || "whaticket";
+    if (token === globalVerifyToken) {
+      console.log("✅ Webhook Meta verificado con VERIFY_TOKEN global (App-level subscription)");
+      return res.status(200).send(challenge as string);
+    }
+
+    // 2. Buscar cualquier conexión Meta con este verify token (per-WABA subscription)
     const whatsapp = await Whatsapp.findOne({
       where: {
         tokenMeta: token as string,
@@ -23,7 +30,7 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
     });
 
     if (whatsapp) {
-      console.log("✅ Webhook Meta verificado para:", whatsapp.name);
+      console.log("✅ Webhook Meta verificado para conexion:", whatsapp.name);
       return res.status(200).send(challenge as string);
     }
   }
@@ -36,6 +43,19 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
 export const receiveMetaWebhook = async (req: Request, res: Response) => {
   // Responde rápido a Meta
   res.sendStatus(200);
+
+  // ── LOG DE ENTRADA COMPLETO ──────────────────────────────────────
+  const ts = new Date().toISOString();
+  const userAgent = req.headers["user-agent"] || "sin-ua";
+  const ip = req.ip || req.socket?.remoteAddress || "sin-ip";
+  const bodyStr = JSON.stringify(req.body);
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`📨 [META WEBHOOK] ${ts}`);
+  console.log(`   IP: ${ip}  |  UA: ${userAgent}`);
+  console.log(`   Body (${bodyStr.length} bytes): ${bodyStr.substring(0, 500)}`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+  // ─────────────────────────────────────────────────────────────────
+
   try {
     // Verificar si es un evento de actualización de estado de template
     if (isTemplateStatusWebhook(req.body)) {

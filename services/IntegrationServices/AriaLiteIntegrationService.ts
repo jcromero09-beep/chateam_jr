@@ -1,7 +1,7 @@
 import { BaseIntegrationService, SyncResult } from './BaseIntegrationService';
 import Contact from '../../models/Contact';
 import Ticket from '../../models/Ticket';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 
 /**
  * Aria Lite Integration Service
@@ -306,10 +306,10 @@ class AriaLiteIntegrationService extends BaseIntegrationService {
       if (mapping) {
         const contact = await Contact.findByPk(mapping.localEntityId);
         if (contact) {
-          const metadata = contact.metadata || {};
+          const metadata = (contact as any).metadata || {};
           metadata.aria_deals = metadata.aria_deals || [];
           metadata.aria_deals.push(deal);
-          await contact.update({ metadata });
+          await contact.update({ metadata: metadata as any });
         }
       }
     }
@@ -364,7 +364,7 @@ class AriaLiteIntegrationService extends BaseIntegrationService {
         if (dealMapping) {
           // Update deal
           await this.httpClient.put(`/api/v2/deals/${dealMapping.externalEntityId}`, {
-            title: ticket.subject || `Ticket #${ticket.id}`,
+            title: ticket.title || `Ticket #${ticket.id}`,
             status: this.mapTicketStatusToDealStatus(ticket.status),
             value: 0, // Could map from ticket custom fields
             contact_id: contactMapping.externalEntityId
@@ -373,7 +373,7 @@ class AriaLiteIntegrationService extends BaseIntegrationService {
         } else {
           // Create deal
           const response = await this.httpClient.post('/api/v2/deals', {
-            title: ticket.subject || `Ticket #${ticket.id}`,
+            title: ticket.title || `Ticket #${ticket.id}`,
             status: this.mapTicketStatusToDealStatus(ticket.status),
             value: 0,
             contact_id: contactMapping.externalEntityId,
@@ -386,7 +386,7 @@ class AriaLiteIntegrationService extends BaseIntegrationService {
             'deal',
             ticket.id,
             response.data.id,
-            { subject: ticket.subject, status: ticket.status },
+            { subject: ticket.title, status: ticket.status },
             response.data
           );
           result.recordsCreated++;

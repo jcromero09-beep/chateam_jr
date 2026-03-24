@@ -10,10 +10,10 @@ export interface ThemeColors {
 }
 
 const DEFAULTS: ThemeColors = {
-  primaryLight: '#5BC2D2',
-  primaryDark: '#6FD4E4',
-  secondaryLight: '#4caf50',
-  secondaryDark: '#4caf50',
+  primaryLight: '#3b82f6',
+  primaryDark: '#3b82f6',
+  secondaryLight: '#52b788',
+  secondaryDark: '#52b788',
 }
 
 const STORAGE_KEY = 'companyThemeColors'

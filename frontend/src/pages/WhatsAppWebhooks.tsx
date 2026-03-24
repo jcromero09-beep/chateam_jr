@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -15,6 +15,7 @@ import {
   TabList,
   Tab,
   TabPanel,
+  LinearProgress,
 } from '@mui/joy'
 import {
   Webhook as WebhookIcon,
@@ -24,6 +25,7 @@ import {
   ContentCopy as ContentCopyIcon,
   Visibility as VisibilityIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
 
 interface WebhookEvent {
   id: number
@@ -37,52 +39,49 @@ interface WebhookEvent {
 }
 
 export default function WhatsAppWebhooks() {
-  const [webhookUrl] = useState('https://api.jrchateam.com/webhooks/whatsapp')
-  const [verifyToken] = useState('VERIFY_TOKEN_ABC123XYZ')
-
-  const [events] = useState<WebhookEvent[]>([
-    {
-      id: 1,
-      event: 'messages',
-      status: 'success',
-      timestamp: '2025-10-13 10:45:32',
-      responseCode: 200,
-      responseTime: 145,
-      payload: '{"from":"15550123456","type":"text","text":{"body":"Hola"}}',
-      retries: 0,
-    },
-    {
-      id: 2,
-      event: 'message_status',
-      status: 'success',
-      timestamp: '2025-10-13 10:44:15',
-      responseCode: 200,
-      responseTime: 98,
-      payload: '{"id":"wamid.xxx","status":"delivered"}',
-      retries: 0,
-    },
-    {
-      id: 3,
-      event: 'messages',
-      status: 'failed',
-      timestamp: '2025-10-13 10:40:22',
-      responseCode: 500,
-      responseTime: 5000,
-      payload: '{"from":"15550987654","type":"text","text":{"body":"Test"}}',
-      retries: 3,
-    },
-  ])
-
-  const [stats] = useState({
-    totalEvents: 15643,
-    successRate: 99.2,
-    avgResponseTime: 156,
-    failedLast24h: 8,
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [verifyToken, setVerifyToken] = useState('')
+  const [events, setEvents] = useState<WebhookEvent[]>([])
+  const [stats, setStats] = useState({
+    totalEvents: 0,
+    successRate: 0,
+    avgResponseTime: 0,
+    failedLast24h: 0,
   })
+  const [loading, setLoading] = useState(false)
+
+  const fetchConfig = async () => {
+    try {
+      const { data } = await api.get('/whatsapp/webhooks/config')
+      const config = data?.data ?? data ?? {}
+      setWebhookUrl(config.webhookUrl ?? '')
+      setVerifyToken(config.verifyToken ?? '')
+      if (config.stats) setStats(config.stats)
+    } catch {
+      // mantener vacío en error
+    }
+  }
+
+  const fetchEvents = async () => {
+    try {
+      const { data } = await api.get('/whatsapp/webhooks/events')
+      setEvents(data?.data ?? data ?? [])
+    } catch {
+      setEvents([])
+    }
+  }
+
+  useEffect(() => {
+    const loadAll = async () => {
+      setLoading(true)
+      await Promise.all([fetchConfig(), fetchEvents()])
+      setLoading(false)
+    }
+    loadAll()
+  }, [])
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text)
-    console.log('Copiado:', text)
   }
 
   const getStatusColor = (status: WebhookEvent['status']) => {
@@ -109,6 +108,8 @@ export default function WhatsAppWebhooks() {
           Configuración y monitoreo de webhooks para eventos de WhatsApp Business API
         </Typography>
       </Box>
+
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       {/* Stats */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -290,52 +291,64 @@ export default function WhatsAppWebhooks() {
                     </tr>
                   </thead>
                   <tbody>
-                    {events.map((event) => (
-                      <tr key={event.id}>
-                        <td>
-                          <Typography level="body-xs">{event.timestamp}</Typography>
-                        </td>
-                        <td>
-                          <Chip size="sm" variant="outlined">{event.event}</Chip>
-                        </td>
-                        <td>
-                          <Chip
-                            size="sm"
-                            color={getStatusColor(event.status)}
-                            startDecorator={
-                              event.status === 'success' ? (
-                                <CheckCircleIcon />
-                              ) : (
-                                <ErrorIcon />
-                              )
-                            }
-                          >
-                            {event.status}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Typography level="body-sm" fontWeight="lg">
-                            {event.responseCode}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">{event.responseTime}ms</Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">{event.retries}</Typography>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            <IconButton size="sm" variant="plain">
-                              <VisibilityIcon />
-                            </IconButton>
-                            <IconButton size="sm" variant="plain">
-                              <RefreshIcon />
-                            </IconButton>
+                    {events.length === 0 && !loading ? (
+                      <tr>
+                        <td colSpan={7}>
+                          <Box sx={{ py: 4, textAlign: 'center' }}>
+                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                              No hay eventos de webhook registrados.
+                            </Typography>
                           </Box>
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      events.map((event) => (
+                        <tr key={event.id}>
+                          <td>
+                            <Typography level="body-xs">{event.timestamp}</Typography>
+                          </td>
+                          <td>
+                            <Chip size="sm" variant="outlined">{event.event}</Chip>
+                          </td>
+                          <td>
+                            <Chip
+                              size="sm"
+                              color={getStatusColor(event.status)}
+                              startDecorator={
+                                event.status === 'success' ? (
+                                  <CheckCircleIcon />
+                                ) : (
+                                  <ErrorIcon />
+                                )
+                              }
+                            >
+                              {event.status}
+                            </Chip>
+                          </td>
+                          <td>
+                            <Typography level="body-sm" fontWeight="lg">
+                              {event.responseCode}
+                            </Typography>
+                          </td>
+                          <td>
+                            <Typography level="body-sm">{event.responseTime}ms</Typography>
+                          </td>
+                          <td>
+                            <Typography level="body-sm">{event.retries}</Typography>
+                          </td>
+                          <td>
+                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                              <IconButton size="sm" variant="plain">
+                                <VisibilityIcon />
+                              </IconButton>
+                              <IconButton size="sm" variant="plain">
+                                <RefreshIcon />
+                              </IconButton>
+                            </Box>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </Table>
               </Sheet>

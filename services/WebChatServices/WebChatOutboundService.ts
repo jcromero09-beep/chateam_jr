@@ -1,7 +1,7 @@
 import WebChatSessionService from './WebChatSessionService.js';
 import WebChatMessageService from './WebChatMessageService.js';
 import WebChatChannelService from './WebChatChannelService.js';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 import AppError from '../../errors/AppError.js';
 import { getIO } from '../../libs/socket.js';
 import axios from 'axios';

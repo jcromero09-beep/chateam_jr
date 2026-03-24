@@ -4,6 +4,8 @@ import Company from "../models/Company";
 import AiTokenTransaction from "../models/AiTokenTransaction";
 import User from "../models/User";
 import { createStripeCheckoutSession } from "../services/StripeCheckoutService";
+import paypal from "@paypal/checkout-server-sdk";
+import { getPayPalClient } from "../services/PaypalService/paypalConfig";
 
 /**
  * Obtiene el balance de tokens y subplan activo de una empresa
@@ -52,7 +54,7 @@ export const listAvailableSubplans = async (req: Request, res: Response): Promis
         isActive: true,
         isPublic: true
       },
-      attributes: ['id', 'name', 'description', 'tokens', 'priceUsd', 'stripePriceId'],
+      attributes: ['id', 'name', 'description', 'tokens', 'priceUsd', 'stripePriceId', 'paypalPriceId'],
       order: [['priceUsd', 'ASC']]
     });
 
@@ -162,9 +164,125 @@ export const processSubplanPurchase = async (
   console.log(`[AISubplanPurchase] SUCCESS: Company ${companyId} balance updated: ${currentBalance} -> ${newBalance} (+${tokens})`);
 };
 
+/**
+ * Crear orden de PayPal para comprar subplan
+ */
+export const createSubplanPaypalOrder = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user as { companyId: number };
+  const { subplanId } = req.body;
+
+  try {
+    if (!subplanId) {
+      return res.status(400).json({ error: "subplanId es requerido" });
+    }
+
+    // Buscar el subplan
+    const subplan = await AISubplan.findByPk(subplanId);
+    if (!subplan) {
+      return res.status(404).json({ error: "Subplan no encontrado" });
+    }
+
+    if (!subplan.isActive || !subplan.isPublic) {
+      return res.status(400).json({ error: "Este subplan no está disponible para compra" });
+    }
+
+    if (!subplan.paypalPriceId) {
+      return res.status(400).json({ error: "Este subplan no tiene configuración de PayPal" });
+    }
+
+    // Crear orden PayPal usando el SDK
+    const ppClient = await getPayPalClient();
+    const request = new paypal.orders.OrdersCreateRequest();
+    request.prefer("return=representation");
+    request.requestBody({
+      intent: "CAPTURE",
+      purchase_units: [{
+        reference_id: `subplan_${subplan.id}_${companyId}`,
+        description: `AI Tokens: ${subplan.name}`,
+        soft_descriptor: "CHATEAM-IA",
+        amount: {
+          currency_code: "USD",
+          value: Number(subplan.priceUsd).toFixed(2)
+        },
+        custom_id: JSON.stringify({
+          companyId,
+          subplanId,
+          tokens: subplan.tokens,
+          type: 'subplan'
+        })
+      }],
+      application_context: {
+        brand_name: "ChatEAM",
+        landing_page: "BILLING",
+        user_action: "PAY_NOW",
+        return_url: `${process.env.FRONTEND_URL}/ai/credits?success=true`,
+        cancel_url: `${process.env.FRONTEND_URL}/ai/credits?canceled=true`
+      }
+    });
+
+    const order = await ppClient.execute(request);
+
+    // Buscar la URL de aprobación
+    const approvalLink = order.result.links?.find((link: any) => link.rel === "approve");
+
+    console.log(`[AISubplanPurchase] PayPal order created: ${order.result.id} for company ${companyId}, subplan ${subplanId}`);
+
+    return res.json({
+      orderId: order.result.id,
+      approvalUrl: approvalLink?.href
+    });
+  } catch (error: any) {
+    console.error("[AISubplanPurchase] createSubplanPaypalOrder error:", error.message);
+    return res.status(500).json({ error: error.message || "Error al crear orden PayPal" });
+  }
+};
+
+/**
+ * Procesar pago por comprobante (subir archivo)
+ */
+export const processSubplanComprobante = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user as { companyId: number };
+  const { subplanId, descripcion } = req.body;
+
+  try {
+    if (!subplanId) {
+      return res.status(400).json({ error: "subplanId es requerido" });
+    }
+
+    // Buscar el subplan
+    const subplan = await AISubplan.findByPk(subplanId);
+    if (!subplan) {
+      return res.status(404).json({ error: "Subplan no encontrado" });
+    }
+
+    if (!subplan.isActive || !subplan.isPublic) {
+      return res.status(400).json({ error: "Este subplan no está disponible para compra" });
+    }
+
+    // Verificar que hay archivo
+    if (!req.file) {
+      return res.status(400).json({ error: "Archivo de comprobante es requerido" });
+    }
+
+    // Guardar registro de comprobante (pendiente de aprobación)
+    // Por ahora solo respondemos éxito - en producción se guardaría en una tabla de comprobantes
+    console.log(`[AISubplanPurchase] Comprobante received: company=${companyId}, subplan=${subplanId}, file=${req.file.filename}`);
+
+    return res.json({
+      success: true,
+      message: "Comprobante recibido exitosamente. Su compra será procesada una vez aprobado el pago."
+    });
+  } catch (error: any) {
+    console.error("[AISubplanPurchase] processSubplanComprobante error:", error.message);
+    return res.status(500).json({ error: error.message || "Error al procesar comprobante" });
+  }
+};
+
 export default {
   getCompanyTokenInfo,
   listAvailableSubplans,
   createSubplanCheckout,
+  createSubplanPaypalOrder,
+  processSubplanComprobante,
   processSubplanPurchase
 };

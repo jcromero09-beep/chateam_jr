@@ -90,6 +90,62 @@ class Tag extends Model<Tag> {
     defaultValue: "multiple"
   })
   followupType: string;
+
+  @Column({
+    type: DataType.STRING(10),
+    defaultValue: "hours"
+  })
+  timeLaneUnit: string;
+
+  @Column({
+    type: DataType.TEXT,
+  })
+  description: string;
+
+  @Column({
+    type: DataType.BOOLEAN,
+    defaultValue: false
+  })
+  followupEnabled: boolean;
+
+  @Column({
+    type: DataType.INTEGER,
+    defaultValue: 1
+  })
+  followupCount: number;
+
+  @Column({
+    type: DataType.TEXT,
+  })
+  followupMessage1: string;
+
+  @Column({
+    type: DataType.INTEGER,
+    defaultValue: 1
+  })
+  followupDelay1: number;
+
+  @Column({
+    type: DataType.TEXT,
+  })
+  followupMessage2: string;
+
+  @Column({
+    type: DataType.INTEGER,
+    defaultValue: 3
+  })
+  followupDelay2: number;
+
+  @Column({
+    type: DataType.TEXT,
+  })
+  followupMessage3: string;
+
+  @Column({
+    type: DataType.INTEGER,
+    defaultValue: 4
+  })
+  followupDelay3: number;
 }
 
 export default Tag;

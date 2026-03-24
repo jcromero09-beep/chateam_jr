@@ -26,6 +26,7 @@ import {
   Payment as StripeIcon,
   Campaign as MetaIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
 
 interface Integration {
   id: string
@@ -38,9 +39,18 @@ interface Integration {
   lastSync?: string
 }
 
+// Mapa de iconos por id para reconstruir el nodo React desde la API
+const ICON_MAP: Record<string, React.ReactNode> = {
+  whatsapp: <WhatsAppIcon sx={{ color: '#25D366' }} />,
+  telegram: <TelegramIcon sx={{ color: '#0088cc' }} />,
+  stripe: <StripeIcon sx={{ color: '#635BFF' }} />,
+  email: <EmailIcon sx={{ color: '#EA4335' }} />,
+  meta: <MetaIcon sx={{ color: '#1877F2' }} />,
+}
+
 export default function Integrations() {
   const [integrations, setIntegrations] = useState<Integration[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchIntegrations()
@@ -49,60 +59,16 @@ export default function Integrations() {
   const fetchIntegrations = async () => {
     setLoading(true)
     try {
-      const mockIntegrations: Integration[] = [
-        {
-          id: 'whatsapp',
-          name: 'WhatsApp Business API',
-          description: 'API oficial de Meta para mensajería empresarial',
-          status: 'active',
-          category: 'communication',
-          icon: <WhatsAppIcon sx={{ color: '#25D366' }} />,
-          isConfigured: true,
-          lastSync: '2025-01-13T10:30:00Z',
-        },
-        {
-          id: 'telegram',
-          name: 'Telegram Bot API',
-          description: 'Bot de Telegram para atención al cliente',
-          status: 'active',
-          category: 'communication',
-          icon: <TelegramIcon sx={{ color: '#0088cc' }} />,
-          isConfigured: true,
-          lastSync: '2025-01-13T09:15:00Z',
-        },
-        {
-          id: 'stripe',
-          name: 'Stripe Payments',
-          description: 'Procesamiento de pagos y facturación',
-          status: 'active',
-          category: 'payment',
-          icon: <StripeIcon sx={{ color: '#635BFF' }} />,
-          isConfigured: true,
-          lastSync: '2025-01-13T08:45:00Z',
-        },
-        {
-          id: 'email',
-          name: 'Email Marketing',
-          description: 'SendGrid/SES para campañas de email',
-          status: 'active',
-          category: 'marketing',
-          icon: <EmailIcon sx={{ color: '#EA4335' }} />,
-          isConfigured: true,
-          lastSync: '2025-01-13T07:30:00Z',
-        },
-        {
-          id: 'meta',
-          name: 'Meta Marketing API',
-          description: 'Campañas publicitarias en Facebook/Instagram',
-          status: 'inactive',
-          category: 'marketing',
-          icon: <MetaIcon sx={{ color: '#1877F2' }} />,
-          isConfigured: false,
-        },
-      ]
-      setIntegrations(mockIntegrations)
-    } catch (error) {
-      console.error('Error fetching integrations:', error)
+      const response = await api.get('/integrations')
+      const rawData: any[] = response.data?.data ?? response.data ?? []
+      const mapped: Integration[] = rawData.map((item: any) => ({
+        ...item,
+        icon: ICON_MAP[item.id] ?? <IntegrationIcon />,
+      }))
+      setIntegrations(mapped)
+    } catch {
+      // Sin datos disponibles — se mostrará estado vacío
+      setIntegrations([])
     } finally {
       setLoading(false)
     }
@@ -145,6 +111,7 @@ export default function Integrations() {
 
         {loading && <LinearProgress />}
 
+        {/* KPI cards — siempre visibles */}
         <Grid container spacing={2}>
           <Grid xs={12} sm={6} md={3}>
             <Card>
@@ -194,70 +161,90 @@ export default function Integrations() {
           </Grid>
         </Grid>
 
-        <Grid container spacing={2}>
-          {integrations.map((integration) => (
-            <Grid key={integration.id} xs={12} md={6}>
-              <Card variant="outlined">
-                <CardContent>
-                  <Stack spacing={2}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="start">
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <Box sx={{ fontSize: 40 }}>{integration.icon}</Box>
-                        <Box>
-                          <Typography level="title-lg">{integration.name}</Typography>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            {integration.description}
-                          </Typography>
-                        </Box>
+        {/* Estado vacío */}
+        {!loading && integrations.length === 0 && (
+          <Card>
+            <CardContent>
+              <Stack spacing={2} alignItems="center" sx={{ py: 6 }}>
+                <IntegrationIcon sx={{ fontSize: 56, color: 'text.tertiary' }} />
+                <Typography level="title-lg" sx={{ color: 'text.secondary' }}>
+                  No hay integraciones configuradas
+                </Typography>
+                <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center', maxWidth: 480 }}>
+                  Configura tus primeras integraciones para conectar canales de comunicación.
+                </Typography>
+              </Stack>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Lista de integraciones */}
+        {integrations.length > 0 && (
+          <Grid container spacing={2}>
+            {integrations.map((integration) => (
+              <Grid key={integration.id} xs={12} md={6}>
+                <Card variant="outlined">
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="start">
+                        <Stack direction="row" spacing={2} alignItems="center">
+                          <Box sx={{ fontSize: 40 }}>{integration.icon}</Box>
+                          <Box>
+                            <Typography level="title-lg">{integration.name}</Typography>
+                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                              {integration.description}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                        <Switch
+                          checked={integration.status === 'active'}
+                          onChange={() => toggleIntegration(integration.id)}
+                        />
                       </Stack>
-                      <Switch
-                        checked={integration.status === 'active'}
-                        onChange={() => toggleIntegration(integration.id)}
-                      />
-                    </Stack>
-                    <Divider />
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip
-                        size="sm"
-                        color={
-                          integration.status === 'active'
-                            ? 'success'
+                      <Divider />
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Chip
+                          size="sm"
+                          color={
+                            integration.status === 'active'
+                              ? 'success'
+                              : integration.status === 'error'
+                              ? 'danger'
+                              : 'neutral'
+                          }
+                          startDecorator={
+                            integration.status === 'active' ? <CheckIcon /> : <WarningIcon />
+                          }
+                        >
+                          {integration.status === 'active'
+                            ? 'Activa'
                             : integration.status === 'error'
-                            ? 'danger'
-                            : 'neutral'
-                        }
-                        startDecorator={
-                          integration.status === 'active' ? <CheckIcon /> : <WarningIcon />
-                        }
+                            ? 'Error'
+                            : 'Inactiva'}
+                        </Chip>
+                        <Chip size="sm" variant="soft">
+                          {integration.category}
+                        </Chip>
+                        {integration.lastSync && (
+                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            Sync: {new Date(integration.lastSync).toLocaleTimeString('es-ES')}
+                          </Typography>
+                        )}
+                      </Stack>
+                      <Button
+                        variant="outlined"
+                        startDecorator={<SettingsIcon />}
+                        fullWidth
                       >
-                        {integration.status === 'active'
-                          ? 'Activa'
-                          : integration.status === 'error'
-                          ? 'Error'
-                          : 'Inactiva'}
-                      </Chip>
-                      <Chip size="sm" variant="soft">
-                        {integration.category}
-                      </Chip>
-                      {integration.lastSync && (
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Sync: {new Date(integration.lastSync).toLocaleTimeString('es-ES')}
-                        </Typography>
-                      )}
+                        Configurar
+                      </Button>
                     </Stack>
-                    <Button
-                      variant="outlined"
-                      startDecorator={<SettingsIcon />}
-                      fullWidth
-                    >
-                      Configurar
-                    </Button>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
       </Stack>
     </Container>
   )

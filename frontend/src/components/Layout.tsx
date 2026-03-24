@@ -28,8 +28,8 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/settings', label: 'Configuración', icon: <SettingsIcon /> },
   ]
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    await logout()
     navigate('/login')
   }
 

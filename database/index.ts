@@ -1,4 +1,4 @@
-console.log("🔄 Loading database/index.ts...");
+// console.log("🔄 Loading database/index.ts...");
 import { Sequelize } from "sequelize-typescript";
 import User from "../models/User";
 import Setting from "../models/Setting";
@@ -38,6 +38,7 @@ import QueueIntegrations from "../models/QueueIntegrations";
 import Invoices from "../models/Invoices";
 import Subscriptions from "../models/Subscriptions";
 import ApiUsages from "../models/ApiUsages";
+import ApiFailedMessage from "../models/ApiFailedMessage";
 import Files from "../models/Files";
 import FilesOptions from "../models/FilesOptions";
 import ContactTag from "../models/ContactTag";
@@ -111,6 +112,8 @@ import EmailCampaignRecipient from "../models/EmailMarketing/EmailCampaignRecipi
 import EmailTemplate from "../models/EmailMarketing/EmailTemplate";
 import EmailTrackingEvent from "../models/EmailMarketing/EmailTrackingEvent";
 import EmailProviderConfig from "../models/EmailMarketing/EmailProviderConfig";
+import EmailAutomation from "../models/EmailMarketing/EmailAutomation";
+import EmailAbTest from "../models/EmailMarketing/EmailAbTest";
 
 // Attribution & Conversion Models
 import AttributionTouchpoint from "../models/AttributionTouchpoint";
@@ -120,6 +123,82 @@ import ConversionItem from "../models/ConversionItem";
 import Product from "../models/Product";
 import AttributionResult from "../models/AttributionResult";
 import AttributionChannelAggregate from "../models/AttributionChannelAggregate";
+
+// Kanban Movement Log
+import KanbanMovementLog from "../models/KanbanMovementLog";
+
+// Comment Auto-Reply
+import CommentAutoReplyCampaign from "../models/CommentAutoReplyCampaign";
+import CommentAutoReplyLog from "../models/CommentAutoReplyLog";
+
+// AI Credit System (Tipos, Balances, Asignaciones, Transacciones)
+import AICreditType from "../models/AICreditType";
+import AICreditBalance from "../models/AICreditBalance";
+import PlanCreditAllocation from "../models/PlanCreditAllocation";
+import AICreditTransaction from "../models/AICreditTransaction";
+
+// Email Plans System
+import EmailPlan from "../models/EmailPlan";
+import CompanyEmailPlan from "../models/CompanyEmailPlan";
+
+// AI Affiliates & MLM
+import AIAffiliateProgram from "../models/AIAffiliateProgram";
+import AIAffiliateReferral from "../models/AIAffiliateReferral";
+import AffiliateTier from "../models/AffiliateTier";
+import AffiliateWallet from "../models/AffiliateWallet";
+import AffiliateTransaction from "../models/AffiliateTransaction";
+import AffiliateWithdrawal from "../models/AffiliateWithdrawal";
+import AffiliateLink from "../models/AffiliateLink";
+// UGC Models
+import UGCCampaign from "../models/UGCCampaign";
+import UGCVideoJob from "../models/UGCVideoJob";
+import UGCVideoAsset from "../models/UGCVideoAsset";
+import UGCCreator from "../models/UGCCreator";
+import UGCCreatorAssignment from "../models/UGCCreatorAssignment";
+import UGCCreatorPayment from "../models/UGCCreatorPayment";
+import UGCSocialAccount from "../models/UGCSocialAccount";
+import UGCSocialPost from "../models/UGCSocialPost";
+import UGCCreativeLearning from "../models/UGCCreativeLearning";
+import UGCCreativeVariant from "../models/UGCCreativeVariant";
+import UGCCampaignMetric from "../models/UGCCampaignMetric";
+import UGCPostComment from "../models/UGCPostComment";
+
+// Agent Models (Identity, Memory, ProfilePhoto)
+import AgentIdentity from "../models/AgentIdentity";
+import AgentMemory from "../models/AgentMemory";
+import AgentProfilePhoto from "../models/AgentProfilePhoto";
+
+// Integration Models
+import IntegrationProvider from "../models/Integrations/IntegrationProvider";
+import IntegrationConnection from "../models/Integrations/IntegrationConnection";
+import IntegrationSyncLog from "../models/Integrations/IntegrationSyncLog";
+import IntegrationWebhookEvent from "../models/Integrations/IntegrationWebhookEvent";
+import IntegrationEntityMapping from "../models/Integrations/IntegrationEntityMapping";
+import IntegrationApiRequest from "../models/Integrations/IntegrationApiRequest";
+
+// AI Platform Models (batch)
+import AIDocument from "../models/AIDocument";
+import AIChunk from "../models/AIChunk";
+import AISemanticCache from "../models/AISemanticCache";
+import AIEntity from "../models/AIEntity";
+import AIAgentConfig from "../models/AIAgentConfig";
+import AIAgentAssignment from "../models/AIAgentAssignment";
+import AIAgentLog from "../models/AIAgentLog";
+import AITeam from "../models/AITeam";
+import AITeamMember from "../models/AITeamMember";
+import AIChatbotConfig from "../models/AIChatbotConfig";
+import AIChatbotDataSource from "../models/AIChatbotDataSource";
+import AIChatbotDomain from "../models/AIChatbotDomain";
+import AIExtension from "../models/AIExtension";
+import AICompanyExtension from "../models/AICompanyExtension";
+import AIEmailTemplate from "../models/AIEmailTemplate";
+import AIScheduledTask from "../models/AIScheduledTask";
+import AIFineTuningJob from "../models/AIFineTuningJob";
+import AIABTest from "../models/AIABTest";
+import AIABTestVariant from "../models/AIABTestVariant";
+import AITrace from "../models/AITrace";
+import AISpan from "../models/AISpan";
+import AIUsageMetric from "../models/AIUsageMetric";
 
 const sequelize = new Sequelize(dbConfig);
 
@@ -163,6 +242,7 @@ const models = [
   Invoices,
   Subscriptions,
   ApiUsages,
+  ApiFailedMessage,
   Files,
   FilesOptions,
   CompaniesSettings,
@@ -231,12 +311,83 @@ const models = [
   EmailCampaignRecipient,
   EmailTemplate,
   EmailTrackingEvent,
-  EmailProviderConfig
+  EmailProviderConfig,
+  // Email Marketing Phase 4 (Automation + A/B Testing)
+  EmailAutomation,
+  EmailAbTest,
+  // Kanban Movement Log
+  KanbanMovementLog,
+  // AI Affiliates & MLM
+  AIAffiliateProgram,
+  AIAffiliateReferral,
+  AffiliateTier,
+  AffiliateWallet,
+  AffiliateTransaction,
+  AffiliateWithdrawal,
+  AffiliateLink,
+  // Comment Auto-Reply
+  CommentAutoReplyCampaign,
+  CommentAutoReplyLog,
+  // AI Credit System (Tipos, Balances, Asignaciones, Transacciones)
+  AICreditType,
+  AICreditBalance,
+  PlanCreditAllocation,
+  AICreditTransaction,
+  // Email Plans System
+  EmailPlan,
+  CompanyEmailPlan,
+  // AI Platform Models (batch)
+  AIDocument,
+  AIChunk,
+  AISemanticCache,
+  AIEntity,
+  AIAgentConfig,
+  AIAgentAssignment,
+  AIAgentLog,
+  AITeam,
+  AITeamMember,
+  AIChatbotConfig,
+  AIChatbotDataSource,
+  AIChatbotDomain,
+  AIExtension,
+  AICompanyExtension,
+  AIEmailTemplate,
+  AIScheduledTask,
+  AIFineTuningJob,
+  AIABTest,
+  AIABTestVariant,
+  AITrace,
+  AISpan,
+  AIUsageMetric,
+  // UGC Models
+  UGCCampaign,
+  UGCVideoJob,
+  UGCVideoAsset,
+  UGCCreator,
+  UGCCreatorAssignment,
+  UGCCreatorPayment,
+  UGCSocialAccount,
+  UGCSocialPost,
+  UGCCreativeLearning,
+  UGCCreativeVariant,
+  UGCCampaignMetric,
+  UGCPostComment,
+  // Agent Models (Identity, Memory, ProfilePhoto)
+  AgentIdentity,
+  AgentMemory,
+  AgentProfilePhoto,
+  // Integration Models
+  IntegrationProvider,
+  IntegrationConnection,
+  IntegrationSyncLog,
+  IntegrationWebhookEvent,
+  IntegrationEntityMapping,
+  IntegrationApiRequest,
 ];
 
-console.log("🔄 Adding models to sequelize...");
+// console.log("🔄 Adding models to sequelize...");
 sequelize.addModels(models);
-console.log("✅ Database models loaded successfully");
+// console.log("✅ Database models loaded successfully");
 
 // ⚙️ Inicializar hooks después de cargar modelos
 // Hook: Cuando se actualiza un provider, actualizar todos sus prompts

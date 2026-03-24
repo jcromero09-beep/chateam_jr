@@ -9,4 +9,4 @@ ticketTagRoutes.put("/ticket-tags/:ticketId/:tagId", isAuth, TicketTagController
 ticketTagRoutes.delete("/ticket-tags/:ticketId", isAuth, TicketTagController.remove);
 
 export default ticketTagRoutes;
-console.log("📄 TICKET-TAG-ROUTES.TS LOADED\!");
+// console.log("📄 TICKET-TAG-ROUTES.TS LOADED\!");

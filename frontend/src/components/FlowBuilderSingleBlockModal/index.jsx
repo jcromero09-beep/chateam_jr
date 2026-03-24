@@ -308,7 +308,6 @@ const FlowBuilderSingleBlockModal = ({
         value: value,
         number: newArrMessage[i],
       });
-      console.log("text");
     }
     //Todos os intervalos
     for (let i = 0; i < numberInterval; i++) {
@@ -325,7 +324,6 @@ const FlowBuilderSingleBlockModal = ({
         value: value,
         number: newArrInterval[i],
       });
-      console.log("int");
     }
 
     //Todas as imagens
@@ -500,8 +498,6 @@ const FlowBuilderSingleBlockModal = ({
       }
     }
 
-    console.log(elementsSequence);
-
     return elementsSequence;
   };
 
@@ -610,7 +606,6 @@ const FlowBuilderSingleBlockModal = ({
       const array = old;
       const index = array.indexOf(id);
       moveItemParaFrente(index);
-      console.log("id", id);
       if (index !== -1 && index < array.length - 1) {
         // Verifica se o elemento foi encontrado no array e não está na última posição
         const novoArray = [...array]; // Cria uma cópia do array original
@@ -1318,7 +1313,6 @@ const FlowBuilderSingleBlockModal = ({
               seq: elementsSeq,
               elements: handleElements(null),
             };
-            console.log("QUI", mountData);
             onUpdate({
               ...data,
               data: mountData,
@@ -1328,7 +1322,7 @@ const FlowBuilderSingleBlockModal = ({
             setLoading(false);
             return;
           } catch (e) {
-            console.log(e);
+            // Error silenciado
             setLoading(false);
             return;
           }
@@ -1340,7 +1334,6 @@ const FlowBuilderSingleBlockModal = ({
           return toast.error("Borrar las tarjetas vacías (Imagen, Audio y Vídeo)");
         }
 
-        console.log("FormData ready, uploading content...");
         const res = await api.post("/flowbuilder/content", formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
@@ -1432,7 +1425,6 @@ const FlowBuilderSingleBlockModal = ({
           return toast.error("Borrar las tarjetas vacías (Imagen, Audio y Vídeo)");
         }
 
-        console.log("FormData ready, uploading content...");
         const res = await api.post("/flowbuilder/content", formData, {
           headers: {
             'Content-Type': 'multipart/form-data'

@@ -45,12 +45,43 @@ export interface NamedParam {
   example: string;
 }
 
+// Botón de plantilla (con ID automático generado)
 export interface TemplateButton {
+  id: string;              // ID automático: "btn_0_abc123"
+  index: number;           // Índice del botón (0, 1, 2)
+  type: ButtonType;
+  text: string;            // Título del botón
+  url?: string;            // URL para botones URL (puede contener {{1}}, {{2}}...)
+  phoneNumber?: string;    // Teléfono para botones PHONE_NUMBER
+  example?: string;        // Ejemplo de URL dinámica
+}
+
+// Helper: generar ID automático para botón
+export const generateButtonId = (index: number): string => {
+  const crypto = require('crypto');
+  return `btn_${index}_${crypto.randomBytes(4).toString('hex')}`;
+};
+
+// Botón de plantilla (entrada del usuario en creación)
+export interface TemplateButtonInput {
   type: ButtonType;
   text: string;
-  url?: string;          // Para botones URL
+  url?: string;          // Para botones URL (puede contener {{1}}, {{2}}...)
   phoneNumber?: string;  // Para botones de teléfono
   example?: string;      // Ejemplo de URL dinámica
+}
+
+// Botón en formato Meta API (diferente a nuestro TemplateButton interno)
+export interface MetaButton {
+  type: "reply" | "url" | "phone_number" | "copy_code";
+  reply?: {
+    id: string;
+    title: string;
+  };
+  url?: string;
+  example?: string[];
+  phone_number?: string;
+  copy_code?: string;
 }
 
 export interface TemplateComponent {
@@ -63,7 +94,7 @@ export interface TemplateComponent {
     body_text_named_params?: NamedParam[];  // Para parámetros con nombre
     header_handle?: string[];
   };
-  buttons?: TemplateButton[];
+  buttons?: TemplateButton[] | MetaButton[];  // Soporta ambos formatos
 }
 
 @Table({ tableName: "WhatsAppTemplates" })
@@ -138,7 +169,7 @@ class WhatsAppTemplate extends Model<WhatsAppTemplate> {
   @Column(DataType.STRING(60))
   footerContent: string;
 
-  // Botones de la plantilla (JSON)
+  // Botones de la plantilla (JSON) - incluye ID automático generado
   @AllowNull(true)
   @Column(DataType.JSONB)
   buttons: TemplateButton[];

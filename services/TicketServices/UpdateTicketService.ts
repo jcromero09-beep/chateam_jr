@@ -25,7 +25,7 @@ import FindOrCreateTicketService from "./FindOrCreateTicketService";
 import formatBody from "../../helpers/Mustache";
 import { Mutex } from "async-mutex";
 import { actualizarRetargetingSiEsDormant } from "../IntegrationsServices/clasificarEtapaCliente";
-import { removeFollowupJobByTicketId } from "../../workers/stageClassifier.worker";
+import { cancelTicketFollowups } from "../../workers/stageClassifier.worker";
 import { processTelegramTicketClosure } from "../TelegramService/SendTelegramAutomaticMessages";
 interface TicketData {
   status?: string;
@@ -62,14 +62,14 @@ const UpdateTicketService = async ({
   companyId
 }: Request): Promise<Response> => {
   // DEBUG: Log ALL incoming ticketData to track what's modifying customerOriginId
-  console.log("🎫 [UpdateTicketService] CALLED:", {
-    ticketId,
-    companyId,
-    ticketDataKeys: Object.keys(ticketData),
-    hasCustomerOriginId: 'customerOriginId' in ticketData,
-    customerOriginIdValue: ticketData.customerOriginId,
-    status: ticketData.status
-  });
+  // console.log("🎫 [UpdateTicketService] CALLED:", {
+  //   ticketId,
+  //   companyId,
+  //   ticketDataKeys: Object.keys(ticketData),
+  //   hasCustomerOriginId: 'customerOriginId' in ticketData,
+  //   customerOriginIdValue: ticketData.customerOriginId,
+  //   status: ticketData.status
+  // });
 
   try {
     let {
@@ -120,7 +120,7 @@ const UpdateTicketService = async ({
       await ticket.update({
         status: "closed"
       });
-      await removeFollowupJobByTicketId(ticket.id);
+      await cancelTicketFollowups(ticket.id);
       await actualizarRetargetingSiEsDormant(ticket.id, companyId);
       io.of(String(companyId))
         // .to(oldStatus)
@@ -129,12 +129,12 @@ const UpdateTicketService = async ({
           action: "delete",
           ticketId: ticket.id
         });
-      console.log(117, "UpdateTicketService")
+      // console.log(117, "UpdateTicketService")
       return { ticket, oldStatus, oldUserId };
     }
 
     if (oldStatus === "closed") {
-      console.log(122, "UpdateTicketService")
+      // console.log(122, "UpdateTicketService")
       let otherTicket = await Ticket.findOne({
         where: {
           contactId: ticket.contactId,
@@ -148,7 +148,7 @@ const UpdateTicketService = async ({
           return { ticket: otherTicket, oldStatus, oldUserId }
         }
       }
-      await removeFollowupJobByTicketId(ticket.id);
+      await cancelTicketFollowups(ticket.id);
       await actualizarRetargetingSiEsDormant(ticket.id, companyId);
 
       // await CheckContactOpenTickets(ticket.contactId, ticket.whatsappId );
@@ -204,7 +204,7 @@ const UpdateTicketService = async ({
             if (["facebook", "instagram"].includes(ticket.channel)) {
 
               const msg = await sendFaceMessage({ body: bodyRatingMessage, ticket });
-              console.log('update verifyMessageFace')
+              // console.log('update verifyMessageFace')
               await verifyMessageFace(msg, bodyRatingMessage, ticket, ticket.contact);
             }
 
@@ -254,7 +254,7 @@ const UpdateTicketService = async ({
               ticketId: ticket.id
             });
 
-          console.log(277, "UpdateTicketService")
+          // console.log(277, "UpdateTicketService")
           return { ticket, oldStatus, oldUserId };
 
         }
@@ -338,8 +338,8 @@ const UpdateTicketService = async ({
       }
 
     //  await actualizarRetargetingSiEsDormant(ticket.id, companyId);
-    await removeFollowupJobByTicketId(ticket.id);
-      console.log(1, "actualizarRetargetingSiEsDormant")
+    await cancelTicketFollowups(ticket.id);
+      // console.log(1, "actualizarRetargetingSiEsDormant")
       io.of(String(companyId))
         // .to(oldStatus)
         // .to(ticketId.toString())
@@ -347,7 +347,7 @@ const UpdateTicketService = async ({
           action: "delete",
           ticketId: ticket.id
         });
-      console.log(309, "UpdateTicketService")
+      // console.log(309, "UpdateTicketService")
       return { ticket, oldStatus, oldUserId };
     }
     let queue
@@ -371,8 +371,8 @@ const UpdateTicketService = async ({
 
           await ticket.reload();
        //   await actualizarRetargetingSiEsDormant(ticket.id, companyId);
-       await removeFollowupJobByTicketId(ticket.id);
-          console.log(2, "actualizarRetargetingSiEsDormant")
+       await cancelTicketFollowups(ticket.id);
+          // console.log(2, "actualizarRetargetingSiEsDormant")
 
           io.of(String(companyId))
             // .to(oldStatus)
@@ -414,7 +414,7 @@ const UpdateTicketService = async ({
             ticketTrakingId: null,
             isPrivate: true
           };
-          console.log('newMessage ticket 1 CreateMessageService')
+          // console.log('newMessage ticket 1 CreateMessageService')
           await CreateMessageService({ messageData, companyId: ticket.companyId });
         }
 
@@ -428,7 +428,7 @@ const UpdateTicketService = async ({
 
         await newTicketTransfer.reload();
        await actualizarRetargetingSiEsDormant(ticket.id, companyId);
-        console.log(3, "actualizarRetargetingSiEsDormant")
+        // console.log(3, "actualizarRetargetingSiEsDormant")
 
         if (settings.sendMsgTransfTicket === "enabled") {
           // Mensagem de transferencia da FILA
@@ -647,7 +647,7 @@ const UpdateTicketService = async ({
             ticketTrakingId: null,
             isPrivate: true
           };
-          console.log('newMessage ticket2 CreateMessageService')
+          // console.log('newMessage ticket2 CreateMessageService')
           await CreateMessageService({ messageData, companyId: ticket.companyId });
         }
 
@@ -728,15 +728,6 @@ const UpdateTicketService = async ({
 
     status = queue && queue.closeTicket ? "closed" : status;
 
-    // DEBUG: Log customerOriginId before update
-    console.log("🔍 [UpdateTicketService] customerOriginId DEBUG:", {
-      received: customerOriginId,
-      receivedType: typeof customerOriginId,
-      isInTicketData: 'customerOriginId' in ticketData,
-      current: ticket.customerOriginId,
-      willUpdate: 'customerOriginId' in ticketData
-    });
-
     // Construir objeto de actualización - solo incluir customerOriginId si explícitamente se envió
     const updateData: any = {
       status,
@@ -756,25 +747,15 @@ const UpdateTicketService = async ({
     // Solo actualizar customerOriginId si explícitamente se envió en la request
     if ('customerOriginId' in ticketData) {
       updateData.customerOriginId = customerOriginId;
-      console.log("🔍 [UpdateTicketService] Updating customerOriginId to:", customerOriginId);
+      // console.log("🔍 [UpdateTicketService] Updating customerOriginId to:", customerOriginId);
     }
 
     await ticket.update(updateData);
 
     ticketTraking.queuedAt = moment().toDate();
     ticketTraking.queueId = queueId;
-    await removeFollowupJobByTicketId(ticket.id);
+    await cancelTicketFollowups(ticket.id);
     await ticket.reload();
-
-    // DEBUG: Log customerOriginId after update
-    console.log("🔍 [UpdateTicketService] customerOriginId AFTER UPDATE:", {
-      value: ticket.customerOriginId,
-      type: typeof ticket.customerOriginId
-    });
-   // await actualizarRetargetingSiEsDormant(ticket.id, companyId);
-    console.log(4, "actualizarRetargetingSiEsDormant")
-
-    // ticket = await ShowTicketService(ticket.id, companyId)
 
     if (status === "pending") {
       //ticket voltou para fila
@@ -792,7 +773,7 @@ const UpdateTicketService = async ({
     }
 
     if (status === "open") {
-      console.log('a')
+      // console.log('a')
       await ticketTraking.update({
         startedAt: moment().toDate(),
         ratingAt: null,
@@ -826,15 +807,15 @@ const UpdateTicketService = async ({
           ticket
         });
     } catch (socketError) {
-      console.error("Socket emit error:", socketError);
+      // console.error("Socket emit error:", socketError);
       Sentry.captureException(socketError);
     }
 
 
     return { ticket, oldStatus, oldUserId };
   } catch (err) {
-    console.log("erro ao atualizar o ticket", ticketId, "ticketData", ticketData);
-    console.error("Error completo:", err);
+    // console.log("erro ao atualizar o ticket", ticketId, "ticketData", ticketData);
+    // console.error("Error completo:", err);
     Sentry.captureException(err);
     throw err; // Re-lanzar el error para que se vea en el caller
   }

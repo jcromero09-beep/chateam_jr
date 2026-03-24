@@ -193,6 +193,49 @@ closeTicketOnTransfer: boolean;
   @Default("#4caf50")
   @Column(DataType.STRING)
   themeSecondaryDark: string;
+
+  @Default(300)
+  @Column(DataType.INTEGER)
+  aiCacheTTL: number;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Alerta WhatsApp al crear nueva empresa
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Default("disabled")
+  @Column(DataType.STRING)
+  newCompanyAlertEnabled: string;
+
+  @Column(DataType.STRING)
+  newCompanyAlertPhone: string;  // Múltiples números separados por comas
+
+  @Column(DataType.INTEGER)
+  newCompanyAlertWhatsappId: number;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WhatsApp Cloud API / Coexistencia Meta (solo superadmin)
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  cloudAPIEnabled: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TikTok Credentials (por Company)
+  // Login Kit + Business API para comentarios
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Column(DataType.STRING)
+  tiktokClientKey: string;           // Login Kit App ID
+
+  @Column(DataType.STRING)
+  tiktokClientSecret: string;        // Login Kit App Secret
+
+  @Column(DataType.STRING)
+  tiktokBusinessAppId: string;       // Business API App ID
+
+  @Column(DataType.STRING)
+  tiktokBusinessSecret: string;      // Business API Secret
 }
 
 export default CompaniesSettings;

@@ -1,0 +1,168 @@
+/**
+ * ChatEAM JR — Global Styles
+ * Inspirado en Lotru Dashboard Template (Joy UI)
+ * Carga de fuentes via @fontsource para performance optima (self-hosted)
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FUENTES — Self-hosted via @fontsource (sin dependency de Google Fonts)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Inter — Display font (headings, titles) */
+@import '@fontsource-variable/inter';
+
+/* Be Vietnam Pro — Body font (texto general, UI) */
+@import '@fontsource/be-vietnam-pro/300.css';
+@import '@fontsource/be-vietnam-pro/400.css';
+@import '@fontsource/be-vietnam-pro/500.css';
+@import '@fontsource/be-vietnam-pro/600.css';
+@import '@fontsource/be-vietnam-pro/700.css';
+
+/* Roboto Mono — Code font (bloques de codigo, IDs) */
+@import '@fontsource/roboto-mono/400.css';
+@import '@fontsource/roboto-mono/500.css';
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RESET & BASE
+   ═══════════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Focus visible — accesibilidad mejorada con color primario */
+*:focus-visible {
+  outline: var(--joy-palette-primary-500, #5BC2D2) solid 2px;
+  outline-offset: 2px;
+}
+
+/* Smooth scrolling global */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SCROLLBAR PERSONALIZADA
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Webkit browsers (Chrome, Edge, Safari) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--joy-palette-neutral-300, #ccc);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--joy-palette-neutral-400, #999);
+}
+
+/* Dark mode scrollbar */
+[data-joy-color-scheme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--joy-palette-neutral-600, #555);
+}
+
+[data-joy-color-scheme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--joy-palette-neutral-500, #777);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--joy-palette-neutral-300, #ccc) transparent;
+}
+
+[data-joy-color-scheme="dark"] * {
+  scrollbar-color: var(--joy-palette-neutral-600, #555) transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LAYOUT VARIABLES GLOBALES (Patron Lotru)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body {
+  --Layout-gap: 16px;
+  --MainNav-height: 56px;
+  --SideNav-width: 280px;
+  --SideNav-collapsed-width: 68px;
+  --MobileNav-width: 280px;
+  --SideNav-zIndex: 1100;
+  --MobileNav-zIndex: 1100;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ANIMACIONES GLOBALES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UTILIDADES PARA RECHARTS (Lotru pattern)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--joy-palette-divider, #e0e0e0);
+}
+
+[data-joy-color-scheme="dark"] .recharts-cartesian-grid-horizontal line,
+[data-joy-color-scheme="dark"] .recharts-cartesian-grid-vertical line {
+  stroke: var(--joy-palette-neutral-700, #303030);
+}
+
+.recharts-text {
+  fill: var(--joy-palette-text-secondary, #4a4a4a);
+  font-family: var(--joy-fontFamily-body);
+  font-size: 12px;
+}
+
+[data-joy-color-scheme="dark"] .recharts-text {
+  fill: var(--joy-palette-text-secondary, #b8c5d6);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SELECCION DE TEXTO
+   ═══════════════════════════════════════════════════════════════════════ */
+
+::selection {
+  background-color: var(--joy-palette-primary-200, #b3e5fc);
+  color: var(--joy-palette-primary-900, #01579b);
+}
+
+[data-joy-color-scheme="dark"] ::selection {
+  background-color: var(--joy-palette-primary-700, #0277bd);
+  color: var(--joy-palette-common-white, #fff);
+}

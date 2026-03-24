@@ -33,4 +33,4 @@ export const StartAllWhatsAppsSessions = async (
   }
 };
 
-console.log("📱📱📱 START-ALL-WHATSAPP-SESSIONS.TS FULLY LOADED! 📱📱📱");
+// console.log("📱📱📱 START-ALL-WHATSAPP-SESSIONS.TS FULLY LOADED! 📱📱📱");

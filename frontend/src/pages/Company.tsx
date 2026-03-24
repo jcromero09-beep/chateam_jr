@@ -26,6 +26,7 @@ import {
   TabPanel,
   Alert,
 } from '@mui/joy'
+import api from '../services/api'
 import {
   Business as BusinessIcon,
   Edit as EditIcon,
@@ -124,6 +125,12 @@ export default function Company() {
   const [editMode, setEditMode] = useState(false)
   const [activeTab, setActiveTab] = useState(0)
   const [formData, setFormData] = useState<Partial<Company>>({})
+  const [notification, setNotification] = useState<{ type: 'success' | 'danger'; message: string } | null>(null)
+
+  const showNotification = (type: 'success' | 'danger', message: string) => {
+    setNotification({ type, message })
+    setTimeout(() => setNotification(null), 4000)
+  }
 
   useEffect(() => {
     fetchCompanyData()
@@ -132,68 +139,12 @@ export default function Company() {
   const fetchCompanyData = async () => {
     setLoading(true)
     try {
-      // In production, replace with actual API call
-      // const response = await api.get('/company')
-      // setCompany(response.data)
-
-      // Mock data
-      const mockCompany: Company = {
-        id: 1,
-        name: 'JR Chateam',
-        legalName: 'JR Chateam Solutions S.A.',
-        taxId: 'B12345678',
-        industry: 'Technology',
-        size: '10-50',
-        website: 'https://jrchateam.com',
-        email: 'contact@jrchateam.com',
-        phone: '+34 912 345 678',
-        address: 'Calle Gran Vía 123',
-        city: 'Madrid',
-        state: 'Madrid',
-        country: 'España',
-        postalCode: '28013',
-        timezone: 'Europe/Madrid',
-        language: 'es',
-        currency: 'EUR',
-        logo: '/assets/logo.png',
-        settings: {
-          workingHours: {
-            enabled: true,
-            start: '09:00',
-            end: '18:00',
-            days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-          },
-          notifications: {
-            email: true,
-            sms: true,
-            push: true,
-          },
-          security: {
-            twoFactor: true,
-            sessionTimeout: 30,
-            passwordExpiry: 90,
-          },
-          integrations: {
-            whatsapp: true,
-            telegram: true,
-            email: true,
-            stripe: true,
-          },
-        },
-        stats: {
-          users: 15,
-          activeUsers: 12,
-          tickets: 234,
-          campaigns: 18,
-        },
-        createdAt: '2024-01-15T10:00:00Z',
-        updatedAt: '2025-01-10T15:30:00Z',
-      }
-
-      setCompany(mockCompany)
-      setFormData(mockCompany)
-    } catch (error) {
-      console.error('Error fetching company data:', error)
+      const response = await api.get('/company')
+      const data = response.data?.data ?? response.data
+      setCompany(data)
+      setFormData(data)
+    } catch (_error) {
+      setCompany(null)
     } finally {
       setLoading(false)
     }
@@ -202,13 +153,12 @@ export default function Company() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      // await api.put('/company', formData)
+      await api.put('/company', formData)
       setCompany(formData as Company)
       setEditMode(false)
-      alert('Cambios guardados exitosamente')
-    } catch (error) {
-      console.error('Error saving company data:', error)
-      alert('Error al guardar los cambios')
+      showNotification('success', 'Cambios guardados exitosamente')
+    } catch (_error) {
+      showNotification('danger', 'Error al guardar los cambios')
     } finally {
       setSaving(false)
     }
@@ -220,11 +170,10 @@ export default function Company() {
   }
 
   const handleLogoUpload = () => {
-    // In production, implement file upload
-    alert('Funcionalidad de subida de logo próximamente')
+    // Pendiente: implementar subida de logo
   }
 
-  if (loading || !company) {
+  if (loading) {
     return (
       <Container maxWidth="xl">
         <LinearProgress />
@@ -232,9 +181,37 @@ export default function Company() {
     )
   }
 
+  if (!company) {
+    return (
+      <Container maxWidth="xl">
+        <Card sx={{ p: 4, textAlign: 'center' }}>
+          <CardContent>
+            <BusinessIcon sx={{ fontSize: 64, color: 'text.tertiary', mb: 2 }} />
+            <Typography level="h4" sx={{ mb: 1 }}>
+              No se pudo cargar la información de la empresa
+            </Typography>
+            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 3 }}>
+              Verifica tu conexión e intenta nuevamente.
+            </Typography>
+            <Button color="primary" onClick={fetchCompanyData}>
+              Reintentar
+            </Button>
+          </CardContent>
+        </Card>
+      </Container>
+    )
+  }
+
   return (
     <Container maxWidth="xl">
       <Stack spacing={3}>
+        {/* Notification */}
+        {notification && (
+          <Alert color={notification.type} variant="soft">
+            {notification.message}
+          </Alert>
+        )}
+
         {/* Header */}
         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
           <Stack direction="row" spacing={2} alignItems="center">

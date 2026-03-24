@@ -290,15 +290,15 @@ export const httpLogger = (req: any, res: any, next: any) => {
 };
 
 // ============================================================================
-// REEMPLAZAR CONSOLE.LOG (solo en producción)
+// REEMPLAZAR CONSOLE.LOG (solo en producción) - DESHABILITADO TEMPORALMENTE
 // ============================================================================
-if (isProduction) {
-  console.log = (...args: any[]) => logger.info(args.join(' '));
-  console.info = (...args: any[]) => logger.info(args.join(' '));
-  console.warn = (...args: any[]) => logger.warn(args.join(' '));
-  console.error = (...args: any[]) => logger.error(args.join(' '));
-  console.debug = (...args: any[]) => logger.debug(args.join(' '));
-}
+// if (isProduction) {
+//   console.log = (...args: any[]) => logger.info(args.join(' '));
+//   console.info = (...args: any[]) => logger.info(args.join(' '));
+//   console.warn = (...args: any[]) => logger.warn(args.join(' '));
+//   console.error = (...args: any[]) => logger.error(args.join(' '));
+//   console.debug = (...args: any[]) => logger.debug(args.join(' '));
+// }
 
 // ============================================================================
 // HEALTH CHECK DEL LOGGER

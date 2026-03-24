@@ -35,6 +35,7 @@ interface Tag {
   color: string
   uses?: number
   createdAt: string
+  description?: string
 }
 
 export default function Tags() {
@@ -47,6 +48,7 @@ export default function Tags() {
     name: '',
     color: '#3b82f6',
     kanban: 0,
+    description: '',
   })
 
   useEffect(() => {
@@ -118,6 +120,7 @@ export default function Tags() {
       name: tag.name,
       color: tag.color,
       kanban: 0,
+      description: (tag as any).description || '',
     })
     setOpenModal(true)
   }
@@ -133,6 +136,7 @@ export default function Tags() {
       name: '',
       color: '#3b82f6',
       kanban: 0,
+      description: '',
     })
   }
 
@@ -342,6 +346,14 @@ export default function Tags() {
                   {formData.name || 'Etiqueta'}
                 </Chip>
               </Box>
+              <FormControl>
+                <FormLabel>Descripción</FormLabel>
+                <Input
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Descripción de la etiqueta (opcional)"
+                />
+              </FormControl>
               <Button color="primary" onClick={selectedTag ? handleUpdate : handleCreate}>
                 {selectedTag ? 'Actualizar' : 'Crear'} Etiqueta
               </Button>

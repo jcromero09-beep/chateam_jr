@@ -1,7 +1,7 @@
 import WebChatChannel from '../../models/WebChat/WebChatChannel.js';
 import Company from '../../models/Company.js';
 import Queue from '../../models/Queue.js';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 import crypto from 'crypto';
 import AppError from '../../errors/AppError.js';
 

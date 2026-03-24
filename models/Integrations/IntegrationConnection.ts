@@ -112,7 +112,7 @@ class IntegrationConnection extends Model {
   syncLogs: IntegrationSyncLog[];
 
   @HasMany(() => IntegrationWebhookEvent)
-  webhookEvents: IntegrationWebhookEvent[];
+  webhookEventRecords: IntegrationWebhookEvent[];
 
   @HasMany(() => IntegrationEntityMapping)
   entityMappings: IntegrationEntityMapping[];

@@ -11,9 +11,11 @@ import WhatsAppTemplate, {
   TemplateCategory,
   HeaderType,
   TemplateButton,
+  TemplateButtonInput,
   TemplateComponent,
   ParameterFormat,
-  NamedParam
+  NamedParam,
+  generateButtonId
 } from "../../models/WhatsAppTemplate";
 import Whatsapp from "../../models/Whatsapp";
 import AppError from "../../errors/AppError";
@@ -28,7 +30,7 @@ interface Request {
   headerContent?: string;
   bodyContent: string;
   footerContent?: string;
-  buttons?: TemplateButton[];
+  buttons?: TemplateButtonInput[];       // Entrada del usuario (sin ID)
   variableExamples?: string[];           // Para formato posicional
   namedVariableExamples?: NamedParam[];  // Para formato con nombre
   companyId: number;
@@ -72,6 +74,21 @@ const detectParameterFormat = (content: string): ParameterFormat => {
     return "named";
   }
   return "positional"; // Default
+};
+
+// Generar IDs automáticos para botones
+const generateButtonIds = (buttons?: TemplateButtonInput[]): TemplateButton[] | undefined => {
+  if (!buttons || buttons.length === 0) return undefined;
+
+  return buttons.map((btn, index) => ({
+    id: generateButtonId(index),
+    index,
+    type: btn.type,
+    text: btn.text,
+    url: btn.url,
+    phoneNumber: btn.phoneNumber,
+    example: btn.example
+  }));
 };
 
 // Construir componentes para la API de Meta
@@ -203,9 +220,47 @@ const CreateWhatsAppTemplateService = async ({
     throw new AppError("ERR_TEMPLATE_FOOTER_TOO_LONG: El footer no puede exceder 60 caracteres", 400);
   }
 
-  // Validar máximo de botones (3 para quick_reply, 2 para URL/PHONE)
-  if (buttons && buttons.length > 3) {
-    throw new AppError("ERR_TEMPLATE_TOO_MANY_BUTTONS: Máximo 3 botones permitidos", 400);
+  // Validar botones según reglas de Meta
+  if (buttons && buttons.length > 0) {
+    const quickReplyCount = buttons.filter(b => b.type === 'QUICK_REPLY').length;
+    const urlCount = buttons.filter(b => b.type === 'URL').length;
+    const phoneCount = buttons.filter(b => b.type === 'PHONE_NUMBER').length;
+    const copyCodeCount = buttons.filter(b => b.type === 'COPY_CODE').length;
+    const callToActionCount = urlCount + phoneCount;
+
+    // Regla: No mezclar QUICK_REPLY con CALL_TO_ACTION (URL, PHONE_NUMBER)
+    if (quickReplyCount > 0 && callToActionCount > 0) {
+      throw new AppError("ERR_TEMPLATE_BUTTONS_MIXED: No puedes mezclar botones de respuesta rápida con enlaces o teléfonos. Usa solo un tipo.", 400);
+    }
+
+    // Máximo 3 QUICK_REPLY
+    if (quickReplyCount > 3) {
+      throw new AppError("ERR_TEMPLATE_TOO_MANY_QUICK_REPLY: Máximo 3 botones de respuesta rápida permitidos", 400);
+    }
+
+    // Máximo 2 CALL_TO_ACTION (1 URL + 1 Teléfono)
+    if (callToActionCount > 2) {
+      throw new AppError("ERR_TEMPLATE_TOO_MANY_CALL_TO_ACTION: Máximo 2 botones de acción permitidos (1 URL + 1 Teléfono)", 400);
+    }
+
+    // COPY_CODE solo para AUTHENTICATION
+    if (copyCodeCount > 0 && category !== 'AUTHENTICATION') {
+      throw new AppError("ERR_TEMPLATE_COPY_CODE_WRONG_CATEGORY: Los botones de copiar código solo se permiten en plantillas de autenticación", 400);
+    }
+
+    // URL debe tener código de país completo si es teléfono
+    buttons.forEach(btn => {
+      if (btn.type === 'PHONE_NUMBER' && btn.phoneNumber) {
+        if (!/^\+\d{10,15}$/.test(btn.phoneNumber)) {
+          throw new AppError("ERR_TEMPLATE_PHONE_FORMAT: El número de teléfono debe incluir código de país (ej: +593999999999)", 400);
+        }
+      }
+      if (btn.type === 'URL' && btn.url) {
+        if (!btn.url.startsWith('http://') && !btn.url.startsWith('https://')) {
+          throw new AppError("ERR_TEMPLATE_URL_FORMAT: La URL debe comenzar con http:// o https://", 400);
+        }
+      }
+    });
   }
 
   // Verificar que no exista un template con el mismo nombre para esta company
@@ -264,13 +319,16 @@ const CreateWhatsAppTemplateService = async ({
     }
   }
 
+  // Generar IDs automáticos para botones
+  const buttonsWithIds = generateButtonIds(buttons);
+
   // Construir componentes para Meta
   const components = buildMetaComponents(
     headerType,
     headerContent,
     bodyContent,
     footerContent,
-    buttons,
+    buttonsWithIds,
     variableExamples,
     namedVariableExamples,
     detectedFormat
@@ -287,7 +345,7 @@ const CreateWhatsAppTemplateService = async ({
     headerContent,
     bodyContent,
     footerContent,
-    buttons,
+    buttons: buttonsWithIds,
     variablesCount: totalVariables,
     variableExamples,
     namedVariableExamples,

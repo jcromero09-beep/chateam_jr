@@ -3,6 +3,13 @@ import { toast } from 'react-toastify'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
+// --- Flag de logout para suprimir errores durante cierre de sesión ---
+let isLoggingOut = false
+
+export function setLoggingOut(value: boolean): void {
+  isLoggingOut = value
+}
+
 // Crear instancia de Axios
 const api: AxiosInstance = axios.create({
   baseURL: API_URL,
@@ -71,20 +78,40 @@ api.interceptors.response.use(
     return response
   },
   async (error: AxiosError) => {
+    // Suprimir TODOS los errores durante logout (race condition prevention)
+    if (isLoggingOut) {
+      return Promise.reject(error)
+    }
+
+    // Suprimir requests canceladas (AbortController)
+    if (axios.isCancel(error)) {
+      return Promise.reject(error)
+    }
+
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
-    // Log error
-    console.error('[API Response Error]', {
-      status: error.response?.status,
-      message: error.message,
-      url: error.config?.url,
-    })
+    // Suprimir logs para rutas de auth donde los errores son esperados (401 validate, 409 login, etc.)
+    const silentAuthUrls = ['/api/auth/validate', '/api/auth/login', '/api/auth/refresh_token']
+    const isSilentRoute = silentAuthUrls.some(url => originalRequest?.url?.includes(url))
+
+    if (!isSilentRoute) {
+      console.error('[API Response Error]', {
+        status: error.response?.status,
+        message: error.message,
+        url: error.config?.url,
+      })
+    }
 
     // Si es 401 (No autorizado) y no es la ruta de login/refresh
     const isAuthRoute = originalRequest?.url === '/api/auth/login' ||
       originalRequest?.url === '/api/auth/refresh_token'
 
     if (error.response?.status === 401 && !isAuthRoute) {
+      // No intentar refresh durante logout
+      if (isLoggingOut) {
+        return Promise.reject(error)
+      }
+
       if (isRefreshing) {
         // Si ya hay un refresh en progreso, agregar esta request a la cola
         return new Promise((resolve, reject) => {
@@ -170,7 +197,10 @@ api.interceptors.response.use(
     } else if (error.response?.status && error.response.status >= 500) {
       toast.error('Error del servidor. Por favor, intenta más tarde.')
     } else if (!error.response) {
-      toast.error('Error de conexión. Verifica tu conexión a internet.')
+      // No mostrar si no hay token (usuario cerró sesión)
+      if (localStorage.getItem('token')) {
+        toast.error('Error de conexión. Verifica tu conexión a internet.')
+      }
     }
 
     return Promise.reject(error)

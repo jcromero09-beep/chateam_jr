@@ -94,7 +94,7 @@ export default function Help() {
             Nuestro equipo de soporte está disponible de lunes a viernes de 9:00 AM a 6:00 PM
           </Typography>
           <Typography level="body-sm" sx={{ mt: 1, fontWeight: 'bold' }}>
-            Email: soporte@jrchateam.com | WhatsApp: +1 (555) 123-4567
+            Email: soporte@jrchateam.com | WhatsApp: Disponible en horario laboral
           </Typography>
         </Box>
       </Card>

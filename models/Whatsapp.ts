@@ -264,6 +264,82 @@ class Whatsapp extends Model<Whatsapp> {
 
   @Column(DataType.STRING)
   displayPhoneNumber: string;
+
+  // TikTok OAuth Fields (canal de comentarios)
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  tiktokAccessToken: string;
+
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  tiktokRefreshToken: string;
+
+  @AllowNull(true)
+  @Column(DataType.STRING)
+  tiktokOpenId: string;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  tiktokTokenExpiresAt: Date;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  tiktokLastPollAt: Date;
+
+  @AllowNull(true)
+  @Default(true)
+  @Column(DataType.BOOLEAN)
+  tiktokPollingEnabled: boolean;
+
+  // TikTok Business API Fields (por conexión)
+  @AllowNull(true)
+  @Default(120)
+  @Column(DataType.INTEGER)
+  tiktokPollingInterval: number;
+
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  tiktokBusinessAccessToken: string;
+
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  tiktokBusinessRefreshToken: string;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(255))
+  tiktokBusinessAdvertiserId: string;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  tiktokBusinessTokenExpiresAt: Date;
+
+  @AllowNull(true)
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  tiktokBusinessConnected: boolean;
+
+  // ===== Campos de Coexistencia Meta =====
+
+  @AllowNull(true)
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  coexistenceEnabled: boolean;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(50))
+  coexistenceStatus: string;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  coexistenceOnboardedAt: Date;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  lastAppOpenedAt: Date;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(255))
+  embeddedSignupSessionId: string;
 }
 
 export default Whatsapp;

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as SessionController from "../controllers/SessionController";
 import * as UserController from "../controllers/UserController";
+import * as PasswordController from "../controllers/PasswordController";
 import isAuth from "../middleware/isAuth";
 import envTokenAuth from "../middleware/envTokenAuth";
 import * as SettingController from "../controllers/SettingController";
@@ -8,6 +9,10 @@ import * as SettingController from "../controllers/SettingController";
 const authRoutes = Router();
 
 authRoutes.post("/signup", UserController.store);
+
+// Recuperación de contraseña (rutas públicas, sin isAuth)
+authRoutes.post("/forgot-password", PasswordController.forgotPassword);
+authRoutes.post("/reset-password", PasswordController.resetPassword);
 authRoutes.post("/login", SessionController.store);
 authRoutes.post("/refresh_token", SessionController.update);
 authRoutes.get("/validate", isAuth, SessionController.validate);

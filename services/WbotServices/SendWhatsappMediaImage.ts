@@ -24,7 +24,7 @@ function makeid(length) {
     return result;
 }
 
-const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
 const SendWhatsAppMediaImage = async ({
     ticket,

@@ -801,6 +801,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
           {/* TAB INTEGRACIONES */}
           <TabPanel value={5}>
             <Stack spacing={2}>
+              {/* COMENTADO: Colas Asignadas - Ahora se selecciona flujo directamente
               <FormControl>
                 <FormLabel>Colas Asignadas</FormLabel>
                 <Select
@@ -816,36 +817,50 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
                   ))}
                 </Select>
               </FormControl>
+              */}
 
               <FormControl>
-                <FormLabel>Integración</FormLabel>
+                <FormLabel>Flujo (FlowBuilder)</FormLabel>
                 <Select
                   value={formData.integrationId ? String(formData.integrationId) : ""}
-                  onChange={(_, v) => setFormData({ ...formData, integrationId: v ? Number(v) : null })}
-                  placeholder="Seleccionar integración"
+                  onChange={(_, v) => {
+                    const newValue = v ? Number(v) : null;
+                    setFormData({
+                      ...formData,
+                      integrationId: newValue,
+                      // Limpiar agente IA cuando se selecciona flujo
+                      promptId: newValue ? null : formData.promptId
+                    });
+                  }}
+                  placeholder="Seleccionar flujo"
                 >
                   <Option value="">Deshabilitado</Option>
-                  {integrations.map((integration) => (
-                    <Option key={integration.id} value={String(integration.id)}>
-                      {integration.name}
+                  {flows.map((flow) => (
+                    <Option key={flow.id} value={String(flow.id)}>
+                      {flow.name}
                     </Option>
                   ))}
                 </Select>
               </FormControl>
 
               <FormControl>
-                <FormLabel>Prompt de IA</FormLabel>
+                <FormLabel>Agentes IA</FormLabel>
                 <Select
                   value={formData.promptId ? String(formData.promptId) : ""}
-                  onChange={(_, v) => setFormData({ ...formData, promptId: v ? Number(v) : null })}
-                  placeholder="Seleccionar prompt"
+                  onChange={(_, v) => {
+                    const newValue = v ? Number(v) : null;
+                    setFormData({
+                      ...formData,
+                      promptId: newValue,
+                      // Limpiar flujo cuando se selecciona agente IA
+                      integrationId: newValue ? null : formData.integrationId
+                    });
+                  }}
+                  placeholder="Seleccionar agente"
                 >
                   <Option value="">Ninguno</Option>
-                  {prompts.map((prompt) => (
-                    <Option key={prompt.id} value={String(prompt.id)}>
-                      {prompt.name}
-                    </Option>
-                  ))}
+                  {/* Solo mostrar Orquestador - los demás agentes se gestionan desde el SupervisorService */}
+                  <Option value="999">Orquestador IA</Option>
                 </Select>
               </FormControl>
 

@@ -46,6 +46,7 @@ import {
     Warning as WarningIcon
 } from '@mui/icons-material'
 import api from '../services/api'
+import { showSuccess, showError } from '../utils/showToast'
 
 interface ConversionEvent {
     id: number
@@ -351,10 +352,10 @@ export default function FacebookConversions() {
         try {
             await api.post('/facebook-conversions/sync-datasets')
             await fetchData()
-            alert('✅ Datasets sincronizados exitosamente')
+            showSuccess('Datasets sincronizados exitosamente')
         } catch (error: any) {
             console.error('Error syncing datasets:', error)
-            alert(`❌ Error: ${error.response?.data?.error || error.message}`)
+            showError(error.response?.data?.error || error.message)
         } finally {
             setSyncing(false)
         }

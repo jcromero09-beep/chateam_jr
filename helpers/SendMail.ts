@@ -8,8 +8,11 @@ export interface MailData {
 }
 
 export async function SendMail(mailData: MailData) {
+  const mailPort = Number(process.env.MAIL_PORT) || 465;
   const options: any = {
     host: process.env.MAIL_HOST,
+    port: mailPort,
+    secure: (process.env.MAIL_ENCRYPTION === 'ssl' || mailPort === 465),
     auth: {
       user: process.env.MAIL_USER,
       pass: process.env.MAIL_PASS

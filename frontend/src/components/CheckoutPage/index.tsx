@@ -91,10 +91,14 @@ export default function CheckoutPage({ invoice, onClose, onSuccess }: CheckoutPa
     const createPayPalOrder = async () => {
         try {
             const planId = selectedPlan?.planId
+            // Detectar si es un plan de email
+            const isEmailPlan = selectedPlan?.users === 0 && selectedPlan?.connections === 0 && selectedPlan?.queues === 0
             const { data } = await api.post('/paypal/create-order', {
                 invoiceId,
                 planId,
                 months: selectedMonths,
+                isEmailPlan,
+                emailPlanId: isEmailPlan ? planId : null,
             })
             return data.orderID
         } catch (err) {
@@ -124,6 +128,9 @@ export default function CheckoutPage({ invoice, onClose, onSuccess }: CheckoutPa
     const handleStripePayment = async () => {
         setIsSubmitting(true)
         try {
+            // Detectar si es un plan de email (users=0, connections=0, queues=0 indica email plan)
+            const isEmailPlan = selectedPlan?.users === 0 && selectedPlan?.connections === 0 && selectedPlan?.queues === 0
+
             const newValues = {
                 firstName: user?.name || '',
                 lastName: '',
@@ -135,6 +142,8 @@ export default function CheckoutPage({ invoice, onClose, onSuccess }: CheckoutPa
                 isRecurrent,
                 paymentMethod: 'stripe',
                 months: selectedMonths,
+                isEmailPlan,
+                emailPlanId: isEmailPlan ? selectedPlan?.planId : null,
             }
 
             const { data } = await api.post('/subscription', newValues)

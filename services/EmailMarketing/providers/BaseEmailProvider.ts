@@ -1,4 +1,4 @@
-import { logger } from '../../../config/logger.js';
+import logger from '../../../utils/logger';
 
 export interface EmailMessage {
   to: string;
@@ -94,7 +94,7 @@ export abstract class BaseEmailProvider {
     details: Record<string, any>,
     level: 'info' | 'error' | 'warn' = 'info'
   ): void {
-    logger[level](`[${this.getProviderName()}] ${action}`, details);
+    logger[level](`[${this.getProviderName()}] ${action} | ${JSON.stringify(details)}`);
   }
 
   /**

@@ -519,12 +519,175 @@ export async function isCapabilityAvailable(capability: AICapability): Promise<b
 }
 
 // ============================================================================
+// GENERATE TEXT — Bridge para agentes IA
+// ============================================================================
+
+/**
+ * Wrapper de chatCompletion() para los agentes IA.
+ * Los agentes llaman generateText({prompt, modelKey, maxTokens, temperature})
+ * y este método lo traduce al formato de chatCompletion({messages[], model, ...}).
+ */
+export async function generateText(options: {
+  prompt: string;
+  modelKey?: string;
+  maxTokens?: number;
+  temperature?: number;
+  responseFormat?: string;
+  companyId?: number;
+  systemPrompt?: string;
+}): Promise<{
+  text: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}> {
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+
+  // Si hay systemPrompt explícito, agregarlo como mensaje de sistema
+  if (options.systemPrompt) {
+    messages.push({ role: 'system', content: options.systemPrompt });
+  }
+
+  // Si responseFormat es json, agregar instrucción de sistema
+  if (options.responseFormat === 'json') {
+    messages.push({
+      role: 'system',
+      content: 'IMPORTANTE: Responde SOLO con un JSON válido. Sin markdown, sin bloques de código, sin texto adicional. Solo el JSON puro.'
+    });
+  }
+
+  // El prompt del agente va como mensaje de usuario
+  messages.push({ role: 'user', content: options.prompt });
+
+  const result = await chatCompletion({
+    messages,
+    model: options.modelKey,
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+    companyId: options.companyId,
+    module: 'classification'
+  });
+
+  return {
+    text: result.content,
+    usage: {
+      promptTokens: result.usage?.prompt_tokens || result.usage?.input_tokens || 0,
+      completionTokens: result.usage?.completion_tokens || result.usage?.output_tokens || 0,
+      totalTokens: result.usage?.total_tokens || 0
+    }
+  };
+}
+
+// ============================================================================
+// CHAT COMPLETION CON TOOLS — Para Function Calling de agentes
+// ============================================================================
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ChatCompletionWithToolsOptions extends ChatCompletionOptions {
+  tools?: ToolDefinition[];
+  tool_choice?: 'auto' | 'none' | 'required';
+}
+
+export interface ToolCallResult {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface ChatCompletionWithToolsResponse extends ChatCompletionResponse {
+  toolCalls?: ToolCallResult[];
+  finishReason?: string;
+}
+
+/**
+ * chatCompletion con soporte para function calling (tools).
+ * Usado por el SupervisorService para ejecutar acciones reales
+ * (citas, emails, CRM, etc.) a través de los agentes IA.
+ */
+export async function chatCompletionWithTools(
+  options: ChatCompletionWithToolsOptions
+): Promise<ChatCompletionWithToolsResponse> {
+  const { client, provider } = await getClientForCapability('text');
+
+  if (provider.provider === 'openai') {
+    const defaultModel = provider.settings?.defaultModel || 'gpt-4o-mini';
+    const model = options.model || defaultModel;
+
+    const requestParams: any = {
+      model,
+      messages: options.messages,
+      max_tokens: options.maxTokens || 1000,
+      temperature: options.temperature ?? 0.7
+    };
+
+    // Agregar tools si existen
+    if (options.tools && options.tools.length > 0) {
+      requestParams.tools = options.tools;
+      if (options.tool_choice) {
+        requestParams.tool_choice = options.tool_choice;
+      }
+    }
+
+    const response = await client.chat.completions.create(requestParams);
+
+    // Track tokens
+    if (options.companyId && response.usage) {
+      await trackChatCompletion(
+        options.companyId,
+        response.model,
+        response.usage,
+        options.module || 'chat'
+      );
+    }
+
+    // Extraer tool calls si existen
+    const choice = response.choices[0];
+    const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
+      id: tc.id,
+      type: tc.type as 'function',
+      function: {
+        name: tc.function.name,
+        arguments: tc.function.arguments
+      }
+    }));
+
+    return {
+      content: choice?.message?.content || '',
+      usage: response.usage,
+      model: response.model,
+      provider: provider.provider,
+      toolCalls: toolCalls || undefined,
+      finishReason: choice?.finish_reason || undefined
+    };
+  }
+
+  // Para otros proveedores (Anthropic, Google), usar chatCompletion normal sin tools
+  const fallback = await chatCompletion(options);
+  return { ...fallback, toolCalls: undefined, finishReason: 'stop' };
+}
+
+// ============================================================================
 // EXPORT DEFAULT
 // ============================================================================
 
 export default {
   // Funciones principales
   chatCompletion,
+  chatCompletionWithTools,
+  generateText,
   generateImage,
   transcribeAudio,
   createEmbedding,

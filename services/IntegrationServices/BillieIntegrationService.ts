@@ -1,6 +1,6 @@
 import { BaseIntegrationService, SyncResult } from './BaseIntegrationService';
 import Contact from '../../models/Contact';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 
 /**
  * Billie Integration Service
@@ -292,7 +292,7 @@ class BillieIntegrationService extends BaseIntegrationService {
       if (mapping) {
         const contact = await Contact.findByPk(mapping.localEntityId);
         if (contact) {
-          const metadata = contact.metadata || {};
+          const metadata = (contact as any).metadata || {};
           metadata.billie_invoices = metadata.billie_invoices || [];
           metadata.billie_invoices.push(invoice);
           await contact.update({ metadata });
@@ -325,7 +325,7 @@ class BillieIntegrationService extends BaseIntegrationService {
       if (mapping) {
         const contact = await Contact.findByPk(mapping.localEntityId);
         if (contact) {
-          const metadata = contact.metadata || {};
+          const metadata = (contact as any).metadata || {};
           metadata.billie_payments = metadata.billie_payments || [];
           metadata.billie_payments.push(payment);
           await contact.update({ metadata });

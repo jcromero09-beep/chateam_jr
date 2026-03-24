@@ -21,6 +21,16 @@ router.get('/availability/blocks', isAuth, AppointmentController.getCompanyBlock
 router.post('/availability/blocks', isAuth, AppointmentController.createBlock);
 router.delete('/availability/blocks/:id', isAuth, AppointmentController.deleteBlock);
 
+// ============ SIMULTANEOUS COUNTS (Stub) ============
+
+router.get('/simultaneous-counts', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({
+    success: true,
+    message: "Conteo de citas simultáneas",
+    data: { counts: [] }
+  });
+});
+
 // ============ CALENDAR OPTIMIZED ============
 
 router.get('/calendar/dates', isAuth, AppointmentController.getAppointmentDates);
@@ -74,4 +84,4 @@ router.post('/availability/mark-booked', isAuth, AppointmentController.markBlock
 router.post('/availability/release/:appointmentId', isAuth, AppointmentController.releaseBlock);
 
 export default router;
-console.log("📄 APPOINTMENT-ROUTES.TS LOADED\!");
+// console.log("📄 APPOINTMENT-ROUTES.TS LOADED\!");

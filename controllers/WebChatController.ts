@@ -4,7 +4,7 @@ import WebChatSessionService from '../services/WebChatServices/WebChatSessionSer
 import WebChatMessageService from '../services/WebChatServices/WebChatMessageService.js';
 import WebChatWebhookService from '../services/WebChatServices/WebChatWebhookService.js';
 import WebChatOutboundService from '../services/WebChatServices/WebChatOutboundService.js';
-import { logger } from '../config/logger.js';
+import logger from '../config/logger.js';
 
 // ==================== CHANNEL CONTROLLERS ====================
 

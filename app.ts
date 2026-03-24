@@ -1,52 +1,52 @@
-console.log("📦 Loading app.ts...");
+// console.log("📦 Loading app.ts...");
 import "./bootstrap";
-console.log("📦 [1/15] bootstrap loaded");
+// console.log("📦 [1/15] bootstrap loaded");
 import "reflect-metadata";
-console.log("📦 [2/15] reflect-metadata loaded");
+// console.log("📦 [2/15] reflect-metadata loaded");
 import "express-async-errors";
-console.log("📦 [3/15] express-async-errors loaded");
+// console.log("📦 [3/15] express-async-errors loaded");
 import express, { Request, Response, NextFunction } from "express";
-console.log("📦 [4/15] express loaded");
+// console.log("📦 [4/15] express loaded");
 import cors from "cors";
-console.log("📦 [5/15] cors loaded");
+// console.log("📦 [5/15] cors loaded");
 import cookieParser from "cookie-parser";
-console.log("📦 [6/15] cookieParser loaded");
+// console.log("📦 [6/15] cookieParser loaded");
 import helmet from "helmet";
-console.log("📦 [7/15] helmet loaded");
+// console.log("📦 [7/15] helmet loaded");
 import compression from "compression";
-console.log("📦 [8/15] compression loaded");
+// console.log("📦 [8/15] compression loaded");
 import * as Sentry from "@sentry/node";
-console.log("📦 [9/15] Sentry loaded");
+// console.log("📦 [9/15] Sentry loaded");
 import { config as dotenvConfig } from "dotenv";
-console.log("📦 [10/15] dotenv loaded");
+// console.log("📦 [10/15] dotenv loaded");
 import bodyParser from 'body-parser';
-console.log("📦 [11/15] bodyParser loaded");
+// console.log("📦 [11/15] bodyParser loaded");
 
-console.log("📦 Importing database...");
+// console.log("📦 Importing database...");
 import "./database";
-console.log("📦 Database imported");
+// console.log("📦 Database imported");
 import uploadConfig from "./config/upload";
-console.log("📦 [12/15] uploadConfig loaded");
+// console.log("📦 [12/15] uploadConfig loaded");
 import AppError from "./errors/AppError";
-console.log("📦 [13/15] AppError loaded");
+// console.log("📦 [13/15] AppError loaded");
 import logger from "./utils/logger";
-console.log("📦 [14/15] logger loaded");
+// console.log("📦 [14/15] logger loaded");
 import { httpLogger, logStartup } from "./config/logger";
-console.log("📦 [15/15] config/logger loaded");
+// console.log("📦 [15/15] config/logger loaded");
 
-console.log("📦 Importing routes...");
-import routes from "./routes/index";
-console.log("📦 Routes imported!");
-
-// Carregar variáveis de ambiente
+// ⚠️ CARGAR VARIABLES DE ENTORNO ANTES DE IMPORTAR RUTAS (auth.ts las requiere)
 dotenvConfig();
+
+// console.log("📦 Importing routes...");
+import routes from "./routes/index";
+// console.log("📦 Routes imported!");
 
 // Inicializar Sentry
 Sentry.init({ dsn: process.env.SENTRY_DSN });
 
-console.log("📦 Creating express app...");
+// console.log("📦 Creating express app...");
 const app = express();
-console.log("📦 Express app created");
+// console.log("📦 Express app created");
 
 // Log startup information
 logStartup("JR Chateam Backend v6.0.0 starting...", {
@@ -75,7 +75,17 @@ app.use(
 
 // Body parsing middleware
 app.use(cookieParser());
-app.use(bodyParser.json({ limit: '50mb' }));
+
+// Capturar raw body para validación HMAC de webhook Stripe
+// stripe.webhooks.constructEvent() requiere el body sin parsear (Buffer)
+app.use(bodyParser.json({
+  limit: '50mb',
+  verify: (req: any, _res, buf) => {
+    if (req.originalUrl && req.originalUrl.includes('/stripewebhook')) {
+      req.rawBody = buf;
+    }
+  }
+}));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static files
@@ -111,5 +121,5 @@ app.use(async (err: Error, req: Request, res: Response, _: NextFunction) => {
   return res.status(500).json({ error: "Internal server error" });
 });
 
-console.log("📦📦📦 APP.TS FULLY LOADED! 📦📦📦");
+// console.log("📦📦📦 APP.TS FULLY LOADED! 📦📦📦");
 export default app;

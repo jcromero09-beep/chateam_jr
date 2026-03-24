@@ -18,6 +18,7 @@ interface Request {
   whatsappId?: number;
   wbot?: any;
   telegramUserId?: string;
+  phoneNumberId?: string;
 }
 
 /**
@@ -46,6 +47,29 @@ const extractNumberFromJid = (remoteJid: string): string => {
  * - Skips profile picture downloads (major bottleneck)
  * - Minimal updates only when data changes
  */
+/**
+ * Check if name contains at least one letter (a-zA-Z)
+ * Returns false if name is empty, only numbers, only emojis, or only special chars
+ */
+const hasLetters = (name: string): boolean => {
+  if (!name || !name.trim()) return false;
+  // Check if name contains at least one letter (including Spanish accented chars)
+  return /[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/.test(name);
+};
+
+/**
+ * Clean and format the name:
+ * - If name has no letters (only emojis, numbers, or empty), use the number as name
+ * - Otherwise, keep the original name
+ */
+const formatName = (name: string, number: string): string => {
+  if (!hasLetters(name)) {
+    // Use the phone number as name if no valid letters found
+    return number;
+  }
+  return name.trim();
+};
+
 const CreateOrUpdateContactService = async ({
   name,
   number: rawNumber,
@@ -58,7 +82,8 @@ const CreateOrUpdateContactService = async ({
   remoteJid = "",
   whatsappId,
   wbot,
-  telegramUserId
+  telegramUserId,
+  phoneNumberId
 }: Request): Promise<Contact> => {
   try {
     const io = getIO();
@@ -66,13 +91,17 @@ const CreateOrUpdateContactService = async ({
     // 1. Normalize the number
     const number = normalizeNumber(rawNumber, isGroup);
 
+    // 1.1. Format name: use number if name has no letters (only emojis, numbers, etc.)
+    const finalName = formatName(name, number);
+
     // 2. Build remoteJid if not provided
     let finalRemoteJid = remoteJid;
     if (!finalRemoteJid && number) {
       finalRemoteJid = isGroup ? `${number}@g.us` : `${number}@s.whatsapp.net`;
     }
 
-    // 3. OPTIMIZED LOOKUP: Try by remoteJid + whatsappId first, then by number + whatsappId
+    // 3. OPTIMIZED LOOKUP: Single robust strategy - match by number digits only
+    // This handles all formats: LID (Meta), s.whatsapp.net (Baileys), with/without +
     let contact: Contact | null = null;
 
     // Build where clause based on available data
@@ -81,24 +110,109 @@ const CreateOrUpdateContactService = async ({
       baseWhere.whatsappId = whatsappId;
     }
 
-    if (finalRemoteJid) {
-      // Primary lookup: by remoteJid + whatsappId (most reliable for WhatsApp)
+    // Normalize number for comparison (remove all non-digits)
+    const normalizedNumber = number.replace(/[^0-9]/g, "");
+
+    // Strategy 1: By phoneNumberId (most reliable for Meta - unique per business number)
+    if (!contact && phoneNumberId) {
+      contact = await Contact.findOne({
+        where: { ...baseWhere, phoneNumberId }
+      });
+    }
+
+    // Strategy 2: By remoteJid exact match
+    if (!contact && finalRemoteJid) {
       contact = await Contact.findOne({
         where: { ...baseWhere, remoteJid: finalRemoteJid }
       });
     }
 
-    // Fallback lookup: by normalized number + whatsappId
-    if (!contact && number) {
+    // Strategy 3: By normalized number (compare digits only)
+    if (!contact && normalizedNumber) {
+      // First try exact match on number field
       contact = await Contact.findOne({
-        where: { ...baseWhere, number }
+        where: {
+          ...baseWhere,
+          [require("sequelize").Op.or]: [
+            { number: normalizedNumber },
+            { number: `+${normalizedNumber}` }
+          ]
+        }
       });
 
-      // If found by number but has different remoteJid, update it
-      if (contact && finalRemoteJid && contact.remoteJid !== finalRemoteJid) {
-        contact.remoteJid = finalRemoteJid;
+      // If not found, search by extracting digits from remoteJid in database
+      if (!contact) {
+        // Use a smarter query: try to match numbers with LIKE
+        contact = await Contact.findOne({
+          where: {
+            ...baseWhere,
+            [require("sequelize").Op.or]: [
+              { number: { [require("sequelize").Op.like]: `%${normalizedNumber}%` } }
+            ]
+          },
+          order: [["id", "DESC"]]
+        });
       }
     }
+
+    // Strategy 4: Cross-reference by extracting digits from any stored remoteJid
+    // This handles CTWA campaigns where contact was created with LID but now we have full number
+    if (!contact && normalizedNumber) {
+      // Find contacts from same whatsapp where remoteJid digits match
+      const potentialContact = await Contact.findOne({
+        where: {
+          ...baseWhere,
+          remoteJid: {
+            [require("sequelize").Op.like]: `%${normalizedNumber}%`
+          }
+        }
+      });
+
+      if (potentialContact) {
+        contact = potentialContact;
+      }
+    }
+
+    // Strategy 4b: Cross-reference - Match by digits in stored NUMBER vs new remoteJid
+    // This handles: contact was saved with wrong number (like LID), now client writes with correct number
+    // Example: saved number = "136797300667", new remoteJid = "593987009472@s.whatsapp.net"
+    // We search if any stored number contains digits from new remoteJid (or vice versa)
+    if (!contact && finalRemoteJid && normalizedNumber) {
+      const newRemoteJidDigits = finalRemoteJid.split("@")[0].replace(/[^0-9]/g, "");
+
+      if (newRemoteJidDigits.length >= 10) {
+        // Search: find contacts where stored number's digits match new remoteJid digits
+        const potentialContacts = await Contact.findAll({
+          where: {
+            ...baseWhere,
+            number: {
+              [require("sequelize").Op.ne]: null
+            }
+          },
+          order: [["id", "DESC"]],
+          limit: 10
+        });
+
+        // Find the one that matches by digits
+        for (const potContact of potentialContacts) {
+          const storedNumDigits = (potContact.number || "").replace(/[^0-9]/g, "");
+
+          // Check if digits match (one contains the other)
+          if (
+            (storedNumDigits.length >= 10 && newRemoteJidDigits.includes(storedNumDigits)) ||
+            (newRemoteJidDigits.length >= 10 && storedNumDigits.includes(newRemoteJidDigits))
+          ) {
+            contact = potContact;
+            break;
+          }
+        }
+      }
+    }
+
+    // ELIMINADO: Strategy 5 - Causaba bugs críticos donde diferentes clientes
+    // terminaban en el mismo ticket porque tomaba el contacto más antiguo
+    // de la conexión whatsappId. Si no encuentra contacto, se crea uno nuevo.
+    // 2026-03-18: Bug fix - https://chatEAM.atlassian.net/browse/BUG-XXX
 
     // 4. UPDATE existing contact (minimal updates)
     if (contact) {
@@ -134,6 +248,67 @@ const CreateOrUpdateContactService = async ({
         hasChanges = true;
       }
 
+      // Update phoneNumberId if provided and not set
+      if (phoneNumberId && !contact.phoneNumberId) {
+        contact.phoneNumberId = phoneNumberId;
+        hasChanges = true;
+      }
+
+      // Update remoteJid if provided and different (normalize both for comparison)
+      if (finalRemoteJid && contact.remoteJid !== finalRemoteJid) {
+        // Extract numbers for comparison
+        const contactRemoteJidNum = contact.remoteJid?.split("@")[0].replace(/[^0-9]/g, "") || "";
+        const newRemoteJidNum = finalRemoteJid.split("@")[0].replace(/[^0-9]/g, "");
+
+        // Only update if the number part is different (handle LID vs s.whatsapp.net)
+        if (contactRemoteJidNum !== newRemoteJidNum) {
+          contact.remoteJid = finalRemoteJid;
+          hasChanges = true;
+        }
+      }
+
+      // Update number if we have a valid number
+      // Always prefer the number from message.from (more reliable than wa_id from contacts)
+      // This handles CTWA campaigns where first contact has LID as number, then user writes from app
+      if (number && contact.number !== number) {
+        const currentNumDigits = (contact.number || "").replace(/[^0-9]/g, "");
+        const newNumDigits = number.replace(/[^0-9]/g, "");
+
+        // Check if current number looks like a LID (contains letters - Meta) or is just digits
+        const currentIsLID = /[a-zA-Z]/.test(contact.number || "");
+
+        // ========== NUEVO: Detectar LID por dígitos (14-15 dígitos) ==========
+        // El número guardado puede ser "68616598909016" (14-15 dígitos del LID sin @lid)
+        // El número real tiene 10-13 dígitos (ej: 593969936629 = Ecuador)
+        const currentIsLIDbyDigits = currentNumDigits.length >= 14 && currentNumDigits.length <= 15;
+
+        const currentNumValid = (currentNumDigits.length >= 10 && currentNumDigits.length <= 13) && !currentIsLID;
+        const newNumValid = newNumDigits.length >= 10 && newNumDigits.length <= 13;
+
+        // Update if:
+        // 1. Current number contains letters (LID con @lid) - always prefer real phone number
+        // 2. Current number is 14-15 digits (LID sin @lid) and new is 10-13 digits (real number)
+        // 3. Current number is invalid (empty/short) and new is valid
+        // 4. Numbers are different and new is valid (even if shorter, prefer real phone over old)
+        const shouldUpdate = currentIsLID || currentIsLIDbyDigits || !currentNumValid || (newNumValid && currentNumDigits !== newNumDigits);
+
+        if (shouldUpdate) {
+          contact.number = number;
+          hasChanges = true;
+        }
+      }
+
+      // Update name: if new name has letters and current name doesn't (or is just the number)
+      if (finalName && hasLetters(finalName)) {
+        const currentHasLetters = hasLetters(contact.name || "");
+        const currentIsJustNumber = contact.name === contact.number;
+
+        if (!currentHasLetters || currentIsJustNumber) {
+          contact.name = finalName;
+          hasChanges = true;
+        }
+      }
+
       // Save only if there are changes
       if (hasChanges) {
         await contact.save();
@@ -151,7 +326,7 @@ const CreateOrUpdateContactService = async ({
     const defaultPic = `${process.env.FRONTEND_URL}/nopicture.png`;
 
     contact = await Contact.create({
-      name: name || number,
+      name: finalName,
       number,
       email,
       isGroup,
@@ -162,7 +337,8 @@ const CreateOrUpdateContactService = async ({
       profilePicUrl: profilePicUrlInput || defaultPic,
       urlPicture: "",
       whatsappId,
-      telegramUserId
+      telegramUserId,
+      phoneNumberId // AGREGADO: guardar phoneNumberId del número Meta
     });
 
     // Emit creation

@@ -21,6 +21,11 @@ import {
   TabPanel,
   Chip,
   Avatar,
+  IconButton,
+  List,
+  ListItem,
+  ListItemContent,
+  ListItemDecorator,
 } from '@mui/joy'
 import {
   Settings as SettingsIcon,
@@ -34,6 +39,12 @@ import {
   Campaign as CampaignIcon,
   Palette as PaletteIcon,
   RestartAlt as RestartAltIcon,
+  Notifications as NotificationsIcon,
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Phone as PhoneIcon,
+  Cloud as CloudIcon,
+  MusicNote as MusicNoteIcon,
 } from '@mui/icons-material'
 import { toast } from 'react-toastify'
 import api from '../services/api'
@@ -48,6 +59,15 @@ export default function Settings() {
   const { setColors } = useThemeColors()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [newAlertPhone, setNewAlertPhone] = useState('')
+  const [whatsappConnections, setWhatsappConnections] = useState<Array<{
+    id: number;
+    name: string;
+    status: string;
+    number: string;
+    channel: string;
+    Company?: { id: number; name: string };
+  }>>([])
   const [activeTab, setActiveTab] = useState(0)
 
   const [settings, setSettings] = useState({
@@ -120,11 +140,25 @@ export default function Settings() {
     googleClientId: '',
     googleClientSecret: '',
 
+    // TikTok Credentials
+    tiktokClientKey: '',
+    tiktokClientSecret: '',
+    tiktokBusinessAppId: '',
+    tiktokBusinessSecret: '',
+
     // Theme Colors
     themePrimaryLight: '#5BC2D2',
     themePrimaryDark: '#6FD4E4',
     themeSecondaryLight: '#4caf50',
     themeSecondaryDark: '#4caf50',
+
+    // Alertas WhatsApp nuevas empresas
+    newCompanyAlertEnabled: 'disabled',
+    newCompanyAlertPhone: '',
+    newCompanyAlertWhatsappId: '',
+
+    // WhatsApp Cloud API / Coexistencia Meta (solo superadmin)
+    cloudAPIEnabled: false,
   })
 
   useEffect(() => {
@@ -192,7 +226,14 @@ export default function Settings() {
           }
         } catch (companyError) {
           console.error('Error fetching company payment keys:', companyError)
-          // No mostrar error toast, ya que esto es opcional
+        }
+
+        // Cargar conexiones WhatsApp disponibles para alertas
+        try {
+          const whatsappResponse = await api.get('/whatsapp/all?session=0')
+          setWhatsappConnections(whatsappResponse.data || [])
+        } catch (whatsappError) {
+          console.error('Error fetching whatsapp connections:', whatsappError)
         }
       }
     } catch (error) {
@@ -216,7 +257,7 @@ export default function Settings() {
       }
 
       // Skip empty secret fields to avoid overwriting stored values
-      const secretFields = ['googleClientSecret', 'facebookAppSecret', 'instagramAppSecret', 'facebookSystemUserToken']
+      const secretFields = ['googleClientSecret', 'facebookAppSecret', 'instagramAppSecret', 'facebookSystemUserToken', 'tiktokClientSecret', 'tiktokBusinessSecret']
       const otherSettings = Object.entries(settings).filter(
         ([key, val]) =>
           !['paypalClientId', 'paypalSecretKey', 'stripePublicKey', 'stripeSecretKey'].includes(key) &&
@@ -331,6 +372,10 @@ export default function Settings() {
               <Tab>
                 <CampaignIcon sx={{ mr: 1 }} />
                 Facebook Ads
+              </Tab>
+              <Tab>
+                <MusicNoteIcon sx={{ mr: 1 }} />
+                TikTok
               </Tab>
               {isSuperAdmin && (
                 <Tab>
@@ -883,6 +928,204 @@ export default function Settings() {
                     </ol>
                   </Typography>
                 </Box>
+
+                {/* Alertas WhatsApp - Nuevas Empresas (Solo SuperAdmin) */}
+                {isSuperAdmin && (
+                  <>
+                    <Divider />
+                    <Box>
+                      <Typography level="title-lg" sx={{ mb: 1 }}>
+                        <NotificationsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                        Alertas WhatsApp — Nuevas Empresas
+                      </Typography>
+                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 2 }}>
+                        Enviar notificación por WhatsApp cada vez que se registre una nueva empresa.
+                      </Typography>
+
+                      <Stack spacing={2}>
+                        {/* Switch habilitar/deshabilitar */}
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Box>
+                            <Typography level="body-sm" fontWeight="bold">
+                              Activar alertas
+                            </Typography>
+                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                              Enviar mensaje WhatsApp con datos de la empresa creada
+                            </Typography>
+                          </Box>
+                          <Switch
+                            checked={settings.newCompanyAlertEnabled === 'enabled'}
+                            onChange={(e) =>
+                              updateSetting('newCompanyAlertEnabled', e.target.checked ? 'enabled' : 'disabled')
+                            }
+                          />
+                        </Box>
+
+                        {/* Campos solo visibles si la alerta está habilitada */}
+                        {settings.newCompanyAlertEnabled === 'enabled' && (
+                          <>
+                            {/* Select de conexión WhatsApp */}
+                            <FormControl>
+                              <FormLabel>Conexión WhatsApp para enviar alertas</FormLabel>
+                              <Select
+                                value={settings.newCompanyAlertWhatsappId ? String(settings.newCompanyAlertWhatsappId) : ''}
+                                onChange={(_e, value) => updateSetting('newCompanyAlertWhatsappId', value || '')}
+                                placeholder="Selecciona una conexión..."
+                              >
+                                {whatsappConnections
+                                  .filter((w) => w.status === 'CONNECTED')
+                                  .map((w) => (
+                                    <Option key={w.id} value={String(w.id)}>
+                                      {w.name} {w.number ? `(${w.number})` : ''} — {w.channel || 'whatsapp'}
+                                      {w.Company ? ` [${w.Company.name}]` : ''}
+                                    </Option>
+                                  ))}
+                              </Select>
+                              <FormHelperText>
+                                Solo se muestran conexiones con estado CONNECTED
+                              </FormHelperText>
+                            </FormControl>
+
+                            {/* Lista dinámica de números destino */}
+                            <FormControl>
+                              <FormLabel>Números de teléfono destino</FormLabel>
+                              <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
+                                Agrega los números que recibirán la alerta (con código de país, ej: 521234567890)
+                              </Typography>
+
+                              {/* Números actuales */}
+                              {settings.newCompanyAlertPhone && settings.newCompanyAlertPhone.split(',').filter(Boolean).length > 0 && (
+                                <List size="sm" sx={{ mb: 1 }}>
+                                  {settings.newCompanyAlertPhone.split(',').filter(Boolean).map((phone: string, idx: number) => (
+                                    <ListItem
+                                      key={idx}
+                                      endAction={
+                                        <IconButton
+                                          size="sm"
+                                          color="danger"
+                                          variant="plain"
+                                          onClick={() => {
+                                            const phones = settings.newCompanyAlertPhone
+                                              .split(',')
+                                              .filter(Boolean)
+                                              .filter((_: string, i: number) => i !== idx)
+                                            updateSetting('newCompanyAlertPhone', phones.join(','))
+                                          }}
+                                        >
+                                          <DeleteIcon fontSize="small" />
+                                        </IconButton>
+                                      }
+                                    >
+                                      <ListItemDecorator>
+                                        <PhoneIcon fontSize="small" />
+                                      </ListItemDecorator>
+                                      <ListItemContent>
+                                        <Typography level="body-sm">{phone.trim()}</Typography>
+                                      </ListItemContent>
+                                    </ListItem>
+                                  ))}
+                                </List>
+                              )}
+
+                              {/* Input para agregar nuevo número */}
+                              <Stack direction="row" spacing={1}>
+                                <Input
+                                  type="tel"
+                                  value={newAlertPhone}
+                                  onChange={(e) => setNewAlertPhone(e.target.value.replace(/[^0-9+]/g, ''))}
+                                  placeholder="521234567890"
+                                  sx={{ flex: 1 }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && newAlertPhone.trim()) {
+                                      e.preventDefault()
+                                      const current = settings.newCompanyAlertPhone
+                                        ? settings.newCompanyAlertPhone.split(',').filter(Boolean)
+                                        : []
+                                      if (!current.includes(newAlertPhone.trim())) {
+                                        updateSetting('newCompanyAlertPhone', [...current, newAlertPhone.trim()].join(','))
+                                      }
+                                      setNewAlertPhone('')
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outlined"
+                                  startDecorator={<AddIcon />}
+                                  disabled={!newAlertPhone.trim()}
+                                  onClick={() => {
+                                    const current = settings.newCompanyAlertPhone
+                                      ? settings.newCompanyAlertPhone.split(',').filter(Boolean)
+                                      : []
+                                    if (!current.includes(newAlertPhone.trim())) {
+                                      updateSetting('newCompanyAlertPhone', [...current, newAlertPhone.trim()].join(','))
+                                    }
+                                    setNewAlertPhone('')
+                                  }}
+                                >
+                                  Agregar
+                                </Button>
+                              </Stack>
+                            </FormControl>
+                          </>
+                        )}
+                      </Stack>
+                    </Box>
+
+                    <Divider />
+
+                    {/* WhatsApp Cloud API / Coexistencia Meta */}
+                    <Box>
+                      <Typography level="title-lg" sx={{ mb: 1 }}>
+                        <CloudIcon sx={{ mr: 1, verticalAlign: 'middle', color: '#1877f2' }} />
+                        WhatsApp Cloud API (Coexistencia Meta)
+                      </Typography>
+                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 2 }}>
+                        Habilita la conexion de numeros WhatsApp via Meta Cloud API.
+                        Permite coexistencia: el mismo numero funciona en la API Cloud y en la WhatsApp Business App simultaneamente.
+                      </Typography>
+
+                      <Stack spacing={2}>
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Box>
+                            <Typography level="body-sm" fontWeight="bold">
+                              Activar Cloud API
+                            </Typography>
+                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                              Permite crear conexiones Meta via Embedded Signup en el panel de Coexistencia
+                            </Typography>
+                          </Box>
+                          <Switch
+                            checked={settings.cloudAPIEnabled === true || settings.cloudAPIEnabled === 'true' as any}
+                            onChange={(e) =>
+                              updateSetting('cloudAPIEnabled', e.target.checked)
+                            }
+                            sx={{
+                              '--Switch-trackWidth': '48px',
+                              '--Switch-trackHeight': '24px',
+                            }}
+                          />
+                        </Box>
+
+                        {(settings.cloudAPIEnabled === true || settings.cloudAPIEnabled === 'true' as any) && (
+                          <Box sx={{ p: 2, bgcolor: 'background.level1', borderRadius: 'sm' }}>
+                            <Typography level="title-sm" sx={{ mb: 1 }}>
+                              Requisitos para Cloud API:
+                            </Typography>
+                            <Typography level="body-xs" component="div" sx={{ pl: 2 }}>
+                              <ol style={{ margin: 0, paddingLeft: '1rem' }}>
+                                <li>Configura <strong>Facebook App ID</strong> y <strong>App Secret</strong> en la pestana Facebook Ads</li>
+                                <li>Tu App de Meta debe tener el producto <strong>WhatsApp</strong> agregado</li>
+                                <li>Ejecuta el <strong>Setup automatico</strong> desde el Dashboard de Coexistencia</li>
+                                <li>Conecta tu numero via <strong>Embedded Signup</strong> en Canales → Coexistencia Meta</li>
+                              </ol>
+                            </Typography>
+                          </Box>
+                        )}
+                      </Stack>
+                    </Box>
+                  </>
+                )}
               </Stack>
             </TabPanel>
 
@@ -1296,9 +1539,113 @@ export default function Settings() {
               </Stack>
             </TabPanel>
 
-            {/* TAB 9: Payment Configuration (SuperAdmin Only) */}
+            {/* TAB 9: TikTok Credentials Configuration */}
+            <TabPanel value={8}>
+              <Stack spacing={3}>
+                <Typography level="h4">Configuracion de TikTok</Typography>
+                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                  Configura las credenciales de TikTok para conectar cuentas y responder comentarios.
+                  Cada empresa puede tener sus propias credenciales.
+                </Typography>
+                <Divider />
+
+                {/* Seccion: Credenciales Login Kit */}
+                <Box>
+                  <Typography level="title-lg" sx={{ mb: 2 }}>
+                    Credenciales Login Kit (OAuth)
+                  </Typography>
+                  <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 2 }}>
+                    Necesarias para conectar cuentas de TikTok via OAuth.
+                    Obtenlas desde developers.tiktok.com en tu aplicacion Login Kit.
+                  </Typography>
+                  <Stack spacing={2}>
+                    <FormControl>
+                      <FormLabel>TikTok Client Key</FormLabel>
+                      <Input
+                        type="text"
+                        value={settings.tiktokClientKey}
+                        onChange={(e) => updateSetting('tiktokClientKey', e.target.value)}
+                        placeholder="awXXXXXXXXXXXXXX"
+                      />
+                      <FormHelperText>
+                        App ID de tu aplicacion TikTok Login Kit
+                      </FormHelperText>
+                    </FormControl>
+
+                    <FormControl>
+                      <FormLabel>TikTok Client Secret</FormLabel>
+                      <Input
+                        type="password"
+                        value={settings.tiktokClientSecret}
+                        onChange={(e) => updateSetting('tiktokClientSecret', e.target.value)}
+                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      />
+                      <FormHelperText>
+                        Secret de tu aplicacion TikTok Login Kit
+                      </FormHelperText>
+                    </FormControl>
+                  </Stack>
+                </Box>
+
+                <Divider />
+
+                {/* Seccion: Credenciales Business API */}
+                <Box>
+                  <Typography level="title-lg" sx={{ mb: 2 }}>
+                    Credenciales Business API (para responder comentarios)
+                  </Typography>
+                  <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 2 }}>
+                    Necesarias para responder comentarios via API. Sin esto, solo se pueden leer comentarios.
+                    Obtenlas desde business-api.tiktok.com creando una app de tipo Business.
+                  </Typography>
+                  <Stack spacing={2}>
+                    <FormControl>
+                      <FormLabel>TikTok Business App ID</FormLabel>
+                      <Input
+                        type="text"
+                        value={settings.tiktokBusinessAppId}
+                        onChange={(e) => updateSetting('tiktokBusinessAppId', e.target.value)}
+                        placeholder="123456789"
+                      />
+                      <FormHelperText>
+                        App ID de tu aplicacion TikTok Business API
+                      </FormHelperText>
+                    </FormControl>
+
+                    <FormControl>
+                      <FormLabel>TikTok Business Secret</FormLabel>
+                      <Input
+                        type="password"
+                        value={settings.tiktokBusinessSecret}
+                        onChange={(e) => updateSetting('tiktokBusinessSecret', e.target.value)}
+                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      />
+                      <FormHelperText>
+                        Secret de tu aplicacion TikTok Business API
+                      </FormHelperText>
+                    </FormControl>
+                  </Stack>
+                </Box>
+
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'background.level1', borderRadius: 'sm' }}>
+                  <Typography level="title-sm" sx={{ mb: 1 }}>
+                    Como obtener las credenciales:
+                  </Typography>
+                  <Typography level="body-xs" component="div" sx={{ pl: 2 }}>
+                    <ol style={{ margin: 0, paddingLeft: '1rem' }}>
+                      <li>Ve a <strong>developers.tiktok.com</strong> y crea una app Login Kit</li>
+                      <li>Copia el <strong>Client Key</strong> y <strong>Client Secret</strong></li>
+                      <li>Para responder comentarios, ve a <strong>business-api.tiktok.com</strong></li>
+                      <li>Crea una app Business y copia el <strong>App ID</strong> y <strong>Secret</strong></li>
+                    </ol>
+                  </Typography>
+                </Box>
+              </Stack>
+            </TabPanel>
+
+            {/* TAB 10: Payment Configuration (SuperAdmin Only) */}
             {isSuperAdmin && (
-              <TabPanel value={8}>
+              <TabPanel value={9}>
                 <Stack spacing={3}>
                   <Typography level="h4">Configuración de Pagos</Typography>
                   <Divider />

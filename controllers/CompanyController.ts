@@ -16,6 +16,7 @@ import FindAllCompaniesService from "../services/CompanyService/FindAllCompanies
 import ShowPlanCompanyService from "../services/CompanyService/ShowPlanCompanyService";
 import User from "../models/User";
 import ListCompaniesPlanService from "../services/CompanyService/ListCompaniesPlanService";
+import NotifyCompanyCreatedService from "../services/CompanyService/NotifyCompanyCreatedService";
 
 interface TokenPayload {
   id: string;
@@ -100,6 +101,21 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   }
 
   const company = await CreateCompanyService(newCompany);
+
+  // Notificar creación de empresa por WhatsApp (fire-and-forget)
+  NotifyCompanyCreatedService(
+    {
+      id: company.id,
+      name: company.name,
+      phone: company.phone,
+      email: company.email,
+      document: company.document,
+      planId: company.planId,
+      dueDate: company.dueDate,
+      recurrence: company.recurrence,
+    },
+    (newCompany as any).companyUserName || newCompany.name
+  ).catch(err => console.error("[NotifyCompanyCreated] Error:", err.message));
 
   return res.status(200).json(company);
 };

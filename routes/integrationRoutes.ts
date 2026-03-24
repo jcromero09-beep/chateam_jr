@@ -4,6 +4,38 @@ import isAuth from '../middleware/isAuth';
 
 const router = express.Router();
 
+// ============ STUBS — Endpoints que el frontend espera ============
+
+// GET / — Lista combinada de integraciones (providers + connections)
+router.get('/', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({ success: true, message: "Listado de integraciones", data: [] });
+});
+
+// GET /test/history — Historial de tests de integraciones
+router.get('/test/history', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({ success: true, message: "Historial de tests", data: [] });
+});
+
+// POST /test — Ejecutar test de integración
+router.post('/test', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({ success: true, message: "Test pendiente de implementación", data: { result: "pending" } });
+});
+
+// GET /analytics — Métricas de uso de integraciones
+router.get('/analytics', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({ success: true, message: "Analytics de integraciones", data: {} });
+});
+
+// GET /webhook-events — Eventos de webhook
+router.get('/webhook-events', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({ success: true, message: "Eventos de webhook", data: { events: [], total: 0 } });
+});
+
+// POST /webhook-events/:eventId/retry — Reintentar evento
+router.post('/webhook-events/:eventId/retry', isAuth, (_req: express.Request, res: express.Response) => {
+  return res.json({ success: true, message: "Reintento pendiente de implementación", data: null });
+});
+
 // ============ PROVIDERS ============
 
 router.get('/providers', isAuth, IntegrationController.listProviders);

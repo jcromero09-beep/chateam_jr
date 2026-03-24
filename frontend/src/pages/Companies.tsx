@@ -80,6 +80,19 @@ interface AISubplan {
   companyId: number
 }
 
+interface EmailPlan {
+  id: number
+  name: string
+  description: string
+  emailCreditsPerCycle: number
+  maxEmailSendsPerDay: number
+  maxTemplates: number
+  price: string
+  recurrence: string
+  isActive: boolean
+  isPublic: boolean
+}
+
 interface Company {
   id: number
   name: string
@@ -95,6 +108,9 @@ interface Company {
   aiTokenBalance?: number
   activeAISubplanId?: number | null
   activeAISubplan?: AISubplan
+  emailCreditsTotal?: number
+  activeEmailPlanId?: number | null
+  activeEmailPlan?: EmailPlan
   createdAt: string
   updatedAt: string
   users?: { id: number; name: string; email: string; profile: string }[]
@@ -114,6 +130,8 @@ interface FormData {
   companyUserName: string
   aiTokenBalance: number
   activeAISubplanId: number | null
+  emailCreditsTotal: number
+  activeEmailPlanId: number | null
 }
 
 const RECURRENCE_OPTIONS = [
@@ -137,13 +155,16 @@ const initialFormData: FormData = {
   password: '',
   companyUserName: '',
   aiTokenBalance: 0,
-  activeAISubplanId: null
+  activeAISubplanId: null,
+  emailCreditsTotal: 0,
+  activeEmailPlanId: null
 }
 
 export default function Companies() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [aiSubplans, setAiSubplans] = useState<AISubplan[]>([])
+  const [emailPlans, setEmailPlans] = useState<EmailPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [searchParam, setSearchParam] = useState('')
   const [pageNumber, setPageNumber] = useState(1)
@@ -173,6 +194,7 @@ export default function Companies() {
     fetchCompanies()
     fetchPlans()
     fetchAISubplans()
+    fetchEmailPlans()
   }, [searchParam, pageNumber])
 
   const fetchCompanies = async () => {
@@ -235,6 +257,17 @@ export default function Companies() {
     }
   }
 
+  const fetchEmailPlans = async () => {
+    try {
+      const response = await api.get('/email-plans')
+      console.log('Email Plans response:', response.data)
+      const plansData = response.data?.data || []
+      setEmailPlans(Array.isArray(plansData) ? plansData : [])
+    } catch (err) {
+      console.error('Error fetching email plans:', err)
+    }
+  }
+
   const handleCreate = async () => {
     if (!formData.name || !formData.email || !formData.password) {
       setError('Nombre, email y contraseña son requeridos')
@@ -287,7 +320,9 @@ export default function Companies() {
         dueDate: formData.dueDate,
         recurrence: formData.recurrence,
         aiTokenBalance: formData.aiTokenBalance,
-        activeAISubplanId: formData.activeAISubplanId
+        activeAISubplanId: formData.activeAISubplanId,
+        emailCreditsTotal: formData.emailCreditsTotal,
+        activeEmailPlanId: formData.activeEmailPlanId
       }
       console.log('Updating company:', selectedCompany.id, payload)
       await api.put(`/companies/${selectedCompany.id}`, payload)
@@ -335,7 +370,9 @@ export default function Companies() {
       password: '',
       companyUserName: '',
       aiTokenBalance: company.aiTokenBalance || 0,
-      activeAISubplanId: company.activeAISubplanId || null
+      activeAISubplanId: company.activeAISubplanId || null,
+      emailCreditsTotal: company.emailCreditsTotal || 0,
+      activeEmailPlanId: company.activeEmailPlanId || null
     })
     setEditModalOpen(true)
   }
@@ -780,6 +817,7 @@ export default function Companies() {
                 <Tab>Datos Básicos</Tab>
                 <Tab>Plan y Facturación</Tab>
                 <Tab>IA y Tokens</Tab>
+                <Tab>Email Marketing</Tab>
               </TabList>
 
               <TabPanel value={0}>
@@ -945,6 +983,64 @@ export default function Companies() {
                   {formData.activeAISubplanId && (
                     <Alert color="primary" variant="soft">
                       El subplan seleccionado proporcionará tokens adicionales a esta empresa.
+                    </Alert>
+                  )}
+                </Stack>
+              </TabPanel>
+
+              <TabPanel value={3}>
+                <Stack spacing={2}>
+                  <FormControl>
+                    <FormLabel>Créditos de Email</FormLabel>
+                    <Input
+                      type="number"
+                      value={formData.emailCreditsTotal}
+                      onChange={(e) => setFormData({ ...formData, emailCreditsTotal: parseInt(e.target.value) || 0 })}
+                      startDecorator={<span>📧</span>}
+                      slotProps={{
+                        input: {
+                          min: 0,
+                        },
+                      }}
+                    />
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel>Plan de Email Activo</FormLabel>
+                    <Stack direction="row" spacing={1}>
+                      <Select
+                        value={formData.activeEmailPlanId ?? undefined}
+                        onChange={(_, value) => setFormData({ ...formData, activeEmailPlanId: value === undefined ? null : value as number })}
+                        placeholder="Sin plan de email activo"
+                        sx={{ flex: 1 }}
+                      >
+                        {emailPlans.map((plan) => (
+                          <Option key={plan.id} value={plan.id}>
+                            {plan.name} - {plan.emailCreditsPerCycle} créditos - ${plan.price}
+                            {!plan.isActive && ' (Inactivo)'}
+                          </Option>
+                        ))}
+                        {emailPlans.length === 0 && (
+                          <Option value={undefined} disabled>
+                            No hay planes de email disponibles
+                          </Option>
+                        )}
+                      </Select>
+                      {formData.activeEmailPlanId && (
+                        <Button
+                          variant="outlined"
+                          color="neutral"
+                          onClick={() => setFormData({ ...formData, activeEmailPlanId: null })}
+                        >
+                          Limpiar
+                        </Button>
+                      )}
+                    </Stack>
+                  </FormControl>
+
+                  {formData.activeEmailPlanId && (
+                    <Alert color="success" variant="soft">
+                      El plan de email seleccionado proporcionará créditos adicionales a esta empresa.
                     </Alert>
                   )}
                 </Stack>

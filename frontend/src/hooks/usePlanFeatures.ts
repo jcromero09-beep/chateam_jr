@@ -13,6 +13,7 @@ export type PlanFeature =
   | 'integrations'
   | 'marketing'
   | 'leads'
+  | 'email_marketing'
 
 // Mapeo de características a propiedades del plan
 const featureToProperty: Record<PlanFeature, keyof Plan> = {
@@ -27,7 +28,8 @@ const featureToProperty: Record<PlanFeature, keyof Plan> = {
   openai: 'useOpenAi',
   integrations: 'useIntegrations',
   marketing: 'useMarketing',
-  leads: 'useLeads'
+  leads: 'useLeads',
+  email_marketing: 'useEmailMarketing' as keyof Plan
 }
 
 export function usePlanFeatures() {
@@ -114,12 +116,30 @@ export function usePlanFeatures() {
     return plan?.name ?? 'Sin plan'
   }
 
+  /**
+   * Obtiene los limites de email marketing del plan
+   */
+  const getEmailLimits = () => {
+    if (!plan) return null
+    const p = (plan as unknown) as Record<string, unknown>
+    return {
+      maxCampaignsPerMonth: (p.maxEmailCampaignsPerMonth as number) || 0,
+      maxContactLists: (p.maxEmailContactLists as number) || 0,
+      maxContactsPerList: (p.maxEmailContactsPerList as number) || 0,
+      maxSendsPerDay: (p.maxEmailSendsPerDay as number) || 0,
+      hasAutomation: (p.useEmailAutomation as boolean) || false,
+      hasAbTesting: (p.useEmailAbTesting as boolean) || false,
+      hasAiOptimization: (p.useEmailAiOptimization as boolean) || false
+    }
+  }
+
   return {
     plan,
     hasFeature,
     hasFeatures,
     hasAnyFeature,
     getLimits,
+    getEmailLimits,
     isTrial,
     getTrialDays,
     isCompanyActive,

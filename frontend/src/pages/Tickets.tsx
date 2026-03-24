@@ -68,7 +68,11 @@ import socketService from '../services/socket'
 import { useAuth } from '../hooks/useAuth'
 import { useMessageFormatting } from '../hooks/useMessageFormatting'
 import DateSeparator from '../components/Messages/DateSeparator'
+import TikTokCommentBubble from '../components/Messages/TikTokCommentBubble'
 import { useThemeColors } from '../context/ThemeContext'
+
+// URL del backend para medios
+const BACKEND_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://appro.chateam.ws';
 
 interface Message {
   id: number
@@ -80,6 +84,7 @@ interface Message {
   createdAt: string
   ack?: number
   read: boolean
+  dataJson?: string
 }
 
 interface Tag {
@@ -329,29 +334,68 @@ export default function Tickets() {
   }
 
   // Función para clasificar el estado de entrega (mismo criterio que CampaignsInsights)
+  // Esta lógica evita marcar como "COMPLETADA" campañas que aún están activas con presupuesto diario
   const classifyCampaignDelivery = (campaign: any): string => {
     // 1. Si el usuario pausó manualmente la campaña
     if (campaign.status === 'PAUSED') return 'DESACTIVADA'
 
-    // 2. Si la fecha de fin ya pasó
-    if (campaign.stop_time && new Date(campaign.stop_time) < new Date()) return 'COMPLETADA'
+    // 2. Si effective_status indica que la campaña está completada a nivel de Meta
+    if (campaign.effective_status === 'COMPLETED') return 'COMPLETADA'
 
-    // 3. Si el presupuesto se agotó
-    if (campaign.budget_remaining !== undefined && Number(campaign.budget_remaining) <= 0) return 'COMPLETADA'
+    // 3. Si CAMPAIGN_PAUSED (pausada por Meta por presupuesto u otros motivos)
+    // Solo marcar como completada si además tiene stop_time en el pasado O budget lifetime agotado
+    if (campaign.effective_status === 'CAMPAIGN_PAUSED') {
+      const hasValidStopTime = campaign.stop_time && campaign.stop_time !== '0000-00-00' && campaign.stop_time !== ''
+      const stopTimePassed = hasValidStopTime && new Date(campaign.stop_time) < new Date()
+      const budgetExhausted = campaign.budget_remaining !== undefined && Number(campaign.budget_remaining) <= 0
+      const hasDailyBudget = campaign.daily_budget !== undefined && Number(campaign.daily_budget) > 0
 
-    // 4. Si no hay ads activos (dato viene del backend)
+      // Solo marcar completada si terminó realmente O no hay presupuesto diario activo
+      if (stopTimePassed || (budgetExhausted && !hasDailyBudget)) {
+        return 'COMPLETADA'
+      }
+      // De lo contrario está pausada pero podría reactivarse
+      return 'PAUSADA'
+    }
+
+    // 4. Si el presupuesto lifetime se agotó Y no hay daily budget activo
+    const hasLifetimeBudget = campaign.lifetime_budget !== undefined && Number(campaign.lifetime_budget) > 0
+    const hasDailyBudget = campaign.daily_budget !== undefined && Number(campaign.daily_budget) > 0
+    const budgetRemaining = campaign.budget_remaining !== undefined ? Number(campaign.budget_remaining) : null
+
+    if (hasLifetimeBudget && !hasDailyBudget && budgetRemaining !== null && budgetRemaining <= 0) {
+      return 'COMPLETADA'
+    }
+
+    // 5. Si la fecha de fin ya pasó (solo para campañas con lifetime budget)
+    if (campaign.stop_time && campaign.stop_time !== '0000-00-00' && campaign.stop_time !== '') {
+      const stopDate = new Date(campaign.stop_time)
+      if (!isNaN(stopDate.getTime()) && stopDate < new Date()) {
+        if (!hasDailyBudget || (budgetRemaining !== null && budgetRemaining <= 0)) {
+          return 'COMPLETADA'
+        }
+      }
+    }
+
+    // 6. Si no hay ads activos (dato viene del backend)
     if (campaign.activeAds !== undefined && campaign.activeAds === 0) return 'NO_HAY_ANUNCIOS'
 
-    // 5. Si status y effective_status son ACTIVE → la campaña está activa
+    // 7. Si status y effective_status son ACTIVE → la campaña está activa
     if (campaign.status === 'ACTIVE' && campaign.effective_status === 'ACTIVE') return 'ACTIVA'
 
-    // 6. Si solo status es ACTIVE → también activa
+    // 8. Si solo status es ACTIVE → también activa
     if (campaign.status === 'ACTIVE') return 'ACTIVA'
 
-    // 7. Estados de completado
-    if (campaign.effective_status === 'COMPLETED' || campaign.effective_status === 'CAMPAIGN_PAUSED') return 'COMPLETADA'
+    // 9. Otros estados de efectivo
+    if (campaign.effective_status === 'PAUSED' || campaign.effective_status === 'DELETED' || campaign.effective_status === 'ARCHIVED') {
+      return 'DESACTIVADA'
+    }
 
-    // Default
+    // Default:假设 activa si tiene presupuesto
+    if (hasDailyBudget || hasLifetimeBudget) {
+      return 'ACTIVA'
+    }
+
     return 'DESACTIVADA'
   }
 
@@ -1975,6 +2019,10 @@ export default function Tickets() {
                         mb: 0.25,
                       }}
                     >
+                      {/* TikTok Comment: renderizar burbuja especial */}
+                      {selectedTicket.channel === 'tiktok' && !isOwn && msg.dataJson ? (
+                        <TikTokCommentBubble message={msg} />
+                      ) : (
                       <Box
                         sx={{
                           maxWidth: facebookDesignTokens.message.maxWidth,
@@ -1999,6 +2047,65 @@ export default function Tickets() {
                           boxShadow: isDark ? '0 1px 0.5px rgba(11,20,26,.13)' : '0 1px 0.5px rgba(0,0,0,.08)',
                         }}
                       >
+                        {/* Renderizar media (imágenes, videos, audio, documentos) */}
+                        {msg.mediaUrl && (
+                          <Box sx={{ mb: 1 }}>
+                            {msg.mediaType === 'image' && (
+                              <Box
+                                component="img"
+                                src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
+                                alt="Imagen"
+                                sx={{
+                                  maxWidth: '100%',
+                                  borderRadius: 1,
+                                  cursor: 'pointer',
+                                }}
+                                onClick={() => window.open(`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`, '_blank')}
+                                onError={(e: any) => {
+                                  console.error('Error cargando imagen:', msg.mediaUrl)
+                                  e.currentTarget.style.display = 'none'
+                                }}
+                              />
+                            )}
+                            {msg.mediaType === 'video' && (
+                              <Box
+                                component="video"
+                                controls
+                                src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
+                                sx={{ maxWidth: '100%', borderRadius: 1 }}
+                              />
+                            )}
+                            {msg.mediaType === 'audio' && (
+                              <Box
+                                component="audio"
+                                controls
+                                src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
+                                sx={{ width: '100%' }}
+                              />
+                            )}
+                            {msg.mediaType !== 'image' && msg.mediaType !== 'video' && msg.mediaType !== 'audio' && (
+                              <Box
+                                component="a"
+                                href={`/company${user?.companyId}/${msg.mediaUrl}`}
+                                target="_blank"
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                  p: 1,
+                                  borderRadius: 1,
+                                  bgcolor: isOwn ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                  color: 'inherit',
+                                  textDecoration: 'none',
+                                  '&:hover': { bgcolor: isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }
+                                }}
+                              >
+                                <Box component="span" sx={{ fontSize: 20 }}>📎</Box>
+                                <Typography level="body-sm">{msg.mediaUrl}</Typography>
+                              </Box>
+                            )}
+                          </Box>
+                        )}
                         <Typography level="body-sm" sx={{ color: 'inherit', wordBreak: 'break-word' }}>{msg.body}</Typography>
                         <Stack
                           direction="row"
@@ -2034,6 +2141,7 @@ export default function Tickets() {
                           )}
                         </Stack>
                       </Box>
+                      )}
                     </Box>
                   </Box>
                 )
@@ -2046,25 +2154,17 @@ export default function Tickets() {
           <MessageInput
             ticketId={selectedTicket.id}
             ticketStatus={selectedTicket.status}
-            ticketChannel={selectedTicket.isGroup ? 'group' : 'whatsapp'}
+            ticketChannel={selectedTicket.channel === 'tiktok' ? 'tiktok' : selectedTicket.isGroup ? 'group' : (selectedTicket.channel || 'whatsapp')}
             droppedFiles={dragDropFiles}
             contactId={selectedTicket.contact?.id}
             onSendMessage={(msg) => {
-              // Update local state after sending
-              const newMessage: Message = {
-                id: Date.now(),
-                body: msg,
-                fromMe: true,
-                createdAt: new Date().toISOString(),
-                ack: 1,
-                read: false,
-              }
-              setSelectedTicket({
-                ...selectedTicket,
-                messages: [...selectedTicket.messages, newMessage],
+              // Feedback inmediato: actualizar lastMessage y updatedAt
+              // El mensaje real se mostrará cuando el socket emita el evento
+              setSelectedTicket((prev) => prev ? {
+                ...prev,
                 lastMessage: msg,
-                updatedAt: newMessage.createdAt,
-              })
+                updatedAt: new Date().toISOString(),
+              } : null)
             }}
           />
         </Box>

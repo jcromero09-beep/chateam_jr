@@ -16,4 +16,4 @@ promptRoutes.put("/prompt/:promptId", isAuth, upload.single("file"), PromptContr
 promptRoutes.delete("/prompt/:promptId", isAuth, PromptController.remove);
 
 export default promptRoutes;
-console.log("📄 PROMPT-ROUTER.TS LOADED\!");
+// console.log("📄 PROMPT-ROUTER.TS LOADED\!");

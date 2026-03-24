@@ -12,6 +12,15 @@ interface Request {
   nextLaneId?: number;
   greetingMessageLane?: string;
   rollbackLaneId?: number;
+  description?: string;
+  followupEnabled?: boolean;
+  followupCount?: number;
+  followupMessage1?: string;
+  followupDelay1?: number;
+  followupMessage2?: string;
+  followupDelay2?: number;
+  followupMessage3?: string;
+  followupDelay3?: number;
 }
 
 const CreateService = async ({
@@ -22,7 +31,16 @@ const CreateService = async ({
   timeLane = null,
   nextLaneId = null,
   greetingMessageLane = "",
-  rollbackLaneId = null
+  rollbackLaneId = null,
+  description = "",
+  followupEnabled = false,
+  followupCount = 1,
+  followupMessage1 = "",
+  followupDelay1 = 1,
+  followupMessage2 = "",
+  followupDelay2 = 3,
+  followupMessage3 = "",
+  followupDelay3 = 4
 }: Request): Promise<Tag> => {
   const schema = Yup.object().shape({
     name: Yup.string().required().min(3)
@@ -42,6 +60,15 @@ const CreateService = async ({
       nextLaneId: String(nextLaneId) === "" ? null : nextLaneId,
       greetingMessageLane,
       rollbackLaneId: String(rollbackLaneId) === "" ? null : rollbackLaneId,
+      description,
+      followupEnabled,
+      followupCount,
+      followupMessage1,
+      followupDelay1,
+      followupMessage2,
+      followupDelay2,
+      followupMessage3,
+      followupDelay3
     }
   });
 

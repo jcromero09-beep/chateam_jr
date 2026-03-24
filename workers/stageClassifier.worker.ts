@@ -10,6 +10,8 @@ import SendWhatsAppMessage from "../services/WbotServices/SendWhatsAppMessage";
 import ShowTicketService from "../services/TicketServices/ShowTicketService";
 import Whatsapp from "../models/Whatsapp";
 import { isCapabilityAllowed, AICapability } from "../helpers/AICapabilitiesValidator";
+import KanbanMovementLog from "../models/KanbanMovementLog";
+import { timeLaneToMs } from "../helpers/timeLane";
 
 // 🆕 Importar servicio centralizado de IA
 import { chatCompletion } from "../services/AIClientService";
@@ -21,6 +23,27 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(isBetween);
 dayjs.extend(customParseFormat);
 
+// Interface para datos del job de followup
+export interface FollowupJobData {
+  ticketId: number;
+  tagId?: number;
+  tagKey: string;
+  companyId: number;
+  contactName?: string;
+  conversationContext?: string;
+  currentFollowup: number;
+  followupMessage1: string;
+  followupDelay1: number;
+  followupMessage2?: string;
+  followupDelay2?: number;
+  followupMessage3?: string;
+  followupDelay3?: number;
+  followupCount: number;
+  assignedAt?: string;
+  ticketFollowupEnabled?: boolean; // Validación a nivel de ticket
+}
+
+// Constantes para clasificación de etapas
 const availableTagKeys = [
   "attraction",
   "interest",
@@ -29,6 +52,138 @@ const availableTagKeys = [
   "post-sale",
   "referrer"
 ];
+
+// ============================================================
+// SISTEMA DE MENSAJES DE SEGUIMIENTO v2.0
+// Trigger: Cuando se asigna una etiqueta Kanban a un ticket
+// ============================================================
+
+/**
+ * Cancela todos los followups pendientes de un ticket y resetea el contador
+ */
+export const cancelTicketFollowups = async (ticketId: number) => {
+  // 1. Eliminar jobs de la cola
+  await removeFollowupJobByTicketId(ticketId);
+
+  // 2. Resetear followup_count en ticket
+  const ticket = await Ticket.findByPk(ticketId);
+  if (ticket) {
+    await ticket.update({ followup_count: 0 });
+  }
+  console.log(`[Followup] Followups cancelados para ticket ${ticketId}`);
+};
+
+/**
+ * Verifica si el cliente ha respondido después de una fecha específica
+ */
+export const hasClientResponded = async (ticketId: number, afterDate: Date): Promise<boolean> => {
+  const lastClientMessage = await Message.findOne({
+    where: {
+      ticketId,
+      fromMe: false, // del cliente
+      createdAt: { [Op.gt]: afterDate }
+    },
+    order: [['createdAt', 'DESC']]
+  });
+  return !!lastClientMessage;
+};
+
+/**
+ * Obtiene los últimos mensajes del ticket para contexto de IA
+ */
+const getConversationContext = async (ticketId: number, limit: number = 20): Promise<string> => {
+  const messages = await Message.findAll({
+    where: { ticketId },
+    order: [['createdAt', 'ASC']],
+    limit
+  });
+
+  return messages
+    .map(m => `${m.fromMe ? 'Staff' : 'Cliente'}: ${m.body || ''}`)
+    .join('\n');
+};
+
+/**
+ * Maneja la asignación de una etiqueta Kanban a un ticket
+ * Este es el trigger principal del sistema de followup
+ */
+export const handleTagAssignment = async (
+  ticketId: number,
+  tagId: number,
+  companyId: number
+): Promise<void> => {
+  console.log(`[Followup] handleTagAssignment llamado para ticket ${ticketId}, tag ${tagId}`);
+
+  // 1. Cancelar followups anteriores
+  await cancelTicketFollowups(ticketId);
+
+  // 2. Obtener tag
+  const tag = await Tag.findByPk(tagId);
+  if (!tag || tag.kanban !== 1) {
+    console.log(`[Followup] Tag ${tagId} no es kanban, ignorando`);
+    return;
+  }
+
+  // 3. Obtener ticket para verificar followupEnabled a nivel de ticket
+  const ticket = await Ticket.findByPk(ticketId);
+  if (!ticket) {
+    console.log(`[Followup] Ticket ${ticketId} no encontrado`);
+    return;
+  }
+
+  // 4. Verificar followupEnabled del TAG (default true para backward compatibility)
+  const tagFollowupEnabled = (tag as any).followupEnabled !== false;
+  const hasMessages = (tag as any).followupMessage1 && (tag as any).followupMessage1.trim().length > 0;
+
+  // 5. Verificar followupEnabled del TICKET (default true)
+  // Doble validación: si el tag o el ticket tienen followup deshabilitado, no envía
+  const ticketFollowupEnabled = ticket.followupEnabled !== false;
+
+  // Backward: si no hay followupMessage pero hay greetingMessageLane, usarlo
+  const effectiveFollowupMessage1 = hasMessages
+    ? (tag as any).followupMessage1
+    : (tag as any).greetingMessageLane;
+
+  // Validación doble: tag Y ticket deben tener followup habilitado
+  if (!tagFollowupEnabled || !ticketFollowupEnabled || !effectiveFollowupMessage1 || effectiveFollowupMessage1.trim().length === 0) {
+    console.log(`[Followup] Followup deshabilitado para ticket ${ticketId}. Tag: ${tagFollowupEnabled}, Ticket: ${ticketFollowupEnabled}`);
+    return;
+  }
+
+  // 6. Obtener mensajes del ticket para contexto
+  const conversationContext = await getConversationContext(ticketId);
+  if (!conversationContext) {
+    console.log(`[Followup] No hay mensajes en el ticket ${ticketId}`);
+    return;
+  }
+
+  const contactName = ticket?.contact?.name || '';
+
+  // 7. Calcular delay del primer followup (followupDelay1)
+  const followupDelayHours = (tag as any).followupDelay1 || (tag as any).timeLane || 1;
+  const delayMs = followupDelayHours * 60 * 60 * 1000;
+
+  // 8. Encolar primer followup
+  await enqueueFollowupJob({
+    ticketId,
+    tagId: tag.id,
+    tagKey: tag.key,
+    companyId,
+    contactName,
+    conversationContext,
+    currentFollowup: 1,
+    followupMessage1: effectiveFollowupMessage1,
+    followupDelay1: (tag as any).followupDelay1 || 1,
+    followupMessage2: (tag as any).followupMessage2 || '',
+    followupDelay2: (tag as any).followupDelay2 || 3,
+    followupMessage3: (tag as any).followupMessage3 || '',
+    followupDelay3: (tag as any).followupDelay3 || 4,
+    followupCount: (tag as any).followupCount || 1,
+    ticketFollowupEnabled // Incluir estado del ticket en el job
+  });
+
+  console.log(`[Followup] Primer followup programado para ticket ${ticketId} en ${followupDelayHours} horas`);
+};
 
 // ¿Está la fecha/hora en el horario permitido?
 function isInSchedule(date: dayjs.Dayjs, schedules: any[]) {
@@ -180,8 +335,42 @@ stageClassifierQueue.process("ClasificarEtapa", async (job, done) => {
   await TicketTag.destroy({ where: { ticketId } });
   await TicketTag.create({ ticketId, tagId: tag.id });
 
-  // --------- ENCOLA EL SEGUIMIENTO CORRECTO ----------
-  await enqueueFollowupJob({ ticketId, tag, companyId, apiKey, contactName });
+  // Log del movimiento Kanban por IA
+  try {
+    const previousTagId = lastTicketTag?.tagId || null;
+    await KanbanMovementLog.create({
+      ticketId,
+      companyId,
+      fromTagId: previousTagId,
+      toTagId: tag.id,
+      movedBy: 'ai',
+      aiConfidence: 0.8,
+      aiModelUsed: completion.model || 'gpt-4o-mini',
+      reason: `Clasificación IA: ${key}`
+    });
+  } catch (logErr) {
+    // No fallar por error de log
+  }
+
+  // --------- ENCOLA EL SEGUIMIENTO CORRECTO (si es tag kanban) ----------
+  if (tag.kanban === 1) {
+    await handleTagAssignment(ticketId, tag.id, companyId);
+  } else {
+    // Sistema legacy para tags no-kanban
+    await enqueueFollowupJob({
+      ticketId,
+      tagId: tag.id,
+      tagKey: tag.key,
+      companyId,
+      apiKey,
+      contactName,
+      conversationContext: '',
+      currentFollowup: 1,
+      followupMessage1: tag.greetingMessageLane || '',
+      followupDelay1: tag.timeLane || 1,
+      followupCount: 1
+    });
+  }
 
   //console.log(`🏷️ Ticket ${ticketId} clasificado como: ${key}`);
   done();
@@ -193,94 +382,126 @@ stageClassifierQueue.process("ClasificarEtapa", async (job, done) => {
 
 export const followupQueue = new Queue("FollowupQueue", process.env.REDIS_URI);
 
+/**
+ * Procesa el envío de un followup
+ * Versión 2.0: soporta múltiples seguimientos con verificación de respuesta del cliente
+ */
 followupQueue.process("SendFollowup", async (job, done) => {
-  const { ticketId, tagKey, companyId, apiKey, contactName } = job.data;
+  const data = job.data as FollowupJobData;
+  const {
+    ticketId,
+    tagKey,
+    companyId,
+    contactName,
+    conversationContext,
+    currentFollowup,
+    followupMessage1,
+    followupMessage2,
+    followupMessage3,
+    followupDelay1,
+    followupDelay2,
+    followupDelay3,
+    followupCount,
+    assignedAt
+  } = data;
+
+  console.log(`[Followup] Procesando followup #${currentFollowup} para ticket ${ticketId}`);
 
   try {
-    // 1. Consulta el contador de seguimientos actual
+    // 1. Obtener ticket y configuración
     const ticket = await Ticket.findByPk(ticketId);
-    const whatsapp = await Whatsapp.findByPk(ticket.whatsappId)
-    const config = whatsapp.schedules
-    let count = ticket?.followup_count ?? 0;
-
-     // 👉 Lógica de horario antes de cualquier envío
-     const now = dayjs();
-     if (!isInSchedule(now, config)) {
-       // Calcula la próxima franja y reagenda
-       const next = getNextAvailableDate(now, config);
-       const delay = next.diff(now, "millisecond");
-       await followupQueue.add("SendFollowup", job.data, {
-         delay,
-         removeOnComplete: true,
-         removeOnFail: true,
-         jobId: `followup-${ticketId}`
-       });
-      // console.log(`⏸️ Fuera de horario. Reagendado seguimiento para ticket ${ticketId} a las ${next.format("YYYY-MM-DD HH:mm")}`);
-       return done();
-     }
-
-    // 2. Si ya está en dormant o sobrepasó el límite, no hacer nada
-    if (count >= 3) return done();
-
-    // 3. Si toca enviar el mensaje "dormant"
-    if (count === 2) {
-      // Busca la etiqueta dormant
-      const dormantTag = await Tag.findOne({ where: { key: "dormant", companyId } });
-      if (dormantTag) {
-        // Actualiza la etiqueta
-        await TicketTag.destroy({ where: { ticketId } });
-        await TicketTag.create({ ticketId, tagId: dormantTag.id });
-        await Ticket.update({ followup_count: 3 }, { where: { id: ticketId } });
-
-        // Crea y envía el mensaje dormant personalizado usando AIClientService
-        const dormantPrompt = `
-          Saluda cordialmente al cliente al inicio del mensaje, sin usar ningún nombre propio.
-          Luego, responde usando exactamente la instrucción siguiente, adaptando el texto en un mensaje de WhatsApp listo para copiar y enviar:
-
-          [INSTRUCCIÓN]: ${dormantTag.greetingMessageLane}
-
-          Importante: No incluyas explicaciones ni texto extra; solo el mensaje listo para enviar.
-        `;
-
-        const dormantCompletion = await chatCompletion({
-          messages: [{ role: "user", content: dormantPrompt }],
-          maxTokens: 200,
-          temperature: 0.7,
-          companyId,
-          module: 'followup'
-        });
-
-        const text = dormantCompletion.content?.trim();
-        if (text) {
-          const ticketDetails = await ShowTicketService(ticketId, companyId);
-          await SendWhatsAppMessage({ body: text, ticket: ticketDetails, quotedMsg: null });
-       //   console.log(`📨 Mensaje dormant enviado al ticket ${ticketId}`);
-        }
-      }
+    if (!ticket) {
+      console.log(`[Followup] Ticket ${ticketId} no encontrado`);
       return done();
     }
 
-    // 4. Si toca enviar un seguimiento normal (count 0 o 1)
-    const ticketTag = await TicketTag.findOne({ where: { ticketId } });
-    const tag = await Tag.findOne({ where: { id: ticketTag?.tagId, companyId } });
-    if (!tag || tag.key !== tagKey || !tag.greetingMessageLane || !tag.timeLane || Number(tag.timeLane) === 0) return done();
+    // 1B. Verificar followupEnabled del ticket (doble validación)
+    // Puede venir del job o del ticket directamente
+    const ticketFollowupEnabled = data.ticketFollowupEnabled ?? ticket.followupEnabled;
+    if (ticketFollowupEnabled === false) {
+      console.log(`[Followup] Followup deshabilitado para ticket ${ticketId} (a nivel de ticket)`);
+      return done();
+    }
 
-    const messages = await Message.findAll({ where: { ticketId }, order: [["updatedAt", "ASC"]], limit: 2 });
-    const textoIA = messages.map(m => `${m.fromMe ? "IA" : "Cliente"}: ${m.body}`).join("\n");
+    const whatsapp = await Whatsapp.findByPk(ticket.whatsappId);
+    const config = whatsapp?.schedules || [];
+    const now = dayjs();
 
+    // 2. Verificar si el cliente ya respondió (cancelar si respondió)
+    if (assignedAt) {
+      const hasResponded = await hasClientResponded(ticketId, new Date(assignedAt));
+      if (hasResponded) {
+        console.log(`[Followup] Cliente ya respondió para ticket ${ticketId}, cancelando followup #${currentFollowup}`);
+        return done();
+      }
+    }
+
+    // 3. Verificar horario de atención
+    if (!isInSchedule(now, config)) {
+      const next = getNextAvailableDate(now, config);
+      const delay = next.diff(now, "millisecond");
+      await followupQueue.add("SendFollowup", data, {
+        delay,
+        removeOnComplete: true,
+        removeOnFail: true,
+        jobId: `followup-${ticketId}`
+      });
+      console.log(`[Followup] Fuera de horario. Reagendado para ${next.format("YYYY-MM-DD HH:mm")}`);
+      return done();
+    }
+
+    // 4. Verificar límite de seguimientos
+    const currentCount = ticket.followup_count || 0;
+    if (currentFollowup > followupCount) {
+      console.log(`[Followup] Límite alcanzado para ticket ${ticketId}`);
+      return done();
+    }
+
+    // 5. Obtener el mensaje según el followup actual
+    let followupMessage = '';
+    switch (currentFollowup) {
+      case 1:
+        followupMessage = followupMessage1;
+        break;
+      case 2:
+        followupMessage = followupMessage2 || followupMessage1; // fallback
+        break;
+      case 3:
+        followupMessage = followupMessage3 || followupMessage2 || followupMessage1; // fallback
+        break;
+      default:
+        followupMessage = followupMessage1;
+    }
+
+    if (!followupMessage || followupMessage.trim().length === 0) {
+      console.log(`[Followup] No hay mensaje configurado para followup #${currentFollowup}`);
+      return done();
+    }
+
+    // 6. Obtener mensajes recientes del ticket para contexto
+    const recentMessages = await Message.findAll({
+      where: { ticketId },
+      order: [["createdAt", "ASC"]],
+      limit: 20
+    });
+    const recentContext = recentMessages
+      .map(m => `${m.fromMe ? 'Staff' : 'Cliente'}: ${m.body || ''}`)
+      .join('\n');
+
+    // 7. Construir prompt para IA
     const saludo = contactName && contactName.trim().length > 0
       ? `Saluda cordialmente usando el nombre del cliente (${contactName}) al inicio del mensaje.`
       : "Saluda cordialmente al cliente al inicio del mensaje, sin usar ningún nombre propio.";
 
     const followupPrompt = `
-Estos son los últimos mensajes de la conversación:
-${textoIA}
+Estos son los mensajes más recientes de la conversación:
+${recentContext}
 
 ${saludo}
 
 Tu tarea es redactar un mensaje de WhatsApp de seguimiento basándote en la siguiente idea (NO la copies literal, solo toma el sentido y adáptalo a la conversación):
 
-[IDEA]: ${tag.greetingMessageLane}
+[IDEA]: ${followupMessage}
 
 Instrucciones importantes:
 - Usa un tono natural, cálido y conversacional, como si fuera un chat real.
@@ -289,7 +510,8 @@ Instrucciones importantes:
 - Devuelve únicamente el mensaje final listo para enviar por WhatsApp (sin introducciones ni notas adicionales).
 `;
 
-    const followupCompletion = await chatCompletion({
+    // 8. Generar mensaje con IA
+    const completion = await chatCompletion({
       messages: [{ role: "user", content: followupPrompt }],
       maxTokens: 200,
       temperature: 0.7,
@@ -297,20 +519,51 @@ Instrucciones importantes:
       module: 'followup'
     });
 
-    const text = followupCompletion.content?.trim();
-    if (text) {
-      const ticketDetails = await ShowTicketService(ticketId, companyId);
-      await SendWhatsAppMessage({ body: text, ticket: ticketDetails, quotedMsg: null });
-   //   console.log(`📨 Seguimiento enviado al ticket ${ticketId} con tag ${tag.key}`);
-      await enqueueStageClassifierJob({
-        texto: text,
-        ticketId,
-        companyId,
-        apiKey,
-        contactName
+    const text = completion.content?.trim();
+    if (!text) {
+      console.log(`[Followup] IA no generó contenido para ticket ${ticketId}`);
+      return done();
+    }
+
+    // 9. Enviar mensaje
+    const ticketDetails = await ShowTicketService(ticketId, companyId);
+    await SendWhatsAppMessage({ body: text, ticket: ticketDetails, quotedMsg: null });
+    console.log(`[Followup] Mensaje #${currentFollowup} enviado al ticket ${ticketId}`);
+
+    // 10. Actualizar ticket: incrementar followup_count y marcar como reciente
+    await Ticket.update(
+      { followup_count: currentFollowup },
+      { where: { id: ticketId } }
+    );
+
+    // 11. Programar siguiente followup si hay más
+    const nextFollowup = currentFollowup + 1;
+    if (nextFollowup <= followupCount) {
+      let nextDelay = 0;
+      switch (nextFollowup) {
+        case 2:
+          nextDelay = (followupDelay2 || 3) * 60 * 60 * 1000;
+          break;
+        case 3:
+          nextDelay = (followupDelay3 || 4) * 60 * 60 * 1000;
+          break;
+        default:
+          nextDelay = followupDelay1 * 60 * 60 * 1000;
+      }
+
+      await followupQueue.add("SendFollowup", {
+        ...data,
+        currentFollowup: nextFollowup,
+        assignedAt: new Date().toISOString()
+      }, {
+        delay: nextDelay,
+        removeOnComplete: true,
+        removeOnFail: true,
+        jobId: `followup-${ticketId}`
       });
-      // Actualiza el contador de seguimientos
-      await Ticket.update({ followup_count: count + 1 }, { where: { id: ticketId } });
+      console.log(`[Followup] Followup #${nextFollowup} programado para ticket ${ticketId}`);
+    } else {
+      console.log(`[Followup] Todos los followups completados para ticket ${ticketId}`);
     }
 
     done();
@@ -321,46 +574,101 @@ Instrucciones importantes:
 });
 
 
-export const enqueueFollowupJob = async ({ ticketId, tag, companyId, apiKey, contactName }) => {
-  // No seguir si el ticket ya está en dormant
-    // Si el tag está mal definido o no requiere seguimiento, no hacer nada
-    if (
-      !tag ||
-      !tag.greetingMessageLane ||
-      !tag.timeLane ||
-      Number(tag.timeLane) === 0
-    ) {
-    //  console.log("⏩ Etiqueta sin seguimiento, no se agenda job de followup.");
-      return;
-    }
-  
-  const dormantTag = await Tag.findOne({ where: { key: "dormant", companyId } });
-  const dormantTicket = dormantTag && await TicketTag.findOne({ where: { ticketId, tagId: dormantTag.id } });
-  if (dormantTicket) {
-  //  console.log("⏸️ El ticket ya está en dormant, no se agenda más seguimiento.");
+/**
+ * Encola un job de followup con los datos necesarios
+ * Versión 2.0: soporta múltiples seguimientos con delays personalizados
+ */
+export const enqueueFollowupJob = async (params: {
+  ticketId: number;
+  tagId?: number;
+  tagKey: string;
+  companyId: number;
+  apiKey?: string;
+  contactName?: string;
+  conversationContext?: string;
+  currentFollowup: number;
+  followupMessage1: string;
+  followupDelay1: number;
+  followupMessage2?: string;
+  followupDelay2?: number;
+  followupMessage3?: string;
+  followupDelay3?: number;
+  followupCount: number;
+  assignedAt?: string;
+  ticketFollowupEnabled?: boolean;
+}) => {
+  const {
+    ticketId,
+    tagId,
+    tagKey,
+    companyId,
+    contactName,
+    conversationContext,
+    currentFollowup,
+    followupMessage1,
+    followupDelay1,
+    followupMessage2,
+    followupDelay2,
+    followupMessage3,
+    followupDelay3,
+    followupCount,
+    ticketFollowupEnabled
+  } = params;
+
+  // Si ya se alcanzaron los límites, no encolar más
+  if (currentFollowup > followupCount) {
+    console.log(`[Followup] Límite de followups alcanzado para ticket ${ticketId}`);
     return;
   }
-  
 
+  // Determinar el delay según el followup actual
+  let delayMs = 0;
+  switch (currentFollowup) {
+    case 1:
+      delayMs = followupDelay1 * 60 * 60 * 1000; // horas a ms
+      break;
+    case 2:
+      delayMs = (followupDelay2 || 3) * 60 * 60 * 1000;
+      break;
+    case 3:
+      delayMs = (followupDelay3 || 4) * 60 * 60 * 1000;
+      break;
+    default:
+      delayMs = followupDelay1 * 60 * 60 * 1000;
+  }
+
+  // Eliminar job anterior si existe
   const jobId = `followup-${ticketId}`;
   const existing = await followupQueue.getJob(jobId);
   if (existing) {
     await existing.remove();
-  //  console.log(`♻️ Seguimiento anterior eliminado para ticket ${ticketId}`);
   }
+
+  // Encolar el job
   await followupQueue.add("SendFollowup", {
     ticketId,
-    tagKey: tag.key,
+    tagId,
+    tagKey,
     companyId,
-    apiKey,
-    contactName
+    contactName,
+    conversationContext,
+    currentFollowup,
+    followupMessage1,
+    followupDelay1,
+    followupMessage2,
+    followupDelay2,
+    followupMessage3,
+    followupDelay3,
+    followupCount,
+    assignedAt: new Date().toISOString()
   }, {
-    delay: tag.timeLane * 60 * 60 * 1000,
+    delay: delayMs,
     removeOnComplete: true,
     removeOnFail: true,
     jobId
   });
-//  console.log(`📆 Seguimiento encolado para ticket ${ticketId} con etiqueta ${tag.key} (${tag.timeLane} min)`);
+
+  console.log(`[Followup] Followup #${currentFollowup} programado para ticket ${ticketId} en ${delayMs / (60 * 60 * 1000)} horas`);
 };
 
 export const removeFollowupJobByTicketId = async (ticketId) => {

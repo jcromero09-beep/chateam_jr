@@ -378,7 +378,7 @@ export class AntiBanManager {
  * 🌟 Instancia singleton del AntiBan Manager
  */
 export const antiBanManager = new AntiBanManager();
-console.log("🛡️ AntiBan module fully loaded");
+// console.log("🛡️ AntiBan module fully loaded");
 
 /**
  * 📤 Export default para compatibilidad

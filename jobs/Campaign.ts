@@ -4,6 +4,7 @@ import Campaign from "../models/Campaign";
 import ContactList from "../models/ContactList";
 import ContactListItem from "../models/ContactListItem";
 import CampaignSetting from "../models/CampaignSetting";
+import WhatsAppTemplate from "../models/WhatsAppTemplate";
 import { getIO } from "../libs/socket";
 import moment from "moment";
 import { isArray, isEmpty, isNil } from "lodash";
@@ -11,6 +12,7 @@ import { isArray, isEmpty, isNil } from "lodash";
 // Importar add y getSettings desde queues.ts
 import { add, getSettings } from "../queues";
 import Whatsapp from "../models/Whatsapp";
+import { sendTemplateDynamic } from "../services/MetaServices/metaSendService";
 
 function getCampaignValidMessages(campaign) {
   const messages = [];
@@ -125,7 +127,13 @@ const checkTime = async (companyId: number) => {
 async function getCampaign(id) {
   return await Campaign.findOne({
     where: { id },
-    attributes: ["id", "companyId", "name", "message1", "message2", "message3", "message4", "message5", "status", "whatsappId"],
+    attributes: [
+      "id", "companyId", "name",
+      "message1", "message2", "message3", "message4", "message5",
+      "status", "whatsappId",
+      "useTemplate", "whastsAppTemplateId", "templateParams",
+      "statusTicket", "openTicket"
+    ],
     include: [
       {
         model: ContactList,
@@ -139,9 +147,47 @@ async function getCampaign(id) {
             where: { isWhatsappValid: true }
           }
         ]
+      },
+      {
+        model: WhatsAppTemplate,
+        as: "whastsAppTemplate",
+        attributes: ["id", "name", "language", "variablesCount", "bodyContent"]
       }
     ]
   });
+}
+
+/**
+ * Extrae los parámetros de la plantilla desde el contacto
+ * Mapea las variables de la plantilla con los datos del contacto
+ */
+function extractTemplateParams(templateParams: Record<string, string>, contact: any): string[] {
+  const params: string[] = [];
+
+  // Si templateParams tiene valores estáticos, usarlos
+  if (templateParams && Object.keys(templateParams).length > 0) {
+    // Recorrer en orden: {{1}}, {{2}}, etc.
+    let i = 1;
+    while (templateParams[`${i}`] !== undefined) {
+      let value = templateParams[`${i}`];
+
+      // Reemplazar variables del contacto en el valor
+      if (value.includes("{nome}")) {
+        value = value.replace(/{nome}/g, contact.name || "");
+      }
+      if (value.includes("{email}")) {
+        value = value.replace(/{email}/g, contact.email || "");
+      }
+      if (value.includes("{numero}")) {
+        value = value.replace(/{numero}/g, contact.number || "");
+      }
+
+      params.push(value);
+      i++;
+    }
+  }
+
+  return params;
 }
 
 // Esta función manejará el procesamiento de campañas en el worker
@@ -219,45 +265,98 @@ export default async (job: Job): Promise<void> => {
             }
           }
 
-          // Preparar el mensaje para el contacto
-          const messages = getCampaignValidMessages(campaign);
+          // =====================================================
+          // LOGICA: PLANTILLA META vs MENSAJE LIBRE BAILEYS
+          // =====================================================
+          const delayMinutes = Math.round(contactDelay / 60000);
+          logInfo(`[WORKER] 📝 Preparando contacto ${index + 1}/${contacts.length}: ${contact.name} (delay: ${delayMinutes}min)`);
 
-          if (messages.length > 0) {
-            const randomIndex = randomValue(0, messages.length);
-            let message = messages[randomIndex] || "";
+          // Obtener conexión WhatsApp para obtener credenciales Meta
+          const whatsapp = await Whatsapp.findByPk(campaign.whatsappId);
 
-            // Procesar variables usando las configuraciones específicas de la empresa
-            message = getProcessedMessage(message, settings.variables, contact);
+          if (campaign.useTemplate && campaign.whastsAppTemplateId) {
+            // ========================
+            // ENVÍO POR META TEMPLATE
+            // ========================
+            logInfo(`[WORKER] 📤 [META-TEMPLATE] Enviando plantilla ID=${campaign.whastsAppTemplateId} a ${contact.number}`);
 
-            const delayMinutes = Math.round(contactDelay / 60000);
-            logInfo(`[WORKER] 📝 Preparando contacto ${index + 1}/${contacts.length}: ${contact.name} (delay: ${delayMinutes}min)`);
+            // Obtener la plantilla
+            const template = campaign.whastsAppTemplate;
 
-            // ✅ ENVIAR JOB AL BACKEND PRINCIPAL con delay calculado
-            const jobData = {
-              whatsappId: campaign.whatsappId,
-              data: {
-                number: contact.number,
-                body: message,
-                companyId: campaign.companyId
-              }
-            };
+            if (!template) {
+              logError(`[WORKER] ❌ Plantilla no encontrada: ${campaign.whastsAppTemplateId}`);
+              throw new Error(`Plantilla no encontrada: ${campaign.whastsAppTemplateId}`);
+            }
 
-            const jobOptions = {
-              delay: contactDelay,
-              priority: 1,
-              removeOnComplete: { age: 60 * 60, count: 100 },
-              removeOnFail: { age: 60 * 60, count: 50 }
-            };
+            // Verificar que la conexión sea Meta
+            if (whatsapp.channel !== 'meta') {
+              logWarn(`[WORKER] ⚠️ La conexión ${whatsapp.id} no es Meta (channel: ${whatsapp.channel}), saltando envío por plantilla`);
+              continue;
+            }
 
-            logInfo(`[WORKER] 🔍 DEBUG - Enviando job al backend:`);
-            logInfo(`[WORKER] 📋 Job Data: ${JSON.stringify(jobData)}`);
-            logInfo(`[WORKER] ⚙️ Job Options: ${JSON.stringify(jobOptions)}`);
+            // Extraer parámetros de la plantilla
+            const params = extractTemplateParams(campaign.templateParams || {}, contact);
 
-            await add("SendMessage", jobData, jobOptions);
+            // Enviar directamente por Meta API (no por cola)
+            try {
+              const result = await sendTemplateDynamic(
+                contact.number,
+                template.name,
+                whatsapp.phoneNumberId,
+                whatsapp.tokenMeta,
+                params,
+                template.language || 'es'
+              );
 
-            const scheduledTime = moment().add(contactDelay, 'milliseconds').format('HH:mm:ss');
-            logInfo(`[WORKER] 📤 Job enviado al backend para ${contact.name} programado para ${scheduledTime} (delay: ${delayMinutes}min)`);
-            logInfo(`[WORKER] ✅ Job #${index + 1}/${contacts.length} procesado exitosamente`);
+              logInfo(`[WORKER] ✅ [META-TEMPLATE] Enviado a ${contact.number}, messageId: ${result.messagingMessageId}`);
+
+              // Guardar en CampaignShipping el mensaje enviado
+              // (esto ya se hace en otro lugar del flujo)
+
+            } catch (templateError: any) {
+              logError(`[WORKER] ❌ [META-TEMPLATE] Error enviando a ${contact.number}: ${templateError.message}`);
+            }
+
+          } else {
+            // ========================
+            // ENVÍO LEGACY (BAILEYS)
+            // ========================
+            const messages = getCampaignValidMessages(campaign);
+
+            if (messages.length > 0) {
+              const randomIndex = randomValue(0, messages.length);
+              let message = messages[randomIndex] || "";
+
+              // Procesar variables usando las configuraciones específicas de la empresa
+              message = getProcessedMessage(message, settings.variables, contact);
+
+              // ✅ ENVIAR JOB AL BACKEND PRINCIPAL con delay calculado
+              const jobData = {
+                whatsappId: campaign.whatsappId,
+                data: {
+                  number: contact.number,
+                  body: message,
+                  companyId: campaign.companyId
+                }
+              };
+
+              const jobOptions = {
+                delay: contactDelay,
+                priority: 1,
+                removeOnComplete: { age: 60 * 60, count: 100 },
+                removeOnFail: { age: 60 * 60, count: 50 }
+              };
+
+              logInfo(`[WORKER] 🔍 DEBUG - Enviando job al backend:`);
+              logInfo(`[WORKER] 📋 Job Data: ${JSON.stringify(jobData)}`);
+              logInfo(`[WORKER] ⚙️ Job Options: ${JSON.stringify(jobOptions)}`);
+
+              await add("SendMessage", jobData, jobOptions);
+
+              const scheduledTime = moment().add(contactDelay, 'milliseconds').format('HH:mm:ss');
+              logInfo(`[WORKER] 📤 Job enviado al backend para ${contact.name} programado para ${scheduledTime} (delay: ${delayMinutes}min)`);
+              logInfo(`[WORKER] ✅ Job #${index + 1}/${contacts.length} procesado exitosamente`);
+            }
           }
         } catch (error) {
           logError(`[WORKER] ❌ Error procesando contacto ${contact.name}: ${error.message}`);

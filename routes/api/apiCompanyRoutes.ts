@@ -156,4 +156,4 @@ apiCompanyRoutes.delete("/tags-contacts/:tagId/:contactId", isAuth, TagControlle
 apiCompanyRoutes.get("/contactTags/:contactId", isAuth, ContactController.getContactTags);
 apiCompanyRoutes.post("/tags/sync", isAuth, TagController.syncTags);
 export default apiCompanyRoutes;
-console.log("📄 API-COMPANY-ROUTES.TS LOADED\!");
+// console.log("📄 API-COMPANY-ROUTES.TS LOADED\!");

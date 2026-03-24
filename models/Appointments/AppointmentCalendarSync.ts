@@ -48,11 +48,11 @@ class AppointmentCalendarSync extends Model<AppointmentCalendarSync> {
   @Column(DataType.TEXT)
   refreshToken: string;
 
-  @Column(DataType.DATE)
+  @Column({ type: DataType.DATE, field: 'tokenExpiry' })
   tokenExpiresAt: Date;
 
   @Default(true)
-  @Column(DataType.BOOLEAN)
+  @Column({ type: DataType.BOOLEAN, field: 'isEnabled' })
   syncEnabled: boolean;
 
   @Column(DataType.DATE)

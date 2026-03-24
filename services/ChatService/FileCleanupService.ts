@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import ChatMessage from "../../models/ChatMessage";
 
-const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
 interface CleanupResult {
   filesRemoved: number;

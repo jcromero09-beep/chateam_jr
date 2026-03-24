@@ -174,7 +174,7 @@ class EmailCampaign extends Model {
   @BelongsTo(() => User)
   creator: User;
 
-  @HasMany(() => EmailCampaignRecipient)
+  @HasMany(() => EmailCampaignRecipient, { foreignKey: 'campaignId' })
   recipients: EmailCampaignRecipient[];
 }
 

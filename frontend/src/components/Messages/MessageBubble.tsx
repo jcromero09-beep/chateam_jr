@@ -16,6 +16,9 @@ interface Message {
   createdAt: string
   ack?: number
   read: boolean
+  dataJson?: string
+  messageStatus?: 'pending' | 'sent' | 'failed' | 'deleted'
+  sendAttempts?: number
 }
 
 interface MessageBubbleProps {
@@ -88,7 +91,21 @@ export default function MessageBubble({ message, isDark, formatTime }: MessageBu
                   : 'rgba(255,255,255,0.5)',
               }}
             >
-              {message.ack >= 2 ? '✓✓' : '✓'}
+              {message.messageStatus === 'pending' ? '⏳' : (message.ack >= 2 ? '✓✓' : '✓')}
+            </Typography>
+          )}
+          {isOwn && message.messageStatus === 'failed' && (
+            <Typography
+              sx={{
+                fontSize: '11px',
+                lineHeight: 1,
+                color: '#ff6b6b',
+                ml: 0.5,
+                cursor: 'pointer'
+              }}
+              title={`Error al enviar. Intentos: ${message.sendAttempts || 0}`}
+            >
+              ⚠️
             </Typography>
           )}
         </Stack>

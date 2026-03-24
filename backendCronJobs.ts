@@ -49,6 +49,10 @@ import FindOrCreateTicketService from "./services/TicketServices/FindOrCreateTic
 import CreateMessageService from "./services/MessageServices/CreateMessageService";
 import { v4 as uuidv4 } from "uuid";
 
+import KanbanMovementLog from "./models/KanbanMovementLog";
+import Message from "./models/Message";
+import { timeLaneToDate } from "./helpers/timeLane";
+
 import cron from "node-cron";
 
 // ============================================================
@@ -91,49 +95,84 @@ function handleProcessLanes() {
     for (const c of companies) {
       try {
         const companyId = c.id;
+        const BATCH_SIZE = 50;
+        let offset = 0;
+        let hasMore = true;
 
-        const ticketTags = await TicketTag.findAll({
-          include: [{
-            model: Ticket,
-            as: "ticket",
-            where: {
-              status: "open",
-              fromMe: true,
-              companyId
-            },
-            attributes: ["id", "contactId", "updatedAt", "whatsappId"]
-          }, {
-            model: Tag,
-            as: "tag",
-            attributes: ["id", "timeLane", "nextLaneId", "greetingMessageLane"],
-            where: { companyId }
-          }]
-        });
+        while (hasMore) {
+          const ticketTags = await TicketTag.findAll({
+            include: [{
+              model: Ticket,
+              as: "ticket",
+              where: {
+                status: "open",
+                fromMe: true,
+                companyId
+              },
+              attributes: ["id", "contactId", "updatedAt", "whatsappId"]
+            }, {
+              model: Tag,
+              as: "tag",
+              attributes: ["id", "timeLane", "timeLaneUnit", "nextLaneId", "greetingMessageLane"],
+              where: { companyId }
+            }],
+            limit: BATCH_SIZE,
+            offset
+          });
 
-        for (const t of ticketTags) {
-          if (!isNil(t?.tag.nextLaneId) && t?.tag.nextLaneId > 0 && t?.tag.timeLane > 0) {
-            const nextTag = await Tag.findByPk(t?.tag.nextLaneId);
+          if (ticketTags.length < BATCH_SIZE) hasMore = false;
+          offset += BATCH_SIZE;
 
-            const dataLimite = new Date();
-            dataLimite.setHours(dataLimite.getHours() - Number(t.tag.timeLane));
-            const dataUltimaInteracaoChamado = new Date(t.ticket.updatedAt);
+          // Pre-cargar nextTags para evitar N+1
+          const nextLaneIds = [...new Set(
+            ticketTags
+              .filter(t => !isNil(t?.tag?.nextLaneId) && t.tag.nextLaneId > 0)
+              .map(t => t.tag.nextLaneId)
+          )];
+          const nextTags = nextLaneIds.length > 0
+            ? await Tag.findAll({ where: { id: nextLaneIds } })
+            : [];
+          const nextTagMap = new Map(nextTags.map(t => [t.id, t]));
 
-            if (dataUltimaInteracaoChamado < dataLimite) {
-              await TicketTag.destroy({ where: { ticketId: t.ticketId, tagId: t.tagId } });
-              await TicketTag.create({ ticketId: t.ticketId, tagId: nextTag.id });
+          for (const t of ticketTags) {
+            if (!isNil(t?.tag.nextLaneId) && t?.tag.nextLaneId > 0 && t?.tag.timeLane > 0) {
+              const nextTag = nextTagMap.get(t.tag.nextLaneId);
+              if (!nextTag) continue;
 
-              const whatsapp = await Whatsapp.findByPk(t.ticket.whatsappId);
+              const dataLimite = timeLaneToDate(Number(t.tag.timeLane), t.tag.timeLaneUnit || 'hours');
+              const dataUltimaInteracaoChamado = new Date(t.ticket.updatedAt);
 
-              if (!isNil(nextTag.greetingMessageLane) && nextTag.greetingMessageLane !== "") {
-                const contact = await Contact.findByPk(t.ticket.contactId);
-                const ticketUpdate = await ShowTicketService(t.ticketId, companyId);
+              if (dataUltimaInteracaoChamado < dataLimite) {
+                await TicketTag.destroy({ where: { ticketId: t.ticketId, tagId: t.tagId } });
+                await TicketTag.create({ ticketId: t.ticketId, tagId: nextTag.id });
 
-                await SendMessage(whatsapp, {
-                  number: contact.number,
-                  body: `${formatBody(nextTag.greetingMessageLane, ticketUpdate)}`,
-                  mediaPath: null,
-                  companyId: companyId
-                }, contact.isGroup);
+                // Log del movimiento Kanban
+                try {
+                  await KanbanMovementLog.create({
+                    ticketId: t.ticketId,
+                    companyId,
+                    fromTagId: t.tagId,
+                    toTagId: nextTag.id,
+                    movedBy: 'system',
+                    reason: `timeLane expirado (${t.tag.timeLane} ${t.tag.timeLaneUnit || 'hours'})`
+                  });
+                } catch (logErr) {
+                  // No fallar por error de log
+                }
+
+                const whatsapp = await Whatsapp.findByPk(t.ticket.whatsappId);
+
+                if (!isNil(nextTag.greetingMessageLane) && nextTag.greetingMessageLane !== "") {
+                  const contact = await Contact.findByPk(t.ticket.contactId);
+                  const ticketUpdate = await ShowTicketService(t.ticketId, companyId);
+
+                  await SendMessage(whatsapp, {
+                    number: contact.number,
+                    body: `${formatBody(nextTag.greetingMessageLane, ticketUpdate)}`,
+                    mediaPath: null,
+                    companyId: companyId
+                  }, contact.isGroup);
+                }
               }
             }
           }
@@ -651,6 +690,72 @@ function handleAppointmentReminders() {
 }
 
 // ============================================================
+// CRONJOB 12: handleTikTokCommentPoll
+// Polling de comentarios TikTok cada 5 minutos
+// ============================================================
+function handleTikTokCommentPoll() {
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      const TikTokCommentPollerService = (await import("./services/TikTokService/TikTokCommentPollerService")).default;
+      const result = await TikTokCommentPollerService();
+      if (result.newComments > 0) {
+        logger.info(
+          `[TikTokPoll] ${result.newComments} comentarios nuevos de ${result.connectionsPolled} conexiones`
+        );
+      }
+    } catch (e: any) {
+      Sentry.captureException(e);
+      logger.error(`[TikTokPoll] Error: ${e.message}`);
+    }
+  });
+  logger.info("CronJob 12: handleTikTokCommentPoll iniciado (cada 5 min)");
+}
+
+// ============================================================
+// CRONJOB 13: handleTikTokTokenRefresh
+// Renueva access_token TikTok antes de expirar (cada hora)
+// ============================================================
+function handleTikTokTokenRefresh() {
+  cron.schedule("0 * * * *", async () => {
+    try {
+      const TikTokTokenRefreshService = (await import("./services/TikTokService/TikTokTokenRefreshService")).default;
+      const result = await TikTokTokenRefreshService();
+      if (result.tokensRefreshed > 0) {
+        logger.info(
+          `[TikTokToken] ${result.tokensRefreshed} tokens renovados`
+        );
+      }
+    } catch (e: any) {
+      Sentry.captureException(e);
+      logger.error(`[TikTokToken] Error: ${e.message}`);
+    }
+  });
+  logger.info("CronJob 13: handleTikTokTokenRefresh iniciado (cada 1 hora)");
+}
+
+// ============================================================
+// CRONJOB 14: handleRetryFailedMessages
+// Reintenta enviar mensajes que fallaron (cada 5 minutos)
+// ============================================================
+function handleRetryFailedMessages() {
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      // Procesar mensajes pendientes directamente en backend
+      const ProcessPendingMessagesService = (await import("./services/MessageServices/ProcessPendingMessagesService")).default;
+      const processed = await ProcessPendingMessagesService();
+
+      if (processed > 0) {
+        logger.info(`[RetryFailedMessages] Procesados ${processed} mensajes pendientes`);
+      }
+    } catch (e: any) {
+      Sentry.captureException(e);
+      logger.error(`[RetryFailedMessages] Error: ${e.message}`);
+    }
+  });
+  logger.info("CronJob 14: handleRetryFailedMessages iniciado (cada 5 min)");
+}
+
+// ============================================================
 // FUNCIÓN PRINCIPAL: Inicia todos los CronJobs
 // ============================================================
 export function startBackendCronJobs(): void {
@@ -662,8 +767,11 @@ export function startBackendCronJobs(): void {
   handleVerifyQueue();
   handleInvoiceCreate();
   handleAppointmentReminders();
+  handleTikTokCommentPoll();
+  handleTikTokTokenRefresh();
+  handleRetryFailedMessages();
 
-  logger.info("✅ [BACKEND] Todos los CronJobs iniciados");
+  logger.info("✅ [BACKEND] Todos los CronJobs iniciados (incluye TikTok)");
 }
 
-console.log("🕐🕐🕐 BACKEND-CRON-JOBS.TS FULLY LOADED! 🕐🕐🕐");
+// console.log("🕐🕐🕐 BACKEND-CRON-JOBS.TS FULLY LOADED! 🕐🕐🕐");

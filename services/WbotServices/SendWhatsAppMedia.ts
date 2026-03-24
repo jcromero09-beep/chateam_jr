@@ -34,7 +34,7 @@ const os = require("os");
 //   ffmpegPath = "/usr/bin/ffmpeg"; // Substitua pelo caminho correto em sistemas Unix-like
 // }
 
-const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
 const processAudio = async (audio: string, companyId: string): Promise<string> => {
   const outputAudio = `${publicFolder}/company${companyId}/${new Date().getTime()}.ogg`;

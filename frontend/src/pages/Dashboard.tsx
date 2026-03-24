@@ -10,18 +10,14 @@ import {
   Stack,
   Container,
   IconButton,
-  Button as _Button,
+  Button,
   Avatar,
   Divider as _Divider,
   Table,
   Sheet,
+  Alert,
 } from '@mui/joy'
 import {
-  People as PeopleIcon,
-  Chat as ChatIcon,
-  TrendingUp as TrendingUpIcon,
-  Memory as MemoryIcon,
-  Dashboard as DashboardIcon,
   Refresh as RefreshIcon,
   CheckCircle as CheckIcon,
   Error as _ErrorIcon,
@@ -32,6 +28,7 @@ import {
   Campaign as CampaignIcon,
   WhatsApp as WhatsAppIcon,
   Person as PersonIcon,
+  Chat as ChatIcon,
   Star as StarIcon,
   TrendingDown as _TrendingDownIcon,
   Visibility as VisibilityIcon,
@@ -95,13 +92,14 @@ interface DashboardStats {
   }
 }
 
-const _COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
+const _COLORS = ['#3b82f6', '#52b788', '#f3a43b', '#FF8042', '#8884D8']
 
 export default function Dashboard() {
   const { user } = useAuth()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAll, setShowAll] = useState(false)
+  const [fetchError, setFetchError] = useState(false)
 
   useEffect(() => {
     if (user?.companyId) {
@@ -109,111 +107,34 @@ export default function Dashboard() {
     }
   }, [user, showAll])
 
-  useEffect(() => {
-    console.log('🔄 Dashboard Frontend - stats cambió:', stats)
-    if (stats?.tickets) {
-      console.log('📊 Dashboard Frontend - Tickets en estado:', stats.tickets)
-    }
-  }, [stats])
-
   const fetchDashboardStats = async () => {
     try {
       setLoading(true)
+      setFetchError(false)
       const companyId = user?.companyId
-      console.log('🎯 Dashboard Frontend - companyId:', companyId)
 
       if (companyId) {
-        console.log('📡 Dashboard Frontend - Llamando a /dashboard con showAll:', showAll)
         const response = await api.get('/dashboard', {
           params: { showAll: showAll ? 'true' : 'false' }
         })
-        console.log('✅ Dashboard Frontend - Respuesta recibida:', response.data)
-        console.log('📊 Dashboard Frontend - Tickets en respuesta:', response.data.tickets)
         setStats(response.data)
       } else {
         throw new Error('No companyId found')
       }
-    } catch (error) {
-      console.error('❌ Dashboard Frontend - Error fetching dashboard stats:', error)
-      // Fallback data for demo
+    } catch (_error) {
+      setFetchError(true)
       setStats({
-        totalUsers: 1250,
-        activeConversations: 45,
-        totalMessages: 15420,
-        aiInteractions: 8920,
-        trends: [
-          { date: '2025-01-06', messages: 120, users: 15 },
-          { date: '2025-01-07', messages: 145, users: 18 },
-          { date: '2025-01-08', messages: 132, users: 16 },
-          { date: '2025-01-09', messages: 168, users: 22 },
-          { date: '2025-01-10', messages: 189, users: 25 },
-          { date: '2025-01-11', messages: 201, users: 28 },
-          { date: '2025-01-12', messages: 178, users: 24 },
-        ],
-        tickets: {
-          open: 34,
-          pending: 12,
-          closed: 156,
-        },
-        campaigns: {
-          active: 3,
-          scheduled: 5,
-          completed: 28,
-        },
-        connections: {
-          connected: 4,
-          disconnected: 1,
-          total: 5,
-        },
-        topAgents: [
-          { id: 1, name: 'María López', ticketsClosed: 45, avgResponseTime: '2.5 min' },
-          { id: 2, name: 'Carlos Ruiz', ticketsClosed: 38, avgResponseTime: '3.2 min' },
-          { id: 3, name: 'Ana García', ticketsClosed: 35, avgResponseTime: '2.8 min' },
-          { id: 4, name: 'Pedro Sánchez', ticketsClosed: 32, avgResponseTime: '4.1 min' },
-          { id: 5, name: 'Laura Martínez', ticketsClosed: 28, avgResponseTime: '3.5 min' },
-        ],
-        recentActivity: [
-          {
-            id: 1,
-            type: 'ticket',
-            message: 'Nuevo ticket abierto #1234',
-            time: 'Hace 2 min',
-            user: 'Juan Pérez',
-          },
-          {
-            id: 2,
-            type: 'campaign',
-            message: 'Campaña "Promoción Enero" iniciada',
-            time: 'Hace 15 min',
-            user: 'Sistema',
-          },
-          {
-            id: 3,
-            type: 'connection',
-            message: 'WhatsApp Principal conectado',
-            time: 'Hace 1 hora',
-            user: 'Sistema',
-          },
-          {
-            id: 4,
-            type: 'ticket',
-            message: 'Ticket #1230 cerrado',
-            time: 'Hace 2 horas',
-            user: 'María López',
-          },
-          {
-            id: 5,
-            type: 'user',
-            message: 'Nuevo usuario registrado',
-            time: 'Hace 3 horas',
-            user: 'Admin',
-          },
-        ],
-        performance: {
-          avgResponseTime: 3.2,
-          satisfactionRate: 94,
-          firstContactResolution: 78,
-        },
+        totalUsers: 0,
+        activeConversations: 0,
+        totalMessages: 0,
+        aiInteractions: 0,
+        trends: [],
+        tickets: { open: 0, pending: 0, closed: 0 },
+        campaigns: { active: 0, scheduled: 0, completed: 0 },
+        connections: { connected: 0, disconnected: 0, total: 0 },
+        topAgents: [],
+        recentActivity: [],
+        performance: { avgResponseTime: 0, satisfactionRate: 0, firstContactResolution: 0 },
       })
     } finally {
       setLoading(false)
@@ -226,48 +147,36 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      title: 'Total Usuarios',
+      title: 'Usuarios',
       value: stats?.totalUsers?.toLocaleString() || '0',
-      icon: <PeopleIcon />,
-      color: 'primary',
-      subtitle: 'Usuarios registrados',
-      trend: '+12% vs mes anterior',
+      chipLabel: 'Registrados',
+      chipColor: 'primary' as const,
     },
     {
-      title: 'Conversaciones Activas',
+      title: 'Conversaciones',
       value: stats?.activeConversations?.toString() || '0',
-      icon: <ChatIcon />,
-      color: 'warning',
-      subtitle: 'En las últimas 24h',
-      trend: '+8% vs ayer',
+      chipLabel: 'Activas (24h)',
+      chipColor: 'warning' as const,
     },
     {
-      title: 'Total Mensajes',
+      title: 'Mensajes',
       value: stats?.totalMessages?.toLocaleString() || '0',
-      icon: <TrendingUpIcon />,
-      color: 'success',
-      subtitle: 'Mensajes enviados',
-      trend: '+23% este mes',
+      chipLabel: 'Este mes',
+      chipColor: 'success' as const,
     },
     {
-      title: 'Interacciones IA',
+      title: 'IA',
       value: stats?.aiInteractions?.toLocaleString() || '0',
-      icon: <MemoryIcon />,
-      color: 'info',
-      subtitle: 'Con IA activada',
-      trend: '+35% este mes',
+      chipLabel: 'Interacciones IA',
+      chipColor: 'primary' as const,
     },
   ]
 
   const ticketsData = [
-    { name: 'Abiertos', value: stats?.tickets?.open || 0, color: '#0088FE' },
-    { name: 'Pendientes', value: stats?.tickets?.pending || 0, color: '#FFBB28' },
-    { name: 'Cerrados', value: stats?.tickets?.closed || 0, color: '#00C49F' },
+    { name: 'Abiertos', value: stats?.tickets?.open || 0, color: '#3b82f6' },
+    { name: 'Pendientes', value: stats?.tickets?.pending || 0, color: '#f3a43b' },
+    { name: 'Cerrados', value: stats?.tickets?.closed || 0, color: '#52b788' },
   ]
-  console.log('🎨 Dashboard Frontend - stats completo:', stats)
-  console.log('🎨 Dashboard Frontend - stats.tickets:', stats?.tickets)
-  console.log('🎨 Dashboard Frontend - Datos para el PieChart:', JSON.stringify(ticketsData, null, 2))
-
   const campaignsData = [
     { name: 'Activas', value: stats?.campaigns.active || 0 },
     { name: 'Programadas', value: stats?.campaigns.scheduled || 0 },
@@ -307,28 +216,37 @@ export default function Dashboard() {
   return (
     <Container maxWidth="xl">
       <Stack spacing={3}>
+        {/* Error alert */}
+        {fetchError && (
+          <Alert color="warning" variant="soft">
+            No se pudieron cargar los datos del dashboard. Intenta de nuevo.
+          </Alert>
+        )}
+
         {/* Header */}
         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <DashboardIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Dashboard Principal</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                {showAll
-                  ? 'Mostrando todos los tickets de la empresa'
-                  : 'Mostrando solo tickets asignados a ti'}
-              </Typography>
-            </Box>
-          </Stack>
+          <Box>
+            <Typography level="h2">
+              Bienvenido, {user?.name || 'Administrador'}
+            </Typography>
+            <Typography level="body-sm" sx={{ color: 'text.secondary', textTransform: 'capitalize' }}>
+              Tus tickets asignados —{' '}
+              {new Date().toLocaleDateString('es-ES', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}
+            </Typography>
+          </Box>
           <Stack direction="row" spacing={1}>
-            <IconButton
+            <Button
               variant="outlined"
-              color={showAll ? 'primary' : 'neutral'}
+              color="neutral"
+              startDecorator={showAll ? <VisibilityIcon /> : <VisibilityOffIcon />}
               onClick={() => setShowAll(!showAll)}
-              title={showAll ? 'Mostrar solo mis tickets' : 'Mostrar todos los tickets'}
             >
-              {showAll ? <VisibilityIcon /> : <VisibilityOffIcon />}
-            </IconButton>
+              {showAll ? 'Todos' : 'Mis tickets'}
+            </Button>
             <IconButton variant="outlined" color="neutral" onClick={fetchDashboardStats}>
               <RefreshIcon />
             </IconButton>
@@ -341,26 +259,15 @@ export default function Dashboard() {
             <Grid xs={12} sm={6} md={3} key={index}>
               <Card>
                 <CardContent>
-                  <Box display="flex" alignItems="center" justifyContent="space-between">
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" sx={{ mb: 1 }}>
-                        {card.title}
-                      </Typography>
-                      <Typography level="h3">{card.value}</Typography>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                        {card.subtitle}
-                      </Typography>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color="success"
-                        startDecorator={<TrendingUpIcon sx={{ fontSize: 14 }} />}
-                      >
-                        {card.trend}
-                      </Chip>
-                    </Box>
-                    <Box sx={{ color: `${card.color}.main`, fontSize: 48 }}>{card.icon}</Box>
-                  </Box>
+                  <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                    {card.title}
+                  </Typography>
+                  <Typography level="h2" sx={{ my: 1 }}>
+                    {card.value}
+                  </Typography>
+                  <Chip size="sm" variant="soft" color={card.chipColor}>
+                    {card.chipLabel}
+                  </Chip>
                 </CardContent>
               </Card>
             </Grid>
@@ -372,9 +279,19 @@ export default function Dashboard() {
           <Grid xs={12} lg={8}>
             <Card>
               <CardContent>
-                <Typography level="h4" sx={{ mb: 2 }}>
-                  Tendencia de Actividad (Últimos 7 días)
+                <Typography level="h4" sx={{ mb: 1 }}>
+                  Actividad — Últimos 7 días
                 </Typography>
+                <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+                  <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#3b82f6' }} />
+                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>Mensajes</Typography>
+                  </Stack>
+                  <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#52b788' }} />
+                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>Usuarios activos</Typography>
+                  </Stack>
+                </Stack>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={stats?.trends || []}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -390,22 +307,22 @@ export default function Dashboard() {
                     <YAxis />
                     <Tooltip
                       labelFormatter={(value) => new Date(value).toLocaleDateString('es-ES')}
-                      formatter={(value: number, name: string) => [
+                      formatter={((value: number, name: string) => [
                         value.toLocaleString(),
                         name === 'messages' ? 'Mensajes' : 'Usuarios Activos',
-                      ]}
+                      ]) as any}
                     />
                     <Line
                       type="monotone"
                       dataKey="messages"
-                      stroke="#0088FE"
+                      stroke="#3b82f6"
                       strokeWidth={2}
                       name="messages"
                     />
                     <Line
                       type="monotone"
                       dataKey="users"
-                      stroke="#00C49F"
+                      stroke="#52b788"
                       strokeWidth={2}
                       name="users"
                     />
@@ -419,27 +336,56 @@ export default function Dashboard() {
             <Card>
               <CardContent>
                 <Typography level="h4" sx={{ mb: 2 }}>
-                  Distribución de Tickets
+                  Tickets
                 </Typography>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={ticketsData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, value }) => `${name}: ${value}`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {ticketsData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
+                <Box sx={{ position: 'relative' }}>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie
+                        data={ticketsData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {ticketsData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      textAlign: 'center',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <Typography level="h2" sx={{ lineHeight: 1 }}>
+                      {(ticketsData[0].value + ticketsData[1].value + ticketsData[2].value)}
+                    </Typography>
+                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                      Total
+                    </Typography>
+                  </Box>
+                </Box>
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  {ticketsData.map((item) => (
+                    <Stack key={item.name} direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                      <Stack direction="row" spacing={0.75} alignItems="center">
+                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: item.color }} />
+                        <Typography level="body-sm" sx={{ color: 'text.secondary' }}>{item.name}</Typography>
+                      </Stack>
+                      <Typography level="body-sm" sx={{ fontWeight: 'md' }}>{item.value}</Typography>
+                    </Stack>
+                  ))}
+                </Stack>
               </CardContent>
             </Card>
           </Grid>
@@ -532,35 +478,45 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats?.topAgents?.map((agent, index) => (
-                        <tr key={agent.id}>
-                          <td>
-                            {index === 0 ? (
-                              <Chip size="sm" color="warning" startDecorator={<StarIcon />}>
-                                {index + 1}
-                              </Chip>
-                            ) : (
-                              <Typography level="body-sm">{index + 1}</Typography>
-                            )}
-                          </td>
-                          <td>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Avatar size="sm" sx={{ width: 28, height: 28 }}>
-                                {agent.name.charAt(0)}
-                              </Avatar>
-                              <Typography level="body-sm">{agent.name}</Typography>
-                            </Stack>
-                          </td>
-                          <td>
-                            <Chip size="sm" variant="soft" color="success">
-                              {agent.ticketsClosed}
-                            </Chip>
-                          </td>
-                          <td>
-                            <Typography level="body-xs">{agent.avgResponseTime}</Typography>
+                      {!stats?.topAgents?.length ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', padding: '1.5rem' }}>
+                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                              No hay datos de agentes disponibles
+                            </Typography>
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        stats.topAgents.map((agent, index) => (
+                          <tr key={agent.id}>
+                            <td>
+                              {index === 0 ? (
+                                <Chip size="sm" color="warning" startDecorator={<StarIcon />}>
+                                  {index + 1}
+                                </Chip>
+                              ) : (
+                                <Typography level="body-sm">{index + 1}</Typography>
+                              )}
+                            </td>
+                            <td>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Avatar size="sm" sx={{ width: 28, height: 28 }}>
+                                  {agent.name.charAt(0)}
+                                </Avatar>
+                                <Typography level="body-sm">{agent.name}</Typography>
+                              </Stack>
+                            </td>
+                            <td>
+                              <Chip size="sm" variant="soft" color="success">
+                                {agent.ticketsClosed}
+                              </Chip>
+                            </td>
+                            <td>
+                              <Typography level="body-xs">{agent.avgResponseTime}</Typography>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </Table>
                 </Sheet>
@@ -576,47 +532,55 @@ export default function Dashboard() {
                   Actividad Reciente
                 </Typography>
                 <Stack spacing={1.5}>
-                  {stats?.recentActivity?.map((activity) => (
-                    <Box
-                      key={activity.id}
-                      sx={{
-                        p: 1.5,
-                        bgcolor: 'background.level1',
-                        borderRadius: 'sm',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                      }}
-                    >
-                      <Stack direction="row" spacing={1.5} alignItems="start">
-                        <Box
-                          sx={{
-                            bgcolor: `${getActivityColor(activity.type)}.softBg`,
-                            color: `${getActivityColor(activity.type)}.main`,
-                            p: 0.5,
-                            borderRadius: 'sm',
-                            display: 'flex',
-                            alignItems: 'center',
-                          }}
-                        >
-                          {getActivityIcon(activity.type)}
-                        </Box>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography level="body-sm">{activity.message}</Typography>
-                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {activity.user}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              •
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {activity.time}
-                            </Typography>
-                          </Stack>
-                        </Box>
-                      </Stack>
+                  {!stats?.recentActivity?.length ? (
+                    <Box sx={{ py: 3, textAlign: 'center' }}>
+                      <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                        No hay actividad reciente
+                      </Typography>
                     </Box>
-                  ))}
+                  ) : (
+                    stats.recentActivity.map((activity) => (
+                      <Box
+                        key={activity.id}
+                        sx={{
+                          p: 1.5,
+                          bgcolor: 'background.level1',
+                          borderRadius: 'sm',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                        }}
+                      >
+                        <Stack direction="row" spacing={1.5} alignItems="start">
+                          <Box
+                            sx={{
+                              bgcolor: `${getActivityColor(activity.type)}.softBg`,
+                              color: `${getActivityColor(activity.type)}.main`,
+                              p: 0.5,
+                              borderRadius: 'sm',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            {getActivityIcon(activity.type)}
+                          </Box>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography level="body-sm">{activity.message}</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                {activity.user}
+                              </Typography>
+                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                •
+                              </Typography>
+                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                {activity.time}
+                              </Typography>
+                            </Stack>
+                          </Box>
+                        </Stack>
+                      </Box>
+                    ))
+                  )}
                 </Stack>
               </CardContent>
             </Card>
@@ -694,7 +658,7 @@ export default function Dashboard() {
                     <XAxis dataKey="name" />
                     <YAxis />
                     <Tooltip />
-                    <Bar dataKey="value" fill="#0088FE" />
+                    <Bar dataKey="value" fill="#3b82f6" />
                   </BarChart>
                 </ResponsiveContainer>
                 <Stack direction="row" spacing={1} sx={{ mt: 2 }}>

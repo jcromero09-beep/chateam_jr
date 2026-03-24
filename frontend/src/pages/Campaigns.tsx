@@ -83,7 +83,14 @@ export default function Campaigns() {
     try {
       setLoading(true)
       const response = await api.get('/campaigns')
-      setCampaigns(response.data.campaigns || response.data)
+      const raw = response.data
+      // El endpoint devuelve { records, count, hasMore } — extraer records como array
+      const list = Array.isArray(raw) ? raw
+        : Array.isArray(raw?.records) ? raw.records
+        : Array.isArray(raw?.data) ? raw.data
+        : Array.isArray(raw?.campaigns) ? raw.campaigns
+        : []
+      setCampaigns(list)
     } catch (error) {
       console.error('Error fetching campaigns:', error)
       // Fallback data

@@ -117,7 +117,7 @@ class BookingService {
         startTime: data.startTime,
         endTime,
         timezone: data.timezone || 'UTC',
-        status: service.requiresConfirmation ? 'pending' : 'confirmed',
+        status: service.requiresConfirmation ? 'scheduled' : 'confirmed',
         attendeeName,
         attendeeEmail: data.attendeeEmail,
         attendeePhone,

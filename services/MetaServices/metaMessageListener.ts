@@ -682,7 +682,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
   try {
 
     if (body?.object !== "whatsapp_business_account") {
-      console.warn("🔶 Webhook ignorado: object distinto a whatsapp_business_account");
+      // console.warn("🔶 Webhook ignorado: object distinto a whatsapp_business_account");
       return;
     }
 
@@ -699,7 +699,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
 
         const phoneNumberId = value?.metadata?.phone_number_id;
         if (!phoneNumberId) {
-          console.warn("⚠️ Sin phone_number_id en value.metadata");
+          // console.warn("⚠️ Sin phone_number_id en value.metadata");
           continue;
         }
 

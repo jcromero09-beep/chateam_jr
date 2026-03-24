@@ -52,8 +52,8 @@ class AIProviderConfig extends Model<AIProviderConfig> {
 
   @ForeignKey(() => Company)
   @Index
-  @Column(DataType.INTEGER)
-  companyId!: number;
+  @Column({ type: DataType.INTEGER, allowNull: true })  // allowNull: true para proveedores globales (superadmin)
+  companyId!: number | null;
 
   @Index
   @Column({

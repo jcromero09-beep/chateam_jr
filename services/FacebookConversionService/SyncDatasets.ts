@@ -20,6 +20,38 @@ const SyncDatasets = async (companyId?: number): Promise<{
 }> => {
     console.log(`🔄 [SyncDatasets] INICIO - companyId: ${companyId || 'ALL'}`);
 
+    // DEBUG: Verificar company específica
+    if (companyId) {
+        console.log(`🔍 [SyncDatasets] DEBUG Company ${companyId} - Iniciando diagnóstico...`);
+        const companyDebug = await Company.findByPk(companyId, {
+            include: [{
+                model: Whatsapp,
+                as: "whatsapps"
+            }]
+        });
+        if (companyDebug) {
+            console.log(`🔍 [SyncDatasets] DEBUG Company ${companyId}:`, JSON.stringify({
+                id: companyDebug.id,
+                name: companyDebug.name,
+                facebookAppId: companyDebug.facebookAppId ? 'PRESENTE' : 'NULL',
+                facebookAppSecret: companyDebug.facebookAppSecret ? 'PRESENTE' : 'NULL',
+                totalWhatsapps: companyDebug.whatsapps?.length || 0,
+                whatsapps: companyDebug.whatsapps?.map(w => ({
+                    id: w.id,
+                    name: w.name,
+                    channel: w.channel,
+                    status: w.status,
+                    facebookPageUserId: w.facebookPageUserId || 'NULL',
+                    facebookUserId: w.facebookUserId || 'NULL',
+                    phoneNumberId: w.phoneNumberId || 'NULL',
+                    tokenMeta: w.tokenMeta ? 'PRESENTE' : 'NULL'
+                }))
+            }, null, 2));
+        } else {
+            console.log(`🔍 [SyncDatasets] DEBUG Company ${companyId}: NO ENCONTRADA`);
+        }
+    }
+
     // Build query - filter by companyId if provided
     const whereClause: any = {};
     if (companyId) {
@@ -42,6 +74,22 @@ const SyncDatasets = async (companyId?: number): Promise<{
     });
 
     console.log(`📋 [SyncDatasets] Encontradas ${companies.length} compañías con conexiones sociales`);
+
+    // DEBUG: Si no hay companies, mostrar qué conexiones existen en la company
+    if (companies.length === 0 && companyId) {
+        console.log(`⚠️ [SyncDatasets] NO se encontraron conexiones sociales para company ${companyId}`);
+        console.log(`🔍 [SyncDatasets] Verificando todas las conexiones de WhatsApp para company ${companyId}...`);
+        const allConnections = await Whatsapp.findAll({
+            where: { companyId }
+        });
+        console.log(`🔍 [SyncDatasets] Total de conexiones WhatsApp en company ${companyId}: ${allConnections.length}`);
+        if (allConnections.length > 0) {
+            console.log(`🔍 [SyncDatasets] Canales encontrados:`, allConnections.map(c => c.channel));
+            console.log(`⚠️ [SyncDatasets] El servicio solo busca canales: facebook, instagram, whatsapp, meta`);
+        } else {
+            console.log(`⚠️ [SyncDatasets] La company ${companyId} NO tiene ninguna conexión de WhatsApp`);
+        }
+    }
 
     let synced = 0;
     let created = 0;

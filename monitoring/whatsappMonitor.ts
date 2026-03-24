@@ -12,20 +12,20 @@
  * @author JR Chateam Development Team
  */
 
-console.log("📊 Loading whatsappMonitor.ts...");
+// console.log("📊 Loading whatsappMonitor.ts...");
 import { EventEmitter } from "events";
 import NodeCache from "node-cache";
 import logger, { logDebug, logError, logInfo } from "../utils/logger";
-console.log("📊 Importing getIO...");
+// console.log("📊 Importing getIO...");
 import { getIO } from "../libs/socket";
-console.log("📊 Importing Whatsapp model...");
+// console.log("📊 Importing Whatsapp model...");
 import Whatsapp from "../models/Whatsapp";
-console.log("📊 Importing Message model...");
+// console.log("📊 Importing Message model...");
 import Message from "../models/Message";
 import { Op } from "sequelize";
-console.log("📊 Importing antiBanManager...");
+// console.log("📊 Importing antiBanManager...");
 import { antiBanManager } from "../utils/antiBan";
-console.log("📊 whatsappMonitor imports done");
+// console.log("📊 whatsappMonitor imports done");
 
 /**
  * Estado de salud de una conexión WhatsApp
@@ -594,5 +594,5 @@ export const whatsappMonitor = new WhatsappMonitor();
  * 📤 Export default
  */
 
-console.log("📊 whatsappMonitor.ts execution finished");
+// console.log("📊 whatsappMonitor.ts execution finished");
 export default whatsappMonitor;

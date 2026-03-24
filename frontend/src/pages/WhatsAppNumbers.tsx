@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -15,6 +15,7 @@ import {
   FormControl,
   FormLabel,
   Grid,
+  LinearProgress,
 } from '@mui/joy'
 import {
   Add as AddIcon,
@@ -25,6 +26,7 @@ import {
   Error as ErrorIcon,
   Phone as PhoneIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
 
 interface PhoneNumber {
   id: number
@@ -41,50 +43,26 @@ interface PhoneNumber {
 }
 
 export default function WhatsAppNumbers() {
-  const [numbers] = useState<PhoneNumber[]>([
-    {
-      id: 1,
-      phoneNumber: '+1 555-0123',
-      displayName: 'Soporte Principal',
-      wabaId: 'WABA_12345678',
-      phoneNumberId: 'PHONE_87654321',
-      status: 'active',
-      verifiedName: 'JR Chateam Support',
-      quality: 95,
-      tier: 'standard',
-      messagingLimit: '1000/day',
-      createdAt: '2025-01-15',
-    },
-    {
-      id: 2,
-      phoneNumber: '+1 555-0456',
-      displayName: 'Ventas México',
-      wabaId: 'WABA_23456789',
-      phoneNumberId: 'PHONE_98765432',
-      status: 'active',
-      verifiedName: 'JR Chateam Sales MX',
-      quality: 88,
-      tier: 'standard',
-      messagingLimit: '1000/day',
-      createdAt: '2025-02-20',
-    },
-    {
-      id: 3,
-      phoneNumber: '+1 555-0789',
-      displayName: 'Marketing LATAM',
-      wabaId: 'WABA_34567890',
-      phoneNumberId: 'PHONE_09876543',
-      status: 'error',
-      verifiedName: 'JR Chateam Marketing',
-      quality: 0,
-      tier: 'standard',
-      messagingLimit: '0/day',
-      createdAt: '2025-03-10',
-    },
-  ])
-
+  const [numbers, setNumbers] = useState<PhoneNumber[]>([])
+  const [loading, setLoading] = useState(false)
   const [openModal, setOpenModal] = useState(false)
   const [editingNumber, setEditingNumber] = useState<PhoneNumber | null>(null)
+
+  const fetchNumbers = async () => {
+    setLoading(true)
+    try {
+      const { data } = await api.get('/whatsapp/numbers')
+      setNumbers(data?.data ?? data ?? [])
+    } catch {
+      setNumbers([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchNumbers()
+  }, [])
 
   const handleAdd = () => {
     setEditingNumber(null)
@@ -96,8 +74,8 @@ export default function WhatsAppNumbers() {
     setOpenModal(true)
   }
 
-  const handleDelete = (id: number) => {
-    console.log('Eliminar número:', id)
+  const handleDelete = (_id: number) => {
+    // TODO: llamar api.delete(`/whatsapp/numbers/${_id}`) y recargar lista
   }
 
   const getStatusColor = (status: PhoneNumber['status']) => {
@@ -115,6 +93,11 @@ export default function WhatsAppNumbers() {
     }
   }
 
+  const avgQuality =
+    numbers.length === 0
+      ? 0
+      : Math.round(numbers.reduce((acc, n) => acc + n.quality, 0) / numbers.length)
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -131,6 +114,8 @@ export default function WhatsAppNumbers() {
           Agregar Número
         </Button>
       </Box>
+
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid xs={12} sm={6} md={3}>
@@ -174,9 +159,7 @@ export default function WhatsAppNumbers() {
                 Calidad Promedio
               </Typography>
               <Typography level="h3" sx={{ color: 'primary.500' }}>
-                {Math.round(
-                  numbers.reduce((acc, n) => acc + n.quality, 0) / numbers.length
-                )}%
+                {avgQuality}%
               </Typography>
             </CardContent>
           </Card>
@@ -200,72 +183,84 @@ export default function WhatsAppNumbers() {
                 </tr>
               </thead>
               <tbody>
-                {numbers.map((number) => (
-                  <tr key={number.id}>
-                    <td>
-                      <Box>
-                        <Typography level="body-sm" fontWeight="lg">
-                          {number.phoneNumber}
+                {numbers.length === 0 && !loading ? (
+                  <tr>
+                    <td colSpan={8}>
+                      <Box sx={{ py: 4, textAlign: 'center' }}>
+                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                          No hay números de WhatsApp configurados. Agrega tu primer número para comenzar.
                         </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {number.displayName}
-                        </Typography>
-                      </Box>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{number.verifiedName}</Typography>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={getStatusColor(number.status)}
-                        startDecorator={
-                          number.status === 'active' ? <CheckCircleIcon /> : <ErrorIcon />
-                        }
-                      >
-                        {number.status.charAt(0).toUpperCase() + number.status.slice(1)}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-xs" fontFamily="monospace">
-                        {number.wabaId}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" color={number.quality >= 80 ? 'success' : 'warning'}>
-                        {number.quality}%
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{number.messagingLimit}</Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-xs">{number.createdAt}</Typography>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          onClick={() => handleEdit(number)}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="sm" variant="plain" color="neutral">
-                          <QrCodeIcon />
-                        </IconButton>
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="danger"
-                          onClick={() => handleDelete(number.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
                       </Box>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  numbers.map((number) => (
+                    <tr key={number.id}>
+                      <td>
+                        <Box>
+                          <Typography level="body-sm" fontWeight="lg">
+                            {number.phoneNumber}
+                          </Typography>
+                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            {number.displayName}
+                          </Typography>
+                        </Box>
+                      </td>
+                      <td>
+                        <Typography level="body-sm">{number.verifiedName}</Typography>
+                      </td>
+                      <td>
+                        <Chip
+                          size="sm"
+                          color={getStatusColor(number.status)}
+                          startDecorator={
+                            number.status === 'active' ? <CheckCircleIcon /> : <ErrorIcon />
+                          }
+                        >
+                          {number.status.charAt(0).toUpperCase() + number.status.slice(1)}
+                        </Chip>
+                      </td>
+                      <td>
+                        <Typography level="body-xs" fontFamily="monospace">
+                          {number.wabaId}
+                        </Typography>
+                      </td>
+                      <td>
+                        <Chip size="sm" color={number.quality >= 80 ? 'success' : 'warning'}>
+                          {number.quality}%
+                        </Chip>
+                      </td>
+                      <td>
+                        <Typography level="body-sm">{number.messagingLimit}</Typography>
+                      </td>
+                      <td>
+                        <Typography level="body-xs">{number.createdAt}</Typography>
+                      </td>
+                      <td>
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                          <IconButton
+                            size="sm"
+                            variant="plain"
+                            onClick={() => handleEdit(number)}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton size="sm" variant="plain" color="neutral">
+                            <QrCodeIcon />
+                          </IconButton>
+                          <IconButton
+                            size="sm"
+                            variant="plain"
+                            color="danger"
+                            onClick={() => handleDelete(number.id)}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </Table>
           </Sheet>

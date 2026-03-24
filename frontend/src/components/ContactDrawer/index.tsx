@@ -33,6 +33,8 @@ import {
   CalendarMonth as CalendarIcon,
   Schedule,
   CheckCircle,
+  Notifications,
+  NotificationsOff,
 } from '@mui/icons-material'
 import api from '../../services/api'
 import { toast } from 'react-toastify'
@@ -66,6 +68,8 @@ interface Ticket {
   contactId: number
   contact: Contact
   tags?: Tag[]
+  followupEnabled?: boolean
+  isBot?: boolean
 }
 
 interface ExistingAppointment {
@@ -118,6 +122,9 @@ export default function ContactDrawer({
   const [existingAppointment, setExistingAppointment] = useState<ExistingAppointment | null>(null)
   const [checkingAppointment, setCheckingAppointment] = useState(false)
   const [confirmingAppointment, setConfirmingAppointment] = useState(false)
+  const [followupEnabled, setFollowupEnabled] = useState(true)
+  const [togglingFollowup, setTogglingFollowup] = useState(false)
+  const [togglingBot, setTogglingBot] = useState(false)
 
   useEffect(() => {
     if (contact) {
@@ -181,6 +188,15 @@ export default function ContactDrawer({
     }
   }, [ticket?.tags])
 
+  // Inicializar followupEnabled desde el ticket
+  useEffect(() => {
+    if (ticket?.followupEnabled !== undefined) {
+      setFollowupEnabled(ticket.followupEnabled)
+    } else {
+      setFollowupEnabled(true) // default true
+    }
+  }, [ticket?.followupEnabled])
+
   const fetchKanbanTags = async () => {
     try {
       const response = await api.get('/tags/list', { params: { kanban: 1 } })
@@ -242,6 +258,35 @@ export default function ContactDrawer({
       setIsBlocked(!isBlocked)
     } catch (error) {
       console.error('Error toggling block:', error)
+    }
+  }
+
+  const handleToggleFollowup = async () => {
+    if (!ticket?.id) return
+    setTogglingFollowup(true)
+    try {
+      const response = await api.put(`/tickets/${ticket.id}/followup`)
+      setFollowupEnabled(response.data.followupEnabled)
+      toast.success(response.data.followupEnabled ? 'Seguimiento activado' : 'Seguimiento desactivado')
+    } catch (error) {
+      console.error('Error toggling followup:', error)
+      toast.error('Error al cambiar configuración de seguimiento')
+    } finally {
+      setTogglingFollowup(false)
+    }
+  }
+
+  const handleDisableBot = async () => {
+    if (!ticket?.id) return
+    setTogglingBot(true)
+    try {
+      await api.put(`/tickets/${ticket.id}`, { isBot: false })
+      toast.success('Bot desactivado')
+    } catch (error) {
+      console.error('Error disabling bot:', error)
+      toast.error('Error al desactivar el bot')
+    } finally {
+      setTogglingBot(false)
     }
   }
 
@@ -590,6 +635,39 @@ export default function ContactDrawer({
                       size="sm"
                     />
                   </Box>
+                  {ticket && (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Typography level="body-sm">
+                        {followupEnabled ? 'Mensajes de seguimiento' : 'Mensajes de seguimiento'}
+                      </Typography>
+                      <Switch
+                        checked={followupEnabled}
+                        onChange={handleToggleFollowup}
+                        disabled={togglingFollowup}
+                        size="sm"
+                        color={followupEnabled ? 'success' : 'danger'}
+                      />
+                    </Box>
+                  )}
+                  {ticket && ticket.isBot && (
+                    <Button
+                      variant="outlined"
+                      color="warning"
+                      size="sm"
+                      onClick={handleDisableBot}
+                      disabled={togglingBot}
+                      startDecorator={<BlockIcon />}
+                      sx={{ mt: 2 }}
+                    >
+                      {togglingBot ? 'Desactivando...' : 'Desactivar Bot'}
+                    </Button>
+                  )}
                 </Stack>
               </Card>
 

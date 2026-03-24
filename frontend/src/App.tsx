@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Box, CssVarsProvider } from '@mui/joy'
 import CssBaseline from '@mui/joy/CssBaseline'
@@ -58,6 +58,8 @@ import Settings from './pages/Settings'
 import Terms from './pages/Terms'
 import Companies from './pages/Companies'
 import Plans from './pages/Plans'
+import EmailPlans from './pages/EmailPlans'
+import EmailCreditsDashboard from './pages/EmailCreditsDashboard'
 
 // General
 import Analytics from './pages/Analytics'
@@ -140,6 +142,75 @@ import AISubplans from './pages/AISubplans'
 // FASE 4: Sistema de Permisos - Día 12
 import PermissionsManager from './pages/PermissionsManager'
 
+// Kanban Dashboard (lazy)
+const KanbanDashboard = lazy(() => import("./pages/KanbanDashboard"))
+
+// Plataforma IA (lazy)
+const AIPlatform = lazy(() => import("./pages/AIPlatform"))
+const AIAgents = lazy(() => import("./pages/AIAgents"))
+const AIKnowledgeBase = lazy(() => import("./pages/AIKnowledgeBase"))
+const AIChatbotBuilder = lazy(() => import("./pages/AIChatbotBuilder"))
+const AIWriter = lazy(() => import("./pages/AIWriter"))
+const AIAudio = lazy(() => import("./pages/AIAudio"))
+const AIMultimodal = lazy(() => import("./pages/AIMultimodal"))
+const AICredits = lazy(() => import("./pages/AICredits"))
+const AIScheduler = lazy(() => import("./pages/AIScheduler"))
+const AIObservability = lazy(() => import("./pages/AIObservability"))
+const AIFineTuning = lazy(() => import("./pages/AIFineTuning"))
+const AIHeyGen = lazy(() => import("./pages/AIHeyGen"))
+const AIABTesting = lazy(() => import("./pages/AIABTesting"))
+const AIAffiliates = lazy(() => import("./pages/AIAffiliates"))
+
+// Comment Auto-Reply (lazy)
+const CommentAutoReplyDashboard = lazy(() => import("./pages/CommentAutoReplyDashboard"))
+const CommentAutoReplyCampaigns = lazy(() => import("./pages/CommentAutoReplyCampaigns"))
+const CommentAutoReplyLogs = lazy(() => import("./pages/CommentAutoReplyLogs"))
+const CommentAutoReplySettings = lazy(() => import("./pages/CommentAutoReplySettings"))
+
+// Afiliados Independiente (lazy)
+const AffiliateDashboard = lazy(() => import("./pages/AffiliateDashboard"))
+const AIRentabilityDashboard = lazy(() => import("./pages/AIRentabilityDashboard"))
+const AIUsageDashboard = lazy(() => import("./pages/AIUsageDashboard"))
+const AffiliatePrograms = lazy(() => import("./pages/AffiliatePrograms"))
+const AffiliateReferrals = lazy(() => import("./pages/AffiliateReferrals"))
+const AffiliateWallet = lazy(() => import("./pages/AffiliateWallet"))
+const AffiliateWithdrawals = lazy(() => import("./pages/AffiliateWithdrawals"))
+const AffiliateLinks = lazy(() => import("./pages/AffiliateLinks"))
+const AffiliateTiers = lazy(() => import("./pages/AffiliateTiers"))
+
+// Agentes IA (lazy)
+const AgentCommentsInbox = lazy(() => import("./pages/AgentCommentsInbox"))
+const AgentDeviceFarm = lazy(() => import("./pages/AgentDeviceFarm"))
+const AgentIdentityDashboard = lazy(() => import("./pages/AgentIdentityDashboard"))
+
+// Coexistencia & Migración (lazy)
+const CoexistenceDashboard = lazy(() => import("./pages/CoexistenceDashboard"))
+const MigrationWizard = lazy(() => import("./pages/MigrationWizard"))
+const TikTokConnections = lazy(() => import("./pages/TikTokConnections"))
+
+// UGC (lazy)
+const UGCDashboard = lazy(() => import("./pages/UGCDashboard"))
+const UGCCampaigns = lazy(() => import("./pages/UGCCampaigns"))
+const UGCCreatorNetwork = lazy(() => import("./pages/UGCCreatorNetwork"))
+const UGCAnalytics = lazy(() => import("./pages/UGCAnalytics"))
+const UGCOptimization = lazy(() => import("./pages/UGCOptimization"))
+const UGCSettings = lazy(() => import("./pages/UGCSettings"))
+const UGCSocialAccounts = lazy(() => import("./pages/UGCSocialAccounts"))
+const UGCSocialPosts = lazy(() => import("./pages/UGCSocialPosts"))
+const UGCVideoStudio = lazy(() => import("./pages/UGCVideoStudio"))
+
+// Campañas extras (lazy)
+const CampaignAI = lazy(() => import("./pages/CampaignAI"))
+const CampaignRules = lazy(() => import("./pages/CampaignRules"))
+
+// Email extras (lazy)
+const EmailProviderSettings = lazy(() => import("./pages/EmailProviderSettings"))
+const EmailCreditPacks = lazy(() => import("./pages/EmailCreditPacks"))
+
+// Auth adicional (lazy)
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"))
+const ResetPassword = lazy(() => import("./pages/ResetPassword"))
+
 function App() {
   const { chateamTheme, setColors, colors } = useThemeColors()
   const { user, loading: authLoading } = useAuth()
@@ -184,6 +255,7 @@ function App() {
           <Route path="/tickets" element={<ProtectedRoute module="tickets"><Tickets /></ProtectedRoute>} />
           <Route path="/quick-replies" element={<ProtectedRoute module="quick_replies"><QuickReplies /></ProtectedRoute>} />
           <Route path="/kanban" element={<ProtectedRoute module="kanban"><Kanban /></ProtectedRoute>} />
+          <Route path="/kanban-dashboard" element={<Suspense fallback={null}><ProtectedRoute module="kanban"><KanbanDashboard /></ProtectedRoute></Suspense>} />
           <Route path="/contacts" element={<ProtectedRoute module="contacts"><Contacts /></ProtectedRoute>} />
           <Route path="/schedules" element={<ProtectedRoute module="schedules"><Schedules /></ProtectedRoute>} />
           <Route path="/tags" element={<ProtectedRoute module="tags"><Tags /></ProtectedRoute>} />
@@ -223,6 +295,8 @@ function App() {
           <Route path="/terms" element={<ProtectedRoute module="terms"><Terms /></ProtectedRoute>} />
           <Route path="/companies" element={<ProtectedRoute module="companies"><Companies /></ProtectedRoute>} />
           <Route path="/plans" element={<ProtectedRoute module="plans"><Plans /></ProtectedRoute>} />
+          <Route path="/email-plans" element={<ProtectedRoute module="plans"><EmailPlans /></ProtectedRoute>} />
+          <Route path="/email/credits-dashboard" element={<ProtectedRoute module="email_marketing"><EmailCreditsDashboard /></ProtectedRoute>} />
 
           {/* General */}
           <Route path="/analytics" element={<ProtectedRoute module="analytics"><Analytics /></ProtectedRoute>} />
@@ -304,6 +378,72 @@ function App() {
 
           {/* FASE 4: Sistema de Permisos (Día 12) */}
           <Route path="/permissions-manager" element={<ProtectedRoute module="permissions_manager"><PermissionsManager /></ProtectedRoute>} />
+
+          {/* Plataforma IA */}
+          <Route path="/ai/platform" element={<Suspense fallback={null}><ProtectedRoute module="ai_platform"><AIPlatform /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/agents" element={<Suspense fallback={null}><ProtectedRoute module="ai_agents"><AIAgents /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/knowledge-base" element={<Suspense fallback={null}><ProtectedRoute module="ai_knowledge_base"><AIKnowledgeBase /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/chatbot-builder" element={<Suspense fallback={null}><ProtectedRoute module="ai_chatbot_builder"><AIChatbotBuilder /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/writer" element={<Suspense fallback={null}><ProtectedRoute module="ai_writer"><AIWriter /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/audio" element={<Suspense fallback={null}><ProtectedRoute module="ai_audio"><AIAudio /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/multimodal" element={<Suspense fallback={null}><ProtectedRoute module="ai_multimodal"><AIMultimodal /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/credits" element={<Suspense fallback={null}><ProtectedRoute module="ai_credits"><AICredits /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/scheduler" element={<Suspense fallback={null}><ProtectedRoute module="ai_scheduler"><AIScheduler /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/observability" element={<Suspense fallback={null}><ProtectedRoute module="ai_observability"><AIObservability /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/fine-tuning" element={<Suspense fallback={null}><ProtectedRoute module="ai_fine_tuning"><AIFineTuning /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/heygen" element={<Suspense fallback={null}><ProtectedRoute module="ai_heygen"><AIHeyGen /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/ab-testing" element={<Suspense fallback={null}><ProtectedRoute module="ai_ab_testing"><AIABTesting /></ProtectedRoute></Suspense>} />
+          <Route path="/ai/affiliates" element={<Suspense fallback={null}><ProtectedRoute module="ai_affiliates"><AIAffiliates /></ProtectedRoute></Suspense>} />
+
+          {/* Afiliados Independiente */}
+          <Route path="/affiliates" element={<Suspense fallback={null}><ProtectedRoute module="affiliates"><AffiliateDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/ai-rentability" element={<Suspense fallback={null}><ProtectedRoute module="superadmin"><AIRentabilityDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/ai-usage" element={<Suspense fallback={null}><ProtectedRoute><AIUsageDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/affiliates/programs" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_programs"><AffiliatePrograms /></ProtectedRoute></Suspense>} />
+          <Route path="/affiliates/referrals" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_referrals"><AffiliateReferrals /></ProtectedRoute></Suspense>} />
+          <Route path="/affiliates/wallet" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_wallet"><AffiliateWallet /></ProtectedRoute></Suspense>} />
+          <Route path="/affiliates/withdrawals" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_withdrawals"><AffiliateWithdrawals /></ProtectedRoute></Suspense>} />
+          <Route path="/affiliates/links" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_links"><AffiliateLinks /></ProtectedRoute></Suspense>} />
+          <Route path="/affiliates/tiers" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_tiers"><AffiliateTiers /></ProtectedRoute></Suspense>} />
+
+          {/* Agentes IA */}
+          <Route path="/agents/comments" element={<Suspense fallback={null}><ProtectedRoute module="agent_comments"><AgentCommentsInbox /></ProtectedRoute></Suspense>} />
+          <Route path="/agents/devices" element={<Suspense fallback={null}><ProtectedRoute module="agent_devices"><AgentDeviceFarm /></ProtectedRoute></Suspense>} />
+          <Route path="/agents/identity" element={<Suspense fallback={null}><ProtectedRoute module="agent_identity"><AgentIdentityDashboard /></ProtectedRoute></Suspense>} />
+
+          {/* Coexistencia & Migración */}
+          <Route path="/coexistence" element={<Suspense fallback={null}><ProtectedRoute module="coexistence"><CoexistenceDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/migration" element={<Suspense fallback={null}><ProtectedRoute module="migration"><MigrationWizard /></ProtectedRoute></Suspense>} />
+          <Route path="/tiktok-connections" element={<Suspense fallback={null}><ProtectedRoute module="connections"><TikTokConnections /></ProtectedRoute></Suspense>} />
+
+          {/* UGC */}
+          <Route path="/ugc/dashboard" element={<Suspense fallback={null}><ProtectedRoute module="ugc_dashboard"><UGCDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/campaigns" element={<Suspense fallback={null}><ProtectedRoute module="ugc_campaigns"><UGCCampaigns /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/creators" element={<Suspense fallback={null}><ProtectedRoute module="ugc_creators"><UGCCreatorNetwork /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/analytics" element={<Suspense fallback={null}><ProtectedRoute module="ugc_analytics"><UGCAnalytics /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/optimization" element={<Suspense fallback={null}><ProtectedRoute module="ugc_optimization"><UGCOptimization /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/settings" element={<Suspense fallback={null}><ProtectedRoute module="ugc_settings"><UGCSettings /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/social-accounts" element={<Suspense fallback={null}><ProtectedRoute module="ugc_social_accounts"><UGCSocialAccounts /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/social-posts" element={<Suspense fallback={null}><ProtectedRoute module="ugc_social_posts"><UGCSocialPosts /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/video-studio" element={<Suspense fallback={null}><ProtectedRoute module="ugc_video_studio"><UGCVideoStudio /></ProtectedRoute></Suspense>} />
+
+          {/* Campañas extras */}
+          <Route path="/campaigns/ai" element={<Suspense fallback={null}><ProtectedRoute module="campaigns_ai"><CampaignAI /></ProtectedRoute></Suspense>} />
+          <Route path="/campaigns/rules" element={<Suspense fallback={null}><ProtectedRoute module="campaigns_rules"><CampaignRules /></ProtectedRoute></Suspense>} />
+
+          {/* Email extras */}
+          <Route path="/email/provider-settings" element={<Suspense fallback={null}><ProtectedRoute module="email_provider_settings"><EmailProviderSettings /></ProtectedRoute></Suspense>} />
+          <Route path="/email/credit-packs" element={<Suspense fallback={null}><ProtectedRoute module="email_credit_packs"><EmailCreditPacks /></ProtectedRoute></Suspense>} />
+
+          {/* Comment Auto-Reply (Auto-Respondedor de Comentarios) */}
+          <Route path="/comment-autoreply" element={<Suspense fallback={null}><ProtectedRoute module="comment_autoreply"><CommentAutoReplyDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/comment-autoreply/campaigns" element={<Suspense fallback={null}><ProtectedRoute module="comment_autoreply_campaigns"><CommentAutoReplyCampaigns /></ProtectedRoute></Suspense>} />
+          <Route path="/comment-autoreply/campaigns/:id/logs" element={<Suspense fallback={null}><ProtectedRoute module="comment_autoreply_campaigns"><CommentAutoReplyLogs /></ProtectedRoute></Suspense>} />
+          <Route path="/comment-autoreply/settings" element={<Suspense fallback={null}><ProtectedRoute module="comment_autoreply"><CommentAutoReplySettings /></ProtectedRoute></Suspense>} />
+
+          {/* Auth adicional - rutas públicas */}
+          <Route path="/forgot-password" element={<Suspense fallback={null}><ForgotPassword /></Suspense>} />
+          <Route path="/reset-password" element={<Suspense fallback={null}><ResetPassword /></Suspense>} />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />

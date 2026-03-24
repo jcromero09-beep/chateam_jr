@@ -36,7 +36,7 @@ async function fetchOpenAIToken() {
 
 const TranscribeAudioMessageToText = async (fileName: string, companyId: number): Promise<Response> => {
   const token = await fetchOpenAIToken();
-  const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
+  const publicFolder = path.resolve(__dirname, "..", "..", "public");
 
   const filePath = `${publicFolder}/company${companyId}/${fileName}`;
   

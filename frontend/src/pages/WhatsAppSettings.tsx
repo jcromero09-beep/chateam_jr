@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -23,18 +23,19 @@ import {
   Key as KeyIcon,
   Notifications as NotificationsIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
 
 export default function WhatsAppSettings() {
   const [settings, setSettings] = useState({
     // Meta API Credentials
-    appId: 'YOUR_APP_ID',
-    appSecret: '••••••••••••••••',
-    businessAccountId: 'WABA_12345678',
-    accessToken: '••••••••••••••••••••••••••••••',
+    appId: '',
+    appSecret: '',
+    businessAccountId: '',
+    accessToken: '',
 
     // Webhook Settings
-    webhookUrl: 'https://api.jrchateam.com/webhooks/whatsapp',
-    verifyToken: 'VERIFY_TOKEN_ABC123',
+    webhookUrl: '',
+    verifyToken: '',
 
     // Auto-reply
     autoReplyEnabled: true,
@@ -60,8 +61,25 @@ export default function WhatsAppSettings() {
     maxRetries: 3,
   })
 
-  const handleSave = () => {
-    console.log('Guardando configuración...', settings)
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const { data } = await api.get('/whatsapp/settings')
+        const fetched = data?.data ?? data ?? {}
+        setSettings((prev) => ({ ...prev, ...fetched }))
+      } catch {
+        // mantener defaults en error
+      }
+    }
+    fetchSettings()
+  }, [])
+
+  const handleSave = async () => {
+    try {
+      await api.put('/whatsapp/settings', settings)
+    } catch {
+      // manejar error silenciosamente o mostrar snackbar
+    }
   }
 
   return (

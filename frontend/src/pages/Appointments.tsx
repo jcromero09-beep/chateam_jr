@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import api from '../services/api'
 import {
   Container,
   Typography,
@@ -99,141 +100,22 @@ export default function Appointments() {
   const fetchAppointments = async () => {
     setLoading(true)
     try {
-      const mockAppointments: Appointment[] = [
-        {
-          id: 1,
-          title: 'Consulta General',
-          client: {
-            name: 'Juan Pérez',
-            phone: '+1234567890',
-            email: 'juan@example.com',
-          },
-          date: '2025-01-15',
-          time: '10:00',
-          duration: 30,
-          type: 'presencial',
-          status: 'confirmed',
-          service: 'Consulta Médica',
-          assignedTo: 'Dr. García',
-          location: 'Consultorio 101',
-          reminders: {
-            whatsapp: true,
-            email: true,
-            sms: false,
-          },
-          createdAt: '2025-01-10T14:00:00Z',
-        },
-        {
-          id: 2,
-          title: 'Reunión Virtual',
-          client: {
-            name: 'María González',
-            phone: '+1234567891',
-            email: 'maria@example.com',
-          },
-          date: '2025-01-15',
-          time: '14:00',
-          duration: 60,
-          type: 'virtual',
-          status: 'pending',
-          service: 'Asesoría Legal',
-          assignedTo: 'Lic. Martínez',
-          meetingLink: 'https://meet.google.com/abc-defg-hij',
-          reminders: {
-            whatsapp: true,
-            email: true,
-            sms: true,
-          },
-          createdAt: '2025-01-11T09:00:00Z',
-        },
-        {
-          id: 3,
-          title: 'Seguimiento Telefónico',
-          client: {
-            name: 'Carlos Rodríguez',
-            phone: '+1234567892',
-            email: 'carlos@example.com',
-          },
-          date: '2025-01-16',
-          time: '09:30',
-          duration: 15,
-          type: 'telefonica',
-          status: 'confirmed',
-          service: 'Soporte Técnico',
-          assignedTo: 'Ing. López',
-          notes: 'Cliente requiere asistencia con configuración de software',
-          reminders: {
-            whatsapp: true,
-            email: false,
-            sms: true,
-          },
-          createdAt: '2025-01-12T16:00:00Z',
-        },
-        {
-          id: 4,
-          title: 'Revisión Anual',
-          client: {
-            name: 'Ana Jiménez',
-            phone: '+1234567893',
-            email: 'ana@example.com',
-          },
-          date: '2025-01-14',
-          time: '11:00',
-          duration: 45,
-          type: 'presencial',
-          status: 'completed',
-          service: 'Checkup Médico',
-          assignedTo: 'Dr. Sánchez',
-          location: 'Consultorio 203',
-          reminders: {
-            whatsapp: true,
-            email: true,
-            sms: false,
-          },
-          createdAt: '2025-01-05T10:00:00Z',
-        },
-        {
-          id: 5,
-          title: 'Consulta de Emergencia',
-          client: {
-            name: 'Pedro Morales',
-            phone: '+1234567894',
-            email: 'pedro@example.com',
-          },
-          date: '2025-01-13',
-          time: '16:00',
-          duration: 30,
-          type: 'presencial',
-          status: 'cancelled',
-          service: 'Consulta Médica',
-          assignedTo: 'Dr. García',
-          location: 'Consultorio 101',
-          notes: 'Cliente canceló por motivos personales',
-          reminders: {
-            whatsapp: true,
-            email: false,
-            sms: false,
-          },
-          createdAt: '2025-01-13T08:00:00Z',
-        },
-      ]
-      setAppointments(mockAppointments)
-    } catch (error) {
-      console.error('Error fetching appointments:', error)
+      const response = await api.get('/appointments')
+      setAppointments(response.data ?? [])
+    } catch {
+      setAppointments([])
     } finally {
       setLoading(false)
     }
   }
 
   const fetchServices = async () => {
-    const mockServices: Service[] = [
-      { id: 1, name: 'Consulta Médica', duration: 30, price: 50, color: '#2196f3' },
-      { id: 2, name: 'Asesoría Legal', duration: 60, price: 100, color: '#4caf50' },
-      { id: 3, name: 'Soporte Técnico', duration: 15, price: 30, color: '#ff9800' },
-      { id: 4, name: 'Checkup Médico', duration: 45, price: 80, color: '#9c27b0' },
-      { id: 5, name: 'Terapia Psicológica', duration: 60, price: 70, color: '#e91e63' },
-    ]
-    setServices(mockServices)
+    try {
+      const response = await api.get('/appointments/services')
+      setServices(response.data ?? [])
+    } catch {
+      setServices([])
+    }
   }
 
   const stats = {
@@ -502,7 +384,11 @@ export default function Appointments() {
                       {filteredAppointments.length === 0 ? (
                         <tr>
                           <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
-                            <Typography>No hay citas</Typography>
+                            <Typography>
+                              {appointments.length === 0
+                                ? 'No hay citas programadas. Crea tu primera cita para comenzar.'
+                                : 'No hay citas con los filtros aplicados.'}
+                            </Typography>
                           </td>
                         </tr>
                       ) : (
@@ -715,12 +601,18 @@ export default function Appointments() {
               <Stack direction="row" spacing={2}>
                 <FormControl sx={{ flex: 1 }}>
                   <FormLabel>Servicio</FormLabel>
-                  <Select defaultValue="1">
-                    {services.map((service) => (
-                      <Option key={service.id} value={service.id.toString()}>
-                        {service.name} ({service.duration} min)
+                  <Select defaultValue="">
+                    {services.length === 0 ? (
+                      <Option value="" disabled>
+                        Configura servicios primero en la sección de configuración.
                       </Option>
-                    ))}
+                    ) : (
+                      services.map((service) => (
+                        <Option key={service.id} value={service.id.toString()}>
+                          {service.name} ({service.duration} min)
+                        </Option>
+                      ))
+                    )}
                   </Select>
                 </FormControl>
                 <FormControl sx={{ flex: 1 }}>

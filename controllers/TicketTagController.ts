@@ -1,12 +1,14 @@
 import { Request, Response } from "express";
+import { Op } from "sequelize";
 import AppError from "../errors/AppError";
 import TicketTag from '../models/TicketTag';
 import Tag from '../models/Tag'
 import { getIO } from "../libs/socket";
 import Ticket from "../models/Ticket";
 import ShowTicketService from "../services/TicketServices/ShowTicketService";
-import { removeFollowupJobByTicketId, enqueueFollowupJob } from "../workers/stageClassifier.worker";
+import { removeFollowupJobByTicketId, enqueueFollowupJob, handleTagAssignment } from "../workers/stageClassifier.worker";
 import { obtenerApiKeyPorTicketId } from "../services/IntegrationsServices/clasificarEtapaCliente";
+import KanbanMovementLog from "../models/KanbanMovementLog";
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { ticketId: ticketIdParam, tagId: tagIdParam } = req.params;
   const ticketId = Number(ticketIdParam);
@@ -31,26 +33,61 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     }
     //console.log(`[TicketTag.store] Tag recuperado: key=${tag.key}, timeLane=${tag.timeLane}, greetingMessageLane=${!!tag.greetingMessageLane}`);
 
+    // Detectar si el usuario está sobrescribiendo una clasificación IA reciente (<30min)
+    try {
+      const recentAIMove = await KanbanMovementLog.findOne({
+        where: {
+          ticketId,
+          companyId,
+          movedBy: 'ai',
+          createdAt: { [Op.gte]: new Date(Date.now() - 30 * 60 * 1000) }
+        },
+        order: [['createdAt', 'DESC']]
+      });
+
+      await KanbanMovementLog.create({
+        ticketId,
+        companyId,
+        fromTagId: recentAIMove?.toTagId || null,
+        toTagId: tagId,
+        movedBy: 'user',
+        userId: req.user.id,
+        wasOverriddenByUser: !!recentAIMove,
+        reason: recentAIMove ? 'Usuario sobrescribió clasificación IA' : 'Asignación manual de etapa'
+      });
+    } catch (logErr) {
+      // No fallar por error de log
+    }
+
     // 3. Elimina el job de seguimiento anterior (si existe)
     const removed = await removeFollowupJobByTicketId(ticketId);
     //console.log(`[TicketTag.store] Job de seguimiento anterior eliminado: ${removed}`);
 
-    // 4. Busca ticket, apiKey y programa nuevo seguimiento si aplica
+    // 4. Busca ticket y programa nuevo seguimiento usando el nuevo sistema v2.0
     const ticket = await ShowTicketService(ticketId, companyId);
-    const apiKey = await obtenerApiKeyPorTicketId(ticket.id);
-    //console.log(`[TicketTag.store] Ticket y apiKey obtenidos: ticket=${!!ticket}, apiKey=${!!apiKey}`);
 
-    if (tag.timeLane && tag.greetingMessageLane && apiKey) {
-      await enqueueFollowupJob({
-        ticketId,
-        tag,
-        companyId,
-        apiKey,
-        contactName: "",
-      });
-      //console.log(`[TicketTag.store] Nuevo job de seguimiento programado para ticketId=${ticketId} con tag ${tag.key} (${tag.timeLane} min)`);
+    // Usar el nuevo sistema de followup v2.0 si es un tag kanban
+    if (tag.kanban === 1) {
+      await handleTagAssignment(ticketId, tagId, companyId);
     } else {
-      //console.log(`[TicketTag.store] No se programa seguimiento: condiciones no cumplen. timeLane=${tag.timeLane}, greetingMessageLane=${!!tag.greetingMessageLane}, apiKey=${!!apiKey}`);
+      // Sistema legacy para tags no-kanban
+      const apiKey = await obtenerApiKeyPorTicketId(ticket.id);
+      if (tag.timeLane && tag.greetingMessageLane && apiKey) {
+        // Convertir tag a la nueva estructura
+        await enqueueFollowupJob({
+          ticketId,
+          tagId: tag.id,
+          tagKey: tag.key,
+          companyId,
+          apiKey,
+          contactName: "",
+          conversationContext: '',
+          currentFollowup: 1,
+          followupMessage1: tag.greetingMessageLane,
+          followupDelay1: tag.timeLane || 1,
+          followupCount: 1
+        });
+      }
     }
 
     // 5. Notifica por socket

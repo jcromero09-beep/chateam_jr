@@ -2,6 +2,7 @@ import express from "express";
 import isAuth from "../middleware/isAuth";
 
 import * as TagController from "../controllers/TagController";
+import KanbanMetricsController from "../controllers/KanbanMetricsController";
 
 const tagRoutes = express.Router();
 
@@ -17,5 +18,8 @@ tagRoutes.put("/tags/:tagId", isAuth, TagController.update);
 
 tagRoutes.delete("/tags/:tagId", isAuth, TagController.remove);
 tagRoutes.delete("/tags-contacts/:tagId/:contactId", isAuth, TagController.removeContactTag);
+
+tagRoutes.get("/tag/kanban/metrics", isAuth, KanbanMetricsController.getMetrics);
+tagRoutes.get("/tag/kanban/funnel", isAuth, KanbanMetricsController.getFunnel);
 
 export default tagRoutes;

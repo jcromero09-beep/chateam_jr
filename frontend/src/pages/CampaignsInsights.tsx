@@ -18,6 +18,7 @@ import {
   Alert,
   CircularProgress,
   Input,
+  Button,
 } from '@mui/joy'
 import {
   TrendingUp as TrendingUpIcon,
@@ -39,6 +40,7 @@ import {
   Chat as ChatIcon,
   PersonAdd as PersonAddIcon,
   Forum as ForumIcon,
+  ViewColumn as ViewColumnIcon,
 } from '@mui/icons-material'
 import {
   AreaChart,
@@ -52,6 +54,12 @@ import {
 } from 'recharts'
 import api from '../services/api'
 import DateRangePicker from '../components/DateRangePicker'
+import CustomColumnModal, {
+  type CustomColumn,
+  evaluateCustomColumn,
+  formatCustomValue,
+  getOperatorSymbol,
+} from '../components/CustomColumnModal'
 
 interface FacebookCampaign {
   id: string
@@ -151,7 +159,7 @@ interface AdsConnection {
 
 // Tipo para el estado de entrega calculado (delivery_state)
 // Este es el estado REAL de la campaña basado en múltiples factores
-type DeliveryState = 'ACTIVA' | 'NO_HAY_ANUNCIOS' | 'COMPLETADA' | 'DESACTIVADA'
+type DeliveryState = 'ACTIVA' | 'NO_HAY_ANUNCIOS' | 'COMPLETADA' | 'DESACTIVADA' | 'PAUSADA'
 
 // Función para clasificar el estado de entrega de una campaña
 // Combina status, effective_status, fechas y presupuesto para determinar el estado real
@@ -163,39 +171,76 @@ function classifyCampaignDelivery(campaign: FacebookCampaign): DeliveryState {
     return 'DESACTIVADA'
   }
 
-  // 2. Si la fecha de fin ya pasó
-  if (campaign.stop_time && new Date(campaign.stop_time) < new Date()) {
+  // 2. Si effective_status indica que la campaña está completada o pausada a nivel de Meta
+  if (campaign.effective_status === 'COMPLETED') {
     return 'COMPLETADA'
   }
 
-  // 3. Si el presupuesto se agotó
-  if (campaign.budget_remaining !== undefined && Number(campaign.budget_remaining) <= 0) {
+  // 3. Si CAMPAIGN_PAUSED (pausada por Meta por presupuesto u otros motivos)
+  // Solo marcar como completada si además tiene stop_time en el pasado o budget agotado
+  if (campaign.effective_status === 'CAMPAIGN_PAUSED') {
+    // Verificar si realmente terminó o si solo está paused por presupuesto
+    const hasValidStopTime = campaign.stop_time && campaign.stop_time !== '0000-00-00' && campaign.stop_time !== ''
+    const stopTimePassed = hasValidStopTime && campaign.stop_time && new Date(campaign.stop_time) < new Date()
+    const budgetExhausted = campaign.budget_remaining !== undefined && Number(campaign.budget_remaining) <= 0
+
+    // Solo marcar como completada si realmente terminó (stop_time pasó O budget agotado Y sin presupuesto restante)
+    if (stopTimePassed || (budgetExhausted && campaign.daily_budget === undefined && campaign.lifetime_budget === undefined)) {
+      return 'COMPLETADA'
+    }
+    // De lo contrario, está pause pero podría reactivarse
+    return 'PAUSADA'
+  }
+
+  // 4. Si el presupuesto lifetime se agotó Y no hay daily budget activo
+  const hasLifetimeBudget = campaign.lifetime_budget !== undefined && Number(campaign.lifetime_budget) > 0
+  const hasDailyBudget = campaign.daily_budget !== undefined && Number(campaign.daily_budget) > 0
+  const budgetRemaining = campaign.budget_remaining !== undefined ? Number(campaign.budget_remaining) : null
+
+  // Si es campaña de presupuesto lifetime y se agotó completamente
+  if (hasLifetimeBudget && !hasDailyBudget && budgetRemaining !== null && budgetRemaining <= 0) {
     return 'COMPLETADA'
   }
 
-  // 4. Si no hay ads activos (dato viene del backend)
+  // 5. Si la fecha de fin ya pasó (solo para campañas con lifetime budget)
+  if (campaign.stop_time && campaign.stop_time !== '0000-00-00' && campaign.stop_time !== '') {
+    const stopDate = new Date(campaign.stop_time)
+    // Validar que sea una fecha válida
+    if (!isNaN(stopDate.getTime()) && stopDate < new Date()) {
+      // Solo marcar como completada si no hay presupuesto activo
+      if (!hasDailyBudget || (budgetRemaining !== null && budgetRemaining <= 0)) {
+        return 'COMPLETADA'
+      }
+    }
+  }
+
+  // 6. Si no hay ads activos (dato viene del backend)
   // activeAds es el conteo real de anuncios con effective_status=ACTIVE
   if (campaign.activeAds !== undefined && campaign.activeAds === 0) {
     return 'NO_HAY_ANUNCIOS'
   }
 
-  // 5. Si status y effective_status son ACTIVE → la campaña está activa
+  // 7. Si status y effective_status son ACTIVE → la campaña está activa
   // (incluso si tiene 0 impresiones - puede ser nueva o en cola de aprendizaje)
   if (campaign.status === 'ACTIVE' && campaign.effective_status === 'ACTIVE') {
     return 'ACTIVA'
   }
 
-  // 6. Si solo status es ACTIVE (sin effective_status) → también activa
+  // 8. Si solo status es ACTIVE (sin effective_status) → también activa
   if (campaign.status === 'ACTIVE') {
     return 'ACTIVA'
   }
 
-  // 7. Estados de completado
-  if (campaign.effective_status === 'COMPLETED' || campaign.effective_status === 'CAMPAIGN_PAUSED') {
-    return 'COMPLETADA'
+  // 9. Otros estados de efectivo
+  if (campaign.effective_status === 'PAUSED' || campaign.effective_status === 'DELETED' || campaign.effective_status === 'ARCHIVED') {
+    return 'DESACTIVADA'
   }
 
-  // Default: cualquier otro caso
+  // Default: cualquier otro caso →假设 activa si tiene presupuesto
+  if (hasDailyBudget || hasLifetimeBudget) {
+    return 'ACTIVA'
+  }
+
   return 'DESACTIVADA'
 }
 
@@ -227,6 +272,22 @@ export default function CampaignsInsights() {
   // Estado para vista de métricas por objetivo
   type ObjectiveView = 'base' | 'ventas' | 'mensajes' | 'leads' | 'video'
   const [objectiveView, setObjectiveView] = useState<ObjectiveView>('base')
+
+  // Columnas personalizadas
+  const [customColumnsModalOpen, setCustomColumnsModalOpen] = useState(false)
+  const [customColumns, setCustomColumns] = useState<CustomColumn[]>(() => {
+    try {
+      const stored = localStorage.getItem('chateam_custom_columns_insights')
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  })
+
+  const handleSaveCustomColumns = (cols: CustomColumn[]) => {
+    setCustomColumns(cols)
+    localStorage.setItem('chateam_custom_columns_insights', JSON.stringify(cols))
+  }
 
   // Estados para búsqueda y paginación - Anuncios
   const [adSearch, setAdSearch] = useState('')
@@ -289,12 +350,12 @@ export default function CampaignsInsights() {
         setError(null)
       } else {
         setConnectionStatus('error')
-        setError('MODO DEBUG: ' + (response.data.message || 'Error de conexion. Verifica FB_ACCESS_TOKEN y FB_AD_ACCOUNT_ID en el .env del backend'))
+        setError('No se pudo conectar con Meta Ads. Contacta al administrador para configurar las credenciales de Facebook.')
       }
     } catch (err: any) {
       console.error('🧪 MODO DEBUG error:', err)
       setConnectionStatus('error')
-      setError('No hay conexiones configuradas y el MODO DEBUG fallo. Verifica FB_ACCESS_TOKEN y FB_AD_ACCOUNT_ID en el .env del backend.')
+      setError('Aún no tienes una cuenta de Meta Ads vinculada. Configura tu conexión con Facebook para ver las métricas de tus campañas.')
     }
   }
   // ============================================================
@@ -477,6 +538,7 @@ export default function CampaignsInsights() {
     if (objectiveView === 'mensajes') count += 5
     if (objectiveView === 'leads') count += 2
     if (objectiveView === 'video') count += 5
+    count += customColumns.length
     return count
   }
 
@@ -622,6 +684,9 @@ export default function CampaignsInsights() {
     if (objectiveView === 'mensajes') headers = [...headers, ...mensajesHeaders]
     if (objectiveView === 'leads') headers = [...headers, ...leadsHeaders]
     if (objectiveView === 'video') headers = [...headers, ...videoHeaders]
+    // Columnas personalizadas
+    const customHeaders = customColumns.map(col => col.name)
+    headers = [...headers, ...customHeaders]
 
     const csvContent = [
       headers.join(','),
@@ -653,7 +718,12 @@ export default function CampaignsInsights() {
         if (objectiveView === 'video') {
           extraRow = [ins.videoPlays || 0, ins.thruPlays || 0, ins.costPerThruPlay || 0, ins.videoP50 || 0, ins.videoP95 || 0]
         }
-        return [...baseRow, ...extraRow].join(',')
+        // Columnas personalizadas
+        const customValues = customColumns.map(col => {
+          const value = evaluateCustomColumn(col, ins as unknown as Record<string, number | undefined>)
+          return value !== null && isFinite(value) ? value.toFixed(4) : '0'
+        })
+        return [...baseRow, ...extraRow, ...customValues].join(',')
       })
     ].join('\n')
 
@@ -679,43 +749,89 @@ export default function CampaignsInsights() {
     return (
       <Container maxWidth="xl">
         <Stack spacing={3} sx={{ mt: 4 }}>
-          <Alert
-            color="danger"
-            variant="soft"
-            startDecorator={<ErrorIcon />}
-          >
-            <Stack spacing={1}>
-              <Typography level="title-md">Error de Conexion</Typography>
-              <Typography level="body-sm">{error}</Typography>
-              <Typography level="body-xs">
-                Ve a Conexiones - Facebook - Credenciales y configura el Ad Account ID.
-              </Typography>
-            </Stack>
-          </Alert>
-
-          {adsConnections.length > 0 && (
+          {/* Header */}
+          <Stack direction="row" spacing={2} alignItems="center">
+            <CampaignIcon sx={{ fontSize: 32, color: 'primary.main' }} />
             <Box>
-              <Typography level="body-sm" sx={{ mb: 1 }}>Selecciona una conexion:</Typography>
-              <Select
-                value={selectedConnection?.toString() || ''}
-                onChange={(_, value) => handleConnectionChange(Number(value))}
-                placeholder="Seleccionar conexion"
-                sx={{ minWidth: 250 }}
-              >
-                {adsConnections.map((conn) => (
-                  <Option key={conn.id} value={conn.id.toString()}>
-                    {conn.name} (act_{conn.facebookAdAccountId})
-                  </Option>
-                ))}
-              </Select>
+              <Typography level="h2">Facebook Ads Insights</Typography>
+              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                Métricas de tu cuenta publicitaria de Meta
+              </Typography>
             </Box>
-          )}
+          </Stack>
 
-          <Box>
-            <IconButton variant="outlined" onClick={() => fetchAdsConnections()}>
-              <RefreshIcon />
-            </IconButton>
-          </Box>
+          {/* Card de configuración pendiente */}
+          <Card
+            variant="outlined"
+            sx={{
+              maxWidth: 600,
+              mx: 'auto',
+              mt: 4,
+              textAlign: 'center',
+              borderColor: 'warning.300',
+              bgcolor: 'warning.50',
+            }}
+          >
+            <CardContent sx={{ py: 4, px: 3 }}>
+              <Box sx={{ mb: 2 }}>
+                <CampaignIcon sx={{ fontSize: 56, color: 'warning.500', opacity: 0.8 }} />
+              </Box>
+              <Typography level="h4" sx={{ mb: 1 }}>
+                Configuración Pendiente
+              </Typography>
+              <Typography level="body-md" sx={{ mb: 3, color: 'text.secondary' }}>
+                {error || 'Para visualizar las métricas de tus campañas, necesitas vincular tu cuenta publicitaria de Meta (Facebook Ads).'}
+              </Typography>
+
+              <Card variant="soft" sx={{ textAlign: 'left', mb: 3, bgcolor: 'background.surface' }}>
+                <CardContent>
+                  <Typography level="title-sm" sx={{ mb: 1.5 }}>¿Cómo configurarlo?</Typography>
+                  <Stack spacing={1}>
+                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>1.</Typography>}>
+                      Ve a <strong>Canales → Facebook</strong> en el menú lateral
+                    </Typography>
+                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>2.</Typography>}>
+                      Vincula tu cuenta de Facebook con permisos de Ads
+                    </Typography>
+                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>3.</Typography>}>
+                      Configura tu <strong>Ad Account ID</strong> en las credenciales
+                    </Typography>
+                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>4.</Typography>}>
+                      Regresa aquí y tus métricas aparecerán automáticamente
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+
+              {adsConnections.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography level="body-sm" sx={{ mb: 1, textAlign: 'left' }}>Conexiones disponibles:</Typography>
+                  <Select
+                    value={selectedConnection?.toString() || ''}
+                    onChange={(_, value) => handleConnectionChange(Number(value))}
+                    placeholder="Seleccionar conexión"
+                    sx={{ minWidth: 250 }}
+                  >
+                    {adsConnections.map((conn) => (
+                      <Option key={conn.id} value={conn.id.toString()}>
+                        {conn.name} (act_{conn.facebookAdAccountId})
+                      </Option>
+                    ))}
+                  </Select>
+                </Box>
+              )}
+
+              <Button
+                variant="outlined"
+                color="neutral"
+                startDecorator={<RefreshIcon />}
+                onClick={() => fetchAdsConnections()}
+                size="sm"
+              >
+                Reintentar conexión
+              </Button>
+            </CardContent>
+          </Card>
         </Stack>
       </Container>
     )
@@ -875,6 +991,23 @@ export default function CampaignsInsights() {
                     <Option value="leads">+ Leads</Option>
                     <Option value="video">+ Video (Branding)</Option>
                   </Select>
+                  {/* Botón Columnas Personalizadas */}
+                  <Tooltip title="Crear columnas con formulas personalizadas">
+                    <Button
+                      size="sm"
+                      variant="outlined"
+                      color="neutral"
+                      startDecorator={<ViewColumnIcon sx={{ fontSize: 18 }} />}
+                      onClick={() => setCustomColumnsModalOpen(true)}
+                    >
+                      Personalizar
+                      {customColumns.length > 0 && (
+                        <Chip size="sm" color="primary" variant="solid" sx={{ ml: 0.5 }}>
+                          {customColumns.length}
+                        </Chip>
+                      )}
+                    </Button>
+                  </Tooltip>
                   {/* Filas por página */}
                   <Select
                     size="sm"
@@ -962,6 +1095,23 @@ export default function CampaignsInsights() {
                           <th style={{ textAlign: 'right', background: 'var(--joy-palette-neutral-softBg)' }}>Visto 95%</th>
                         </>
                       )}
+                      {/* === COLUMNAS PERSONALIZADAS (siempre visibles) === */}
+                      {customColumns.map(col => (
+                        <th
+                          key={col.id}
+                          style={{
+                            textAlign: 'right',
+                            background: 'var(--joy-palette-primary-softBg)',
+                            minWidth: 110,
+                          }}
+                        >
+                          <Tooltip title={`${col.name}: ${getOperatorSymbol(col.operator)} (formula personalizada)`}>
+                            <Typography level="body-xs" fontWeight="bold" noWrap>
+                              {col.name}
+                            </Typography>
+                          </Tooltip>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -1128,6 +1278,17 @@ export default function CampaignsInsights() {
                                 </td>
                               </>
                             )}
+                            {/* === COLUMNAS PERSONALIZADAS === */}
+                            {customColumns.map(col => {
+                              const value = evaluateCustomColumn(col, ins as unknown as Record<string, number | undefined>)
+                              return (
+                                <td key={col.id} style={{ textAlign: 'right' }}>
+                                  <Typography level="body-sm" fontWeight="bold">
+                                    {formatCustomValue(value, col.format, formatCurrency, formatNumber, formatPercent)}
+                                  </Typography>
+                                </td>
+                              )
+                            })}
                           </tr>
                         )
                       })
@@ -1337,11 +1498,11 @@ export default function CampaignsInsights() {
                   <YAxis yAxisId="right" orientation="right" />
                   <RechartsTooltip
                     labelFormatter={(value) => new Date(value).toLocaleDateString('es-ES')}
-                    formatter={(value: any, name: string) => {
+                    formatter={((value: any, name: string) => {
                       const v = Number(value) || 0
                       if (name === 'spend') return [formatCurrency(v), 'Gasto']
                       return [formatNumber(v), name === 'impressions' ? 'Impresiones' : name === 'clicks' ? 'Clics' : name === 'reach' ? 'Alcance' : name]
-                    }}
+                    }) as any}
                   />
                   <Legend />
                   <Area
@@ -1377,6 +1538,15 @@ export default function CampaignsInsights() {
           </Card>
         )}
       </Stack>
+
+      {/* Modal Columnas Personalizadas */}
+      <CustomColumnModal
+        open={customColumnsModalOpen}
+        onClose={() => setCustomColumnsModalOpen(false)}
+        onSave={handleSaveCustomColumns}
+        columns={customColumns}
+        previewData={campaigns.length > 0 ? (campaigns[0].insights as unknown as Record<string, number | undefined>) : null}
+      />
     </Container>
   )
 }

@@ -10,6 +10,7 @@ import DeleteReceiptService from "../services/ReceiptService/DeleteReceiptServic
 import ShowReceiptService from "../services/ReceiptService/ShowReceiptService";
 import { updateDueDateByCompanyId } from "../services/CompanyService/dateCompany";
 import Plan from "../models/Plan";
+import Company from "../models/Company";
 type IndexQuery = {
   searchParam: string;
   pageNumber: string;
@@ -179,6 +180,27 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   // 3. Actualiza la factura existente con los nuevos datos
   await invoice.update(newInvoiceData);
       await updateDueDateByCompanyId(companyId,planId, detail, recurrence); // Incrementa el `dueDate`
+
+      // Provisionar créditos IA para el nuevo ciclo
+      try {
+        const ProvisionCreditsService = require('../services/AICreditServices/ProvisionCreditsService');
+        await ProvisionCreditsService({ companyId, planId, mode: "renew" });
+        console.log(`✅ Créditos IA provisionados via Comprobante: company=${companyId}, plan=${planId}`);
+      } catch (e: any) {
+        console.error(`❌ Error provisionando créditos IA:`, e.message);
+      }
+
+      // Provisionar créditos de email si tiene plan de email
+      try {
+        const company = await Company.findByPk(companyId);
+        if (company?.activeEmailPlanId) {
+          const EmailPlanService = require('../services/EmailPlanService').default;
+          await EmailPlanService.provisionEmailCredits(companyId, company.activeEmailPlanId, "renew");
+          console.log(`✅ Créditos de email provisionados via Comprobante: company=${companyId}, emailPlan=${company.activeEmailPlanId}`);
+        }
+      } catch (e: any) {
+        console.error(`❌ Error provisionando créditos de email:`, e.message);
+      }
     } else if (receiptData.estado === 3) {
       // Estado 3: Actualizar a "open" sin cambiar el `dueDate`
       await invoice.update({ status: "open" });

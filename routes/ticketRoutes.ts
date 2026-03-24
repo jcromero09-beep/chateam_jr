@@ -27,4 +27,6 @@ ticketRoutes.delete("/tickets/:ticketId", isAuth, TicketController.remove);
 
 ticketRoutes.post("/tickets/closeAll", isAuth, TicketController.closeAll);
 
+ticketRoutes.put("/tickets/:ticketId/followup", isAuth, TicketController.toggleFollowup);
+
 export default ticketRoutes;

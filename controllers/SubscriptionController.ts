@@ -19,6 +19,7 @@ import * as Sentry from "@sentry/node";
 import { updateDueDateByCompanyId } from "../services/CompanyService/dateCompany.js";
 import CreateInvoiceService from "../services/InvoicesService/CreateInvoiceService.js";
 import ApplePurchase from "../models/ApplePurchase.js";
+import ProvisionCreditsService from "../services/AICreditServices/ProvisionCreditsService";
 // const app = express();
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
@@ -442,13 +443,43 @@ export const stripewebhook = async (
   let event;
 
   try {
-    event = req.body; // Si no estás validando la firma, esto está bien
-    //console.log('event',event)
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (webhookSecret) {
+      // Validar firma HMAC de Stripe (requiere raw body)
+      const superAdminUser = await User.findOne({ where: { super: true } });
+      const superAdminCompany = superAdminUser ? await Company.findByPk(superAdminUser.companyId) : null;
+      const stripeKey = superAdminCompany?.stripeSecretKey;
+
+      if (stripeKey) {
+        const stripe = new Stripe(stripeKey, { apiVersion: '2025-05-28.basil' as any });
+        const sig = req.headers['stripe-signature'] as string;
+        if (sig) {
+          // Usar rawBody (Buffer) capturado por bodyParser verify callback en app.ts
+          const rawBody = (req as any).rawBody;
+          if (!rawBody) {
+            console.error("❌ [Stripe] rawBody no disponible — bodyParser verify no capturó el body");
+            return res.status(500).json({ success: false, message: "Raw body no disponible para validación HMAC" });
+          }
+          event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+        } else {
+          console.warn("⚠️ [Stripe] Webhook sin stripe-signature header — procesando sin validación");
+          event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        }
+      } else {
+        console.warn("⚠️ [Stripe] Sin stripeSecretKey en SuperAdmin — procesando sin validación");
+        event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      }
+    } else {
+      // Fallback legacy: procesar sin validación HMAC
+      console.warn("⚠️ [Stripe] STRIPE_WEBHOOK_SECRET no configurado — webhook sin validación HMAC");
+      event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    }
   } catch (err: any) {
-    console.error("❌ Webhook malformado:", err.message);
+    console.error("❌ Webhook Stripe inválido o firma no válida:", err.message);
     return res.status(400).json({
       success: false,
-      message: "Webhook inválido o malformado"
+      message: "Webhook inválido o firma no válida"
     });
   }
 
@@ -556,6 +587,27 @@ async function handleCheckoutCompleted(dataObject: any) {
   await invoice.update(newInvoiceData as any);
   await updateDueDateByCompanyId(companyId, planId, detail || plan.name, recurrence);
 
+  // Provisionar créditos IA para el nuevo ciclo
+  try {
+    await ProvisionCreditsService({ companyId, planId, mode: "renew" });
+    console.log(`✅ Créditos IA provisionados: company=${companyId}, plan=${planId}`);
+  } catch (e: any) {
+    console.error(`❌ Error provisionando créditos IA:`, e.message);
+    Sentry.captureException(e);
+  }
+
+  // Provisionar créditos de email si es un plan de email
+  try {
+    const EmailPlanService = require('../services/EmailPlanService').default;
+    // Ya tenemos 'invoice' al inicio de la función, no necesita buscar de nuevo
+    if (invoice && invoice.isEmailPlan && invoice.emailPlanId) {
+      await EmailPlanService.provisionEmailCredits(companyId, invoice.emailPlanId, "renew");
+      console.log(`✅ Créditos de email provisionados: company=${companyId}, emailPlan=${invoice.emailPlanId}`);
+    }
+  } catch (e: any) {
+    console.error(`❌ Error provisionando créditos de email:`, e.message);
+    // No capturamos con Sentry para no duplicar errores
+  }
 
   try {
     const whatsapps = await ListWhatsAppsService({ companyId });
@@ -630,6 +682,29 @@ async function handleInvoicePaid(dataObject: any) {
 
 
   await updateDueDateByCompanyId(companyId, planId, detail, recurrence);
+
+  // Provisionar créditos IA para el nuevo ciclo
+  try {
+    await ProvisionCreditsService({ companyId, planId, mode: "renew" });
+    console.log(`✅ Créditos IA provisionados: company=${companyId}, plan=${planId}`);
+  } catch (e: any) {
+    console.error(`❌ Error provisionando créditos IA:`, e.message);
+    Sentry.captureException(e);
+  }
+
+  // Provisionar créditos de email si es un plan de email
+  try {
+    const EmailPlanService = require('../services/EmailPlanService').default;
+    // Buscar invoice por company
+    const invoiceEmail = await Invoices.findOne({ where: { companyId, isEmailPlan: true } });
+    if (invoiceEmail && invoiceEmail.emailPlanId) {
+      await EmailPlanService.provisionEmailCredits(companyId, invoiceEmail.emailPlanId, "renew");
+      console.log(`✅ Créditos de email provisionados: company=${companyId}, emailPlan=${invoiceEmail.emailPlanId}`);
+    }
+  } catch (e: any) {
+    console.error(`❌ Error provisionando créditos de email:`, e.message);
+  }
+
   //console.log('newInvoiceData', newInvoiceData)
   await CreateInvoiceService(newInvoiceData);
 
@@ -818,6 +893,15 @@ export const verifyApplePurchase = async (
 
     // Actualizar la fecha de vencimiento de la empresa
     await updateDueDateByCompanyId(company_id, api_plan_id, `${plan.name} - Apple`, recurrence);
+
+    // Provisionar créditos IA para el nuevo ciclo (Apple)
+    try {
+      await ProvisionCreditsService({ companyId: company_id, planId: api_plan_id, mode: "renew" });
+      console.log(`✅ Créditos IA provisionados (Apple): company=${company_id}, plan=${api_plan_id}`);
+    } catch (e: any) {
+      console.error(`❌ Error provisionando créditos IA (Apple):`, e.message);
+      Sentry.captureException(e);
+    }
 
     // Reiniciar sesiones de WhatsApp
     try {

@@ -108,6 +108,44 @@ class Plan extends Model<Plan> {
   @Column(DataType.BOOLEAN)
   useLeads: boolean;
 
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  useUgc: boolean;
+
+  // ========== Email Marketing Feature Gating ==========
+
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  useEmailMarketing: boolean;
+
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  useEmailAutomation: boolean;
+
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  useEmailAbTesting: boolean;
+
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  useEmailAiOptimization: boolean;
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  maxEmailCampaignsPerMonth: number;
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  maxEmailContactLists: number;
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  maxEmailContactsPerList: number;
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  maxEmailSendsPerDay: number;
+
   @AllowNull(true)
   @Column(DataType.TEXT)
   interfacePermissions: string;

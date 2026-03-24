@@ -779,6 +779,88 @@ export const getInstagramUserProfile = async (userScopedId, igAccessToken) => {
   }
 };
 
+// ===== WhatsApp Business Account (WABA) Subscriptions =====
+
+/**
+ * Obtiene las apps suscritas a un WABA (WhatsApp Business Account)
+ * Endpoint: GET /{waba-id}/subscribed_apps
+ * Usado por MetaAppSetupService para verificar suscripción de coexistencia
+ */
+export const getWhatsAppSubscribedApps = async (
+  wabaId: string,
+  token: string
+): Promise<any> => {
+  try {
+    const { data } = await axios.get(
+      `https://graph.facebook.com/v24.0/${wabaId}/subscribed_apps`,
+      {
+        params: { access_token: token },
+      }
+    );
+    return data;
+  } catch (error: any) {
+    logger.error(
+      `[graphAPI] Error obteniendo subscribed_apps de WABA ${wabaId}: ${error.response?.data?.error?.message || error.message}`
+    );
+    throw new Error("ERR_GETTING_WABA_SUBSCRIBED_APPS");
+  }
+};
+
+/**
+ * Suscribe una App a un WABA específico (WhatsApp Business Account)
+ * Endpoint: POST /{waba-id}/subscribed_apps
+ * Necesario para que los webhooks de coexistencia lleguen correctamente
+ */
+export const subscribeWhatsAppBusinessAccount = async (
+  wabaId: string,
+  token: string
+): Promise<any> => {
+  try {
+    const { data } = await axios.post(
+      `https://graph.facebook.com/v24.0/${wabaId}/subscribed_apps`,
+      {},
+      {
+        params: { access_token: token },
+      }
+    );
+    return data;
+  } catch (error: any) {
+    logger.error(
+      `[graphAPI] Error suscribiendo App a WABA ${wabaId}: ${error.response?.data?.error?.message || error.message}`
+    );
+    throw new Error("ERR_SUBSCRIBING_WABA");
+  }
+};
+
+/**
+ * Registra un numero de telefono en WhatsApp Cloud API
+ * Endpoint: POST /{phone-number-id}/register
+ * Requerido para que el numero pueda enviar/recibir mensajes via Cloud API
+ */
+export const registerWhatsAppPhoneNumber = async (
+  phoneNumberId: string,
+  token: string
+): Promise<any> => {
+  try {
+    const { data } = await axios.post(
+      `https://graph.facebook.com/v24.0/${phoneNumberId}/register`,
+      {
+        messaging_product: "whatsapp",
+        pin: "000000", // PIN de 6 digitos requerido por Meta
+      },
+      {
+        params: { access_token: token },
+      }
+    );
+    return data;
+  } catch (error: any) {
+    logger.error(
+      `[graphAPI] Error registrando phone number ${phoneNumberId}: ${error.response?.data?.error?.message || error.message}`
+    );
+    throw new Error("ERR_REGISTERING_PHONE_NUMBER");
+  }
+};
+
 export const unsubscribeInstagramApp = async (
   pageId: string,
   accessToken: string

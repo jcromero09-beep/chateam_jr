@@ -506,7 +506,7 @@ export default function OpenAIDashboard() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip formatter={(value: number) => formatNumber(value)} />
+                    <Tooltip formatter={((value: number) => formatNumber(value)) as any} />
                     <Legend />
                     <Area type="monotone" dataKey="tokens" stroke="#10b981" fill="#10b981" name="Tokens" />
                   </AreaChart>
@@ -546,7 +546,7 @@ export default function OpenAIDashboard() {
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                    <Tooltip formatter={((value: number, name: string) => [`${value}%`, name]) as any} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
@@ -573,7 +573,7 @@ export default function OpenAIDashboard() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                    <Tooltip formatter={((value: number) => formatCurrency(value)) as any} />
                     <Legend />
                     <Bar dataKey="cost" fill="#f59e0b" name="Costo (USD)" />
                   </BarChart>

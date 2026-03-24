@@ -23,10 +23,12 @@ import CreateOrUpdateContactService from "./services/ContactServices/CreateOrUpd
 const REDIS_ENABLED = Boolean(REDIS_URI_CONNECTION && REDIS_URI_CONNECTION.trim());
 
 // Cola principal de mensajes - el worker envía aquí para que el backend envíe via WhatsApp
+// DEFAULT anterior: max=1, duration=3000 (~20 msg/min) — MUY LENTO para campañas masivas
+// NUEVO DEFAULT: max=5, duration=3000 (~100 msg/min) — Balance entre velocidad y anti-spam WhatsApp
 export const messageQueue = REDIS_ENABLED
   ? new Bull("MessageQueue", REDIS_URI_CONNECTION, {
       limiter: {
-        max: Number(process.env.REDIS_OPT_LIMITER_MAX) || 1,
+        max: Number(process.env.REDIS_OPT_LIMITER_MAX) || 5,
         duration: Number(process.env.REDIS_OPT_LIMITER_DURATION) || 3000
       }
     })
@@ -153,4 +155,4 @@ export function startBackendQueueProcessors(): void {
   logger.info("✅ [BACKEND] Todos los procesadores de colas iniciados");
 }
 
-console.log("📬📬📬 BACKEND-QUEUES.TS FULLY LOADED! 📬📬📬");
+// console.log("📬📬📬 BACKEND-QUEUES.TS FULLY LOADED! 📬📬📬");

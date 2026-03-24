@@ -12,4 +12,4 @@ queueOptionRoutes.put("/queue-options/:queueOptionId", isAuth, QueueOptionContro
 queueOptionRoutes.delete("/queue-options/:queueOptionId", isAuth, QueueOptionController.remove);
 
 export default queueOptionRoutes;
-console.log("📄 QUEUE-OPTION-ROUTES.TS LOADED\!");
+// console.log("📄 QUEUE-OPTION-ROUTES.TS LOADED\!");

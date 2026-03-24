@@ -242,7 +242,7 @@ export default function CustomerOriginReports() {
                         cx="50%"
                         cy="50%"
                         outerRadius={100}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                         labelLine={false}
                       >
                         {report.byOrigin.map((entry, index) => (
@@ -250,7 +250,7 @@ export default function CustomerOriginReports() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => [`${value} tickets`, 'Cantidad']}
+                        formatter={((value: number) => [`${value} tickets`, 'Cantidad']) as any}
                       />
                       <Legend />
                     </PieChart>
@@ -280,10 +280,10 @@ export default function CustomerOriginReports() {
                       <XAxis type="number" />
                       <YAxis dataKey="originName" type="category" width={120} />
                       <Tooltip
-                        formatter={(value: number, name: string) => [
+                        formatter={((value: number, name: string) => [
                           `${value} tickets (${report.byOrigin.find(o => o.originName === name)?.percentage || 0}%)`,
                           'Cantidad'
-                        ]}
+                        ]) as any}
                       />
                       <Bar dataKey="ticketCount" name="Tickets">
                         {report.byOrigin.map((entry, index) => (

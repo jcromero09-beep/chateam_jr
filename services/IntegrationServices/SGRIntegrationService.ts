@@ -1,7 +1,7 @@
 import { BaseIntegrationService, SyncResult } from './BaseIntegrationService';
 import User from '../../models/User';
 import Ticket from '../../models/Ticket';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 
 /**
  * SGR Integration Service
@@ -192,11 +192,11 @@ class SGRIntegrationService extends BaseIntegrationService {
     if (mapping) {
       const user = await User.findByPk(mapping.localEntityId);
       if (user) {
-        const metadata = user.metadata || {};
+        const metadata = (user as any).metadata || {};
         metadata.sgr_resource = resource;
         metadata.sgr_skills = resource.skills;
         metadata.sgr_availability = resource.availability;
-        await user.update({ metadata });
+        await user.update({ metadata: metadata as any });
       }
     }
   }
@@ -209,8 +209,8 @@ class SGRIntegrationService extends BaseIntegrationService {
       name: user.name,
       email: user.email,
       type: 'agent',
-      skills: user.metadata?.skills || [],
-      hourly_rate: user.metadata?.hourly_rate || 0,
+      skills: (user as any).metadata?.skills || [],
+      hourly_rate: (user as any).metadata?.hourly_rate || 0,
       metadata: {
         jrchateam_user_id: user.id.toString(),
         jrchateam_company_id: user.companyId.toString()
@@ -227,8 +227,8 @@ class SGRIntegrationService extends BaseIntegrationService {
     await this.httpClient.put(`/api/resources/${resourceId}`, {
       name: user.name,
       email: user.email,
-      skills: user.metadata?.skills || [],
-      hourly_rate: user.metadata?.hourly_rate || 0
+      skills: (user as any).metadata?.skills || [],
+      hourly_rate: (user as any).metadata?.hourly_rate || 0
     });
   }
 
@@ -257,10 +257,10 @@ class SGRIntegrationService extends BaseIntegrationService {
       if (mapping) {
         const user = await User.findByPk(mapping.localEntityId);
         if (user) {
-          const metadata = user.metadata || {};
+          const metadata = (user as any).metadata || {};
           metadata.sgr_assignments = metadata.sgr_assignments || [];
           metadata.sgr_assignments.push(assignment);
-          await user.update({ metadata });
+          await user.update({ metadata: metadata as any });
         }
       }
     }
@@ -324,7 +324,7 @@ class SGRIntegrationService extends BaseIntegrationService {
             `/api/assignments/${assignmentMapping.externalEntityId}`,
             {
               resource_id: resourceMapping.externalEntityId,
-              task_name: ticket.subject || `Ticket #${ticket.id}`,
+              task_name: ticket.title || `Ticket #${ticket.id}`,
               status: this.mapTicketStatusToAssignmentStatus(ticket.status),
               start_date: ticket.createdAt,
               end_date: ticket.updatedAt
@@ -335,7 +335,7 @@ class SGRIntegrationService extends BaseIntegrationService {
           // Create assignment
           const response = await this.httpClient.post('/api/assignments', {
             resource_id: resourceMapping.externalEntityId,
-            task_name: ticket.subject || `Ticket #${ticket.id}`,
+            task_name: ticket.title || `Ticket #${ticket.id}`,
             task_type: 'support_ticket',
             status: this.mapTicketStatusToAssignmentStatus(ticket.status),
             start_date: ticket.createdAt,
@@ -349,7 +349,7 @@ class SGRIntegrationService extends BaseIntegrationService {
             'assignment',
             ticket.id,
             response.data.id,
-            { subject: ticket.subject, userId: ticket.userId },
+            { subject: ticket.title, userId: ticket.userId },
             response.data
           );
           result.recordsCreated++;

@@ -2,6 +2,9 @@
   import CompanyBilling from '../models/CompanyBilling';
   import Invoice from '../models/Invoice';
   import Refund from '../models/Refund';
+  import Plan from '../models/Plan';
+  import Company from '../models/Company';
+  import { updateDueDateByCompanyId } from './CompanyService/dateCompany';
   import logger, { logError, logInfo, logWarn, logDebug } from '../utils/logger';
 
   export class StripeService {
@@ -397,8 +400,14 @@
     private async handleInvoicePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
       try {
         const companyId = parseInt(invoice.metadata?.company_id || '0');
+        const planId = parseInt(invoice.metadata?.plan_id || '0');
         if (!companyId) return;
 
+        // Buscar la company para obtener el plan actual
+        const company = await Company.findByPk(companyId);
+        const currentPlanId = planId || company?.planId;
+
+        // Crear o actualizar la factura
         await Invoice.upsert({
           company_id: companyId,
           stripe_invoice_id: invoice.id,
@@ -422,6 +431,35 @@
           tax_amount_cents: invoice.tax || undefined,
           metadata: invoice.metadata,
         });
+
+        // Si tenemos un planId, actualizar la fecha de vencimiento y provisionar créditos
+        if (currentPlanId) {
+          const plan = await Plan.findByPk(currentPlanId);
+          if (plan) {
+            // Actualizar fecha de vencimiento
+            await updateDueDateByCompanyId(companyId, currentPlanId, `${plan.name} - Stripe`, plan.recurrence);
+
+            // Provisionar créditos IA
+            try {
+              const ProvisionCreditsService = require('./AICreditServices/ProvisionCreditsService');
+              await ProvisionCreditsService({ companyId, planId: currentPlanId, mode: "renew" });
+              logInfo(`✅ Créditos IA provisionados via Stripe: company=${companyId}, plan=${currentPlanId}`);
+            } catch (e: any) {
+              logError(`❌ Error provisionando créditos IA:`, e);
+            }
+
+            // Provisionar créditos de email si aplica
+            if (company?.activeEmailPlanId) {
+              try {
+                const EmailPlanService = require('./EmailPlanService').default;
+                await EmailPlanService.provisionEmailCredits(companyId, company.activeEmailPlanId, "renew");
+                logInfo(`✅ Créditos de email provisionados via Stripe: company=${companyId}, emailPlan=${company.activeEmailPlanId}`);
+              } catch (e: any) {
+                logError(`❌ Error provisionando créditos de email:`, e);
+              }
+            }
+          }
+        }
 
         logInfo(`✅ Invoice payment succeeded: ${invoice.id}`);
       } catch (error) {

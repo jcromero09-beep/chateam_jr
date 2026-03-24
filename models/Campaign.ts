@@ -16,6 +16,7 @@ import CampaignShipping from "./CampaignShipping";
 import Company from "./Company";
 import ContactList from "./ContactList";
 import Whatsapp from "./Whatsapp";
+import WhatsAppTemplate from "./WhatsAppTemplate";
 import User from "./User";
 import Queue from "./Queue";
 
@@ -126,6 +127,26 @@ class Campaign extends Model<Campaign> {
 
   @Column({ type: DataType.STRING, defaultValue: "disabled" })
   openTicket: string;
+
+  // ========================================
+  // CAMPOS PARA PLANTILLAS META (NUEVO)
+  // ========================================
+
+  // FK a plantilla de WhatsApp Meta
+  @ForeignKey(() => WhatsAppTemplate)
+  @Column(DataType.INTEGER)
+  whastsAppTemplateId: number;
+
+  @BelongsTo(() => WhatsAppTemplate)
+  whastsAppTemplate: WhatsAppTemplate;
+
+  // Parámetros de la plantilla (variables: {key: value})
+  @Column({ type: DataType.JSONB, defaultValue: {} })
+  templateParams: Record<string, string>;
+
+  // Indica si usa plantilla (true) o mensaje libre (false)
+  @Column({ type: DataType.BOOLEAN, defaultValue: false })
+  useTemplate: boolean;
 }
 
 export default Campaign;

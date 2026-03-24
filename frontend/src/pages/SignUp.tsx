@@ -12,11 +12,11 @@ import {
   Divider,
   Select,
   Option,
-  CircularProgress
+  CircularProgress,
 } from '@mui/joy'
 import {
   ArrowBack as BackIcon,
-  WhatsApp as WhatsAppIcon
+  WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material'
 import { toast } from 'react-toastify'
 import api from '../services/api'
@@ -39,14 +39,13 @@ export default function SignUp() {
     confirmPassword: '',
     companyName: '',
     phone: '',
-    planId: ''
+    planId: '',
   })
   const [loading, setLoading] = useState(false)
   const [plans, setPlans] = useState<Plan[]>([])
   const [loadingPlans, setLoadingPlans] = useState(true)
   const navigate = useNavigate()
 
-  // Cargar planes publicos al montar
   useEffect(() => {
     fetchPublicPlans()
   }, [])
@@ -54,19 +53,13 @@ export default function SignUp() {
   const fetchPublicPlans = async () => {
     try {
       setLoadingPlans(true)
-      // Endpoint publico que devuelve solo planes con isPublic=true
-      // Nota: listPublic=false significa "filtrar solo publicos" (logica invertida en backend)
       const response = await api.get('/plans/list', { params: { listPublic: 'false' } })
       const publicPlans = Array.isArray(response.data) ? response.data : (response.data?.plans || [])
-
       setPlans(publicPlans)
-
-      // Seleccionar el primer plan por defecto
       if (publicPlans.length > 0) {
         setFormData(prev => ({ ...prev, planId: String(publicPlans[0].id) }))
       }
-    } catch (error) {
-      console.error('Error fetching public plans:', error)
+    } catch {
       toast.error('Error al cargar los planes disponibles')
     } finally {
       setLoadingPlans(false)
@@ -76,15 +69,15 @@ export default function SignUp() {
   const formatPlanPrice = (plan: Plan) => {
     const amount = parseFloat(plan.amount)
     if (amount === 0 || plan.trial) {
-      return plan.trial ? `Gratis (${plan.trialDays} dias trial)` : 'Gratis'
+      return plan.trial ? `Gratis (${plan.trialDays} días trial)` : 'Gratis'
     }
-    const recurrenceLabel = plan.recurrence === 'MENSUAL' ? '/mes' :
-                           plan.recurrence === 'ANUAL' ? '/ano' :
-                           `/${plan.recurrence.toLowerCase()}`
+    const recurrenceLabel =
+      plan.recurrence === 'MENSUAL' ? '/mes' :
+      plan.recurrence === 'ANUAL' ? '/año' :
+      `/${plan.recurrence.toLowerCase()}`
     return `$${amount.toFixed(2)}${recurrenceLabel}`
   }
 
-  // WhatsApp contact number
   const whatsappNumber = import.meta.env.VITE_WHATSAPP_CONTACT || '5491234567890'
 
   const handleChange = (field: string, value: string) => {
@@ -94,7 +87,6 @@ export default function SignUp() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // Validaciones
     if (formData.password !== formData.confirmPassword) {
       toast.error('Las contraseñas no coinciden')
       return
@@ -114,15 +106,15 @@ export default function SignUp() {
         password: formData.password,
         companyName: formData.companyName,
         phone: formData.phone,
-        planId: parseInt(formData.planId)
+        planId: parseInt(formData.planId),
       })
 
       toast.success('¡Registro exitoso! Por favor inicia sesión')
       navigate('/login')
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Error al registrarse'
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string; error?: string } } }
+      const errorMessage = err.response?.data?.message || err.response?.data?.error || 'Error al registrarse'
       toast.error(errorMessage)
-      console.error('Signup error:', error)
     } finally {
       setLoading(false)
     }
@@ -140,89 +132,106 @@ export default function SignUp() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: 'background.level1',
-        py: 4,
+        bgcolor: '#1e293b',
+        background: 'linear-gradient(135deg, #1e293b 0%, #152030 50%, #1a2535 100%)',
+        py: { xs: 1.5, sm: 2 },
       }}
     >
       <Sheet
-        variant="outlined"
         sx={{
-          maxWidth: 500,
+          maxWidth: 540,
           width: '100%',
           mx: 2,
-          p: 4,
-          borderRadius: 'md',
-          boxShadow: 'md',
+          p: { xs: 2.5, sm: 3 },
+          borderRadius: 'xl',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          bgcolor: 'background.surface',
         }}
       >
-        <Stack spacing={3}>
-          <Stack spacing={1} alignItems="center">
-            <Typography level="h3" component="h1" sx={{ color: 'primary.main' }}>
-              Chateam!
-            </Typography>
-            <Typography level="h4" component="span" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-              pro
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 1 }}>
+        <Stack spacing={1.5}>
+          {/* Logo + Branding */}
+          <Stack spacing={0.75} alignItems="center">
+            <Box
+              component="img"
+              src="/logo.png"
+              alt="ChatEAM"
+              sx={{ width: 48, height: 48 }}
+            />
+            <Box
+              component="img"
+              src="/chateam-logo.png"
+              alt="Chateam"
+              sx={{ height: 18 }}
+            />
+            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
               Registro de nueva cuenta
             </Typography>
           </Stack>
 
           <form onSubmit={handleSubmit}>
-            <Stack spacing={2}>
-              <FormControl required>
-                <FormLabel>Nombre Completo *</FormLabel>
-                <Input
-                  type="text"
-                  placeholder="Juan Pérez"
-                  value={formData.name}
-                  onChange={(e) => handleChange('name', e.target.value)}
-                  disabled={loading}
-                />
-              </FormControl>
+            <Stack spacing={1.25}>
+              {/* Fila 1: Nombre + Email */}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <FormControl required sx={{ flex: 1 }}>
+                  <FormLabel sx={{ fontSize: '0.8rem' }}>Nombre Completo</FormLabel>
+                  <Input
+                    type="text"
+                    placeholder="Juan Pérez"
+                    value={formData.name}
+                    onChange={(e) => handleChange('name', e.target.value)}
+                    disabled={loading}
+                    size="md"
+                  />
+                </FormControl>
+                <FormControl required sx={{ flex: 1 }}>
+                  <FormLabel sx={{ fontSize: '0.8rem' }}>Correo Electrónico</FormLabel>
+                  <Input
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={formData.email}
+                    onChange={(e) => handleChange('email', e.target.value)}
+                    disabled={loading}
+                    size="md"
+                  />
+                </FormControl>
+              </Stack>
 
-              <FormControl required>
-                <FormLabel>Correo Electrónico *</FormLabel>
-                <Input
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={formData.email}
-                  onChange={(e) => handleChange('email', e.target.value)}
-                  disabled={loading}
-                />
-              </FormControl>
+              {/* Fila 2: Empresa + Teléfono */}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <FormControl required sx={{ flex: 1 }}>
+                  <FormLabel sx={{ fontSize: '0.8rem' }}>Nombre de Empresa</FormLabel>
+                  <Input
+                    type="text"
+                    placeholder="Mi Empresa S.A."
+                    value={formData.companyName}
+                    onChange={(e) => handleChange('companyName', e.target.value)}
+                    disabled={loading}
+                    size="md"
+                  />
+                </FormControl>
+                <FormControl required sx={{ flex: 1 }}>
+                  <FormLabel sx={{ fontSize: '0.8rem' }}>Teléfono / WhatsApp</FormLabel>
+                  <Input
+                    type="tel"
+                    placeholder="+54 9 11 1234-5678"
+                    value={formData.phone}
+                    onChange={(e) => handleChange('phone', e.target.value)}
+                    disabled={loading}
+                    size="md"
+                  />
+                </FormControl>
+              </Stack>
 
+              {/* Plan */}
               <FormControl required>
-                <FormLabel>Nombre de Empresa *</FormLabel>
-                <Input
-                  type="text"
-                  placeholder="Mi Empresa S.A."
-                  value={formData.companyName}
-                  onChange={(e) => handleChange('companyName', e.target.value)}
-                  disabled={loading}
-                />
-              </FormControl>
-
-              <FormControl required>
-                <FormLabel>Teléfono / WhatsApp *</FormLabel>
-                <Input
-                  type="tel"
-                  placeholder="+54 9 11 1234-5678"
-                  value={formData.phone}
-                  onChange={(e) => handleChange('phone', e.target.value)}
-                  disabled={loading}
-                />
-              </FormControl>
-
-              <FormControl required>
-                <FormLabel>Plan</FormLabel>
+                <FormLabel sx={{ fontSize: '0.8rem' }}>Plan</FormLabel>
                 {loadingPlans ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
                     <CircularProgress size="sm" />
-                    <Typography level="body-sm">Cargando planes...</Typography>
+                    <Typography level="body-xs">Cargando planes...</Typography>
                   </Box>
                 ) : plans.length === 0 ? (
-                  <Typography level="body-sm" color="warning">
+                  <Typography level="body-xs" color="warning">
                     No hay planes disponibles. Contacta al administrador.
                   </Typography>
                 ) : (
@@ -230,86 +239,106 @@ export default function SignUp() {
                     value={formData.planId}
                     onChange={(_, value) => handleChange('planId', value as string)}
                     disabled={loading}
+                    size="md"
                   >
                     {plans.map((plan) => (
                       <Option key={plan.id} value={String(plan.id)}>
-                        {plan.name} - {formatPlanPrice(plan)}
+                        {plan.name} — {formatPlanPrice(plan)}
                       </Option>
                     ))}
                   </Select>
                 )}
               </FormControl>
 
-              <FormControl required>
-                <FormLabel>Contraseña *</FormLabel>
-                <Input
-                  type="password"
-                  placeholder="Mínimo 6 caracteres"
-                  value={formData.password}
-                  onChange={(e) => handleChange('password', e.target.value)}
-                  disabled={loading}
-                />
-              </FormControl>
-
-              <FormControl required>
-                <FormLabel>Confirmar Contraseña *</FormLabel>
-                <Input
-                  type="password"
-                  placeholder="Repite tu contraseña"
-                  value={formData.confirmPassword}
-                  onChange={(e) => handleChange('confirmPassword', e.target.value)}
-                  disabled={loading}
-                />
-              </FormControl>
+              {/* Fila 3: Contraseña + Confirmar */}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <FormControl required sx={{ flex: 1 }}>
+                  <FormLabel sx={{ fontSize: '0.8rem' }}>Contraseña</FormLabel>
+                  <Input
+                    type="password"
+                    placeholder="Mínimo 6 caracteres"
+                    value={formData.password}
+                    onChange={(e) => handleChange('password', e.target.value)}
+                    disabled={loading}
+                    size="md"
+                  />
+                </FormControl>
+                <FormControl required sx={{ flex: 1 }}>
+                  <FormLabel sx={{ fontSize: '0.8rem' }}>Confirmar Contraseña</FormLabel>
+                  <Input
+                    type="password"
+                    placeholder="Repite tu contraseña"
+                    value={formData.confirmPassword}
+                    onChange={(e) => handleChange('confirmPassword', e.target.value)}
+                    disabled={loading}
+                    size="md"
+                  />
+                </FormControl>
+              </Stack>
 
               <Button
                 type="submit"
                 fullWidth
                 loading={loading}
-                color="primary"
-                size="lg"
+                size="md"
+                sx={{
+                  mt: 0.5,
+                  bgcolor: '#1e293b',
+                  '&:hover': { bgcolor: '#152030' },
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                }}
               >
-                CREAR CUENTA
+                Crear Cuenta
               </Button>
 
-              <Divider sx={{ my: 1 }} />
+              <Divider sx={{ my: 0 }}>o</Divider>
 
-              <Button
-                variant="outlined"
-                color="success"
-                fullWidth
-                startDecorator={<WhatsAppIcon />}
-                onClick={handleWhatsAppContact}
-              >
-                CONTACTENOS POR WHATSAPP
-              </Button>
-
-              <Button
-                variant="plain"
-                color="neutral"
-                fullWidth
-                startDecorator={<BackIcon />}
-                component={Link}
-                to="/login"
-              >
-                Volver al inicio de sesión
-              </Button>
+              {/* WhatsApp + Volver en fila */}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <Button
+                  variant="soft"
+                  color="success"
+                  fullWidth
+                  size="sm"
+                  startDecorator={<WhatsAppIcon sx={{ fontSize: 18 }} />}
+                  onClick={handleWhatsAppContact}
+                >
+                  WhatsApp
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="neutral"
+                  fullWidth
+                  size="sm"
+                  startDecorator={<BackIcon sx={{ fontSize: 18 }} />}
+                  component={Link}
+                  to="/login"
+                >
+                  Volver al Login
+                </Button>
+              </Stack>
             </Stack>
           </form>
 
-          <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary' }}>
+          <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary', mt: -0.5 }}>
             Al registrarte aceptas nuestros{' '}
-            <Typography sx={{ color: 'primary.main', cursor: 'pointer' }}>
+            <Typography
+              component="span"
+              level="body-xs"
+              sx={{ color: 'primary.500', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+            >
               Términos y Condiciones
             </Typography>
             {' '}y{' '}
-            <Typography sx={{ color: 'primary.main', cursor: 'pointer' }}>
+            <Typography
+              component="span"
+              level="body-xs"
+              sx={{ color: 'primary.500', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+            >
               Política de Privacidad
             </Typography>
-          </Typography>
-
-          <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary' }}>
-            Copyright 2025 - CodigoPlus
+            {' '}— Copyright {new Date().getFullYear()} CodigoPlus
           </Typography>
         </Stack>
       </Sheet>

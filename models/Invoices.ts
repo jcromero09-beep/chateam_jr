@@ -134,6 +134,15 @@ class Invoices extends Model<Invoices> {
     @AllowNull(true)
     @Column(DataType.DATE)
   appleExpiresDate: Date;
+
+  // Email Plan fields
+  @AllowNull(true)
+  @Column(DataType.BOOLEAN)
+  isEmailPlan: boolean;
+
+  @AllowNull(true)
+  @Column(DataType.INTEGER)
+  emailPlanId: number;
 }
 
 export default Invoices;

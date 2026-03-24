@@ -11,6 +11,7 @@ import {
   CircularProgress,
   Tooltip,
   Chip,
+  Alert,
 } from '@mui/joy'
 import {
   Send as SendIcon,
@@ -277,8 +278,22 @@ export default function MessageInput({
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  const isTikTokChannel = _ticketChannel === 'tiktok'
+
   return (
     <Box sx={{ position: 'relative' }}>
+      {/* Alerta TikTok: solo lectura */}
+      {isTikTokChannel && (
+        <Alert
+          color="warning"
+          variant="soft"
+          sx={{ mx: 1, mt: 1, borderRadius: 'sm' }}
+        >
+          <Typography level="body-sm">
+            TikTok no permite responder comentarios via API. Usa el boton &quot;Abrir en TikTok&quot; en el comentario para responder. Aqui solo puedes escribir notas internas.
+          </Typography>
+        </Alert>
+      )}
       {/* Quick Messages Popup */}
       {showQuickMessages && (
         <Box

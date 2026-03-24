@@ -10,6 +10,7 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import isAuth from "../middleware/isAuth";
+import validateAICredits from "../middleware/validateAICredits";
 import * as AIImageGenerationController from "../controllers/AIImageGenerationController";
 
 const aiImageGenerationRoutes = express.Router();
@@ -135,6 +136,7 @@ aiImageGenerationRoutes.post(
   "/",
   isAuth,
   generateLimiter, // Rate limiting más estricto para generación
+  validateAICredits("image", 1), // Verificar créditos antes de generar
   AIImageGenerationController.generate
 );
 
@@ -222,4 +224,4 @@ aiImageGenerationRoutes.get(
 // ============================================================================
 
 export default aiImageGenerationRoutes;
-console.log("📄 AI-IMAGE-ROUTES.TS LOADED\!");
+// console.log("📄 AI-IMAGE-ROUTES.TS LOADED\!");

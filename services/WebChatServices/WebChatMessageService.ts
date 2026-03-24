@@ -2,7 +2,7 @@ import WebChatMessage from '../../models/WebChat/WebChatMessage.js';
 import WebChatSession from '../../models/WebChat/WebChatSession.js';
 import Ticket from '../../models/Ticket.js';
 import Company from '../../models/Company.js';
-import { logger } from '../../config/logger.js';
+import logger from '../../config/logger.js';
 import AppError from '../../errors/AppError.js';
 import { getIO } from '../../libs/socket.js';
 import WebChatSessionService from './WebChatSessionService.js';

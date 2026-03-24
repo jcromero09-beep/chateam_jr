@@ -220,11 +220,26 @@ export const syncDatasets = async (req: Request, res: Response): Promise<Respons
         // Only sync datasets for the user's company
         const result = await SyncDatasets(companyId);
 
-        return res.status(200).json({
+        // Mejorar respuesta: indicar si realmente se creó algo
+        const response: any = {
             success: true,
             companyId,
             ...result
-        });
+        };
+
+        // Warning si no se creó ni sincronizó nada
+        if (result.created === 0 && result.synced === 0) {
+            response.success = true; // Mantener true pero agregar warning
+            response.warning = "No se encontró ninguna conexión social activa para sincronizar. Verifica que tengas conexiones Facebook, Instagram, WhatsApp o Meta activas.";
+            response.details = {
+                message: "El dataset no se creó porque no hay conexiones con los canales soportados",
+                supportedChannels: ["facebook", "instagram", "whatsapp", "meta"],
+                errors: result.errors
+            };
+            console.log(`⚠️ [syncDatasets Controller] Company ${companyId}: No se encontraron conexiones sociales para crear datasets`);
+        }
+
+        return res.status(200).json(response);
     } catch (error: any) {
         console.error("Error in syncDatasets:", error);
         return res.status(500).json({

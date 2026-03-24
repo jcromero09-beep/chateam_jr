@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useContext } from 'react'
+import { AuthContext } from '../context/Auth/AuthContext'
 import {
   Box,
   Typography,
@@ -54,6 +55,7 @@ import { i18n } from "../translate/i18n" // P3.47: i18n support
 
 interface AIProvider {
   id: number
+  companyId: number | null  // null = proveedor global (superadmin)
   provider: string
   displayName: string
   apiKey: string
@@ -97,6 +99,7 @@ interface FormData {
   provider: string
   displayName: string
   apiKey: string
+  isGlobal: boolean  // true = proveedor global (superadmin)
   isActive: boolean
   isDefault: boolean
   settings: {
@@ -148,6 +151,7 @@ const initialFormData: FormData = {
   provider: 'openai',
   displayName: '',
   apiKey: '',
+  isGlobal: false,  // Por defecto no es global
   isActive: true,
   isDefault: false,
   settings: {
@@ -188,6 +192,10 @@ export default function OpenAISettings() {
   const devError = (...args: any[]) => {
     if (isDev) console.error(...args);
   };
+
+  // Obtener contexto de autenticación para detectar superadmin
+  const authContext = useContext(AuthContext);
+  const isSuperAdmin = authContext?.user?.super === true;
 
   const [providers, setProviders] = useState<AIProvider[]>([])
   const [loading, setLoading] = useState(true)
@@ -236,6 +244,7 @@ export default function OpenAISettings() {
       provider: provider.provider,
       displayName: provider.displayName || (provider as any).name || '',  // Fallback to 'name' if displayName is missing
       apiKey: '', // Never show real API key
+      isGlobal: provider.companyId === null,  // Es global si companyId es null
       isActive: provider.isActive,
       isDefault: provider.isDefault,
       settings: {
@@ -388,6 +397,8 @@ export default function OpenAISettings() {
         name: formData.displayName, // Backend expects 'name', frontend uses 'displayName'
         // Only include apiKey if it was changed (not empty)
         ...(formData.apiKey ? { apiKey: formData.apiKey } : {}),
+        // Enviar companyId: null para proveedores globales
+        ...(formData.isGlobal && isSuperAdmin ? { companyId: null } : {}),
       }
 
       if (editingProvider) {
@@ -849,6 +860,26 @@ export default function OpenAISettings() {
             )}
 
             <Divider />
+
+            {/* Solo superadmin puede crear proveedores globales */}
+            {isSuperAdmin && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'background.level2', borderRadius: 'md' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography level="body-sm" fontWeight="lg">
+                      Proveedor Global
+                    </Typography>
+                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                      Disponible para todas las empresas
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={formData.isGlobal}
+                    onChange={(e) => setFormData({ ...formData, isGlobal: e.target.checked })}
+                  />
+                </Box>
+              </Box>
+            )}
 
             <Grid container spacing={2}>
               <Grid xs={6}>

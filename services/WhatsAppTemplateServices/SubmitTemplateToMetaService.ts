@@ -238,30 +238,38 @@ const buildComponents = (template: WhatsAppTemplate): TemplateComponent[] => {
 
   // Buttons
   if (template.buttons && template.buttons.length > 0) {
-    const formattedButtons = template.buttons.map(btn => {
-      const button: any = {
-        type: btn.type,
-        text: btn.text
-      };
-
-      // Agregar propiedades específicas según tipo
+    // Los botones en formato Meta API son diferentes a nuestro TemplateButton
+    // Usamos any[] para el formato de Meta
+    const formattedButtons: any[] = template.buttons.map(btn => {
+      // Meta espera formato específico para cada tipo de botón
       switch (btn.type) {
         case "URL":
-          button.url = btn.url;
-          if (btn.example) {
-            button.example = [btn.example];
-          }
-          break;
-        case "PHONE_NUMBER":
-          button.phone_number = btn.phoneNumber;
-          break;
-        case "COPY_CODE":
-          button.example = btn.example ? [btn.example] : ["CODIGO123"];
-          break;
-        // QUICK_REPLY no necesita propiedades adicionales
-      }
+          return {
+            type: "url",
+            url: btn.url || "",
+            example: btn.example ? [btn.example] : undefined
+          };
 
-      return button;
+        case "PHONE_NUMBER":
+          return {
+            type: "phone_number",
+            phone_number: btn.phoneNumber || ""
+          };
+
+        case "COPY_CODE":
+          return {
+            type: "copy_code",
+            copy_code: btn.example || "CODIGO123"
+          };
+
+        case "QUICK_REPLY":
+        default:
+          // Meta espera formato simple para QUICK_REPLY (sin ID)
+          return {
+            type: "quick_reply",
+            text: btn.text || "Botón"
+          };
+      }
     });
 
     components.push({

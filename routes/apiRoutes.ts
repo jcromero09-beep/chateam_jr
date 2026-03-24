@@ -26,6 +26,11 @@ ApiRoutes.post("/checkNumbers", tokenAuth, ApiController.checkNumbers);
 ApiRoutes.get("/stats", isAuth, ApiController.getApiStats);
 ApiRoutes.get("/dashboard-stats", isAuth, ApiController.getDashboardStats);
 
+// Mensajes fallidos - lista y reintento
+ApiRoutes.get("/failed-messages", isAuth, ApiController.listFailedMessages);
+ApiRoutes.post("/failed-messages/:id/retry", isAuth, ApiController.retryFailedMessage);
+ApiRoutes.delete("/failed-messages/:id", isAuth, ApiController.deleteFailedMessage);
+
 // ApiRoutes.post("/send/linkVideo", tokenAuth, ApiController.indexVideo);
 // ApiRoutes.post("/send/toManyText", tokenAuth, ApiController.indexToMany);
 // ApiRoutes.post("/send/toManyLinkPdf", tokenAuth, ApiController.indexToManyLinkPdf);
@@ -35,4 +40,4 @@ ApiRoutes.get("/dashboard-stats", isAuth, ApiController.getDashboardStats);
 // ApiRoutes.get("/getWhatsappsId", tokenAuth, ApiController.indexWhatsappsId);
 
 export default ApiRoutes;
-console.log("📄 API-ROUTES.TS LOADED\!");
+// console.log("📄 API-ROUTES.TS LOADED\!");

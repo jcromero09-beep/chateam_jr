@@ -28,4 +28,4 @@ receiptsRoutes.delete("/recepts/:id", isAuth, ReceiptController.remove);
 
 
 export default receiptsRoutes;
-console.log("📄 RECEPTS-ROUTES.TS LOADED\!");
+// console.log("📄 RECEPTS-ROUTES.TS LOADED\!");

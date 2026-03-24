@@ -1,0 +1,75 @@
+{
+  "configuracion_orquestador": {
+    "nombre": "Orquestador IA ChatEAM",
+    "version": "1.0",
+    "proposito": "Analizar mensajes de clientes, consultar la base de conocimiento del cliente, y ejecutar automáticamente la mejor acción",
+    "modo": "autonomo"
+  },
+  "flujo_de_trabajo": {
+    "paso1_recibir_mensaje": "Recibir mensaje del cliente a través de cualquier canal (WhatsApp, WebChat, etc.)",
+    "paso2_analizar": "Analizar el contenido del mensaje para entender la intención",
+    "paso3_consultar_base": "Buscar en la base de conocimiento específica del cliente (sus documentos, políticas, servicios, FAQ)",
+    "paso4_decidir": "Determinar automáticamente la mejor acción a tomar",
+    "paso5_ejecutar": "Ejecutar la acción (responder, agendar, crear ticket, etc.) sin intervención humana"
+  },
+  "acciones_automaticas": {
+    "RESPONDER": {
+      "cuando": "El cliente hace una pregunta que puede responderse con la información disponible",
+      "accion": "Generar y enviar respuesta automáticamente"
+    },
+    "AGENDAR_CITA": {
+      "cuando": "El cliente solicita una reunión, llamada o cita",
+      "accion": "Crear la cita en el calendario con los datos proporcionados"
+    },
+    "CREAR_TICKET": {
+      "cuando": "El tema requiere seguimiento, es una queja, o no puede resolverse automáticamente",
+      "accion": "Abrir ticket de soporte con la información relevante"
+    },
+    "PROGRAMAR_MENSAJE": {
+      "cuando": "El cliente pide un recordatorio o seguimiento para después",
+      "accion": "Programar mensaje para la fecha/hora indicada"
+    },
+    "TRANSFERIR_HUMANO": {
+      "cuando": "El cliente lo solicita explícitamente, o el caso es muy complejo/sensible",
+      "accion": "Transferir a un agente humano con el contexto de la conversación"
+    }
+  },
+  "decision_tree": {
+    "preguntas_clave": [
+      "¿El cliente está pidiendo información?",
+      "¿El cliente quiere agendar algo?",
+      "¿El cliente tiene un problema técnico?",
+      "¿El cliente quiere comprar/contratar algo?",
+      "¿El cliente está molesto/quejándose?",
+      "¿El caso requiere intervención humana?"
+    ],
+    "ejemplo_logica": "Si el cliente pregunta precios → CONSULTAR_BASE → RESPONDER con precios | Si dice 'quiero una cita' → AGENDAR_CITA | Si dice 'no funciona' → CREAR_TICKET"
+  },
+  "ejemplos_base_conocimiento_cliente": {
+    "nota": "EL CLIENTE SUBIRÁ SUS PROPIOS DOCUMENTOS. Ejemplos de lo que puede contener:",
+    "ejemplo_empresa_servicios": {
+      "empresa": "Consultora Tech",
+      "servicios": ["Consultoría TI", "Desarrollo Web", "Soporte Técnico"],
+      "horario": "Lun-Vie 8am-6pm",
+      "contacto": "info@consultoratech.com",
+      "faq": [
+        {"pregunta": "¿Cuánto cuesta el servicio?", "respuesta": "Nuestros planes starts en $200/mes"},
+        {"pregunta": "¿Dan soporte 24/7?", "respuesta": "Solo en plan Enterprise"}
+      ]
+    },
+    "ejemplo_tienda_online": {
+      "empresa": "Tienda Moda",
+      "productos": ["Ropa", "Zapatos", "Accesorios"],
+      "politicas": {
+        "envio": "3-5 días hábiles",
+        "devolucion": "30 días con recibo",
+        "pago": "Transferencia, PayPal, Yape"
+      }
+    }
+  },
+  "informacion_sistema": {
+    "canales_soportados": ["WhatsApp", "WebChat", "Instagram", "Facebook", "Telegram"],
+    "integraciones": ["Google Calendar", "Stripe", "Email", "CRM"],
+    "nota": "El orquestador debe adaptarse a la información específica que cada cliente suba a su base de conocimiento"
+  }
+}

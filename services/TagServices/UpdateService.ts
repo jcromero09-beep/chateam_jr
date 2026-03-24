@@ -13,6 +13,15 @@ interface TagData {
   nextLaneId?: number;
   greetingMessageLane: string;
   rollbackLaneId?: number;
+  description?: string;
+  followupEnabled?: boolean;
+  followupCount?: number;
+  followupMessage1?: string;
+  followupDelay1?: number;
+  followupMessage2?: string;
+  followupDelay2?: number;
+  followupMessage3?: string;
+  followupDelay3?: number;
 }
 
 interface Request {
@@ -34,7 +43,16 @@ const UpdateUserService = async ({
     timeLane,
     nextLaneId = null,
     greetingMessageLane,
-    rollbackLaneId = null} = tagData;
+    rollbackLaneId = null,
+    description,
+    followupEnabled,
+    followupCount,
+    followupMessage1,
+    followupDelay1,
+    followupMessage2,
+    followupDelay2,
+    followupMessage3,
+    followupDelay3} = tagData;
 
   try {
     await schema.validate({ name });
@@ -50,6 +68,15 @@ const UpdateUserService = async ({
     nextLaneId: String(nextLaneId) === "" ? null : nextLaneId,
     greetingMessageLane,
     rollbackLaneId: String(rollbackLaneId) === "" ? null : rollbackLaneId,
+    description,
+    followupEnabled,
+    followupCount,
+    followupMessage1,
+    followupDelay1,
+    followupMessage2,
+    followupDelay2,
+    followupMessage3,
+    followupDelay3
   });
 
   await tag.reload();

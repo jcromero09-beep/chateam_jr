@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Socket } from 'socket.io-client'
 import authService from '../services/authService'
 import socketService from '../services/socket'
+import { setLoggingOut } from '../services/api'
 import { toast } from 'react-toastify'
 
 export interface Plan {
@@ -53,9 +54,13 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [socket, setSocket] = useState<Socket | null>(null)
+  const initRef = useRef(false)
 
   useEffect(() => {
-    // Verificar si hay token y validarlo
+    // Guardia contra doble ejecución por React StrictMode
+    if (initRef.current) return
+    initRef.current = true
+
     const initAuth = async () => {
       const token = authService.getToken()
 
@@ -65,16 +70,12 @@ export function useAuth() {
 
           if (isValid) {
             const userData = await authService.getCurrentUser()
-            console.log('useAuth: initAuth - userData:', userData)
-            console.log('useAuth: initAuth - companyId:', userData?.companyId)
             setUser(userData)
             setIsAuthenticated(true)
           } else {
             setIsAuthenticated(false)
           }
         } catch (error) {
-          console.error('Token validation failed:', error)
-          // Clear invalid tokens from localStorage
           authService.logout()
           setIsAuthenticated(false)
         }
@@ -88,9 +89,7 @@ export function useAuth() {
 
   // Conectar socket cuando el usuario está autenticado
   useEffect(() => {
-    console.log('useAuth socket effect - user:', user?.id, 'companyId:', user?.companyId)
     if (user && user.id && user.companyId) {
-      console.log('Iniciando conexion socket para user:', user.id, 'company:', user.companyId)
       const io = socketService.connect(user.companyId, user.id)
       setSocket(io)
     }
@@ -101,57 +100,46 @@ export function useAuth() {
   }, [user])
 
   const login = async (email: string, password: string, force: boolean = false) => {
-    console.log('useAuth: Login called with email:', email, 'force:', force)
-
     try {
-      console.log('useAuth: Calling authService.login')
       const data = await authService.login({ email, password, force })
-      console.log('useAuth: Login successful, data:', data)
-      console.log('useAuth: User data received:', data.user)
-      console.log('useAuth: CompanyId in user:', data.user?.companyId)
-
       setUser(data.user)
       setIsAuthenticated(true)
       return { success: true }
     } catch (error: any) {
-      console.error('useAuth: Login error caught:', error)
-      console.log('useAuth: Error response:', error.response)
-      console.log('useAuth: Error status:', error.response?.status)
-
-      // Manejar error de sesión web activa (HTTP 409)
-      if (error.response?.status === 409) {
-        const errorCode = error.response?.data?.error
-        console.log('useAuth: 409 error detected, errorCode:', errorCode)
-        console.log('useAuth: Error data:', error.response?.data)
-
-        if (errorCode === 'web_session_already_active') {
-          console.log('useAuth: Returning needsForce: true')
-          return {
-            success: false,
-            error: 'Ya existe una sesión web activa',
-            needsForce: true,
-            message: error.response?.data?.message || 'Ya existe una sesión web activa. ¿Desea cerrar la sesión anterior y continuar?'
-          }
-        }
+      // Auto-force: si hay sesión web activa (409), reintentar cerrando la sesión anterior
+      if (error.response?.status === 409 && !force) {
+        return login(email, password, true)
       }
 
       const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Credenciales inválidas'
-      console.log('useAuth: Returning error:', errorMessage)
       toast.error(errorMessage)
       return { success: false, error: errorMessage }
     }
   }
 
   const logout = async () => {
+    // 0. INMEDIATO: suprimir errores ANTES de cualquier acción
+    setLoggingOut(true)
+
     try {
+      // 1. Desconectar socket (errores ya suprimidos por flag)
+      socketService.disconnect()
+      setSocket(null)
+
+      // 2. Ejecutar logout en el servidor
       await authService.logout()
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
-      socketService.disconnect()
-      setSocket(null)
+      // 3. Limpiar estado de React
       setUser(null)
       setIsAuthenticated(false)
+
+      // 4. Resetear flag de logout después de 2s
+      // (permite que todas las requests pendientes terminen de ser suprimidas)
+      setTimeout(() => {
+        setLoggingOut(false)
+      }, 2000)
     }
   }
 

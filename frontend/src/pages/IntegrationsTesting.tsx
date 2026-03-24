@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -14,6 +14,7 @@ import {
   Sheet,
   Table,
   Alert,
+  LinearProgress,
 } from '@mui/joy'
 import {
   BugReport as TestIcon,
@@ -29,6 +30,7 @@ import {
   Visibility as ReadIcon,
   Edit as WriteIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
 
 interface TestResult {
   test: string
@@ -48,13 +50,14 @@ interface TestHistory {
 }
 
 export default function IntegrationsTesting() {
-  const [selectedIntegration, setSelectedIntegration] = useState<string>('Billie')
+  const [selectedIntegration, setSelectedIntegration] = useState<string>('')
   const [selectedTest, setSelectedTest] = useState<string>('connection')
   const [testing, setTesting] = useState(false)
   const [testResults, setTestResults] = useState<TestResult[]>([])
   const [response, setResponse] = useState<string>('')
-
-  const integrations = ['Billie', 'Aria Lite', 'SmartTrack', 'SGR', 'Custom']
+  const [testHistory, setTestHistory] = useState<TestHistory[]>([])
+  const [integrations, setIntegrations] = useState<string[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
 
   const testTypes = [
     { value: 'connection', label: 'Test de Conexión', icon: <PingIcon /> },
@@ -65,251 +68,79 @@ export default function IntegrationsTesting() {
     { value: 'webhook', label: 'Test de Webhook', icon: <WebhookIcon /> },
   ]
 
-  const testHistory: TestHistory[] = [
-    {
-      id: 1,
-      integration: 'Billie',
-      testType: 'Connection Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:45:23',
-      duration: 234,
-    },
-    {
-      id: 2,
-      integration: 'Aria Lite',
-      testType: 'Sync Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:40:12',
-      duration: 1245,
-    },
-    {
-      id: 3,
-      integration: 'SmartTrack',
-      testType: 'Auth Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:35:45',
-      duration: 156,
-    },
-    {
-      id: 4,
-      integration: 'SGR',
-      testType: 'Read Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:30:18',
-      duration: 456,
-    },
-    {
-      id: 5,
-      integration: 'Custom',
-      testType: 'Connection Test',
-      status: 'failed',
-      timestamp: '2025-10-13 10:25:22',
-      duration: 0,
-    },
-    {
-      id: 6,
-      integration: 'Billie',
-      testType: 'Webhook Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:20:47',
-      duration: 89,
-    },
-    {
-      id: 7,
-      integration: 'Aria Lite',
-      testType: 'Write Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:15:33',
-      duration: 678,
-    },
-    {
-      id: 8,
-      integration: 'SmartTrack',
-      testType: 'Connection Test',
-      status: 'success',
-      timestamp: '2025-10-13 10:10:12',
-      duration: 198,
-    },
-  ]
+  useEffect(() => {
+    const fetchIntegrations = async () => {
+      try {
+        const { data } = await api.get('/integrations')
+        const list: string[] = data?.data ?? data ?? []
+        setIntegrations(list)
+        if (list.length > 0) setSelectedIntegration(list[0])
+      } catch {
+        setIntegrations([])
+      }
+    }
 
-  const mockResponses: Record<string, any> = {
-    Billie: {
-      connection: {
-        status: 'success',
-        message: 'Conexión establecida exitosamente',
-        data: {
-          apiVersion: 'v2.5',
-          serverTime: '2025-10-13T10:45:23Z',
-          latency: '234ms',
-          endpoints: {
-            contacts: 'https://api.billie.com/v2.5/contacts',
-            invoices: 'https://api.billie.com/v2.5/invoices',
-            products: 'https://api.billie.com/v2.5/products',
-          },
-        },
-      },
-      auth: {
-        status: 'success',
-        message: 'Autenticación exitosa',
-        data: {
-          authenticated: true,
-          tokenValid: true,
-          expiresAt: '2025-10-14T10:45:23Z',
-          permissions: ['read', 'write', 'delete'],
-        },
-      },
-      read: {
-        status: 'success',
-        message: 'Lectura de datos exitosa',
-        data: {
-          recordsFound: 245,
-          sampleRecords: [
-            { id: 1, name: 'Juan Pérez', email: 'juan@example.com' },
-            { id: 2, name: 'María González', email: 'maria@example.com' },
-            { id: 3, name: 'Carlos Rodríguez', email: 'carlos@example.com' },
-          ],
-        },
-      },
-    },
-    'Aria Lite': {
-      connection: {
-        status: 'success',
-        message: 'Conexión establecida con Aria Lite CRM',
-        data: {
-          apiVersion: 'v1.8',
-          serverStatus: 'online',
-          responseTime: '123ms',
-        },
-      },
-    },
-    SmartTrack: {
-      connection: {
-        status: 'success',
-        message: 'Conexión establecida con SmartTrack',
-        data: {
-          apiVersion: 'v3.1',
-          status: 'operational',
-          activeShipments: 456,
-        },
-      },
-    },
-    SGR: {
-      connection: {
-        status: 'success',
-        message: 'Conexión establecida con SGR',
-        data: {
-          apiVersion: 'v2.0',
-          status: 'active',
-          openClaims: 234,
-        },
-      },
-    },
-    Custom: {
-      connection: {
-        status: 'failed',
-        message: 'Error de conexión: timeout',
-        error: {
-          code: 'ETIMEDOUT',
-          message: 'Connection timeout after 30000ms',
-        },
-      },
-    },
-  }
+    const fetchHistory = async () => {
+      setLoadingHistory(true)
+      try {
+        const { data } = await api.get('/integrations/test/history')
+        setTestHistory(data?.data ?? data ?? [])
+      } catch {
+        setTestHistory([])
+      } finally {
+        setLoadingHistory(false)
+      }
+    }
+
+    fetchIntegrations()
+    fetchHistory()
+  }, [])
 
   const handleRunTest = async () => {
+    if (!selectedIntegration) return
     setTesting(true)
     setTestResults([])
     setResponse('')
 
-    const tests: TestResult[] = []
-
-    if (selectedTest === 'connection' || selectedTest === 'all') {
-      tests.push({
-        test: 'Ping API',
-        status: 'pending',
-        message: 'Verificando disponibilidad del servidor...',
-        duration: 0,
-        timestamp: new Date().toISOString(),
+    try {
+      const { data } = await api.post('/integrations/test', {
+        integration: selectedIntegration,
+        testType: selectedTest,
       })
-      setTestResults([...tests])
 
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      const result = data?.data ?? data ?? {}
+      setTestResults(result.steps ?? [])
+      setResponse(JSON.stringify(result.apiResponse ?? result, null, 2))
 
-      tests[tests.length - 1].status = 'success'
-      tests[tests.length - 1].message = 'Servidor disponible'
-      tests[tests.length - 1].duration = 234
-      setTestResults([...tests])
+      // Agregar al historial local
+      const historyEntry: TestHistory = {
+        id: Date.now(),
+        integration: selectedIntegration,
+        testType: testTypes.find((t) => t.value === selectedTest)?.label ?? selectedTest,
+        status: result.success ? 'success' : 'failed',
+        timestamp: new Date().toLocaleString('es-ES'),
+        duration: result.duration ?? 0,
+      }
+      setTestHistory((prev) => [historyEntry, ...prev])
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Error al ejecutar el test'
+      setTestResults([
+        {
+          test: selectedTest,
+          status: 'failed',
+          message: errorMsg,
+          duration: 0,
+          timestamp: new Date().toISOString(),
+        },
+      ])
+      setResponse(JSON.stringify({ error: errorMsg }, null, 2))
+    } finally {
+      setTesting(false)
     }
-
-    if (selectedTest === 'auth' || selectedTest === 'connection' || selectedTest === 'all') {
-      tests.push({
-        test: 'Auth Test',
-        status: 'pending',
-        message: 'Verificando credenciales...',
-        duration: 0,
-        timestamp: new Date().toISOString(),
-      })
-      setTestResults([...tests])
-
-      await new Promise(resolve => setTimeout(resolve, 1200))
-
-      tests[tests.length - 1].status = selectedIntegration === 'Custom' ? 'failed' : 'success'
-      tests[tests.length - 1].message = selectedIntegration === 'Custom'
-        ? 'Credenciales inválidas'
-        : 'Autenticación exitosa'
-      tests[tests.length - 1].duration = 156
-      setTestResults([...tests])
-    }
-
-    if (selectedTest === 'read' || selectedTest === 'all') {
-      tests.push({
-        test: 'Read Test',
-        status: 'pending',
-        message: 'Leyendo datos de prueba...',
-        duration: 0,
-        timestamp: new Date().toISOString(),
-      })
-      setTestResults([...tests])
-
-      await new Promise(resolve => setTimeout(resolve, 1500))
-
-      tests[tests.length - 1].status = selectedIntegration === 'Custom' ? 'failed' : 'success'
-      tests[tests.length - 1].message = selectedIntegration === 'Custom'
-        ? 'Error al leer datos'
-        : 'Datos leídos correctamente (245 registros)'
-      tests[tests.length - 1].duration = 456
-      setTestResults([...tests])
-    }
-
-    if (selectedTest === 'write' || selectedTest === 'all') {
-      tests.push({
-        test: 'Write Test',
-        status: 'pending',
-        message: 'Escribiendo datos de prueba...',
-        duration: 0,
-        timestamp: new Date().toISOString(),
-      })
-      setTestResults([...tests])
-
-      await new Promise(resolve => setTimeout(resolve, 1800))
-
-      tests[tests.length - 1].status = selectedIntegration === 'Custom' ? 'failed' : 'success'
-      tests[tests.length - 1].message = selectedIntegration === 'Custom'
-        ? 'Error al escribir datos'
-        : 'Datos escritos correctamente'
-      tests[tests.length - 1].duration = 678
-      setTestResults([...tests])
-    }
-
-    const mockData = mockResponses[selectedIntegration]?.[selectedTest] || mockResponses[selectedIntegration]?.connection
-
-    setResponse(JSON.stringify(mockData, null, 2))
-    setTesting(false)
   }
 
-  const handleRunAllTests = async () => {
+  const handleRunAllTests = () => {
     setSelectedTest('all')
-    await new Promise(resolve => setTimeout(resolve, 100))
     handleRunTest()
   }
 
@@ -367,6 +198,7 @@ export default function IntegrationsTesting() {
                     <Select
                       value={selectedIntegration}
                       onChange={(_, value) => setSelectedIntegration(value as string)}
+                      placeholder="Selecciona una integración"
                     >
                       {integrations.map((integration) => (
                         <Option key={integration} value={integration}>
@@ -411,6 +243,7 @@ export default function IntegrationsTesting() {
                       startDecorator={<RunIcon />}
                       onClick={handleRunTest}
                       loading={testing}
+                      disabled={!selectedIntegration}
                       fullWidth
                     >
                       Ejecutar Test Seleccionado
@@ -419,6 +252,7 @@ export default function IntegrationsTesting() {
                       variant="outlined"
                       onClick={handleRunAllTests}
                       loading={testing}
+                      disabled={!selectedIntegration}
                       fullWidth
                     >
                       Ejecutar Todos los Tests
@@ -581,6 +415,8 @@ export default function IntegrationsTesting() {
             Historial de Tests Ejecutados
           </Typography>
 
+          {loadingHistory && <LinearProgress sx={{ mb: 2 }} />}
+
           <Sheet sx={{ overflow: 'auto' }}>
             <Table>
               <thead>
@@ -593,40 +429,52 @@ export default function IntegrationsTesting() {
                 </tr>
               </thead>
               <tbody>
-                {testHistory.map((test) => (
-                  <tr key={test.id}>
-                    <td>
-                      <Typography level="body-xs">
-                        {test.timestamp}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {test.integration}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {test.testType}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={test.status === 'success' ? 'success' : 'danger'}
-                        variant="soft"
-                        startDecorator={test.status === 'success' ? <CheckCircleIcon /> : <ErrorIcon />}
-                      >
-                        {test.status}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {test.duration > 0 ? `${test.duration}ms` : 'N/A'}
-                      </Typography>
+                {testHistory.length === 0 && !loadingHistory ? (
+                  <tr>
+                    <td colSpan={5}>
+                      <Box sx={{ py: 4, textAlign: 'center' }}>
+                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                          No hay tests ejecutados aún.
+                        </Typography>
+                      </Box>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  testHistory.map((test) => (
+                    <tr key={test.id}>
+                      <td>
+                        <Typography level="body-xs">
+                          {test.timestamp}
+                        </Typography>
+                      </td>
+                      <td>
+                        <Chip size="sm" variant="outlined">
+                          {test.integration}
+                        </Chip>
+                      </td>
+                      <td>
+                        <Typography level="body-sm">
+                          {test.testType}
+                        </Typography>
+                      </td>
+                      <td>
+                        <Chip
+                          size="sm"
+                          color={test.status === 'success' ? 'success' : 'danger'}
+                          variant="soft"
+                          startDecorator={test.status === 'success' ? <CheckCircleIcon /> : <ErrorIcon />}
+                        >
+                          {test.status}
+                        </Chip>
+                      </td>
+                      <td>
+                        <Typography level="body-sm">
+                          {test.duration > 0 ? `${test.duration}ms` : 'N/A'}
+                        </Typography>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </Table>
           </Sheet>

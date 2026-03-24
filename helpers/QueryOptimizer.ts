@@ -1,5 +1,6 @@
 import { Model, ModelCtor, FindOptions, Includeable } from 'sequelize';
 import logger from '../utils/logger';
+// @ts-ignore - dataloader not installed
 import DataLoader from 'dataloader';
 
 /**
@@ -28,7 +29,7 @@ export function createDataLoader<T extends Model>(
       const records = await model.findAll({
         where: {
           [batchKey]: ids as any[]
-        }
+        } as any
       });
 
       // Create a map for O(1) lookup
@@ -128,8 +129,8 @@ export function optimizeQuery<T extends Model>(
 
   // Add logging in development
   if (process.env.NODE_ENV === 'development') {
-    optimized.logging = (sql, timing) => {
-      logger.debug(`Query [${modelName}]:`, { sql, timing });
+    optimized.logging = (sql: any, timing: any) => {
+      logger.debug(`Query [${modelName}]: ${sql} (${timing}ms)`);
     };
   }
 
@@ -154,7 +155,7 @@ export async function batchLoadRelation<T extends Model, R extends Model>(
   const related = await relatedModel.findAll({
     where: {
       id: ids as any[]
-    }
+    } as any
   });
 
   const relatedMap = new Map<any, R>();
@@ -189,10 +190,7 @@ export class QueryMonitor {
 
     // Log slow queries
     if (duration > 1000) {
-      logger.warn(`Slow query detected in ${model}:`, {
-        duration,
-        sql: sql.substring(0, 200)
-      });
+      logger.warn(`Slow query detected in ${model}: ${sql.substring(0, 200)} (${duration}ms)`);
     }
 
     // Keep only last 1000 queries
@@ -297,7 +295,7 @@ export async function cursorPaginate<T extends Model>(
     try {
       decodedCursor = JSON.parse(Buffer.from(cursor, 'base64').toString());
     } catch (error) {
-      logger.error('Invalid cursor:', error);
+      logger.error('Invalid cursor: ' + String(error));
     }
   }
 

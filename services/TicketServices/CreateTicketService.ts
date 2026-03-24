@@ -48,8 +48,10 @@ const CreateTicketService = async ({
   if (whatsapp) {
     defaultWhatsapp = whatsapp;
   }
-  if (!defaultWhatsapp)
-    defaultWhatsapp = await GetDefaultWhatsApp(whatsapp.id, companyId);
+  if (!defaultWhatsapp) {
+    const fallbackId = whatsapp?.id || 0;
+    defaultWhatsapp = await GetDefaultWhatsApp(fallbackId, companyId);
+  }
 
   // console.log("defaultWhatsapp", defaultWhatsapp.id, defaultWhatsapp.channel)
   await CheckContactOpenTickets(contactId, defaultWhatsapp.id, companyId);

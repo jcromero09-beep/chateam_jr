@@ -24,6 +24,7 @@ import {
   Save as SaveIcon,
   History as HistoryIcon,
 } from '@mui/icons-material'
+import api from '../services/api'
 
 interface TestResult {
   id: number
@@ -46,69 +47,65 @@ export default function OpenAITesting() {
   const [loading, setLoading] = useState(false)
   const [response, setResponse] = useState('')
   const [testInfo, setTestInfo] = useState<{ tokens: number; cost: number; duration: number } | null>(null)
+  const [history, setHistory] = useState<TestResult[]>([])
 
-  const [history, setHistory] = useState<TestResult[]>([
-    {
-      id: 1,
-      timestamp: '2025-10-13 14:35:22',
-      model: 'GPT-4 Turbo',
-      prompt: 'Analiza el sentimiento del siguiente mensaje: "Estoy muy contento con el servicio"',
-      response: '{"sentimiento": "positivo", "confianza": 95, "emocion": "alegría"}',
-      tokens: 85,
-      cost: 0.00255,
-      duration: 1.2,
-      success: true,
-    },
-    {
-      id: 2,
-      timestamp: '2025-10-13 14:30:15',
-      model: 'GPT-3.5 Turbo',
-      prompt: 'Resume el siguiente texto en 2 oraciones: [texto largo...]',
-      response: 'El cliente reporta un problema con su pedido. Solicita reembolso urgente.',
-      tokens: 120,
-      cost: 0.00012,
-      duration: 0.8,
-      success: true,
-    },
-  ])
-
-  const handleTest = () => {
+  const handleTest = async () => {
     if (!prompt.trim()) return
 
     setLoading(true)
     setResponse('')
     setTestInfo(null)
 
-    // Simular llamada a API
-    setTimeout(() => {
-      const mockResponse = `Esta es una respuesta de prueba generada por ${selectedModel}.\n\nLa temperatura configurada es ${temperature} y el máximo de tokens es ${maxTokens}.\n\nPrompt del sistema: "${systemPrompt}"\n\nPrompt del usuario: "${prompt}"\n\nEsta respuesta es simulada para propósitos de testing de la interfaz.`
-      const mockTokens = Math.floor(Math.random() * 500) + 100
-      const mockCost = mockTokens * 0.00003
-      const mockDuration = Math.random() * 2 + 0.5
-
-      setResponse(mockResponse)
-      setTestInfo({
-        tokens: mockTokens,
-        cost: mockCost,
-        duration: mockDuration,
+    try {
+      const { data } = await api.post('/ai/test', {
+        prompt,
+        model: selectedModel,
+        systemPrompt,
+        temperature,
+        maxTokens,
       })
 
-      // Agregar al historial
+      const result = data?.data ?? data ?? {}
+      const aiResponse: string = result.response ?? ''
+      const tokens: number = result.tokens ?? 0
+      const cost: number = result.cost ?? 0
+      const duration: number = result.duration ?? 0
+
+      setResponse(aiResponse)
+      setTestInfo({ tokens, cost, duration })
+
       const newResult: TestResult = {
         id: Date.now(),
         timestamp: new Date().toLocaleString('es-ES'),
         model: selectedModel,
-        prompt: prompt,
-        response: mockResponse,
-        tokens: mockTokens,
-        cost: mockCost,
-        duration: mockDuration,
+        prompt,
+        response: aiResponse,
+        tokens,
+        cost,
+        duration,
         success: true,
       }
-      setHistory([newResult, ...history])
+      setHistory((prev) => [newResult, ...prev])
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Error al conectar con la API de IA'
+      setResponse(errorMsg)
+      setTestInfo(null)
 
+      const failedResult: TestResult = {
+        id: Date.now(),
+        timestamp: new Date().toLocaleString('es-ES'),
+        model: selectedModel,
+        prompt,
+        response: errorMsg,
+        tokens: 0,
+        cost: 0,
+        duration: 0,
+        success: false,
+      }
+      setHistory((prev) => [failedResult, ...prev])
+    } finally {
       setLoading(false)
-    }, 2000)
+    }
   }
 
   const handleClear = () => {
@@ -117,8 +114,12 @@ export default function OpenAITesting() {
     setTestInfo(null)
   }
 
-  const handleSaveTest = () => {
-    console.log('Guardando test como prompt...')
+  const handleSaveTest = async () => {
+    try {
+      await api.post('/ai/prompts', { prompt, model: selectedModel, systemPrompt })
+    } catch {
+      // manejar error silenciosamente
+    }
   }
 
   const modelOptions = [
@@ -369,42 +370,59 @@ export default function OpenAITesting() {
                 Historial de Tests
               </Typography>
 
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {history.map((test) => (
-                  <Card key={test.id} variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="lg">
-                            {test.model}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {test.timestamp}
-                          </Typography>
+              {history.length === 0 ? (
+                <Box
+                  sx={{
+                    py: 4,
+                    textAlign: 'center',
+                    bgcolor: 'background.level1',
+                    borderRadius: 'sm',
+                    border: '1px dashed',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    No hay tests ejecutados. Escribe un prompt para probar la IA.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {history.map((test) => (
+                    <Card key={test.id} variant="outlined">
+                      <CardContent>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                          <Box>
+                            <Typography level="body-sm" fontWeight="lg">
+                              {test.model}
+                            </Typography>
+                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                              {test.timestamp}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Chip size="sm" variant="outlined">
+                              {test.tokens} tokens
+                            </Chip>
+                            <Chip size="sm" variant="outlined">
+                              ${test.cost.toFixed(5)}
+                            </Chip>
+                            <Chip size="sm" variant="outlined">
+                              {test.duration.toFixed(2)}s
+                            </Chip>
+                          </Box>
                         </Box>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Chip size="sm" variant="outlined">
-                            {test.tokens} tokens
-                          </Chip>
-                          <Chip size="sm" variant="outlined">
-                            ${test.cost.toFixed(5)}
-                          </Chip>
-                          <Chip size="sm" variant="outlined">
-                            {test.duration.toFixed(2)}s
-                          </Chip>
-                        </Box>
-                      </Box>
-                      <Typography level="body-sm" sx={{ mb: 1, fontStyle: 'italic' }}>
-                        "{test.prompt.substring(0, 100)}..."
-                      </Typography>
-                      <Divider sx={{ my: 1 }} />
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        {test.response.substring(0, 150)}...
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Box>
+                        <Typography level="body-sm" sx={{ mb: 1, fontStyle: 'italic' }}>
+                          "{test.prompt.substring(0, 100)}{test.prompt.length > 100 ? '...' : ''}"
+                        </Typography>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                          {test.response.substring(0, 150)}{test.response.length > 150 ? '...' : ''}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Box>
+              )}
             </CardContent>
           </Card>
         </Grid>

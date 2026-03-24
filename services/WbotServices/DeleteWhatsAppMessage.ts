@@ -47,7 +47,10 @@ const DeleteWhatsAppMessage = async (messageId: string, companyId?: string | num
   }
 
   if (!message.isPrivate) {
-    await message.update({ isDeleted: true });
+    await message.update({ isDeleted: true, messageStatus: 'deleted' });
+  } else {
+    // Para mensajes privados, también marcamos como deleted para evitar reenvíos
+    await message.update({ messageStatus: 'deleted' });
   }
   
   return message;

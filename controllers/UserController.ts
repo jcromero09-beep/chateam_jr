@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
-import { isEmpty, isNil } from "lodash";
 import CheckSettingsHelper from "../helpers/CheckSettings";
 import AppError from "../errors/AppError";
 
@@ -13,9 +12,6 @@ import SimpleListService from "../services/UserServices/SimpleListService";
 import CreateCompanyService from "../services/CompanyService/CreateCompanyService";
 import { SendMail } from "../helpers/SendMail";
 import { useDate } from "../utils/useDate";
-import ShowCompanyService from "../services/CompanyService/ShowCompanyService";
-import { getWbot } from "../libs/wbot";
-import FindCompaniesWhatsappService from "../services/CompanyService/FindCompaniesWhatsappService";
 import User from "../models/User";
 
 import { head } from "lodash";
@@ -177,22 +173,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
       await SendMail(_email)
     } catch (error) {
       //console.log('No pude enviar el correo electrónico')
-    }
-
-    try {
-      const company = await ShowCompanyService(1);
-      const whatsappCompany = await FindCompaniesWhatsappService(company.id)
-
-      if (whatsappCompany.whatsapps[0].status === "CONNECTED" && (phone !== undefined || !isNil(phone) || !isEmpty(phone))) {
-        const whatsappId = whatsappCompany.whatsapps[0].id
-        const wbot = getWbot(whatsappId);
-
-        const body = `Hola, ${name}, este es un mensaje sobre el ${companyName}!\n\nIntroduzca a continuación los datos de su empresa:\n\nNombre: ${companyName}\nEmail: ${email}\nContraseña: ${password}\nFecha de vencimiento de la prueba: ${dateToClient(date)}`
-
-        await wbot.sendMessage(`55${phone}@s.whatsapp.net`, { text: body });
-      }
-    } catch (error) {
-      //console.log('No pude enviar el mensaje')
     }
 
     return res.status(200).json(user);

@@ -70,7 +70,16 @@ class SocketService {
 
   disconnect(): void {
     if (this.socket) {
+      // Desactivar reconexión antes de desconectar (evita reconnect con Infinity attempts)
+      this.socket.io.opts.reconnection = false
+
+      // Remover todos los listeners para evitar side-effects durante logout
+      this.socket.removeAllListeners()
+      this.socket.offAny()
+
+      // Desconectar
       this.socket.disconnect()
+
       this.socket = null
       this.companyId = null
       this.userId = null
