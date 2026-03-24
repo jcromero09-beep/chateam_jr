@@ -7,6 +7,7 @@ interface AuthenticatedRequest extends Request {
     id: number;
     profile: string;
     companyId: number;
+    super?: boolean;
   };
 }
 
@@ -50,6 +51,19 @@ export const validateChatAccess = async (
     if (!chatUser) {
       res.status(403).json({ error: "No tienes acceso a este chat" });
       return;
+    }
+
+    // Verificación admin/owner para PUT y DELETE
+    const method = req.method;
+    if (method === 'PUT' || method === 'DELETE') {
+      const isOwner = chat.ownerId === userId;
+      const isAdmin = req.user.profile === 'admin';
+      const isSuper = req.user.super === true;
+
+      if (!isOwner && !isAdmin && !isSuper) {
+        res.status(403).json({ error: "Solo el creador del chat, admins o super pueden realizar esta accion" });
+        return;
+      }
     }
 
     // Si todas las validaciones pasan, continuar

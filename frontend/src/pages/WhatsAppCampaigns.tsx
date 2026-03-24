@@ -527,7 +527,7 @@ export default function WhatsAppCampaigns() {
             {/* SI ES CONEXIÓN META: Selector de Plantilla */}
             {isMetaConnection && (
               <Grid xs={12}>
-                <Alert color="info" sx={{ mb: 2 }}>
+                <Alert color="neutral" sx={{ mb: 2 }}>
                   <Typography level="body-sm">
                     Las campañas con Meta usan <strong>plantillas aprobadas</strong>. No es posible escribir texto libre.
                   </Typography>
@@ -566,7 +566,7 @@ export default function WhatsAppCampaigns() {
                       minRows={2}
                     />
                     <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                      Usa {"{{1}}"}, {"{{2}}"}, etc. en el mensaje de la plantilla. Ej: {"{"}1": "Juan", "2": "50%{"} }
+                      Usa {'{{1}}'}, {'{{2}}'}, etc. en el mensaje de la plantilla. Ej: {'{"1": "Juan", "2": "50%"}'}
                     </Typography>
                   </FormControl>
                 )}

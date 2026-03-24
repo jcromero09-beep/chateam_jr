@@ -469,6 +469,25 @@ export const getUnreadCount = async (req: Request, res: Response): Promise<Respo
     }
 };
 
+// Total de mensajes no leídos del usuario actual
+export const getTotalUnreads = async (req: Request, res: Response): Promise<Response> => {
+    try {
+        const { id: userId } = req.user;
+
+        const chatUsers = await ChatUser.findAll({
+            where: { userId },
+            attributes: ['unreads']
+        });
+
+        const total = chatUsers.reduce((sum, cu) => sum + (cu.unreads || 0), 0);
+
+        return res.json({ total });
+    } catch (err) {
+        console.error("getTotalUnreads error:", err);
+        return res.status(500).json({ message: "Error al obtener no leídos totales" });
+    }
+};
+
 // Marcar múltiples mensajes como leídos
 export const markMultipleAsRead = async (
     req: Request,

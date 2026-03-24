@@ -26,6 +26,10 @@ import {
   ModalClose,
   FormControl,
   FormLabel,
+  Dropdown,
+  Menu,
+  MenuButton,
+  MenuItem,
 } from '@mui/joy'
 import {
   Forum as InternalChatIcon,
@@ -38,8 +42,13 @@ import {
   EmojiEmotions as EmojiIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  PushPin as PinIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
+import { useAuth } from '../hooks/useAuth'
+import { useInternalChatSocket } from '../hooks/useInternalChatSocket'
 
 interface User {
   id: number
@@ -62,10 +71,14 @@ interface Message {
   id: number
   chatId: number
   senderId: number
+  senderName?: string
   message: string
+  mediaPath?: string
+  mediaName?: string
   mediaUrl?: string
   mediaType?: string
   createdAt: string
+  status?: string
 }
 
 interface Chat {
@@ -91,12 +104,16 @@ interface Chat {
 export default function InternalChats() {
   const [chats, setChats] = useState<Chat[]>([])
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null)
-  const [currentUser] = useState<User>({
-    id: 1,
-    name: 'Usuario Actual',
-    email: 'usuario@empresa.com',
-    online: true,
-  })
+  const { user: authUser } = useAuth()
+  const currentUser: User = authUser || {
+    id: 0,
+    name: 'Usuario',
+    email: '',
+    online: false,
+  }
+  const isAdminOrSuper = authUser?.profile === 'admin' || authUser?.super === true
+  const isChatOwner = (chat: Chat) => chat.ownerId === currentUser.id
+  const canModifyChat = (chat: Chat) => isAdminOrSuper || isChatOwner(chat)
   const [message, setMessage] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [, setLoading] = useState(true)
@@ -106,10 +123,28 @@ export default function InternalChats() {
   const [chatTitle, setChatTitle] = useState('')
   const [userSearchTerm, setUserSearchTerm] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [filePreview, setFilePreview] = useState<string | null>(null)
 
   useEffect(() => {
     fetchChats()
   }, [])
+
+  // ─── Socket en tiempo real ─────────────────────────────────────────────────
+  useInternalChatSocket({
+    user: authUser ? { id: authUser.id, companyId: authUser.companyId } : null,
+    chats,
+    setChats,
+    selectedChat,
+    setSelectedChat,
+    onNewMessage: () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    },
+    onUnreadChange: () => {
+      window.dispatchEvent(new CustomEvent('chatUnreadsChange', { detail: {} }))
+    },
+  })
 
   useEffect(() => {
     scrollToBottom()
@@ -382,46 +417,53 @@ export default function InternalChats() {
   }
 
   const handleSendMessage = async () => {
-    if (!message.trim() || !selectedChat) return
+    if ((!message.trim() && !selectedFile) || !selectedChat) return
 
-    const newMessage: Message = {
-      id: Date.now(),
-      chatId: selectedChat.id,
-      senderId: currentUser.id,
-      message: message,
-      createdAt: new Date().toISOString(),
-    }
-
-    // Optimistic update
-    const updatedChat = {
-      ...selectedChat,
-      messages: [...(selectedChat.messages || []), newMessage],
-      lastMessage: message,
-    }
-    setSelectedChat(updatedChat)
+    const text = message
+    const file = selectedFile
     setMessage('')
+    setSelectedFile(null)
+    setFilePreview(null)
 
     try {
-      await api.post(`/chats/${selectedChat.id}/messages`, {
-        message: message,
+      const formData = new FormData()
+      if (text.trim()) formData.append('message', text)
+      if (file) formData.append('file', file)
+
+      const response = await api.post(`/chats/${selectedChat.id}/messages`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       })
 
-      // Reload messages to get the real message from server
-      const messages = await fetchChatMessages(selectedChat.id)
-      setSelectedChat({
-        ...selectedChat,
-        messages,
-        lastMessage: message,
+      const newMsg: Message = {
+        id: response.data.id,
+        chatId: selectedChat.id,
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        message: response.data.message || '',
+        mediaPath: response.data.mediaPath,
+        mediaName: response.data.mediaName,
+        mediaUrl: response.data.mediaPath
+          ? `/public/${response.data.mediaPath}`
+          : undefined,
+        mediaType: response.data.mediaName
+          ? getMediaType(response.data.mediaName)
+          : undefined,
+        createdAt: response.data.createdAt,
+        status: 'sent',
+      }
+
+      setSelectedChat(prev => {
+        if (!prev) return prev
+        return { ...prev, messages: [...(prev.messages || []), newMsg] }
       })
 
-      // Update chats list
-      setChats(
-        chats.map((chat) =>
-          chat.id === selectedChat.id
-            ? { ...chat, lastMessage: message }
-            : chat
-        )
-      )
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+      setChats(prev => prev.map(c =>
+        c.id === selectedChat.id
+          ? { ...c, lastMessage: text || (file ? '📎 Archivo' : '') }
+          : c
+      ))
     } catch (error) {
       console.error('Error sending message:', error)
     }
@@ -445,7 +487,12 @@ export default function InternalChats() {
         : (response.data.records || [])
 
       console.log('Messages extracted:', messagesData)
-      return messagesData
+      return messagesData.map((m: any) => ({
+        ...m,
+        senderName: m.sender?.name || `Usuario ${m.senderId}`,
+        mediaType: m.mediaName ? getMediaType(m.mediaName) : undefined,
+        mediaUrl: m.mediaPath ? `/public/${m.mediaPath}` : undefined,
+      }))
     } catch (error) {
       console.error('Error fetching chat messages:', error)
       return []
@@ -464,6 +511,14 @@ export default function InternalChats() {
       ...chat,
       messages
     })
+
+    // Mark as read
+    try {
+      await api.post(`/chats/${chat.id}/read`, { userId: currentUser.id })
+    } catch { /* silent */ }
+
+    // Notify sidebar badge
+    window.dispatchEvent(new CustomEvent('chatUnreadsChange', { detail: {} }))
   }
 
   const fetchUsers = async () => {
@@ -545,6 +600,134 @@ export default function InternalChats() {
     }
   }
 
+  // ─── Media helpers ──────────────────────────────────────────────────────────
+  const getMediaType = (filename: string): string => {
+    const ext = filename.split('.').pop()?.toLowerCase() || ''
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'image'
+    if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) return 'video'
+    if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) return 'audio'
+    return 'document'
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 50 * 1024 * 1024) {
+      alert('El archivo excede el límite de 50MB')
+      return
+    }
+    setSelectedFile(file)
+    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+      const reader = new FileReader()
+      reader.onload = (ev) => setFilePreview(ev.target?.result as string)
+      reader.readAsDataURL(file)
+    }
+    e.target.value = ''
+  }
+
+  const handleDeleteChat = async (chatId: number) => {
+    if (!confirm('¿Estás seguro de eliminar este chat?')) return
+    try {
+      await api.delete(`/chats/${chatId}`)
+      setChats(prev => prev.filter(c => c.id !== chatId))
+      setSelectedChat(null)
+    } catch {
+      alert('Error al eliminar chat')
+    }
+  }
+
+  const renderMedia = (msg: Message) => {
+    if (!msg.mediaPath && !msg.mediaName) return null
+
+    const mediaUrl = msg.mediaUrl || `/public/${msg.mediaPath}`
+    const mediaType = msg.mediaType || getMediaType(msg.mediaName || '')
+    const filename = msg.mediaName || 'Archivo'
+
+    if (mediaType === 'image') {
+      return (
+        <Box
+          component="a"
+          href={mediaUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={{ display: 'block', mb: 0.5 }}
+          onClick={(e) => { e.preventDefault(); window.open(mediaUrl, '_blank') }}
+        >
+          <Box
+            component="img"
+            src={mediaUrl}
+            alt={filename}
+            sx={{
+              maxWidth: '100%',
+              maxHeight: 250,
+              borderRadius: 'sm',
+              objectFit: 'cover',
+              cursor: 'pointer',
+            }}
+          />
+        </Box>
+      )
+    }
+
+    if (mediaType === 'video') {
+      return (
+        <Box sx={{ mb: 0.5 }}>
+          <video
+            src={mediaUrl}
+            controls
+            style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }}
+          />
+          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+            {filename}
+          </Typography>
+        </Box>
+      )
+    }
+
+    if (mediaType === 'audio') {
+      return (
+        <Box sx={{ mb: 0.5 }}>
+          <audio
+            src={mediaUrl}
+            controls
+            style={{ width: '100%', maxWidth: 300 }}
+          />
+          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+            {filename}
+          </Typography>
+        </Box>
+      )
+    }
+
+    return (
+      <Box
+        component="a"
+        href={mediaUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          p: 1,
+          borderRadius: 'sm',
+          bgcolor: 'background.level2',
+          textDecoration: 'none',
+          '&:hover': { bgcolor: 'background.level3' },
+          mb: 0.5,
+        }}
+      >
+        <AttachIcon fontSize="small" />
+        <Typography
+          level="body-sm"
+          sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {filename}
+        </Typography>
+      </Box>
+    )
+  }
+
   const filteredChats = chats.filter(
     (chat) =>
       (chat.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -579,9 +762,11 @@ export default function InternalChats() {
             <IconButton variant="outlined" color="neutral" onClick={fetchChats}>
               <RefreshIcon />
             </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openNewChatModalHandler}>
-              Nuevo Chat
-            </Button>
+            {isAdminOrSuper && (
+              <Button startDecorator={<AddIcon />} color="primary" onClick={openNewChatModalHandler}>
+                Nuevo Chat
+              </Button>
+            )}
           </Stack>
         </Stack>
 
@@ -774,9 +959,26 @@ export default function InternalChats() {
                         </Typography>
                       </Box>
                     </Stack>
-                    <IconButton size="sm" variant="plain">
-                      <MoreIcon />
-                    </IconButton>
+                    <Dropdown>
+                      <MenuButton size="sm" variant="plain">
+                        <MoreIcon />
+                      </MenuButton>
+                      <Menu placement="bottom-end">
+                        {canModifyChat(selectedChat) && (
+                          <>
+                            <MenuItem color="danger" onClick={() => handleDeleteChat(selectedChat.id)}>
+                              <DeleteIcon sx={{ mr: 1, fontSize: 18 }} />
+                              Eliminar Chat
+                            </MenuItem>
+                            <Divider />
+                          </>
+                        )}
+                        <MenuItem onClick={() => alert('Mensajes fijados: en desarrollo')}>
+                          <PinIcon sx={{ mr: 1, fontSize: 18 }} />
+                          Mensajes Fijados
+                        </MenuItem>
+                      </Menu>
+                    </Dropdown>
                   </Stack>
                 </Box>
 
@@ -812,16 +1014,23 @@ export default function InternalChats() {
                           >
                             {!isOwn && selectedChat.type === 'group' && (
                               <Typography level="body-xs" sx={{ color: 'primary.main', mb: 0.5 }}>
-                                Usuario {msg.senderId}
+                                {msg.senderName || `Usuario ${msg.senderId}`}
                               </Typography>
                             )}
-                            <Typography level="body-sm">{msg.message}</Typography>
-                            <Typography
-                              level="body-xs"
-                              sx={{ color: 'text.tertiary', mt: 0.5, textAlign: 'right' }}
-                            >
-                              {formatTime(msg.createdAt)}
-                            </Typography>
+                            {renderMedia(msg)}
+                            {msg.message && (
+                              <Typography level="body-sm">{msg.message}</Typography>
+                            )}
+                            <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.5 }}>
+                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                {formatTime(msg.createdAt)}
+                              </Typography>
+                              {isOwn && (
+                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                  {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
+                                </Typography>
+                              )}
+                            </Stack>
                           </Box>
                         </Box>
                       )
@@ -839,12 +1048,42 @@ export default function InternalChats() {
                     bgcolor: 'background.surface',
                   }}
                 >
+                  {/* Input file oculto */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: 'none' }}
+                    onChange={handleFileSelect}
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.csv,.txt"
+                  />
+                  {/* Preview del archivo seleccionado */}
+                  {selectedFile && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, mb: 1, bgcolor: 'background.level2', borderRadius: 'sm' }}>
+                      {filePreview ? (
+                        <Box
+                          component="img"
+                          src={filePreview}
+                          alt="Preview"
+                          sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1 }}
+                        />
+                      ) : (
+                        <Avatar size="sm"><AttachIcon /></Avatar>
+                      )}
+                      <Typography level="body-sm" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {selectedFile.name}
+                      </Typography>
+                      <IconButton size="sm" onClick={() => { setSelectedFile(null); setFilePreview(null) }}>
+                        <CloseIcon />
+                      </IconButton>
+                    </Box>
+                  )}
                   <Stack direction="row" spacing={1} alignItems="end">
-                    <IconButton size="sm" variant="plain">
-                      <AttachIcon />
-                    </IconButton>
-                    <IconButton size="sm" variant="plain">
-                      <EmojiIcon />
+                    <IconButton
+                      size="sm"
+                      variant="plain"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <AttachIcon color={selectedFile ? 'primary' : undefined} />
                     </IconButton>
                     <Textarea
                       placeholder="Escribe un mensaje..."
@@ -858,7 +1097,7 @@ export default function InternalChats() {
                     <IconButton
                       color="primary"
                       onClick={handleSendMessage}
-                      disabled={!message.trim()}
+                      disabled={!message.trim() && !selectedFile}
                     >
                       <SendIcon />
                     </IconButton>

@@ -9,6 +9,7 @@ import * as ChatController from "../controllers/ChatController";
 const routes = express.Router();
 const upload = multer(chatUploadConfig);
 
+routes.get("/chats-total-unreads", isAuth, ChatController.getTotalUnreads);
 routes.get("/chats", isAuth, ChatController.index);
 routes.get("/chats/:id", isAuth, validateChatAccess, ChatController.show);
 routes.get("/chats/:id/messages", isAuth, validateChatAccess, ChatController.messages);

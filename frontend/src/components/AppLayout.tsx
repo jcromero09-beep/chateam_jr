@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Box,
@@ -116,6 +116,8 @@ import { useAuth } from '../hooks/useAuth'
 import { usePermissions } from '../hooks/usePermissions'
 import { usePlanFeatures, PlanFeature } from '../hooks/usePlanFeatures'
 import { Module } from '../utils/permissions'
+import socketService from '../services/socket'
+import api from '../services/api'
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -157,6 +159,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { mode, setMode } = useColorScheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
+  const [chatUnreads, setChatUnreads] = useState(0)
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('sidebarCollapsed') === 'true' } catch { return false }
   })
@@ -168,6 +171,53 @@ export default function AppLayout({ children }: AppLayoutProps) {
     setCollapsed(next)
     localStorage.setItem('sidebarCollapsed', String(next))
   }
+
+  // ─── Chat Unreads Badge ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return
+
+    const fetchUnreads = async () => {
+      try {
+        const res = await api.get('/chats-total-unreads')
+        setChatUnreads(res.data.total || 0)
+      } catch { /* silent */ }
+    }
+
+    fetchUnreads()
+    const interval = setInterval(fetchUnreads, 30000)
+    return () => clearInterval(interval)
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!user?.companyId) return
+    const socket = socketService.getSocket()
+    if (!socket) return
+
+    const channel = `company-${user.companyId}-chat`
+    const handleUpdate = () => {
+      api.get('/chats-total-unreads')
+        .then(res => setChatUnreads(res.data.total || 0))
+        .catch(() => {})
+    }
+    socket.on(channel, handleUpdate)
+    return () => { socket.off(channel, handleUpdate) }
+  }, [user?.companyId])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent
+      if (custom.detail?.total !== undefined) {
+        setChatUnreads(custom.detail.total)
+      } else {
+        // Refetch on any chatUnreadsChange event
+        api.get('/chats-total-unreads')
+          .then(res => setChatUnreads(res.data.total || 0))
+          .catch(() => {})
+      }
+    }
+    window.addEventListener('chatUnreadsChange', handler)
+    return () => window.removeEventListener('chatUnreadsChange', handler)
+  }, [])
 
   // ─── Menu Sections ──────────────────────────────────────────────────────────
 
@@ -238,6 +288,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           icon: <InternalChatIcon />,
           module: 'internal_chats',
           planFeature: 'internalChat',
+          badge: chatUnreads > 0 ? chatUnreads : undefined,
         },
         {
           path: '/kanban',
