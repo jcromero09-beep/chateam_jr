@@ -10,13 +10,16 @@ import Redis from 'ioredis';
 // ============================================================================
 
 // Crear cliente Redis
-const redisClient = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-  db: parseInt(process.env.REDIS_DB || '0'),
-  lazyConnect: true, // Conectar solo cuando sea necesario
+const redisClient = new Redis(process.env.REDIS_URL || process.env.REDIS_URI || 'redis://127.0.0.1:5000', {
+  lazyConnect: false,
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: false,
+  retryStrategy: (times: number) => {
+    if (times > 10) return null;
+    return Math.min(times * 200, 3000);
+  },
 });
+redisClient.on('error', (err) => console.warn('[RateLimiter] Redis error:', err.message));
 
 // ============================================================================
 // CONFIGURACIÓN: Rate Limiter General para API

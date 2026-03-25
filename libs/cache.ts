@@ -85,6 +85,36 @@ class CacheSingleton {
   }
 }
 
-const redisInstance = new Redis(REDIS_URI_CONNECTION);
+const redisInstance = new Redis(REDIS_URI_CONNECTION, {
+  retryStrategy: (times: number) => {
+    if (times > 10) {
+      console.warn(`[Redis] Max retries (${times}) reached. Giving up.`);
+      return null; // stop retrying
+    }
+    const delay = Math.min(times * 200, 3000);
+    console.warn(`[Redis] Reconnecting in ${delay}ms... (attempt ${times})`);
+    return delay;
+  },
+  maxRetriesPerRequest: null,       // allow commands to fail instead of blocking
+  enableOfflineQueue: false,        // fail fast if Redis unavailable
+  lazyConnect: false,
+});
+
+// Prevent ioredis unhandled error events from crashing the process
+redisInstance.on('error', (err) => {
+  console.error('[Redis] Connection error:', err.message);
+});
+
+redisInstance.on('connect', () => {
+  console.log('[Redis] Connected successfully');
+});
+
+redisInstance.on('ready', () => {
+  console.log('[Redis] Ready to accept commands');
+});
+
+redisInstance.on('reconnecting', () => {
+  console.warn('[Redis] Reconnecting...');
+});
 
 export default CacheSingleton.getInstance(redisInstance);

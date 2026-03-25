@@ -5,12 +5,14 @@ export class RateLimitMonitor {
   private redisClient: Redis;
 
   constructor() {
-    this.redisClient = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0'),
+    this.redisClient = new Redis(process.env.REDIS_URL || process.env.REDIS_URI || 'redis://127.0.0.1:5000', {
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times: number) => {
+        if (times > 5) return null;
+        return Math.min(times * 200, 2000);
+      },
     });
+    this.redisClient.on('error', (err) => console.warn('[RateLimitMonitor] Redis error:', err.message));
   }
 
   async getRateLimitStats() {
