@@ -595,6 +595,10 @@ routes.use(paymentConfigRoutes);
 // Comment Auto-Reply (Facebook/Instagram)
 routes.use(commentAutoReplyRoutes);
 
+// Google Drive Backup
+import driveBackupRoutes from './driveBackupRoutes';
+routes.use(driveBackupRoutes);
+
 // ── BATCH: AI Platform (17 rutas) ──
 routes.use(aiChatbotRoutes);         // /ai/chatbots
 routes.use(aiChatbotDomainRoutes);   // /ai/chatbot-domains

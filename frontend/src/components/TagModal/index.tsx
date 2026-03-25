@@ -1,28 +1,26 @@
 import { useState, useEffect } from 'react'
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+  Modal,
+  ModalDialog,
+  ModalClose,
   Button,
-  FormControlLabel,
-  Switch,
-  Radio,
-  RadioGroup,
+  Typography,
   FormControl,
   FormLabel,
-  Box,
-  Typography,
+  Select,
+  Option,
+  Input,
+  Textarea,
+  Switch,
   Chip,
   Stack,
-  IconButton,
-  Select,
-  MenuItem,
-  InputLabel,
-} from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import DeleteIcon from '@mui/icons-material/Delete'
+  Box,
+  Divider,
+  Tooltip,
+} from '@mui/joy'
+import DeleteForever from '@mui/icons-material/DeleteForever'
+import Add from '@mui/icons-material/Add'
+import Edit from '@mui/icons-material/Edit'
 import api from '../../services/api'
 import { toast } from 'react-toastify'
 
@@ -62,6 +60,8 @@ interface TagModalProps {
   kanban?: number
 }
 
+const DELAY_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 12, 24, 48]
+
 const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanban = 1 }) => {
   const [loading, setLoading] = useState(false)
   const [kanbanTags, setKanbanTags] = useState<KanbanTagOption[]>([])
@@ -82,6 +82,8 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
     followupDelay2: 3,
     followupMessage3: '',
     followupDelay3: 4,
+    followupType: 'multiple',
+    timeLaneUnit: 'hours',
   })
 
   useEffect(() => {
@@ -96,7 +98,6 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
   const loadKanbanTags = async () => {
     try {
       const response = await api.get('/tags/', { params: { kanban: 1 } })
-      // Filtrar la etiqueta actual si estamos editando (no permitir self-reference)
       const tags: KanbanTagOption[] = tagId
         ? response.data.tags.filter((t: KanbanTagOption) => t.id !== tagId)
         : response.data.tags
@@ -115,7 +116,7 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
       setFormData({
         name: tag.name || '',
         color: tag.color || '#3b82f6',
-        kanban: tag.kanban || kanban,
+        kanban: tag.kanban ?? kanban,
         timeLane: tag.timeLane || 0,
         nextLaneId: tag.nextLaneId || undefined,
         greetingMessageLane: tag.greetingMessageLane || '',
@@ -163,12 +164,12 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
     })
   }
 
-  const handleChange = (field: keyof TagData, value: any) => {
+  const handleChange = (field: keyof TagData, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleSubmit = async () => {
-    if (!formData.name || formData.name.length < 3) {
+    if (!formData.name || formData.name.trim().length < 3) {
       toast.error('El nombre debe tener al menos 3 caracteres')
       return
     }
@@ -191,9 +192,10 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
         toast.success('Etiqueta creada correctamente')
       }
       onSaved()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
       console.error('Error saving tag:', error)
-      toast.error(error.response?.data?.message || 'Error al guardar la etiqueta')
+      toast.error(err.response?.data?.message || 'Error al guardar la etiqueta')
     } finally {
       setLoading(false)
     }
@@ -217,328 +219,386 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        {tagId ? 'Editar Etiqueta Kanban' : 'Nueva Etiqueta Kanban'}
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
+    <Modal open={open} onClose={onClose}>
+      <ModalDialog
+        sx={{
+          width: 600,
+          maxWidth: '95vw',
+          maxHeight: '90vh',
+          overflow: 'auto',
+        }}
+      >
+        <ModalClose variant="plain" sx={{ m: 1 }} />
+        <Typography
+          level="title-lg"
+          fontWeight="lg"
+          sx={{ pr: 4, mb: 1 }}
+        >
+          {tagId ? 'Editar Etiqueta Kanban' : 'Nueva Etiqueta Kanban'}
+        </Typography>
 
-      <DialogContent dividers>
-        <Stack spacing={3} sx={{ mt: 1 }}>
-          {/* Basic Info */}
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <TextField
-              label="Nombre"
-              value={formData.name}
-              onChange={(e) => handleChange('name', e.target.value)}
-              required
-              sx={{ flex: 1, minWidth: 200 }}
-              size="small"
-            />
-            <TextField
-              label="Color"
-              type="color"
-              value={formData.color}
-              onChange={(e) => handleChange('color', e.target.value)}
-              size="small"
-              sx={{ width: 100 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={!!formData.kanban}
-                  onChange={(e) => handleChange('kanban', e.target.checked ? 1 : 0)}
-                />
-              }
-              label={<Typography variant="body2">Columna Kanban</Typography>}
-            />
-          </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, py: 1 }}>
+
+          {/* Nombre + Color + Toggle */}
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <FormControl sx={{ flex: 1 }}>
+              <FormLabel>Nombre</FormLabel>
+              <Input
+                placeholder="Nombre de la etapa"
+                value={formData.name}
+                onChange={(e) => handleChange('name', e.target.value)}
+                required
+              />
+            </FormControl>
+            <FormControl sx={{ width: 80 }}>
+              <FormLabel>Color</FormLabel>
+              <Input
+                type="color"
+                value={formData.color}
+                onChange={(e) => handleChange('color', e.target.value)}
+                sx={{ height: 40, p: 0.5 }}
+              />
+            </FormControl>
+            <Box sx={{ pt: 2 }}>
+              <Switch
+                checked={!!formData.kanban}
+                onChange={(e) => handleChange('kanban', e.target.checked ? 1 : 0)}
+                size="sm"
+                endDecorator={<Typography level="body-xs">Kanban</Typography>}
+              />
+            </Box>
+          </Stack>
 
           {/* Preview */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2">Vista previa:</Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography level="body-sm" color="neutral">
+              Vista previa:
+            </Typography>
             <Chip
-              label={formData.name || 'Etiqueta'}
-              sx={{ bgcolor: formData.color, color: 'white' }}
-            />
-          </Box>
+              size="sm"
+              sx={{
+                bgcolor: formData.color,
+                color: '#fff',
+                fontWeight: 600,
+              }}
+            >
+              {formData.name || 'Etiqueta'}
+            </Chip>
+          </Stack>
 
-          {/* Lane Configuration */}
-          <Box sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1,
-            p: 2,
-          }}>
-            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+          <Divider />
+
+          {/* Configuración de Lane */}
+          <Box>
+            <Typography level="title-sm" fontWeight="bold" sx={{ mb: 1.5 }}>
               Configuración de Lane
             </Typography>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField
-                label="Tiempo máximo en etapa"
-                type="number"
-                value={formData.timeLane || 0}
-                onChange={(e) => handleChange('timeLane', parseInt(e.target.value) || 0)}
-                size="small"
-                sx={{ width: 180 }}
-                inputProps={{ min: 0 }}
-                helperText="0 = sin límite"
-              />
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Unidad de tiempo</InputLabel>
-                <Select
-                  value={formData.timeLaneUnit || 'hours'}
-                  label="Unidad de tiempo"
-                  onChange={(e) => handleChange('timeLaneUnit', e.target.value)}
-                >
-                  <MenuItem value="minutes">Minutos</MenuItem>
-                  <MenuItem value="hours">Horas</MenuItem>
-                  <MenuItem value="days">Días</MenuItem>
-                </Select>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <FormControl size="sm" sx={{ width: 130 }}>
+                  <FormLabel>Tiempo máximo</FormLabel>
+                  <Input
+                    type="number"
+                    size="sm"
+                    value={formData.timeLane || 0}
+                    onChange={(e) => handleChange('timeLane', parseInt(e.target.value) || 0)}
+                    slotProps={{ input: { min: 0 } }}
+                  />
+                </FormControl>
+                <FormControl size="sm" sx={{ width: 120 }}>
+                  <FormLabel>Unidad</FormLabel>
+                  <Select
+                    size="sm"
+                    value={formData.timeLaneUnit || 'hours'}
+                    onChange={(_, v) => handleChange('timeLaneUnit', v)}
+                  >
+                    <Option value="minutes">Minutos</Option>
+                    <Option value="hours">Horas</Option>
+                    <Option value="days">Días</Option>
+                  </Select>
+                </FormControl>
+                <FormControl size="sm" sx={{ flex: 1 }}>
+                  <FormLabel>Etapa siguiente</FormLabel>
+                  <Select
+                    size="sm"
+                    value={formData.nextLaneId != null ? String(formData.nextLaneId) : ''}
+                    onChange={(_, v) => handleChange('nextLaneId', v ? Number(v) : undefined)}
+                    placeholder="Sin auto-avance"
+                  >
+                    {kanbanTags.map((t) => (
+                      <Option key={t.id} value={String(t.id)}>
+                        <Stack direction="row" spacing={0.75} alignItems="center">
+                          <Box
+                            sx={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              bgcolor: t.color,
+                            }}
+                          />
+                          {t.name}
+                        </Stack>
+                      </Option>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl size="sm" sx={{ flex: 1 }}>
+                  <FormLabel>Rollback</FormLabel>
+                  <Select
+                    size="sm"
+                    value={formData.rollbackLaneId != null ? String(formData.rollbackLaneId) : ''}
+                    onChange={(_, v) => handleChange('rollbackLaneId', v ? Number(v) : undefined)}
+                    placeholder="Sin rollback"
+                  >
+                    {kanbanTags.map((t) => (
+                      <Option key={t.id} value={String(t.id)}>
+                        <Stack direction="row" spacing={0.75} alignItems="center">
+                          <Box
+                            sx={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              bgcolor: t.color,
+                            }}
+                          />
+                          {t.name}
+                        </Stack>
+                      </Option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+              <FormControl size="sm">
+                <FormLabel>Mensaje de bienvenida</FormLabel>
+                <Textarea
+                  minRows={2}
+                  placeholder="Mensaje que se envía al entrar en esta etapa..."
+                  value={formData.greetingMessageLane || ''}
+                  onChange={(e) => handleChange('greetingMessageLane', e.target.value)}
+                  size="sm"
+                />
               </FormControl>
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>Etapa siguiente</InputLabel>
-                <Select
-                  value={formData.nextLaneId || ''}
-                  label="Etapa siguiente"
-                  onChange={(e) => handleChange('nextLaneId', e.target.value || undefined)}
-                >
-                  <MenuItem value=""><em>Sin auto-avance</em></MenuItem>
-                  {kanbanTags.map((t) => (
-                    <MenuItem key={t.id} value={t.id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: t.color }} />
-                        {t.name}
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>Etapa de rollback</InputLabel>
-                <Select
-                  value={formData.rollbackLaneId || ''}
-                  label="Etapa de rollback"
-                  onChange={(e) => handleChange('rollbackLaneId', e.target.value || undefined)}
-                >
-                  <MenuItem value=""><em>Sin rollback</em></MenuItem>
-                  {kanbanTags.map((t) => (
-                    <MenuItem key={t.id} value={t.id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: t.color }} />
-                        {t.name}
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
-            <TextField
-              label="Mensaje de bienvenida"
-              value={formData.greetingMessageLane || ''}
-              onChange={(e) => handleChange('greetingMessageLane', e.target.value)}
-              multiline
-              rows={2}
-              fullWidth
-              size="small"
-              sx={{ mt: 2 }}
-              placeholder="Mensaje que se envía al entrar en esta etapa..."
-            />
+            </Stack>
           </Box>
 
-          {/* Description */}
-          <TextField
-            label="Descripción"
-            value={formData.description || ''}
-            onChange={(e) => handleChange('description', e.target.value)}
-            multiline
-            rows={2}
-            fullWidth
-            size="small"
-            placeholder="Descripción de la etiqueta kanban"
-          />
-
-          {/* Followup Section */}
-          <Box sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1,
-            p: 2,
-            bgcolor: formData.followupEnabled ? 'action.hover' : 'transparent'
-          }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.followupEnabled || false}
-                  onChange={(e) => handleChange('followupEnabled', e.target.checked)}
-                />
-              }
-              label={
-                <Typography fontWeight="bold">
-                  Mensajes de Seguimiento
-                </Typography>
-              }
+          {/* Descripción */}
+          <FormControl size="sm">
+            <FormLabel>Descripción</FormLabel>
+            <Textarea
+              minRows={2}
+              placeholder="Descripción de la etapa..."
+              value={formData.description || ''}
+              onChange={(e) => handleChange('description', e.target.value)}
+              size="sm"
             />
+          </FormControl>
+
+          <Divider />
+
+          {/* Mensajes de Seguimiento */}
+          <Box>
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              justifyContent="space-between"
+            >
+              <Typography level="title-sm" fontWeight="bold">
+                Mensajes de Seguimiento
+              </Typography>
+              <Switch
+                checked={formData.followupEnabled || false}
+                onChange={(e) => handleChange('followupEnabled', e.target.checked)}
+                size="sm"
+              />
+            </Stack>
 
             {formData.followupEnabled && (
-              <Box sx={{ mt: 2 }}>
-                {/* Number of messages + type */}
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
-                  <FormControl component="fieldset" sx={{ border: 'none', mb: 0 }}>
-                    <FormLabel component="legend" sx={{ fontSize: '0.8rem' }}>Cantidad de mensajes</FormLabel>
-                    <RadioGroup
-                      row
-                      value={formData.followupCount || 1}
-                      onChange={(e) => handleChange('followupCount', parseInt(e.target.value))}
-                    >
-                      <FormControlLabel value={1} control={<Radio size="small" />} label="1" />
-                      <FormControlLabel value={2} control={<Radio size="small" />} label="2" />
-                      <FormControlLabel value={3} control={<Radio size="small" />} label="3" />
-                    </RadioGroup>
-                  </FormControl>
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <InputLabel>Tipo de envío</InputLabel>
+              <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+
+                {/* Tipo + Cantidad */}
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <FormControl size="sm">
+                    <FormLabel>Cantidad</FormLabel>
                     <Select
-                      value={formData.followupType || 'multiple'}
-                      label="Tipo de envío"
-                      onChange={(e) => handleChange('followupType', e.target.value)}
+                      size="sm"
+                      value={String(formData.followupCount || 1)}
+                      onChange={(_, v) => handleChange('followupCount', parseInt(String(v)))}
                     >
-                      <MenuItem value="single">Mensaje único</MenuItem>
-                      <MenuItem value="multiple">Múltiples mensajes</MenuItem>
+                      <Option value={1}>1 mensaje</Option>
+                      <Option value={2}>2 mensajes</Option>
+                      <Option value={3}>3 mensajes</Option>
                     </Select>
                   </FormControl>
-                </Box>
+                  <FormControl size="sm" sx={{ flex: 1 }}>
+                    <FormLabel>Tipo de envío</FormLabel>
+                    <Select
+                      size="sm"
+                      value={formData.followupType || 'multiple'}
+                      onChange={(_, v) => handleChange('followupType', v)}
+                    >
+                      <Option value="single">Mensaje único</Option>
+                      <Option value="multiple">Múltiples mensajes</Option>
+                    </Select>
+                  </FormControl>
+                </Stack>
 
-                {/* Followup Message 1 */}
-                {((formData.followupCount ?? 1) >= 1) && (
-                  <Box sx={{ mb: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-                    <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-                      <Chip label="1" size="small" color="primary" />
-                      <Typography variant="body2" fontWeight="bold">Mensaje 1</Typography>
-                      <FormControl size="small" sx={{ width: 100 }}>
-                        <InputLabel>Delay</InputLabel>
-                        <Select
-                          value={formData.followupDelay1 || 1}
-                          label="Delay"
-                          onChange={(e) => handleChange('followupDelay1', e.target.value)}
-                        >
-                          {[1, 2, 3, 4, 5, 6, 8, 12, 24, 48].map((h) => (
-                            <MenuItem key={h} value={h}>{h}h</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                {/* Mensaje 1 */}
+                {((formData.followupCount ?? 1) >= 1 && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 'md',
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                      <Chip size="sm" color="primary" variant="solid">1</Chip>
+                      <Typography level="body-sm" fontWeight="bold">Mensaje 1</Typography>
+                      <Select
+                        size="sm"
+                        variant="plain"
+                        value={formData.followupDelay1 || 1}
+                        onChange={(_, v) => handleChange('followupDelay1', Number(v))}
+                        sx={{ ml: 'auto', minWidth: 80 }}
+                      >
+                        {DELAY_OPTIONS.map((h) => (
+                          <Option key={h} value={String(h)}>{h}h</Option>
+                        ))}
+                      </Select>
                     </Stack>
-                    <TextField
-                      label="Mensaje de seguimiento 1"
+                    <Textarea
+                      size="sm"
+                      minRows={2}
+                      placeholder="Escribe el mensaje de seguimiento..."
                       value={formData.followupMessage1 || ''}
                       onChange={(e) => handleChange('followupMessage1', e.target.value)}
-                      multiline
-                      rows={2}
-                      fullWidth
-                      size="small"
-                      placeholder="Escribe el mensaje que se enviará de seguimiento..."
                     />
                   </Box>
-                )}
+                ))}
 
-                {/* Followup Message 2 */}
-                {((formData.followupCount ?? 1) >= 2) && (
-                  <Box sx={{ mb: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-                    <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-                      <Chip label="2" size="small" color="primary" />
-                      <Typography variant="body2" fontWeight="bold">Mensaje 2</Typography>
-                      <FormControl size="small" sx={{ width: 100 }}>
-                        <InputLabel>Delay</InputLabel>
-                        <Select
-                          value={formData.followupDelay2 || 3}
-                          label="Delay"
-                          onChange={(e) => handleChange('followupDelay2', e.target.value)}
-                        >
-                          {[1, 2, 3, 4, 5, 6, 8, 12, 24, 48].map((h) => (
-                            <MenuItem key={h} value={h}>{h}h</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                {/* Mensaje 2 */}
+                {((formData.followupCount ?? 1) >= 2 && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 'md',
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                      <Chip size="sm" color="primary" variant="solid">2</Chip>
+                      <Typography level="body-sm" fontWeight="bold">Mensaje 2</Typography>
+                      <Select
+                        size="sm"
+                        variant="plain"
+                        value={formData.followupDelay2 || 3}
+                        onChange={(_, v) => handleChange('followupDelay2', Number(v))}
+                        sx={{ ml: 'auto', minWidth: 80 }}
+                      >
+                        {DELAY_OPTIONS.map((h) => (
+                          <Option key={h} value={String(h)}>{h}h</Option>
+                        ))}
+                      </Select>
                     </Stack>
-                    <TextField
-                      label="Mensaje de seguimiento 2"
+                    <Textarea
+                      size="sm"
+                      minRows={2}
+                      placeholder="Escribe el segundo mensaje de seguimiento..."
                       value={formData.followupMessage2 || ''}
                       onChange={(e) => handleChange('followupMessage2', e.target.value)}
-                      multiline
-                      rows={2}
-                      fullWidth
-                      size="small"
-                      placeholder="Escribe el segundo mensaje de seguimiento..."
                     />
                   </Box>
-                )}
+                ))}
 
-                {/* Followup Message 3 */}
-                {((formData.followupCount ?? 1) >= 3) && (
-                  <Box sx={{ mb: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-                    <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-                      <Chip label="3" size="small" color="primary" />
-                      <Typography variant="body2" fontWeight="bold">Mensaje 3</Typography>
-                      <FormControl size="small" sx={{ width: 100 }}>
-                        <InputLabel>Delay</InputLabel>
-                        <Select
-                          value={formData.followupDelay3 || 4}
-                          label="Delay"
-                          onChange={(e) => handleChange('followupDelay3', e.target.value)}
-                        >
-                          {[1, 2, 3, 4, 5, 6, 8, 12, 24, 48].map((h) => (
-                            <MenuItem key={h} value={h}>{h}h</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                {/* Mensaje 3 */}
+                {((formData.followupCount ?? 1) >= 3 && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 'md',
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                      <Chip size="sm" color="primary" variant="solid">3</Chip>
+                      <Typography level="body-sm" fontWeight="bold">Mensaje 3</Typography>
+                      <Select
+                        size="sm"
+                        variant="plain"
+                        value={formData.followupDelay3 || 4}
+                        onChange={(_, v) => handleChange('followupDelay3', Number(v))}
+                        sx={{ ml: 'auto', minWidth: 80 }}
+                      >
+                        {DELAY_OPTIONS.map((h) => (
+                          <Option key={h} value={String(h)}>{h}h</Option>
+                        ))}
+                      </Select>
                     </Stack>
-                    <TextField
-                      label="Mensaje de seguimiento 3"
+                    <Textarea
+                      size="sm"
+                      minRows={2}
+                      placeholder="Escribe el tercer mensaje de seguimiento..."
                       value={formData.followupMessage3 || ''}
                       onChange={(e) => handleChange('followupMessage3', e.target.value)}
-                      multiline
-                      rows={2}
-                      fullWidth
-                      size="small"
-                      placeholder="Escribe el tercer mensaje de seguimiento..."
                     />
                   </Box>
-                )}
+                ))}
               </Box>
             )}
           </Box>
-        </Stack>
-      </DialogContent>
-
-      <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
-        {tagId ? (
-          <Button
-            startIcon={<DeleteIcon />}
-            color="error"
-            onClick={handleDelete}
-            disabled={loading}
-          >
-            Eliminar
-          </Button>
-        ) : (
-          <Box />
-        )}
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button onClick={onClose} disabled={loading}>
-            Cancelar
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={loading || !formData.name}
-          >
-            {loading ? 'Guardando...' : (tagId ? 'Actualizar' : 'Crear')}
-          </Button>
         </Box>
-      </DialogActions>
-    </Dialog>
+
+        {/* Acciones */}
+        <Stack
+          direction="row"
+          spacing={1}
+          justifyContent="space-between"
+          sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}
+        >
+          {tagId ? (
+            <Tooltip title="Eliminar esta etiqueta">
+              <Button
+                color="danger"
+                variant="soft"
+                size="sm"
+                startDecorator={<DeleteForever />}
+                onClick={handleDelete}
+                disabled={loading}
+              >
+                Eliminar
+              </Button>
+            </Tooltip>
+          ) : (
+            <Box />
+          )}
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={onClose}
+              disabled={loading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="solid"
+              color="primary"
+              size="sm"
+              startDecorator={tagId ? <Edit /> : <Add />}
+              onClick={handleSubmit}
+              disabled={loading || !formData.name?.trim()}
+              loading={loading}
+            >
+              {tagId ? 'Actualizar' : 'Crear'}
+            </Button>
+          </Stack>
+        </Stack>
+      </ModalDialog>
+    </Modal>
   )
 }
 

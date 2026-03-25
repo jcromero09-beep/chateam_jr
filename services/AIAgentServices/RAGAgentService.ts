@@ -220,12 +220,12 @@ const processQuery = async (
  * Construye el prompt para el LLM con contexto RAG
  */
 function buildRAGPrompt(query: string, context: string, ticketContext?: string): string {
-  // Agregar contexto del ticket si existe
-  const ticketSection = ticketContext
-    ? `\n${ticketContext}`
-    : '';
+  const ticketSection = ticketContext ? `\n${ticketContext}\n` : '';
 
-  return `Eres un asistente experto que responde preguntas usando la información proporcionada.
+  return `${ticketSection}Eres un asistente experto que responde preguntas usando la información proporcionada.
+
+CONTEXTO DE LA BASE DE CONOCIMIENTOS:
+${context}
 
 REGLAS ESTRICTAS:
 1. Responde ÚNICAMENTE con información del contexto proporcionado
@@ -234,10 +234,6 @@ REGLAS ESTRICTAS:
 4. Responde en el mismo idioma que la pregunta del usuario
 5. Sé conciso pero completo
 6. No inventes información
-7. Considera el contexto del ticket (etapa kanban y notas) para dar respuestas más personalizadas${ticketSection}
-
-CONTEXTO DE LA BASE DE CONOCIMIENTOS:
-${context}
 
 PREGUNTA DEL USUARIO:
 ${query}

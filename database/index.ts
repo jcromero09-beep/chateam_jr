@@ -167,6 +167,8 @@ import UGCPostComment from "../models/UGCPostComment";
 import AgentIdentity from "../models/AgentIdentity";
 import AgentMemory from "../models/AgentMemory";
 import AgentProfilePhoto from "../models/AgentProfilePhoto";
+// Contact Memory (Aprendizaje de conversaciones)
+import ContactMemory from "../models/ContactMemory";
 
 // Integration Models
 import IntegrationProvider from "../models/Integrations/IntegrationProvider";
@@ -376,6 +378,8 @@ const models = [
   AgentIdentity,
   AgentMemory,
   AgentProfilePhoto,
+  // Contact Memory (Aprendizaje de conversaciones)
+  ContactMemory,
   // Integration Models
   IntegrationProvider,
   IntegrationConnection,

@@ -6,6 +6,8 @@ import AISubplan from "../models/AISubplan";
 import AppError from "../errors/AppError";
 import { MarketingCache } from "./MetaMarketingService/MarketingCache";
 import AIProviderConfig from "../models/AIProviderConfig";
+import CampaignMessage from "../models/CampaignMessage";
+import FacebookConversionEvent from "../models/FacebookConversionEvent";
 import crypto from "crypto";
 import logger from "../utils/logger";
 
@@ -45,6 +47,20 @@ interface CampaignData {
   conversions?: number;
   reach?: number;
   frequency?: number;
+  // Triggers semánticos de conversaciones
+  conversations?: ConversationStats;
+}
+
+interface ConversationStats {
+  totalContacts: number;
+  totalMessages: number;
+  confirmedPurchases: number;
+  interestedNoPurchase: number;
+  noResponse: number;
+  purchaseEvents: number;
+  leadEvents: number;
+  checkoutEvents: number;
+  addToCartEvents: number;
 }
 
 export class CampaignRecommendationService {
@@ -201,12 +217,165 @@ export class CampaignRecommendationService {
   }
 
   /**
+   * Obtiene estadísticas de conversaciones por campaña
+   * Vinculación: FacebookConversionEvent.campaignId → ctwaClid → CampaignMessage.ctwaClid
+   */
+  private async getCampaignConversations(
+    companyId: number,
+    campaignIds: string[],
+    dateSince?: string,
+    dateUntil?: string
+  ): Promise<Map<string, ConversationStats>> {
+    const stats: Map<string, ConversationStats> = new Map();
+
+    // Inicializar stats vacías para todas las campañas
+    for (const campaignId of campaignIds) {
+      stats.set(campaignId, {
+        totalContacts: 0,
+        totalMessages: 0,
+        confirmedPurchases: 0,
+        interestedNoPurchase: 0,
+        noResponse: 0,
+        purchaseEvents: 0,
+        leadEvents: 0,
+        checkoutEvents: 0,
+        addToCartEvents: 0
+      });
+    }
+
+    if (campaignIds.length === 0) {
+      return stats;
+    }
+
+    // Construir condición de fecha
+    const dateCondition: any = {};
+    if (dateSince) {
+      dateCondition[Op.gte] = new Date(dateSince + 'T00:00:00.000Z');
+    }
+    if (dateUntil) {
+      dateCondition[Op.lte] = new Date(dateUntil + 'T23:59:59.999Z');
+    }
+
+    // 1. Obtener ctwaClid por campaignId desde FacebookConversionEvent
+    const conversionWhere: any = {
+      companyId,
+      campaignId: { [Op.in]: campaignIds }
+    };
+    if (dateSince || dateUntil) {
+      conversionWhere.createdAt = dateCondition;
+    }
+
+    const conversionEvents = await FacebookConversionEvent.findAll({
+      where: conversionWhere,
+      attributes: ['campaignId', 'ctwaClid', 'eventName', 'contactId']
+    });
+
+    logger.info(`[CampaignRecommendation] 📊 Conversiones encontradas: ${conversionEvents.length} para ${campaignIds.length} campañas`);
+
+    // 2. Agrupar ctwaClid por campaignId
+    const ctwaClidMap: Map<string, Set<string>> = new Map();
+    for (const campaignId of campaignIds) {
+      ctwaClidMap.set(campaignId, new Set());
+    }
+
+    // Contadores por campaignId
+    const purchaseEvents: Map<string, number> = new Map();
+    const leadEvents: Map<string, number> = new Map();
+    const checkoutEvents: Map<string, number> = new Map();
+    const addToCartEvents: Map<string, number> = new Map();
+
+    for (const event of conversionEvents) {
+      if (event.ctwaClid) {
+        const clids = ctwaClidMap.get(String(event.campaignId));
+        if (clids) clids.add(event.ctwaClid);
+      }
+
+      const campId = String(event.campaignId);
+      const eventName = event.eventName?.toLowerCase() || '';
+
+      if (eventName === 'purchase') {
+        purchaseEvents.set(campId, (purchaseEvents.get(campId) || 0) + 1);
+      } else if (eventName === 'lead') {
+        leadEvents.set(campId, (leadEvents.get(campId) || 0) + 1);
+      } else if (eventName === 'initiatecheckout') {
+        checkoutEvents.set(campId, (checkoutEvents.get(campId) || 0) + 1);
+      } else if (eventName === 'addtocart') {
+        addToCartEvents.set(campId, (addToCartEvents.get(campId) || 0) + 1);
+      }
+    }
+
+    // 3. Obtener CampaignMessage por ctwaClid
+    const allCtwaClids = new Set<string>();
+    for (const clids of Array.from(ctwaClidMap.values())) {
+      for (const clid of Array.from(clids)) {
+        allCtwaClids.add(clid);
+      }
+    }
+
+    let campaignMessages: any[] = [];
+    if (allCtwaClids.size > 0) {
+      const messageWhere: any = {
+        companyId,
+        ctwaClid: { [Op.in]: Array.from(allCtwaClids) }
+      };
+      if (dateSince || dateUntil) {
+        messageWhere.createdAt = dateCondition;
+      }
+
+      campaignMessages = await CampaignMessage.findAll({
+        where: messageWhere,
+        attributes: ['ctwaClid', 'contactId']
+      });
+    }
+
+    logger.info(`[CampaignRecommendation] 💬 Mensajes de campaña encontrados: ${campaignMessages.length}`);
+
+    // 4. Construir stats por campaignId
+    for (const campaignId of campaignIds) {
+      const clids = ctwaClidMap.get(campaignId) || new Set();
+      const msgsForCampaign = campaignMessages.filter(m => clids.has(m.ctwaClid));
+      const totalContacts = new Set(msgsForCampaign.map(m => m.contactId)).size;
+      const totalMessages = msgsForCampaign.length;
+
+      // Conversiones confirmadas = Purchase
+      const confirmedPurchases = purchaseEvents.get(campaignId) || 0;
+      // Leads interesados = Lead + InitiateCheckout + AddToCart
+      const interestedLeads = (leadEvents.get(campaignId) || 0) +
+                            (checkoutEvents.get(campaignId) || 0) +
+                            (addToCartEvents.get(campaignId) || 0);
+      // Sin conversión = contactos que escribieron pero no convirtieron
+      const noResponse = Math.max(0, totalContacts - confirmedPurchases - interestedLeads);
+
+      stats.set(campaignId, {
+        totalContacts,
+        totalMessages,
+        confirmedPurchases,
+        interestedNoPurchase: interestedLeads,
+        noResponse,
+        purchaseEvents: purchaseEvents.get(campaignId) || 0,
+        leadEvents: leadEvents.get(campaignId) || 0,
+        checkoutEvents: checkoutEvents.get(campaignId) || 0,
+        addToCartEvents: addToCartEvents.get(campaignId) || 0
+      });
+    }
+
+    // Log de stats
+    for (const [campaignId, stat] of Array.from(stats.entries())) {
+      logger.info(`[CampaignRecommendation] 📋 Campaña ${campaignId}: ${stat.totalContacts} contactos, ${stat.confirmedPurchases} compras, ${stat.interestedNoPurchase} leads, ${stat.noResponse} sin respuesta`);
+    }
+
+    return stats;
+  }
+
+  /**
    * Genera recomendaciones usando OpenAI
    */
   async generateRecommendations(
     companyId: number,
     period: string = "last_30_days",
-    campaignsData?: any[] // Nuevo parámetro opcional
+    campaignsData?: any[],
+    messageDateSince?: string,
+    messageDateUntil?: string
   ): Promise<GenerateRecommendationsResult> {
     // Verificar tokens disponibles
     const tokenStatus = await this.checkTokenLimit(companyId);
@@ -376,6 +545,17 @@ export class CampaignRecommendationService {
       }, '[CampaignRecommendation] Available fields in raw campaign data');
     }
 
+    // ================================================================
+    // 🔥 TRIGGERS SEMÁNTICOS: Obtener conversaciones de campañas
+    // ================================================================
+    const campaignIds = campaignsWithInsights.map((c: any) => String(c.id));
+    const conversationStats = await this.getCampaignConversations(
+      companyId,
+      campaignIds,
+      messageDateSince,
+      messageDateUntil
+    );
+
     // Preparar datos para OpenAI (SOLO campañas activas entregando)
     const campaignDataForAI: CampaignData[] = campaignsWithInsights.map((c: any) => ({
       id: String(c.id),
@@ -395,7 +575,19 @@ export class CampaignRecommendationService {
       cpc: c.cpc || c.insights?.cpc || 0,
       conversions: c.conversions || c.insights?.conversions || 0,
       reach: c.reach || c.insights?.reach || 0,
-      frequency: c.frequency || c.insights?.frequency || 0
+      frequency: c.frequency || c.insights?.frequency || 0,
+      // Triggers semánticos de conversaciones
+      conversations: conversationStats.get(String(c.id)) || {
+        totalContacts: 0,
+        totalMessages: 0,
+        confirmedPurchases: 0,
+        interestedNoPurchase: 0,
+        noResponse: 0,
+        purchaseEvents: 0,
+        leadEvents: 0,
+        checkoutEvents: 0,
+        addToCartEvents: 0
+      }
     }));
 
     // 🔍 LOG 4: Datos mapeados (verificar mapeo correcto)
@@ -459,13 +651,46 @@ export class CampaignRecommendationService {
     recommendations: any[];
     tokensUsed: number;
   }> {
-    const prompt = `Eres un experto en Meta Ads con 10+ anos de experiencia.
+    const prompt = `Eres un experto en Meta Ads y WhatsApp Business con 10+ anos de experiencia.
 Analiza los datos de estas campanas de Facebook/Instagram y genera UNA recomendacion especifica para CADA campana.
 
 Datos de campanas:
 ${JSON.stringify(campaigns, null, 2)}
 
-Para CADA campana, genera una recomendacion con esta estructura JSON:
+Cada campana incluye metricas de Meta Ads Y datos de conversaciones en WhatsApp:
+
+METRICAS DE META ADS:
+- spend: gasto total en USD
+- impressions: impresiones totales
+- clicks: clics totales
+- ctr: tasa de clics (%)
+- cpc: costo por clic (USD)
+- conversions: conversiones reportadas por Meta
+- reach: alcance total
+- frequency: frecuencia promedio
+
+DATOS DE CONVERSACIONES (Triggers Semanticos):
+- conversations.totalContacts: numero de personas que escribieron desde WhatsApp
+- conversations.totalMessages: numero total de mensajes intercambiados
+- conversations.confirmedPurchases: personas que COMPRARON (evento Purchase enviado a Meta)
+- conversations.interestedNoPurchase: personas INTERESADAS sin compra (Lead, InitiateCheckout, AddToCart)
+- conversations.noResponse: personas que escribieron pero NO recibieron respuesta del agente
+
+EJEMPLO DE CONTEXTO SEMANTICO:
+Si una campana tiene:
+- 10 totalContacts, 3 confirmedPurchases, 6 interestedNoPurchase, 1 noResponse
+Significa:
+- 10 personas interesadas escribieron
+- 3 SI compraron (conversion enviada a Meta)
+- 6 estuvieron interesadas pero NO compraron (preguntaron, interactuaron)
+- 1 escribio pero NO hubo respuesta de un agente
+
+ANALISIS DEL EMBUDO:
+1. Si interestedNoPurchase > confirmedPurchases: La campana atrae bien pero hay friccion en la conversion
+2. Si noResponse > 0: Hay perdidas por falta de atencion del agente
+3. Si confirmedPurchases es bajo: Revisar calidad del lead o propuesta de valor
+
+Para CADA campana, genera UNA recomendacion con esta estructura JSON:
 {
   "campaignId": "ID de la campana",
   "campaignName": "nombre de la campana",
@@ -473,7 +698,7 @@ Para CADA campana, genera una recomendacion con esta estructura JSON:
   "priority": "critical" | "high" | "medium" | "low",
   "category": "timing" | "content" | "segmentation" | "budget" | "channel",
   "title": "Titulo corto y accionable (max 100 caracteres)",
-  "description": "Explicacion detallada de la recomendacion",
+  "description": "Explicacion detallada de la recomendacion, incluyendo analisis del comportamiento de los leads en WhatsApp",
   "impact": "Impacto esperado (ej: 'Aumento de 15% en CTR')",
   "effort": "bajo" | "medio" | "alto",
   "potentialGain": "Ganancia potencial estimada",
@@ -481,13 +706,13 @@ Para CADA campana, genera una recomendacion con esta estructura JSON:
 }
 
 Criterios para type:
-- "warning": Problema urgente que requiere atencion inmediata (CPL muy alto, CTR muy bajo)
-- "optimization": Mejora que puede incrementar rendimiento
-- "opportunity": Potencial sin explotar
+- "warning": Problema urgente que requiere atencion inmediata (noResponse > 0, CPL muy alto, CTR muy bajo)
+- "optimization": Mejora que puede incrementar rendimiento (interestedNoPurchase alto, velocidad de respuesta)
+- "opportunity": Potencial sin explotar (interestedNoPurchase > confirmedPurchases)
 - "insight": Observacion importante sin accion inmediata
 
 Criterios para priority:
-- "critical": Afecta significativamente el ROI (>20% del presupuesto en riesgo)
+- "critical": Afecta significativamente el ROI (>20% del presupuesto en riesgo) o hay noResponse > 0
 - "high": Mejora importante (10-20% mejora potencial)
 - "medium": Mejora moderada (5-10% mejora potencial)
 - "low": Mejora menor (<5% mejora potencial)

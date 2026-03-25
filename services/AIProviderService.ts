@@ -2,8 +2,8 @@ import { Op } from "sequelize";
 import AIProviderConfig from "../models/AIProviderConfig";
 import AppError from "../errors/AppError";
 
-// ID de la company del SuperAdmin (configuracion global de IA)
-const SUPERADMIN_COMPANY_ID = 1;
+// Los proveedores IA son GLOBAL (companyId=null) — compartidos por todas las companies
+// Ya no se usa SUPERADMIN_COMPANY_ID porque el registro tiene companyId=null
 
 // Tipos de capacidades disponibles
 export type AICapability =
@@ -26,8 +26,7 @@ const capabilityFieldMap: Record<AICapability, { enabled: string; isDefault: str
 
 /**
  * Obtiene el proveedor por defecto para una capacidad especifica
- * IMPORTANTE: Siempre busca en los proveedores del SuperAdmin (companyId=1)
- * porque la configuracion de IA es global para todas las companies
+ * IMPORTANTE: Busca proveedores GLOBAL (companyId=null) — compartidos por todas las companies
  *
  * @param capability - Tipo de capacidad (text, images, stt, etc.)
  * @returns Proveedor configurado o null si no hay ninguno
@@ -41,11 +40,11 @@ export async function getDefaultProviderForCapability(
     throw new Error(`Capacidad desconocida: ${capability}`);
   }
 
-  // Buscar en los proveedores del SuperAdmin (configuracion global)
+  // Buscar proveedores GLOBAL (companyId=null) — compartidos por todas las companies
   // Primero buscar el proveedor marcado como default
   let provider = await AIProviderConfig.findOne({
     where: {
-      companyId: SUPERADMIN_COMPANY_ID,
+      companyId: null,  // GLOBAL
       isActive: true,
       [fields.enabled]: true,
       [fields.isDefault]: true
@@ -56,7 +55,7 @@ export async function getDefaultProviderForCapability(
   if (!provider) {
     provider = await AIProviderConfig.findOne({
       where: {
-        companyId: SUPERADMIN_COMPANY_ID,
+        companyId: null,  // GLOBAL
         isActive: true,
         [fields.enabled]: true
       },
@@ -69,7 +68,7 @@ export async function getDefaultProviderForCapability(
 
 /**
  * Obtiene todos los proveedores habilitados para una capacidad
- * IMPORTANTE: Siempre busca en los proveedores del SuperAdmin (configuracion global)
+ * IMPORTANTE: Busca proveedores GLOBAL (companyId=null) — compartidos por todas las companies
  *
  * @param capability - Tipo de capacidad
  * @returns Lista de proveedores disponibles
@@ -85,7 +84,7 @@ export async function getProvidersForCapability(
 
   return AIProviderConfig.findAll({
     where: {
-      companyId: SUPERADMIN_COMPANY_ID,
+      companyId: null,  // GLOBAL
       isActive: true,
       [fields.enabled]: true
     },
@@ -114,11 +113,11 @@ export async function setDefaultProviderForCapability(
     throw new Error(`Capacidad desconocida: ${capability}`);
   }
 
-  // Verificar que el proveedor existe, pertenece al SuperAdmin y tiene la capacidad habilitada
+  // Verificar que el proveedor existe, es GLOBAL y tiene la capacidad habilitada
   const provider = await AIProviderConfig.findOne({
     where: {
       id: providerId,
-      companyId: SUPERADMIN_COMPANY_ID,
+      companyId: null,  // GLOBAL
       [fields.enabled]: true
     }
   });
@@ -127,12 +126,12 @@ export async function setDefaultProviderForCapability(
     throw new Error(`Proveedor ${providerId} no encontrado o no tiene ${capability} habilitado`);
   }
 
-  // Quitar default de todos los otros proveedores del SuperAdmin para esta capacidad
+  // Quitar default de todos los otros proveedores GLOBAL para esta capacidad
   await AIProviderConfig.update(
     { [fields.isDefault]: false },
     {
       where: {
-        companyId: SUPERADMIN_COMPANY_ID,
+        companyId: null,  // GLOBAL
         id: { [Op.ne]: providerId }
       }
     }
@@ -164,7 +163,7 @@ export async function removeDefaultForCapability(
     {
       where: {
         id: providerId,
-        companyId: SUPERADMIN_COMPANY_ID
+        companyId: null  // GLOBAL
       }
     }
   );
@@ -172,7 +171,7 @@ export async function removeDefaultForCapability(
 
 /**
  * Obtiene un resumen de proveedores default por capacidad
- * Siempre retorna la configuracion global del SuperAdmin
+ * Siempre retorna la configuracion GLOBAL (companyId=null)
  *
  * @returns Objeto con el proveedor default de cada capacidad
  */
@@ -251,7 +250,7 @@ export async function getAvailableCapabilities(): Promise<AICapability[]> {
  *
  * @param providerName - Nombre del proveedor (e.g. 'heygen', 'elevenlabs')
  * @param envVar - Variable de entorno de fallback (e.g. 'HEYGEN_API_KEY')
- * @param companyId - Company ID opcional, default SuperAdmin
+ * @param companyId - Company ID opcional (si se pasa busca en esa company, si no usa GLOBAL)
  * @returns API key string
  */
 export async function getApiKeyWithFallback(
@@ -259,13 +258,13 @@ export async function getApiKeyWithFallback(
   envVar: string,
   companyId?: number
 ): Promise<string> {
-  // 1. Buscar en AIProviderConfig por nombre del proveedor
+  // 1. Buscar en AIProviderConfig por nombre del proveedor (companyId especifico o GLOBAL)
   try {
     const provider = await AIProviderConfig.findOne({
       where: {
         provider: providerName,
         isActive: true,
-        companyId: companyId || SUPERADMIN_COMPANY_ID
+        companyId: companyId || null  // GLOBAL si no se especifica companyId
       }
     });
     if (provider?.apiKey) return provider.apiKey;
@@ -286,7 +285,6 @@ export async function getApiKeyWithFallback(
 }
 
 export default {
-  SUPERADMIN_COMPANY_ID,
   getDefaultProviderForCapability,
   getProvidersForCapability,
   setDefaultProviderForCapability,

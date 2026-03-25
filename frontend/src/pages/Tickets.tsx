@@ -27,6 +27,9 @@ import {
   tabClasses,
   Select,
   Option,
+  Menu,
+  MenuItem,
+  Checkbox,
 } from '@mui/joy'
 import {
   Search as SearchIcon,
@@ -59,8 +62,12 @@ import {
   AttachMoney as MoneyIcon,
   LightMode as LightModeIcon,
   DarkMode as DarkModeIcon,
+  Reply as ReplyIcon,
+  Forward as ForwardIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
+import { toast } from 'react-toastify'
 import ContactDrawer from '../components/ContactDrawer'
 import MessageInput from '../components/MessageInput'
 import FacebookBackground from '../components/FacebookBackground'
@@ -69,23 +76,16 @@ import { useAuth } from '../hooks/useAuth'
 import { useMessageFormatting } from '../hooks/useMessageFormatting'
 import DateSeparator from '../components/Messages/DateSeparator'
 import TikTokCommentBubble from '../components/Messages/TikTokCommentBubble'
+import MessageContent from '../components/Messages/MessageContent'
+import ConversationSearchBar from '../components/Messages/ConversationSearchBar'
+import MediaLightbox from '../components/Messages/MediaLightbox'
+import ForwardSelectionBar from '../components/ForwardSelectionBar'
+import ForwardContactPicker from '../components/ForwardContactPicker'
 import { useThemeColors } from '../context/ThemeContext'
+import type { Message } from '../types/Message'
 
 // URL del backend para medios
 const BACKEND_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://appro.chateam.ws';
-
-interface Message {
-  id: number
-  body: string
-  fromMe: boolean
-  mediaUrl?: string
-  mediaType?: string
-  quotedMsg?: any
-  createdAt: string
-  ack?: number
-  read: boolean
-  dataJson?: string
-}
 
 interface Tag {
   id: number
@@ -241,6 +241,40 @@ export default function Tickets() {
   const [pendingCount, setPendingCount] = useState(0)
   const [closedCount, setClosedCount] = useState(0)
   const [groupCount, setGroupCount] = useState(0)
+
+  // ─── EDICIÓN INLINE ───
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
+  const [editingMessageBody, setEditingMessageBody] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  // ─── MEDIA LIGHTBOX ───
+  const [lightboxData, setLightboxData] = useState<{
+    src: string
+    type: string
+    currentIndex: number
+    allMedia: Array<{ id: number; src: string; type: string }>
+  } | null>(null)
+
+  // ─── REPLY TO ───
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+
+  // ─── BÚSQUEDA EN CONVERSACIÓN ───
+  const [conversationSearchTerm, setConversationSearchTerm] = useState('')
+  const [conversationSearchActive, setConversationSearchActive] = useState(false)
+
+  // ─── SELECCIÓN MÚLTIPLE ───
+  const [selectionMode, setSelectionMode] = useState<'forward' | 'delete' | null>(null)
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<number>>(new Set())
+  const [showForwardModal, setShowForwardModal] = useState(false)
+  const [forwardLoading, setForwardLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+
+  // ─── MENÚ DE ACCIONES ───
+  const [messageActionMenu, setMessageActionMenu] = useState<{
+    messageId: number
+    anchorEl: HTMLElement | null
+    fromMe: boolean
+  } | null>(null)
 
   // Función para obtener contadores de todos los estados
   const fetchTicketCounts = useCallback(async () => {
@@ -643,6 +677,34 @@ export default function Tickets() {
           }
           return prevSelected
         })
+      } else if (data.action === 'delete') {
+        const deletedId = data.message?.id
+        const ticketId = data.message?.ticketId
+
+        // Remover de tickets
+        setTickets(prevTickets =>
+          prevTickets.map(ticket => ({
+            ...ticket,
+            messages: ticket.messages.filter((m: Message) => m.id !== deletedId)
+          }))
+        )
+
+        // Remover del ticket seleccionado
+        setSelectedTicket(prevSelected => {
+          if (prevSelected && prevSelected.id === ticketId) {
+            return {
+              ...prevSelected,
+              messages: prevSelected.messages.filter((m: Message) => m.id !== deletedId)
+            }
+          }
+          return prevSelected
+        })
+
+        // Si estaba en modo edición, salir
+        if (editingMessageId === deletedId) {
+          setEditingMessageId(null)
+          setEditingMessageBody('')
+        }
       }
     }
 
@@ -883,6 +945,147 @@ export default function Tickets() {
     }
   }
 
+  // ══════════════════════════════════════════
+  // HANDLERS DE EDICIÓN DE MENSAJES
+  // ══════════════════════════════════════════
+  const handleStartEditMessage = (messageId: number, currentBody: string) => {
+    setEditingMessageId(messageId)
+    setEditingMessageBody(currentBody)
+    setMessageActionMenu(null)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null)
+    setEditingMessageBody('')
+  }
+
+  const handleSaveEditMessage = async () => {
+    if (!editingMessageId || !editingMessageBody.trim()) return
+    setSavingEdit(true)
+    try {
+      await api.post(`/messages/edit/${editingMessageId}`, {
+        body: editingMessageBody.trim()
+      })
+      setEditingMessageId(null)
+      setEditingMessageBody('')
+    } catch (error: any) {
+      console.error('Error editando mensaje:', error)
+      toast.error(error?.response?.data?.error || 'Error al editar mensaje')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  // ══════════════════════════════════════════
+  // HANDLERS DE SELECCIÓN MÚLTIPLE
+  // ══════════════════════════════════════════
+  const handleEnterSelectionMode = (
+    mode: 'forward' | 'delete',
+    messageId: number,
+    fromMe: boolean
+  ) => {
+    if (!fromMe) {
+      toast.warning('Solo puedes reenviar o eliminar tus propios mensajes')
+      return
+    }
+    setSelectionMode(mode)
+    setSelectedMessageIds(new Set([messageId]))
+    setMessageActionMenu(null)
+    setEditingMessageId(null)
+  }
+
+  const handleToggleMessageSelection = (messageId: number) => {
+    setSelectedMessageIds(prev => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      if (next.size === 0) {
+        setSelectionMode(null)
+      }
+      return next
+    })
+  }
+
+  const handleExitSelectionMode = () => {
+    setSelectionMode(null)
+    setSelectedMessageIds(new Set())
+    setMessageActionMenu(null)
+  }
+
+  const handleDeleteMessages = async () => {
+    if (selectedMessageIds.size === 0) return
+    const count = selectedMessageIds.size
+    const confirmed = window.confirm(
+      `¿Eliminar ${count} mensaje${count > 1 ? 's' : ''}? Esta acción no se puede deshacer.`
+    )
+    if (!confirmed) return
+    setActionLoading(true)
+    try {
+      await Promise.all(
+        Array.from(selectedMessageIds).map(messageId =>
+          api.delete(`/messages/${messageId}`)
+        )
+      )
+      toast.success(`${count} mensaje${count > 1 ? 's' : ''} eliminad${count > 1 ? 'os' : 'o'}`)
+      handleExitSelectionMode()
+    } catch (error: any) {
+      console.error('Error eliminando mensajes:', error)
+      toast.error(error?.response?.data?.error || 'Error al eliminar mensajes')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleForwardMessages = async (contactIds: number[]) => {
+    if (selectedMessageIds.size === 0 || contactIds.length === 0) return
+    setForwardLoading(true)
+    try {
+      const promises: Promise<any>[] = []
+      for (const messageId of selectedMessageIds) {
+        for (const contactId of contactIds) {
+          promises.push(
+            api.post('/message/forward', { messageId, contactId })
+          )
+        }
+      }
+      await Promise.all(promises)
+      const msgCount = selectedMessageIds.size
+      const contactCount = contactIds.length
+      toast.success(
+        `${msgCount} mensaje${msgCount > 1 ? 's' : ''} reenviad${msgCount > 1 ? 'os' : 'o'} a ${contactCount} contacto${contactCount > 1 ? 's' : ''}`
+      )
+      setShowForwardModal(false)
+      handleExitSelectionMode()
+    } catch (error: any) {
+      console.error('Error reenviando mensajes:', error)
+      toast.error(error?.response?.data?.error || 'Error al reenviar mensajes')
+    } finally {
+      setForwardLoading(false)
+    }
+  }
+
+  // ══════════════════════════════════════════
+  // HANDLERS DE MENÚ DE ACCIONES
+  // ══════════════════════════════════════════
+  const handleOpenMessageMenu = (
+    event: React.MouseEvent<HTMLElement>,
+    messageId: number,
+    fromMe: boolean
+  ) => {
+    event.stopPropagation()
+    setMessageActionMenu({
+      messageId,
+      anchorEl: event.currentTarget,
+      fromMe
+    })
+  }
+
+  const handleCloseMessageMenu = () => {
+    setMessageActionMenu(null)
+  }
 
   return (
     <CssVarsProvider theme={facebookTheme}>
@@ -1979,9 +2182,33 @@ export default function Tickets() {
                 >
                   <MoreIcon sx={{ fontSize: 20 }} />
                 </IconButton>
+                <Tooltip title="Buscar en conversación">
+                  <IconButton
+                    size="sm"
+                    variant="plain"
+                    onClick={() => setConversationSearchActive(!conversationSearchActive)}
+                    sx={{
+                      borderRadius: '50%',
+                      color: conversationSearchActive ? '#5BC2D2' : 'text.secondary',
+                      '&:hover': { bgcolor: isDark ? '#3A3B3C' : '#E4E6EB' },
+                    }}
+                  >
+                    <SearchIcon sx={{ fontSize: 20 }} />
+                  </IconButton>
+                </Tooltip>
               </Stack>
             </Stack>
           </Box>
+
+          {/* Barra de búsqueda en conversación */}
+          {conversationSearchActive && (
+            <ConversationSearchBar
+              messages={selectedTicket?.messages || []}
+              searchTerm={conversationSearchTerm}
+              onSearchTermChange={setConversationSearchTerm}
+              isDark={isDark}
+            />
+          )}
 
           {/* Messages */}
           <Box
@@ -2003,144 +2230,280 @@ export default function Tickets() {
                 const isOwn = msg.fromMe
                 const prevMsg = index > 0 ? selectedTicket.messages[index - 1] : null
                 const showSeparator = shouldShowDateSeparator(msg, prevMsg)
+                const isMessageDeleted = msg.isDeleted || msg.messageStatus === 'deleted'
+                const isBeingEdited = editingMessageId === msg.id
+                const isMetaMessage = selectedTicket.channel === 'tiktok' && !isOwn && msg.dataJson
+
+                if (msg.isPrivate && !isOwn) return null
 
                 return (
-                  <Box key={msg.id}>
+                  <Box key={msg.id} id={`msg-${msg.id}`}>
                     {showSeparator && (
                       <DateSeparator
                         label={formatDateSeparator(msg.createdAt)}
                         isDark={isDark}
                       />
                     )}
+
                     <Box
                       sx={{
                         display: 'flex',
+                        alignItems: 'flex-start',
                         justifyContent: isOwn ? 'flex-end' : 'flex-start',
                         mb: 0.25,
+                        position: 'relative',
+                        '&:hover .message-actions': {
+                          opacity: 1,
+                        },
+                      }}
+                      onClick={() => {
+                        if (selectionMode) {
+                          handleToggleMessageSelection(msg.id)
+                        }
                       }}
                     >
-                      {/* TikTok Comment: renderizar burbuja especial */}
-                      {selectedTicket.channel === 'tiktok' && !isOwn && msg.dataJson ? (
-                        <TikTokCommentBubble message={msg} />
-                      ) : (
-                      <Box
-                        sx={{
-                          maxWidth: facebookDesignTokens.message.maxWidth,
-                          bgcolor: isOwn
-                            ? (isDark
-                                ? facebookDesignTokens.message.outgoing.background
-                                : facebookDesignTokens.message.outgoing.backgroundLight)
-                            : (isDark
-                                ? facebookDesignTokens.message.incoming.background
-                                : facebookDesignTokens.message.incoming.backgroundLight),
-                          color: isOwn
-                            ? (isDark
-                                ? facebookDesignTokens.message.outgoing.color
-                                : facebookDesignTokens.message.outgoing.colorLight)
-                            : (isDark
-                                ? facebookDesignTokens.message.incoming.color
-                                : facebookDesignTokens.message.incoming.colorLight),
-                          p: facebookDesignTokens.message.padding,
-                          borderRadius: facebookDesignTokens.message.borderRadius,
-                          borderTopRightRadius: isOwn ? '4px' : facebookDesignTokens.message.borderRadius,
-                          borderTopLeftRadius: !isOwn ? '4px' : facebookDesignTokens.message.borderRadius,
-                          boxShadow: isDark ? '0 1px 0.5px rgba(11,20,26,.13)' : '0 1px 0.5px rgba(0,0,0,.08)',
-                        }}
-                      >
-                        {/* Renderizar media (imágenes, videos, audio, documentos) */}
-                        {msg.mediaUrl && (
-                          <Box sx={{ mb: 1 }}>
-                            {msg.mediaType === 'image' && (
-                              <Box
-                                component="img"
-                                src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
-                                alt="Imagen"
-                                sx={{
-                                  maxWidth: '100%',
-                                  borderRadius: 1,
-                                  cursor: 'pointer',
-                                }}
-                                onClick={() => window.open(`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`, '_blank')}
-                                onError={(e: any) => {
-                                  console.error('Error cargando imagen:', msg.mediaUrl)
-                                  e.currentTarget.style.display = 'none'
-                                }}
-                              />
-                            )}
-                            {msg.mediaType === 'video' && (
-                              <Box
-                                component="video"
-                                controls
-                                src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
-                                sx={{ maxWidth: '100%', borderRadius: 1 }}
-                              />
-                            )}
-                            {msg.mediaType === 'audio' && (
-                              <Box
-                                component="audio"
-                                controls
-                                src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
-                                sx={{ width: '100%' }}
-                              />
-                            )}
-                            {msg.mediaType !== 'image' && msg.mediaType !== 'video' && msg.mediaType !== 'audio' && (
-                              <Box
-                                component="a"
-                                href={`/company${user?.companyId}/${msg.mediaUrl}`}
-                                target="_blank"
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 1,
-                                  p: 1,
-                                  borderRadius: 1,
-                                  bgcolor: isOwn ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                                  color: 'inherit',
-                                  textDecoration: 'none',
-                                  '&:hover': { bgcolor: isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }
-                                }}
-                              >
-                                <Box component="span" sx={{ fontSize: 20 }}>📎</Box>
-                                <Typography level="body-sm">{msg.mediaUrl}</Typography>
-                              </Box>
-                            )}
-                          </Box>
-                        )}
-                        <Typography level="body-sm" sx={{ color: 'inherit', wordBreak: 'break-word' }}>{msg.body}</Typography>
-                        <Stack
-                          direction="row"
-                          spacing={0.5}
-                          alignItems="center"
-                          justifyContent="flex-end"
-                          sx={{ mt: 0.25 }}
-                        >
-                          <Typography
-                            sx={{
-                              fontSize: '11px',
-                              lineHeight: 1,
-                              color: isOwn
-                                ? 'rgba(255,255,255,0.6)'
-                                : (isDark ? '#8A8D91' : 'rgba(5,5,5,0.45)'),
-                              userSelect: 'none',
+                      {/* CHECKBOX en modo selección */}
+                      {selectionMode && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', mr: 0.5 }}>
+                          <Checkbox
+                            checked={selectedMessageIds.has(msg.id)}
+                            onChange={() => handleToggleMessageSelection(msg.id)}
+                            size="sm"
+                          />
+                        </Box>
+                      )}
+
+                      {/* ─── MODO EDICIÓN ─── */}
+                      {isBeingEdited ? (
+                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ maxWidth: '65%' }}>
+                          <Input
+                            value={editingMessageBody}
+                            onChange={(e) => setEditingMessageBody(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEditMessage()
+                              if (e.key === 'Escape') handleCancelEdit()
                             }}
-                          >
-                            {formatTime(msg.createdAt)}
-                          </Typography>
-                          {isOwn && msg.ack !== undefined && (
-                            <Typography
+                            autoFocus
+                            sx={{ flex: 1, fontSize: '0.875rem' }}
+                            disabled={savingEdit}
+                          />
+                          <IconButton size="sm" variant="solid" color="primary"
+                            onClick={handleSaveEditMessage} loading={savingEdit}
+                            disabled={!editingMessageBody.trim()}>
+                            <CheckIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                          <IconButton size="sm" variant="soft" color="neutral"
+                            onClick={handleCancelEdit} disabled={savingEdit}>
+                            <CloseIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Stack>
+                      ) : (
+                        /* ─── MODO NORMAL / ELIMINADO ─── */
+                        <>
+                          {/* TikTok special */}
+                          {isMetaMessage ? (
+                            <TikTokCommentBubble message={msg} />
+                          ) : (
+                            <Box
                               sx={{
-                                fontSize: '11px',
-                                lineHeight: 1,
-                                color: msg.ack >= 3
-                                  ? '#5BC2D2'
-                                  : 'rgba(255,255,255,0.5)',
+                                maxWidth: '65%',
+                                bgcolor: isMessageDeleted
+                                  ? (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')
+                                  : (isOwn
+                                      ? (isDark
+                                          ? facebookDesignTokens.message.outgoing.background
+                                          : facebookDesignTokens.message.outgoing.backgroundLight)
+                                      : (isDark
+                                          ? facebookDesignTokens.message.incoming.background
+                                          : facebookDesignTokens.message.incoming.backgroundLight)),
+                                color: isMessageDeleted ? 'text.disabled' : (isOwn
+                                    ? (isDark
+                                        ? facebookDesignTokens.message.outgoing.color
+                                        : facebookDesignTokens.message.outgoing.colorLight)
+                                    : (isDark
+                                        ? facebookDesignTokens.message.incoming.color
+                                        : facebookDesignTokens.message.incoming.colorLight)),
+                                p: facebookDesignTokens.message.padding,
+                                borderRadius: facebookDesignTokens.message.borderRadius,
+                                borderTopRightRadius: isOwn ? '4px' : facebookDesignTokens.message.borderRadius,
+                                borderTopLeftRadius: !isOwn ? '4px' : facebookDesignTokens.message.borderRadius,
+                                boxShadow: isDark ? '0 1px 0.5px rgba(11,20,26,.13)' : '0 1px 0.5px rgba(0,0,0,.08)',
+                                opacity: isMessageDeleted ? 0.6 : 1,
+                                position: 'relative',
                               }}
                             >
-                              {msg.ack >= 2 ? '✓✓' : '✓'}
-                            </Typography>
+                              {/* Media */}
+                              {msg.mediaUrl && !isMessageDeleted && (
+                                <Box sx={{ mb: 1 }}>
+                                  {msg.mediaType === 'image' && (
+                                    <Box
+                                      component="img"
+                                      src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
+                                      alt="Imagen"
+                                      sx={{ maxWidth: '100%', borderRadius: 1, cursor: 'pointer' }}
+                                      onClick={() => window.open(`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`, '_blank')}
+                                      onError={(e: any) => {
+                                        console.error('Error cargando imagen:', msg.mediaUrl)
+                                        e.currentTarget.style.display = 'none'
+                                      }}
+                                    />
+                                  )}
+                                  {msg.mediaType === 'video' && (
+                                    <Box component="video" controls
+                                      src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
+                                      sx={{ maxWidth: '100%', borderRadius: 1 }}
+                                    />
+                                  )}
+                                  {msg.mediaType === 'audio' && (
+                                    <Box component="audio" controls
+                                      src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
+                                      sx={{ width: '100%' }}
+                                    />
+                                  )}
+                                  {msg.mediaType !== 'image' && msg.mediaType !== 'video' && msg.mediaType !== 'audio' && (
+                                    <Box
+                                      component="a"
+                                      href={`/company${user?.companyId}/${msg.mediaUrl}`}
+                                      target="_blank"
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 1,
+                                        p: 1,
+                                        borderRadius: 1,
+                                        bgcolor: isOwn ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                        color: 'inherit',
+                                        textDecoration: 'none',
+                                        '&:hover': { bgcolor: isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }
+                                      }}
+                                    >
+                                      <Box component="span" sx={{ fontSize: 20 }}>📎</Box>
+                                      <Typography level="body-sm">{msg.mediaUrl}</Typography>
+                                    </Box>
+                                  )}
+                                </Box>
+                              )}
+
+                              {/* Body */}
+                              {isMessageDeleted ? (
+                                <Stack direction="row" spacing={0.5} alignItems="center">
+                                  <DeleteIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                                  <Typography level="body-sm" sx={{ fontStyle: 'italic', color: 'text.disabled' }}>
+                                    Mensaje eliminado
+                                  </Typography>
+                                </Stack>
+                              ) : (
+                                <MessageContent
+                                  message={msg}
+                                  isDark={isDark}
+                                  isOwn={isOwn}
+                                  isGroup={selectedTicket?.isGroup}
+                                  searchTerm={conversationSearchActive ? conversationSearchTerm : undefined}
+                                  onLightboxOpen={(src, type, currentIndex, allMedia) =>
+                                    setLightboxData({ src, type, currentIndex: currentIndex as number, allMedia: (allMedia ?? []) as Array<{id: number; src: string; type: string}> })
+                                  }
+                                  allMedia={selectedTicket?.messages
+                                    ?.filter((m) => m.mediaUrl && (m.mediaType?.toLowerCase().includes('image') || m.mediaType?.toLowerCase().includes('video')))
+                                    .map((m) => ({
+                                      id: m.id,
+                                      src: m.mediaUrl!,
+                                      type: m.mediaType?.toLowerCase().includes('video') ? 'video' : 'image',
+                                    })) || []
+                                  }
+                                />
+                              )}
+
+                              {/* Footer: indicadores + tiempo */}
+                              <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.25, position: 'relative' }}>
+                                {msg.isEdited && !isMessageDeleted && (
+                                  <Typography sx={{ fontSize: '10px', color: 'text.disabled', fontStyle: 'italic' }}>
+                                    editado
+                                  </Typography>
+                                )}
+                                {msg.isForwarded && !isMessageDeleted && (
+                                  <Typography sx={{ fontSize: '10px', color: 'text.disabled' }}>
+                                    reenviado
+                                  </Typography>
+                                )}
+                                <Typography sx={{ fontSize: '11px', color: isOwn ? 'rgba(255,255,255,0.6)' : (isDark ? '#8A8D91' : 'rgba(5,5,5,0.45)'), userSelect: 'none' }}>
+                                  {formatTime(msg.createdAt)}
+                                </Typography>
+                                {isOwn && msg.ack !== undefined && !isMessageDeleted && (
+                                  <Typography sx={{ fontSize: '11px', color: msg.ack >= 3 ? '#5BC2D2' : (isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.35)') }}>
+                                    {msg.ack === 0 ? '🕐' : msg.ack >= 2 ? '✓✓' : '✓'}
+                                    {msg.ack === 4 && <span style={{ marginLeft: 2 }}>▶</span>}
+                                  </Typography>
+                                )}
+
+                                {/* BOTÓN MENÚ (hover) — anclado al footer, abajo-right */}
+                                {isOwn && !isMessageDeleted && !selectionMode && (
+                                  <Box
+                                    className="message-actions"
+                                    onClick={(e) => handleOpenMessageMenu(e, msg.id, isOwn)}
+                                    sx={{
+                                      position: 'absolute',
+                                      right: -20,
+                                      bottom: -4,
+                                      opacity: 0,
+                                      transition: 'opacity 0.15s',
+                                      bgcolor: isDark ? '#2d2d2d' : '#e4e6eb',
+                                      borderRadius: '50%',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: 24,
+                                      height: 24,
+                                      boxShadow: 1,
+                                      cursor: 'pointer',
+                                      zIndex: 2,
+                                      '&:hover': { opacity: 1 },
+                                    }}
+                                  >
+                                    <MoreIcon sx={{ fontSize: 14 }} />
+                                  </Box>
+                                )}
+                              </Stack>
+                            </Box>
                           )}
-                        </Stack>
-                      </Box>
+
+                          {/* MENÚ DE ACCIONES */}
+                          {messageActionMenu?.messageId === msg.id && (
+                            <Menu
+                              anchorEl={messageActionMenu.anchorEl}
+                              open={true}
+                              onClose={handleCloseMessageMenu}
+                              placement="top-start"
+                              size="sm"
+                            >
+                              <MenuItem onClick={() => {
+                                const msgToReply = selectedTicket?.messages.find((m) => m.id === messageActionMenu?.messageId)
+                                if (msgToReply) setReplyingTo(msgToReply)
+                                setMessageActionMenu(null)
+                              }}>
+                                <ListItemDecorator><ReplyIcon /></ListItemDecorator>
+                                Responder
+                              </MenuItem>
+                              {!msg.isPrivate && (
+                                <MenuItem onClick={() => { handleCloseMessageMenu(); handleEnterSelectionMode('forward', msg.id, isOwn); }}>
+                                  <ListItemDecorator sx={{ transform: 'scaleX(-1)' }}><ReplyIcon /></ListItemDecorator>
+                                  Reenviar
+                                </MenuItem>
+                              )}
+                              {isOwn && (
+                                <MenuItem onClick={() => { handleCloseMessageMenu(); handleStartEditMessage(msg.id, msg.body || ''); }}>
+                                  <ListItemDecorator><EditIcon /></ListItemDecorator>
+                                  Editar
+                                </MenuItem>
+                              )}
+                              <MenuItem
+                                onClick={() => { handleCloseMessageMenu(); handleEnterSelectionMode('delete', msg.id, isOwn); }}
+                              >
+                                <ListItemDecorator><DeleteIcon /></ListItemDecorator>
+                                Eliminar
+                              </MenuItem>
+                            </Menu>
+                          )}
+                        </>
                       )}
                     </Box>
                   </Box>
@@ -2157,9 +2520,10 @@ export default function Tickets() {
             ticketChannel={selectedTicket.channel === 'tiktok' ? 'tiktok' : selectedTicket.isGroup ? 'group' : (selectedTicket.channel || 'whatsapp')}
             droppedFiles={dragDropFiles}
             contactId={selectedTicket.contact?.id}
+            replyingTo={replyingTo || undefined}
+            onCancelReply={() => setReplyingTo(null)}
             onSendMessage={(msg) => {
-              // Feedback inmediato: actualizar lastMessage y updatedAt
-              // El mensaje real se mostrará cuando el socket emita el evento
+              setReplyingTo(null)
               setSelectedTicket((prev) => prev ? {
                 ...prev,
                 lastMessage: msg,
@@ -2167,6 +2531,22 @@ export default function Tickets() {
               } : null)
             }}
           />
+
+          {/* Media Lightbox */}
+          {lightboxData && (
+            <MediaLightbox
+              open={true}
+              onClose={() => setLightboxData(null)}
+              currentSrc={lightboxData.src}
+              currentType={lightboxData.type}
+              currentIndex={lightboxData.currentIndex}
+              allMedia={lightboxData.allMedia}
+              isDark={isDark}
+              onNavigate={(src, type, idx) =>
+                setLightboxData((prev) => prev ? { ...prev, src, type, currentIndex: idx } : null)
+              }
+            />
+          )}
         </Box>
       ) : (
         <Box
@@ -2226,6 +2606,25 @@ export default function Tickets() {
         contact={selectedTicket?.contact || null}
         ticket={selectedTicket}
         loading={loading}
+      />
+
+      {/* ─── BARRA DE SELECCIÓN ─── */}
+      {selectionMode && (
+        <ForwardSelectionBar
+          mode={selectionMode}
+          selectedCount={selectedMessageIds.size}
+          onCancel={handleExitSelectionMode}
+          onAction={selectionMode === 'delete' ? handleDeleteMessages : () => setShowForwardModal(true)}
+          loading={actionLoading}
+        />
+      )}
+
+      {/* ─── MODAL REENVÍO ─── */}
+      <ForwardContactPicker
+        open={showForwardModal}
+        onClose={() => setShowForwardModal(false)}
+        onForward={handleForwardMessages}
+        loading={forwardLoading}
       />
     </Box>
     </Box>

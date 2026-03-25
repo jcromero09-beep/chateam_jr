@@ -236,6 +236,23 @@ closeTicketOnTransfer: boolean;
 
   @Column(DataType.STRING)
   tiktokBusinessSecret: string;      // Business API Secret
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Google Drive Backup — OAuth + Tokens
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  googleDriveEnabled: boolean;        // true cuando OAuth completada
+
+  @Column(DataType.JSONB)
+  googleDriveTokens: string;          // { access_token, refresh_token, expiry_date }
+
+  @Column(DataType.DATE)
+  lastDriveBackupAt: Date;            // última fecha de backup exitoso
+
+  @Column(DataType.STRING)
+  googleDriveFolderId: string;        // ID de la carpeta en Drive (creada por ensureDriveFolder)
 }
 
 export default CompaniesSettings;

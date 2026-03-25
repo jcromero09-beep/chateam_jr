@@ -23,6 +23,7 @@ import {
   Option,
   CircularProgress,
   Tooltip,
+  Switch,
 } from '@mui/joy'
 import {
   Speed as QuickRepliesIcon,
@@ -39,6 +40,7 @@ import {
   Image as ImageIcon,
   VideoFile as VideoFileIcon,
   AudioFile as AudioFileIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
 
@@ -51,6 +53,10 @@ interface QuickMessage {
   mediaName?: string
   userId?: number
   createdAt: string
+  /** Descripción semántica para búsqueda por IA */
+  intent?: string
+  /** Si está habilitado para uso por el orquestador IA */
+  isAiEnabled?: boolean
 }
 
 // Helper para detectar si un archivo/URL es imagen por extensión
@@ -76,6 +82,8 @@ export default function QuickReplies() {
     shortcode: '',
     message: '',
     geral: true,
+    intent: '',
+    isAiEnabled: false,
   })
 
   // Media upload states
@@ -192,6 +200,8 @@ export default function QuickReplies() {
       shortcode: message.shortcode,
       message: message.message,
       geral: message.geral ?? true,
+      intent: message.intent || '',
+      isAiEnabled: message.isAiEnabled ?? false,
     })
     setExistingMedia(
       message.mediaPath
@@ -214,6 +224,8 @@ export default function QuickReplies() {
       shortcode: '',
       message: '',
       geral: true,
+      intent: '',
+      isAiEnabled: false,
     })
     setSelectedFile(null)
     setExistingMedia(null)
@@ -255,6 +267,7 @@ export default function QuickReplies() {
     global: messages.filter((m) => m.geral).length,
     personal: messages.filter((m) => !m.geral).length,
     withMedia: messages.filter((m) => m.mediaPath).length,
+    aiEnabled: messages.filter((m) => m.isAiEnabled).length,
   }
 
   return (
@@ -327,6 +340,18 @@ export default function QuickReplies() {
               </CardContent>
             </Card>
           </Grid>
+          <Grid xs={12} sm={6} md={3}>
+            <Card sx={{ bgcolor: 'primary.softBg' }}>
+              <CardContent>
+                <Typography level="body-sm" sx={{ mb: 1 }}>
+                  Habilitados para IA
+                </Typography>
+                <Typography level="h2" sx={{ color: 'primary.500' }}>
+                  {stats.aiEnabled}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
 
         {/* Filters */}
@@ -363,6 +388,7 @@ export default function QuickReplies() {
                   <th>Mensaje</th>
                   <th style={{ width: 100 }}>Tipo</th>
                   <th style={{ width: 100 }}>Archivo</th>
+                  <th style={{ width: 60 }}>IA</th>
                   <th style={{ width: 180 }}>Fecha Creación</th>
                   <th style={{ width: 180 }}>Acciones</th>
                 </tr>
@@ -370,13 +396,13 @@ export default function QuickReplies() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
                       <Typography>Cargando mensajes...</Typography>
                     </td>
                   </tr>
                 ) : filteredMessages.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
                       <Typography>No se encontraron mensajes</Typography>
                     </td>
                   </tr>
@@ -409,6 +435,24 @@ export default function QuickReplies() {
                             >
                               {getFileIcon(message.mediaName || '')}
                             </IconButton>
+                          </Tooltip>
+                        ) : (
+                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            -
+                          </Typography>
+                        )}
+                      </td>
+                      <td>
+                        {message.isAiEnabled ? (
+                          <Tooltip title={`Intent: ${message.intent || '(sin descripción)'}`}>
+                            <Chip
+                              size="sm"
+                              color="primary"
+                              variant="soft"
+                              startDecorator={<AutoAwesomeIcon sx={{ fontSize: 12 }} />}
+                            >
+                              IA
+                            </Chip>
                           </Tooltip>
                         ) : (
                           <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
@@ -495,6 +539,44 @@ export default function QuickReplies() {
                   <Option value="personal">Personal (Solo yo)</Option>
                 </Select>
               </FormControl>
+
+              {/* Sección IA */}
+              <Box sx={{ p: 2, bgcolor: 'background.level1', borderRadius: 'sm', border: '1px solid', borderColor: 'divider' }}>
+                <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                  <Box sx={{ flex: 1 }}>
+                    <Typography level="body-sm" fontWeight="bold">
+                      <AutoAwesomeIcon sx={{ fontSize: 16, mr: 0.5, color: 'primary.500' }} />
+                      Habilitar para IA
+                    </Typography>
+                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.25 }}>
+                      Permite que el orquestador IA use este mensaje en respuestas semánticas
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={formData.isAiEnabled}
+                    onChange={(e) => setFormData({ ...formData, isAiEnabled: e.target.checked })}
+                    color={formData.isAiEnabled ? 'primary' : 'neutral'}
+                  />
+                </Stack>
+
+                {/* Campo de intención — solo visible si IA está habilitada */}
+                {formData.isAiEnabled && (
+                  <FormControl sx={{ mt: 2 }}>
+                    <FormLabel sx={{ fontSize: 'sm' }}>
+                      Intención (para búsqueda semántica)
+                    </FormLabel>
+                    <Input
+                      value={formData.intent}
+                      onChange={(e) => setFormData({ ...formData, intent: e.target.value })}
+                      placeholder="Ej: saludo informal, despedirse, pedir email, resolver duda de producto"
+                      size="sm"
+                    />
+                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+                      Describe en 1-2 frases cortas la intención de este mensaje. La IA usará esto para encontrarlo semánticamente.
+                    </Typography>
+                  </FormControl>
+                )}
+              </Box>
 
               {/* Archivo multimedia */}
               <FormControl>

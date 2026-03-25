@@ -7,9 +7,9 @@ import {
   PrimaryKey,
   ForeignKey,
   BelongsTo,
-  AutoIncrement
-,
-  DataType
+  AutoIncrement,
+  DataType,
+  Default
 } from "sequelize-typescript";
 
 import Company from "./Company";
@@ -66,6 +66,20 @@ class QuickMessage extends Model<QuickMessage> {
 
   @Column(DataType.BOOLEAN)
   visao: boolean;
+
+  // ── IA Semantic Integration ────────────────────────────────────────
+  /** Descripción semántica del propósito del QuickReply */
+  @Column(DataType.STRING(100))
+  intent: string;
+
+  /** Embedding vectorial del campo intent (para búsqueda semántica pgvector) */
+  @Column(DataType.ARRAY(DataType.FLOAT))
+  intentEmbedding: number[];
+
+  /** Si true, este QuickReply se considera en el pipeline IA */
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  isAiEnabled: boolean;
 }
 
 export default QuickMessage;

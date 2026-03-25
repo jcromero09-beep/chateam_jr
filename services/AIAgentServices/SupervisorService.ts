@@ -7,9 +7,11 @@ import AgentLogService from "./AgentLogService";
 import DeductCreditsService from "../AICreditServices/DeductCreditsService";
 import SupervisorActionsService from "./SupervisorActionsService";
 import TicketContextService from "./TicketContextService";
+import PromptContextBuilder from "./PromptContextBuilder";
 import ToolRegistry from "./ToolRegistry";
 import ToolExecutor from "./ToolExecutor";
 import AIAgentConfig from "../../models/AIAgentConfig";
+import { add as addJob } from "../../queues";
 import logger from "../../utils/logger";
 
 /**
@@ -128,27 +130,37 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     };
   }
 
-  // 🆕 2b. Extraer contexto de tags del ticket (kanban + notas)
-  // Esto proporciona información contextual a todos los agentes
-  let ticketContext = '';
-  if (ticketId) {
-    try {
-      const tagContext = await TicketContextService.getTicketContext(ticketId);
-      ticketContext = TicketContextService.buildContextPrompt(tagContext);
-      logger.info(
-        `[Supervisor] Contexto de tags: kanban=${tagContext.kanbanStage?.key || 'none'}, ` +
-        `normalTags=${tagContext.normalTags.length}`
-      );
-    } catch (tagError: any) {
-      logger.warn(`[Supervisor] Error extrayendo contexto de tags: ${tagError.message}`);
-      ticketContext = '';
+  // 🆕 2b. Construir bloque de CONTEXTO DISPONIBLE con etiquetas semánticas
+  // Reemplaza ticketContext simple por el bloque unificado con empresa, kanban,
+  // historial, Quick Replies semánticos y memorias del contacto
+  let unifiedContext = '';
+  try {
+    unifiedContext = await PromptContextBuilder.buildSupervisorContext({
+      companyId,
+      ticketId,
+      contactId,
+      currentMessage: message,
+      ticketHistory,
+      contactInfo
+    });
+    logger.info(`[Supervisor] Bloque CONTEXTO DISPONIBLE construido, length=${unifiedContext.length}`);
+  } catch (ctxError: any) {
+    logger.warn(`[Supervisor] Error construyendo contexto: ${ctxError.message}`);
+    // Fallback: usar solo ticketContext simple
+    if (ticketId) {
+      try {
+        const tagContext = await TicketContextService.getTicketContext(ticketId);
+        unifiedContext = TicketContextService.buildContextPrompt(tagContext);
+      } catch {
+        unifiedContext = '';
+      }
     }
   }
 
-  // Enriquecer request con el contexto del ticket
+  // Enriquecer request con el contexto unificado
   const enrichedRequest = {
     ...request,
-    ticketContext
+    ticketContext: unifiedContext
   };
 
   // 3. Despachar al agente especializado
@@ -300,7 +312,8 @@ async function handleRAGAgent(
       message, companyId, {
         ticketId,
         contactId,
-        chatbotId: request.chatbotId
+        chatbotId: request.chatbotId,
+        ticketContext: request.ticketContext
       }
     );
 

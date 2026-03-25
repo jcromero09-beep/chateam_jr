@@ -1,15 +1,30 @@
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import Queue from "../../models/Queue";
+import AIAgentLog from "../../models/AIAgentLog";
 import logger from "../../utils/logger";
+import { add as addJob } from "../../queues";
 
-interface SaveAgentMessageOptions {
+export interface SaveAgentMessageOptions {
   ticketId: number;
   companyId: number;
   content: string;
   agentUsed: string;
   intent: string;
   confidence: number;
+  /** ID del contacto para FeedbackInferenceJob */
+  contactId?: number;
+  /** Tokens consumidos por la ejecución IA */
+  tokensUsed?: { input: number; output: number };
+  /** Latencia total en ms */
+  latencyMs?: number;
+  /** Si true, crea AIAgentLog y encola FeedbackInferenceJob (solo para respuestas IA, no escaladas) */
+  shouldCreateAIAgentLog?: boolean;
+}
+
+export interface SaveAgentMessageResult {
+  message: Message | null;
+  agentLogId?: number;
 }
 
 /**
@@ -23,9 +38,15 @@ interface SaveAgentMessageOptions {
 class SupervisorActionsService {
 
   /**
-   * Guarda el mensaje generado por el agente IA en la BD
+   * Guarda el mensaje generado por el agente IA en la BD.
+   * Si `shouldCreateAIAgentLog=true`, también crea el registro de log
+   * y encola FeedbackInferenceJob (con delay de 5 min).
    */
-  static async saveAgentMessage(options: SaveAgentMessageOptions): Promise<Message | null> {
+  static async saveAgentMessage(
+    options: SaveAgentMessageOptions
+  ): Promise<SaveAgentMessageResult> {
+    let agentLogId: number | undefined;
+
     try {
       const message = await Message.create({
         ticketId: options.ticketId,
@@ -50,26 +71,89 @@ class SupervisorActionsService {
       try {
         const { getIO } = require("../../libs/socket");
         const io = getIO();
-
-        // Emitir al room del ticket y al room general de la company
         io.to(`ticket:${options.ticketId}`).to(`company:${options.companyId}:tickets`).emit("appMessage", message);
         logger.info(`[SupervisorActions] Mensaje emitido al socket: ticket=${options.ticketId}`);
       } catch (socketErr: any) {
         logger.warn(`[SupervisorActions] Error emitiendo socket: ${socketErr.message}`);
       }
 
+      // ✅ Crear AIAgentLog y encolar FeedbackInferenceJob si corresponde
+      if (options.shouldCreateAIAgentLog) {
+        try {
+          const inputTokens = options.tokensUsed?.input || 0;
+          const outputTokens = options.tokensUsed?.output || 0;
+          const totalTokens = inputTokens + outputTokens;
+
+          const agentLog = await AIAgentLog.create({
+            companyId: options.companyId,
+            ticketId: options.ticketId,
+            contactId: options.contactId || null,
+            agentType: options.agentUsed,
+            modelUsed: "gpt-4.1-mini",
+            inputTokens,
+            outputTokens,
+            costUsd: 0,
+            latencyMs: options.latencyMs || 0,
+            confidence: options.confidence,
+            wasEscalated: false,
+            escalationReason: null,
+            cacheHit: false,
+            toolsUsed: [],
+            inputSummary: options.content.substring(0, 200),
+            outputSummary: options.content.substring(0, 200),
+            metadata: {},
+            feedbackImplicit: null,
+            humanCorrection: null,
+            correctionDeltaMs: null,
+            parentLogId: null
+          });
+          agentLogId = agentLog.id;
+
+          logger.info(
+            `[SupervisorActions] AIAgentLog creado: logId=${agentLogId}, ticket=${options.ticketId}`
+          );
+
+          // ✅ Encolar FeedbackInferenceJob con delay de 5 minutos
+          if (options.contactId) {
+            try {
+              await addJob("FeedbackInference", {
+                agentLogId: agentLog.id,
+                ticketId: options.ticketId,
+                contactId: options.contactId,
+                companyId: options.companyId,
+                aiMessageContent: options.content
+              }, { delay: 5 * 60 * 1000 });
+
+              logger.info(
+                `[SupervisorActions] FeedbackInferenceJob encolado: logId=${agentLogId}, ` +
+                `ticket=${options.ticketId}, delay=300s`
+              );
+            } catch (jobError: any) {
+              logger.warn(
+                `[SupervisorActions] Error encolando FeedbackInferenceJob: ${jobError.message}`
+              );
+            }
+          }
+        } catch (logError: any) {
+          logger.warn(
+            `[SupervisorActions] Error creando AIAgentLog: ${logError.message}`
+          );
+        }
+      }
+
       logger.info(
         `[SupervisorActions] Mensaje guardado: ticket=${options.ticketId}, ` +
-        `agente=${options.agentUsed}, msgId=${message.id}`
+        `agente=${options.agentUsed}, msgId=${message.id}` +
+        (agentLogId ? `, agentLogId=${agentLogId}` : "")
       );
 
-      return message;
+      return { message, agentLogId };
     } catch (error: any) {
       logger.error(
         `[SupervisorActions] Error guardando mensaje: ticket=${options.ticketId}, ` +
         `error=${error.message}`
       );
-      return null;
+      return { message: null, agentLogId };
     }
   }
 

@@ -27,6 +27,8 @@ import { Mutex } from "async-mutex";
 import { actualizarRetargetingSiEsDormant } from "../IntegrationsServices/clasificarEtapaCliente";
 import { cancelTicketFollowups } from "../../workers/stageClassifier.worker";
 import { processTelegramTicketClosure } from "../TelegramService/SendTelegramAutomaticMessages";
+import { add as addJob } from "../../queues";
+import logger from "../../utils/logger";
 interface TicketData {
   status?: string;
   userId?: number | null;
@@ -122,6 +124,18 @@ const UpdateTicketService = async ({
       });
       await cancelTicketFollowups(ticket.id);
       await actualizarRetargetingSiEsDormant(ticket.id, companyId);
+
+      // ✅ Encolar ExtractMemoryJob
+      try {
+        await addJob("ExtractMemory", {
+          ticketId: ticket.id,
+          companyId,
+          closedAt: new Date()
+        });
+        logger.info(`[UpdateTicket] ExtractMemoryJob encolado (null whatsapp): ticket=${ticket.id}`);
+      } catch (jobErr: any) {
+        logger.warn(`[UpdateTicket] Error encolando ExtractMemoryJob: ${jobErr.message}`);
+      }
       io.of(String(companyId))
         // .to(oldStatus)
         // .to(ticketId.toString())
@@ -339,6 +353,19 @@ const UpdateTicketService = async ({
 
     //  await actualizarRetargetingSiEsDormant(ticket.id, companyId);
     await cancelTicketFollowups(ticket.id);
+
+      // ✅ Encolar ExtractMemoryJob — extracción de memorias al cerrar ticket
+      try {
+        await addJob("ExtractMemory", {
+          ticketId: ticket.id,
+          companyId,
+          closedAt: new Date()
+        });
+        logger.info(`[UpdateTicket] ExtractMemoryJob encolado: ticket=${ticket.id}`);
+      } catch (jobErr: any) {
+        logger.warn(`[UpdateTicket] Error encolando ExtractMemoryJob: ${jobErr.message}`);
+      }
+
       // console.log(1, "actualizarRetargetingSiEsDormant")
       io.of(String(companyId))
         // .to(oldStatus)
@@ -372,6 +399,18 @@ const UpdateTicketService = async ({
           await ticket.reload();
        //   await actualizarRetargetingSiEsDormant(ticket.id, companyId);
        await cancelTicketFollowups(ticket.id);
+
+          // ✅ Encolar ExtractMemoryJob en transferencia
+          try {
+            await addJob("ExtractMemory", {
+              ticketId: ticket.id,
+              companyId,
+              closedAt: new Date()
+            });
+            logger.info(`[UpdateTicket] ExtractMemoryJob encolado (transfer close): ticket=${ticket.id}`);
+          } catch (jobErr: any) {
+            logger.warn(`[UpdateTicket] Error encolando ExtractMemoryJob: ${jobErr.message}`);
+          }
           // console.log(2, "actualizarRetargetingSiEsDormant")
 
           io.of(String(companyId))

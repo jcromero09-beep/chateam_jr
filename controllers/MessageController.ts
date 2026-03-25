@@ -915,30 +915,30 @@ export const forwardMessage = async (
             return res.status(200).send("MessageId or ContactId not found");
         }
 
-        const message = await ShowMessageService(messageId);
         const contact = await ShowContactService(contactId, companyId);
-
-        if (!message) {
-            // messageLogger.warn('Mensaje no encontrado', {
-            //     requestId,
-            //     messageId
-            // });
-            return res.status(404).send("Message not found");
-        }
         if (!contact) {
-            // messageLogger.warn('Contacto no encontrado', {
-            //     requestId,
-            //     contactId
-            // });
             return res.status(404).send("Contact not found");
         }
 
-        // messageLogger.info('Mensaje y contacto encontrados', {
-        //     requestId,
-        //     messageId,
-        //     contactId,
-        //     originalTicketId: message.ticketId
-        // });
+        // Validaciones reforzadas del mensaje original antes de reenviar
+        const originalMessage = await Message.findByPk(messageId, {
+            include: [
+                { model: Ticket, as: "ticket", include: [{ model: Whatsapp, as: "whatsapp" }] },
+                { model: Message, as: "quotedMsg" }
+            ]
+        });
+
+        if (!originalMessage) {
+            return res.status(404).send("Message not found");
+        }
+        if (!originalMessage.fromMe) {
+            throw new AppError("Solo se pueden reenviar mensajes propios", 403);
+        }
+        if ((originalMessage as any).isDeleted) {
+            throw new AppError("No se puede reenviar un mensaje eliminado", 400);
+        }
+
+        const message = originalMessage;
 
         const settings = await CompaniesSettings.findOne({
             where: { companyId }
@@ -949,6 +949,10 @@ export const forwardMessage = async (
         if (!whatsAppConnectionId) {
             return res.status(404).send('Whatsapp from message not found');
         }
+
+        // Routing por provider para determinar canal Meta o Baileys
+        const whatsapp = originalMessage.ticket?.whatsapp;
+        const isMeta = whatsapp?.channel === "meta" || (whatsapp as any)?.provider === "meta";
 
         const ticket = await ShowTicketService(message.ticketId, message.companyId);
 
@@ -1023,76 +1027,83 @@ export const forwardMessage = async (
             await SendWhatsAppMedia({ media: mediaSrc, ticket: createTicket, body, isForwarded: message.fromMe ? false : true });
         }
 
-        // messageLogger.info('Mensaje reenviado exitosamente', {
-        //     requestId,
-        //     messageId,
-        //     newTicketId: createTicket.id
-        // });
+        // Crear registro BD para el mensaje reenviado con isForwarded=true
+        const forwardedMessageData = {
+            wid: `FWD_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            ticketId: createTicket.id,
+            contactId: contact.id,
+            body: message.body,
+            fromMe: true,
+            mediaType: message.mediaType,
+            mediaUrl: message.mediaUrl,
+            ack: 2,
+            read: true,
+            quotedMsgId: quotedMsg?.id || null,
+            remoteJid: contact.remoteJid || `${contact.number}@s.whatsapp.net`,
+            isPrivate: false,
+            messageStatus: "sent",
+            isForwarded: true,
+            whatsappId: whatsapp?.id,
+            sourceChannel: isMeta ? "meta" : "baileys"
+        };
 
-        return res.send();
-    } catch (err) {
-        // messageLogger.error('Error al reenviar mensaje', err, {
-        //     requestId,
-        //     messageId: req.body.messageId || 'unknown'
-        // });
-        // console.log(err);
+        const newMessage = await CreateMessageService({
+            messageData: forwardedMessageData,
+            companyId: Number(companyId)
+        });
+
+        // Emitir socket con action:"create" para el nuevo mensaje reenviado
+        const io = getIO();
+        io.of(String(companyId)).emit(`company-${companyId}-appMessage`, {
+            action: "create",
+            message: newMessage
+        });
+
+        return res.status(200).json({ success: true, forwardedMessage: newMessage });
+    } catch (err: any) {
+        console.error("Error al reenviar mensaje:", err);
+        if (err instanceof AppError) {
+            return res.status(err.statusCode).json({ error: err.message });
+        }
         return res.status(400).json({ error: err.message });
     }
 }
 
-export const remove = async (
-    req: Request,
-    res: Response
-): Promise<Response> => {
-    const requestId = Math.random().toString(36).substring(7);
-
+export const remove = async (req: Request, res: Response): Promise<Response> => {
     try {
         const { messageId } = req.params;
         const { companyId } = req.user;
 
-        // messageLogger.info('Iniciando eliminación de mensaje', {
-        //     requestId,
-        //     messageId,
-        //     companyId
-        // });
-
-        const message = await DeleteWhatsAppMessage(messageId, companyId);
-        const io = getIO();
-
-        if (message.isPrivate) {
-            await Message.destroy({
-                where: {
-                    id: message.id
-                }
-            });
-            io.of(String(companyId))
-                // .to(message.ticketId.toString())
-                .emit(`company-${companyId}-appMessage`, {
-                    action: "delete",
-                    message
-                });
+        if (!messageId || isNaN(Number(messageId))) {
+            throw new AppError("ID de mensaje inválido", 400);
         }
 
-        io.of(String(companyId))
-            // .to(message.ticketId.toString())
-            .emit(`company-${companyId}-appMessage`, {
-                action: "update",
-                message
-            });
+        // Importar el servicio dinámicamente para evitar ciclos
+        const DeleteWhatsAppMessageModule = (await import("../services/WbotServices/DeleteWhatsAppMessage")).default;
+        const deleteResult = await DeleteWhatsAppMessageModule(messageId, companyId);
 
-        // messageLogger.info('Mensaje eliminado exitosamente', {
-        //     requestId,
-        //     messageId,
-        //     isPrivate: message.isPrivate
-        // });
+        // Obtener el mensaje de la BD para actualizar/eliminar
+        const message = await Message.findByPk(deleteResult.id);
 
-        return res.send();
-    } catch (err) {
-        // messageLogger.error('Error al eliminar mensaje', err, {
-        //     requestId,
-        //     messageId: req.params.messageId
-        // });
-        // console.log(err);
+        // Si es mensaje privado: destruir registro de BD
+        if (deleteResult.isPrivate) {
+            await Message.destroy({ where: { id: deleteResult.id } });
+        } else if (message) {
+            await message.reload();
+        }
+
+        const io = getIO();
+        io.of(String(companyId)).emit(`company-${companyId}-appMessage`, {
+            action: deleteResult.isPrivate ? "delete" : "update",
+            message: deleteResult.isPrivate ? { id: Number(messageId) } : message
+        });
+
+        return res.status(200).json({ success: true });
+    } catch (err: any) {
+        console.error("Error al eliminar mensaje:", err);
+        if (err instanceof AppError) {
+            return res.status(err.statusCode).json({ error: err.message });
+        }
         return res.status(400).json({ error: err.message });
     }
 };
@@ -1229,52 +1240,38 @@ export const send = async (req: Request, res: Response): Promise<Response> => {
 };
 
 export const edit = async (req: Request, res: Response): Promise<Response> => {
-    const requestId = Math.random().toString(36).substring(7);
-
     try {
         const { messageId } = req.params;
         const { companyId } = req.user;
-        const { body }: MessageData = req.body;
+        const { body: newBody } = req.body;
 
-        // messageLogger.info('Iniciando edición de mensaje', {
-        //     requestId,
-        //     messageId,
-        //     companyId,
-        //     bodyLength: body?.length || 0
-        // });
+        if (!newBody?.trim()) {
+            throw new AppError("El contenido del mensaje no puede estar vacío", 400);
+        }
 
-        const { ticket, message } = await EditWhatsAppMessage({ messageId, body });
+        const EditWhatsAppMessageModule = (await import("../services/MessageServices/EditWhatsAppMessage")).default;
+        const { ticket, message } = await EditWhatsAppMessageModule({
+            messageId: String(messageId),
+            body: newBody.trim(),
+            companyId: Number(companyId)
+        });
 
         const io = getIO();
-        io.of(String(companyId))
-            // .to(String(ticket.id))
-            .emit(`company-${companyId}-appMessage`, {
-                action: "update",
-                message
-            });
+        io.of(String(companyId)).emit(`company-${companyId}-appMessage`, {
+            action: "update",
+            message
+        });
+        io.of(String(companyId)).emit(`company-${companyId}-ticket`, {
+            action: "update",
+            ticket
+        });
 
-        io.of(String(companyId))
-            // .to(ticket.status)
-            // .to("notification")
-            // .to(String(ticket.id))
-            .emit(`company-${companyId}-ticket`, {
-                action: "update",
-                ticket
-            });
-
-        // messageLogger.info('Mensaje editado exitosamente', {
-        //     requestId,
-        //     messageId,
-        //     ticketId: ticket.id
-        // });
-
-        return res.send();
-    } catch (err) {
-        // messageLogger.error('Error al editar mensaje', err, {
-        //     requestId,
-        //     messageId: req.params.messageId
-        // });
-        // console.log(err);
+        return res.status(200).json({ success: true, message });
+    } catch (err: any) {
+        console.error("Error al editar mensaje:", err);
+        if (err instanceof AppError) {
+            return res.status(err.statusCode).json({ error: err.message });
+        }
         return res.status(400).json({ error: err.message });
     }
 }

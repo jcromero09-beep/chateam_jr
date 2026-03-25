@@ -6,7 +6,7 @@
  *
  * Funcionalidades:
  * - Generacion de embedding individual
- * - Generacion de embeddings en batch (max 2048 textos)
+ * - Generacion de embeddings en batch (auto-split por tokens, paralelo)
  * - Calculo de similitud coseno entre vectores
  * - Retry automatico con backoff exponencial (max 3 intentos)
  *
@@ -25,9 +25,11 @@ import { getDefaultProviderForCapability } from "../AIProviderService";
 const SERVICE_PREFIX = "[EmbeddingService]";
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMENSIONS = 1536;
-const MAX_BATCH_SIZE = 2048;
+
+const MAX_TOKENS_PER_CALL = 7500; // Limite seguro por llamada API (deja margen de ~690 para overhead)
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 1000;
+const CHARS_PER_TOKEN = 4; // Estimacion: 1 token ≈ 4 caracteres para texto en espanol/ingles
 
 // ============================================================================
 // CLIENTE OPENAI SINGLETON
@@ -82,6 +84,58 @@ function normalizeText(text: string): string {
     .replace(/\s+/g, " ")    // Multiples espacios a uno
     .replace(/\n+/g, " ")    // Saltos de linea a espacio
     .trim();
+}
+
+/**
+ * Estima el numero de tokens de un texto usando la regla: 1 token ≈ 4 caracteres
+ * Esta estimacion es conservadora y funciona bien para texto en espanol/ingles
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+/**
+ * Divide un array de textos en sub-lotes cuyo total de tokens no exceda el limite
+ * Retorna un array de lotes, cada uno seguro para una sola llamada API
+ */
+function splitByTokenLimit(texts: string[]): string[][] {
+  const batches: string[][] = [];
+  let currentBatch: string[] = [];
+  let currentTokens = 0;
+
+  for (const text of texts) {
+    const textTokens = estimateTokens(text);
+
+    // Si un solo texto ya excede el limite, forzar en su propio lote
+    if (textTokens > MAX_TOKENS_PER_CALL) {
+      // Guardar lo que hay acumulado antes de forzar
+      if (currentBatch.length > 0) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentTokens = 0;
+      }
+      // Este texto va solo — se truncara en la API o sera error
+      batches.push([text]);
+      continue;
+    }
+
+    // Si agregar este texto excede el limite, cerrar el lote actual
+    if (currentTokens + textTokens > MAX_TOKENS_PER_CALL) {
+      batches.push(currentBatch);
+      currentBatch = [text];
+      currentTokens = textTokens;
+    } else {
+      currentBatch.push(text);
+      currentTokens += textTokens;
+    }
+  }
+
+  // No olvidar el ultimo lote
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+
+  return batches;
 }
 
 // ============================================================================
@@ -160,7 +214,9 @@ class EmbeddingService {
   }
 
   /**
-   * Genera embeddings en batch (maximo 2048 textos por llamada)
+   * Genera embeddings en batch para cualquier cantidad de textos
+   * Divide automaticamente en sub-lotes por limite de tokens (8192 max por llamada)
+   * Procesa todos los lotes en paralelo para maxima eficiencia
    *
    * @param texts - Array de textos a convertir en embeddings
    * @param companyId - ID de la empresa (para tracking de tokens)
@@ -172,70 +228,132 @@ class EmbeddingService {
         throw new Error(`${SERVICE_PREFIX} Array de textos vacio para batch embeddings`);
       }
 
-      if (texts.length > MAX_BATCH_SIZE) {
-        throw new Error(
-          `${SERVICE_PREFIX} Excede limite de batch: ${texts.length} textos (max: ${MAX_BATCH_SIZE})`
-        );
-      }
-
       const normalizedTexts = texts.map(t => normalizeText(t));
-      const client = await getOpenAIClient();
+      const subBatches = splitByTokenLimit(normalizedTexts);
 
-      let lastError: Error | null = null;
+      logger.info(
+        `${SERVICE_PREFIX} Lotes por tokens: ${subBatches.length} sub-lotes para ${texts.length} textos (max ${MAX_TOKENS_PER_CALL} tokens/call)`
+      );
 
-      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        try {
-          const response = await client.embeddings.create({
-            model: EMBEDDING_MODEL,
-            input: normalizedTexts,
-            dimensions: EMBEDDING_DIMENSIONS
-          });
+      // Procesar todos los sub-lotes en paralelo para maxima velocidad
+      const results = await Promise.all(
+        subBatches.map(batch => this._callEmbeddingsAPI(batch, companyId))
+      );
 
-          // Ordenar por index (OpenAI puede devolver en desorden)
-          const sorted = response.data.sort((a, b) => a.index - b.index);
-          const embeddings = sorted.map(d => d.embedding);
+      // Concatenar todos los resultados en orden
+      const allEmbeddings = results.flat();
 
-          if (embeddings.length !== texts.length) {
-            throw new Error(
-              `${SERVICE_PREFIX} Discrepancia: se esperaban ${texts.length} embeddings, se recibieron ${embeddings.length}`
-            );
-          }
+      logger.info(
+        `${SERVICE_PREFIX} Batch embeddings generados: ${allEmbeddings.length} textos (empresa: ${companyId})`
+      );
 
-          // Track tokens
-          if (response.usage) {
-            await trackEmbeddings(companyId, EMBEDDING_MODEL, {
-              prompt_tokens: response.usage.prompt_tokens,
-              total_tokens: response.usage.total_tokens
-            });
-          }
-
-          logger.info(
-            `${SERVICE_PREFIX} Batch embeddings generados: ${embeddings.length} textos, ${response.usage?.total_tokens || 0} tokens (empresa: ${companyId})`
-          );
-
-          return embeddings;
-        } catch (err: unknown) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-
-          const statusCode = (err as { status?: number }).status;
-          if (statusCode === 429 || (statusCode && statusCode >= 500)) {
-            logger.warn(
-              `${SERVICE_PREFIX} Batch intento ${attempt + 1}/${MAX_RETRIES} fallo (status: ${statusCode}), reintentando...`
-            );
-            await backoffDelay(attempt);
-            continue;
-          }
-
-          throw lastError;
-        }
-      }
-
-      throw lastError || new Error(`${SERVICE_PREFIX} Todos los reintentos agotados en batch`);
+      return allEmbeddings;
     } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(`${SERVICE_PREFIX} Error en batch embeddings: ${errorMsg}`);
       throw error;
     }
+  }
+
+  /**
+   * Llama a la API de OpenAI para un lote de textos (sin split, maximo 2048 items)
+   * Con retry automatico incluido y truncado de textos que excedan el limite de tokens
+   *
+   * @private
+   */
+  private static async _callEmbeddingsAPI(
+    batch: string[],
+    companyId: number
+  ): Promise<number[][]> {
+    const client = await getOpenAIClient();
+
+    // Truncar textos que excedan el limite para evitar errores 400 de la API
+    // Cada texto se trunca a MAX_TOKENS_PER_CALL tokens ≈ MAX_TOKENS_PER_CALL * 4 caracteres
+    const safeBatch: string[] = [];
+    let truncatedCount = 0;
+    let emptyCount = 0;
+    const MAX_CHARS_PER_TEXT = 10000; // ~4000 tokens max (a ratio 4 chars/token), safe bajo 8192 de la API
+
+    for (const text of batch) {
+      // Saltar textos vacios o que solo tienen espacios
+      const trimmed = text.trim();
+      if (!trimmed) {
+        emptyCount++;
+        continue;
+      }
+
+      if (trimmed.length > MAX_CHARS_PER_TEXT) {
+        const truncated = trimmed.substring(0, MAX_CHARS_PER_TEXT);
+        safeBatch.push(truncated);
+        truncatedCount++;
+        logger.warn(
+          `${SERVICE_PREFIX} Texto truncado de ${trimmed.length} a ${MAX_CHARS_PER_TEXT} chars (~${Math.round(MAX_CHARS_PER_TEXT / CHARS_PER_TOKEN)} tokens estimados)`
+        );
+      } else {
+        safeBatch.push(trimmed);
+      }
+    }
+
+    if (truncatedCount > 0) {
+      logger.warn(
+        `${SERVICE_PREFIX} ${truncatedCount}/${batch.length} textos fueron truncados para este lote`
+      );
+    }
+    if (emptyCount > 0) {
+      logger.warn(
+        `${SERVICE_PREFIX} ${emptyCount} textos vacios fueron ignorados en este lote`
+      );
+    }
+    if (safeBatch.length === 0) {
+      throw new Error(`${SERVICE_PREFIX} Todos los textos del lote estan vacios`);
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const response = await client.embeddings.create({
+          model: EMBEDDING_MODEL,
+          input: safeBatch,
+          dimensions: EMBEDDING_DIMENSIONS
+        });
+
+        // Ordenar por index (OpenAI puede devolver en desorden)
+        const sorted = response.data.sort((a, b) => a.index - b.index);
+        const embeddings = sorted.map(d => d.embedding);
+
+        if (embeddings.length !== batch.length) {
+          throw new Error(
+            `${SERVICE_PREFIX} Discrepancia: se esperaban ${batch.length} embeddings, se recibieron ${embeddings.length}`
+          );
+        }
+
+        // Track tokens
+        if (response.usage) {
+          await trackEmbeddings(companyId, EMBEDDING_MODEL, {
+            prompt_tokens: response.usage.prompt_tokens,
+            total_tokens: response.usage.total_tokens
+          });
+        }
+
+        return embeddings;
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        const statusCode = (err as { status?: number }).status;
+        if (statusCode === 429 || (statusCode && statusCode >= 500)) {
+          logger.warn(
+            `${SERVICE_PREFIX} Batch intento ${attempt + 1}/${MAX_RETRIES} fallo (status: ${statusCode}), reintentando...`
+          );
+          await backoffDelay(attempt);
+          continue;
+        }
+
+        throw lastError;
+      }
+    }
+
+    throw lastError || new Error(`${SERVICE_PREFIX} Todos los reintentos agotados en batch`);
   }
 
   /**

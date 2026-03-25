@@ -1,4 +1,5 @@
 import { getIO } from "../../libs/socket";
+import { Op } from "sequelize";
 import Contact from "../../models/Contact";
 import Message from "../../models/Message";
 import Queue from "../../models/Queue";
@@ -6,6 +7,9 @@ import Tag from "../../models/Tag";
 import Ticket from "../../models/Ticket";
 import User from "../../models/User";
 import Whatsapp from "../../models/Whatsapp";
+import AIAgentLog from "../../models/AIAgentLog";
+import { add as addJob } from "../../queues";
+import logger from "../../utils/logger";
 
 export interface MessageData {
   wid: string;
@@ -108,6 +112,46 @@ const CreateMessageService = async ({
   } else {
     // console.log("  💾 Creando mensaje nuevo en BD...");
     await Message.create({ ...messageData, companyId } as any);
+  }
+
+  // ✅ Hook: Detectar si un agente humano envía mensaje tras respuesta IA
+  // Se detecta cuando: fromMe=true (agente), isPrivate=true (panel de chat, no webhook WhatsApp)
+  if (messageData.fromMe && messageData.isPrivate) {
+    try {
+      const ticket = await Ticket.findByPk(messageData.ticketId, {
+        attributes: ["id", "contactId", "companyId"]
+      });
+      if (ticket?.contactId) {
+        // Verificar si hay un AIAgentLog reciente (últimos 3 min) sin corrección
+        const recentAILog = await AIAgentLog.findOne({
+          where: {
+            ticketId: messageData.ticketId,
+            humanCorrection: null,
+            createdAt: {
+              [Op.gte]: new Date(Date.now() - 3 * 60 * 1000) // 3 min de ventana
+            }
+          },
+          order: [["createdAt", "DESC"]],
+          limit: 1
+        });
+
+        if (recentAILog) {
+          await addJob("HumanCorrectionExtractor", {
+            humanMessageId: 0, // se ignora, el job busca por ticketId
+            ticketId: messageData.ticketId,
+            companyId,
+            humanMessageContent: messageData.body || "",
+            humanMessageTimestamp: new Date()
+          });
+          logger.info(
+            `[CreateMessage] HumanCorrectionExtractorJob encolado: ticket=${messageData.ticketId}, ` +
+            `company=${companyId}, iaLog=${recentAILog.id}`
+          );
+        }
+      }
+    } catch (hookErr: any) {
+      logger.warn(`[CreateMessage] Error en hook HumanCorrection: ${hookErr.message}`);
+    }
   }
 
   // console.log("  🔍 Obteniendo mensaje completo con relaciones...");

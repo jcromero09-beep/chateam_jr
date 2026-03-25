@@ -508,13 +508,15 @@ export class AuditController {
   async generateRecommendations(req: Request, res: Response): Promise<Response> {
     try {
       const { companyId } = req.user;
-      const { period = "last_30_days", campaigns } = req.body; // Extraer campaigns del body
+      const { period = "last_30_days", campaigns, messageDateSince, messageDateUntil } = req.body;
 
       const recommendationService = new CampaignRecommendationService();
       const result = await recommendationService.generateRecommendations(
         companyId,
         period,
-        campaigns // Pasar datos de campañas si vienen
+        campaigns,
+        messageDateSince,
+        messageDateUntil
       );
 
       return res.status(200).json(result);

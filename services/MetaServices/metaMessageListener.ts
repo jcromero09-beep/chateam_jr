@@ -987,10 +987,14 @@ logInfo('[META] messages')
                   await SupervisorActionsService.saveAgentMessage({
                     ticketId: ticket.id,
                     companyId,
+                    contactId: contact?.id,
                     content: aiResponse.message,
                     agentUsed: aiResponse.agentUsed,
                     intent: aiResponse.intent,
-                    confidence: aiResponse.confidence
+                    confidence: aiResponse.confidence,
+                    tokensUsed: aiResponse.totalTokens,
+                    latencyMs: aiResponse.totalLatencyMs,
+                    shouldCreateAIAgentLog: true
                   });
 
                   await SupervisorActionsService.classifyTicketStage(

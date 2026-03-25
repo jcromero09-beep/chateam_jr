@@ -156,6 +156,15 @@ export default function CampaignsAudit() {
   const [objectiveFilter, setObjectiveFilter] = useState<string[]>([])
   const [campaignNameSearch, setCampaignNameSearch] = useState<string>('')
 
+  // Estados para filtro de mensajes (conversaciones de campañas)
+  const [messageDateSince, setMessageDateSince] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 29)
+    return d.toISOString().split('T')[0]
+  })
+  const [messageDateUntil, setMessageDateUntil] = useState(() => new Date().toISOString().split('T')[0])
+  const [messageDateLabel, setMessageDateLabel] = useState('Últimos 30 días')
+
   // Estados para conexiones WhatsApp (Facebook)
   const [adsConnections, setAdsConnections] = useState<AdsConnection[]>([])
   const [selectedConnection, setSelectedConnection] = useState<number | null>(null)
@@ -471,7 +480,9 @@ export default function CampaignsAudit() {
       // Enviar solo las campañas FILTRADAS al backend
       const response = await api.post('/campaigns/audit/recommendations/generate', {
         period,
-        campaigns: filteredCampaigns // ✅ Solo campañas filtradas
+        campaigns: filteredCampaigns, // ✅ Solo campañas filtradas
+        messageDateSince,
+        messageDateUntil
       })
 
       const message = totalCampaigns !== filteredCampaigns.length
@@ -660,6 +671,11 @@ export default function CampaignsAudit() {
     setImpressionsThreshold(null)
     setObjectiveFilter([])
     setCampaignNameSearch('')
+    const d = new Date()
+    d.setDate(d.getDate() - 29)
+    setMessageDateSince(d.toISOString().split('T')[0])
+    setMessageDateUntil(new Date().toISOString().split('T')[0])
+    setMessageDateLabel('Últimos 30 días')
   }
 
   return (

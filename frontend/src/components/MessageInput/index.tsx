@@ -30,8 +30,11 @@ import {
   Add as AddIcon,
   CheckCircle as _CheckIcon,
   Cancel as CancelIcon,
+  Lock as LockIcon,
+  LockOpen as LockOpenIcon,
 } from '@mui/icons-material'
 import api from '../../services/api'
+import type { Message } from '../../types/Message'
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react'
 
 interface QuickMessage {
@@ -47,6 +50,8 @@ interface MessageInputProps {
   onSendMessage?: (message: string) => void
   droppedFiles?: File[]
   contactId?: number
+  replyingTo?: Message
+  onCancelReply?: () => void
 }
 
 export default function MessageInput({
@@ -56,6 +61,8 @@ export default function MessageInput({
   onSendMessage,
   droppedFiles,
   contactId: _contactId,
+  replyingTo,
+  onCancelReply,
 }: MessageInputProps) {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
@@ -69,6 +76,7 @@ export default function MessageInput({
   const [showQuickMessages, setShowQuickMessages] = useState(false)
   const [filteredQuickMessages, setFilteredQuickMessages] = useState<QuickMessage[]>([])
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [isPrivateMode, setIsPrivateMode] = useState(false)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -143,6 +151,8 @@ export default function MessageInput({
         // Send files
         const formData = new FormData()
         formData.append('fromMe', 'true')
+        if (isPrivateMode) formData.append('isPrivate', 'true')
+        if (replyingTo) formData.append('quotedMsgId', String(replyingTo.id))
         selectedFiles.forEach((file) => {
           formData.append('medias', file)
           formData.append('body', message || file.name)
@@ -154,6 +164,8 @@ export default function MessageInput({
         await api.post(`/messages/${ticketId}`, {
           body: message,
           fromMe: true,
+          ...(isPrivateMode && { isPrivate: 'true' }),
+          ...(replyingTo && { quotedMsg: { id: replyingTo.id } }),
         })
       }
 
@@ -161,6 +173,7 @@ export default function MessageInput({
         onSendMessage(message)
       }
 
+      if (onCancelReply) onCancelReply()
       setMessage('')
     } catch (error) {
       console.error('Error sending message:', error)
@@ -358,6 +371,36 @@ export default function MessageInput({
         </Box>
       )}
 
+      {/* Reply Preview Bar */}
+      {replyingTo && (
+        <Box sx={{
+          p: '6px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          borderLeft: '4px solid #5BC2D2',
+          bgcolor: (theme) => theme.palette.mode === 'dark'
+            ? 'rgba(91,194,210,0.08)'
+            : 'rgba(91,194,210,0.06)',
+          borderBottom: '1px solid',
+          borderColor: (theme) => theme.palette.mode === 'dark' ? '#3A3B3C' : '#DADDE1',
+        }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography level="body-xs" sx={{ fontWeight: 700, color: '#5BC2D2' }}>
+              {replyingTo.fromMe ? 'Tú' : replyingTo.contact?.name || 'Contacto'}
+            </Typography>
+            <Typography level="body-xs" noWrap sx={{
+              color: (theme) => theme.palette.mode === 'dark' ? '#8A8D91' : '#65676B',
+            }}>
+              {replyingTo.body}
+            </Typography>
+          </Box>
+          <IconButton size="sm" onClick={onCancelReply}>
+            <CloseIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+      )}
+
       {/* Emoji Picker */}
       {showEmoji && (
         <Box
@@ -450,6 +493,22 @@ export default function MessageInput({
               </IconButton>
             </Tooltip>
 
+            {/* Lock Button - Private Notes */}
+            <Tooltip title={isPrivateMode ? 'Nota interna activa' : 'Nota interna'}>
+              <IconButton
+                size="sm"
+                variant="plain"
+                disabled={isDisabled}
+                onClick={() => setIsPrivateMode(!isPrivateMode)}
+                sx={{
+                  color: isPrivateMode ? '#FFC107' : 'text.secondary',
+                  '&:hover': { bgcolor: 'transparent', color: '#FFC107' },
+                }}
+              >
+                {isPrivateMode ? <LockIcon /> : <LockOpenIcon />}
+              </IconButton>
+            </Tooltip>
+
             {/* Attach Button */}
             <Tooltip title="Adjuntar">
               <IconButton
@@ -525,7 +584,9 @@ export default function MessageInput({
                 },
               }}
               placeholder={
-                ticketStatus === 'open' || ticketStatus === 'group'
+                isPrivateMode
+                  ? 'Escribir nota interna...'
+                  : ticketStatus === 'open' || ticketStatus === 'group'
                   ? 'Escribe un mensaje...'
                   : 'Ticket cerrado'
               }
@@ -539,9 +600,11 @@ export default function MessageInput({
                 flex: 1,
                 bgcolor: 'background.level1',
                 borderRadius: '20px',
-                border: 'none',
+                border: isPrivateMode ? '2px solid #FFC107' : '2px solid transparent',
                 '&:focus-within': {
-                  boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary[500]}40`,
+                  boxShadow: isPrivateMode
+                    ? '0 0 0 2px rgba(255,193,7,0.3)'
+                    : (theme) => `0 0 0 2px ${theme.vars.palette.primary[500]}40`,
                 },
                 '& textarea': {
                   color: 'text.primary',

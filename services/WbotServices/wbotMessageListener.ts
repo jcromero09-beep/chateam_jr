@@ -4147,14 +4147,18 @@ export const handleMessageIntegration = async (
         try {
           const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
 
-          // Guardar mensaje del agente
+          // Guardar mensaje del agente + crear AIAgentLog + encolar FeedbackInferenceJob
           await SupervisorActionsService.saveAgentMessage({
             ticketId: ticket.id,
             companyId,
+            contactId: contact?.id,
             content: aiResponse.message,
             agentUsed: aiResponse.agentUsed,
             intent: aiResponse.intent,
-            confidence: aiResponse.confidence
+            confidence: aiResponse.confidence,
+            tokensUsed: aiResponse.totalTokens,
+            latencyMs: aiResponse.totalLatencyMs,
+            shouldCreateAIAgentLog: true
           });
 
           // Clasificar etapa del ticket

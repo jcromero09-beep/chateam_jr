@@ -756,6 +756,44 @@ function handleRetryFailedMessages() {
 }
 
 // ============================================================
+// CRONJOB 15: handleDriveBackupMonthly
+// Backup mensual de multimedia a Google Drive
+// Se ejecuta el día 1 de cada mes a las 3:00 AM
+// Respalda los archivos del mes ANTERIOR
+// ============================================================
+function handleDriveBackupMonthly() {
+  // Se ejecuta el día 1 de cada mes a las 3:00 AM
+  // Calcula mes anterior y respalda
+  cron.schedule('0 3 1 * *', async () => {
+    const now = new Date();
+    // Calcular mes anterior
+    let targetYear = now.getFullYear();
+    let targetMonth = now.getMonth(); // 0=ene, 11=dic
+    // Si es enero (month=0), el mes anterior es diciembre del año anterior
+    if (targetMonth === 0) {
+      targetMonth = 11;
+      targetYear = targetYear - 1;
+    } else {
+      targetMonth = targetMonth - 1;
+    }
+
+    logger.info(`[DriveBackup] Iniciando backup mensual de ${targetYear}-${String(targetMonth + 1).padStart(2, '0')}...`);
+
+    try {
+      // Importación lazy para no bloquear el startup (default export = singleton instance)
+      const service = (await import('./services/DriveBackupService')).default;
+      const result = await service.backupAllCompanies(targetYear, targetMonth);
+
+      logger.info(`[DriveBackup] Completado: ${result.successful}/${result.processed} companies con éxito, ${result.failed} fallos`);
+    } catch (e: any) {
+      Sentry.captureException(e);
+      logger.error(`[DriveBackup] Error general: ${e.message}`);
+    }
+  });
+  logger.info('CronJob 15: handleDriveBackupMonthly iniciado (día 1 de cada mes a las 3:00 AM)');
+}
+
+// ============================================================
 // FUNCIÓN PRINCIPAL: Inicia todos los CronJobs
 // ============================================================
 export function startBackendCronJobs(): void {
@@ -770,8 +808,9 @@ export function startBackendCronJobs(): void {
   handleTikTokCommentPoll();
   handleTikTokTokenRefresh();
   handleRetryFailedMessages();
+  handleDriveBackupMonthly();
 
-  logger.info("✅ [BACKEND] Todos los CronJobs iniciados (incluye TikTok)");
+  logger.info("✅ [BACKEND] Todos los CronJobs iniciados (incluye TikTok + DriveBackup)");
 }
 
 // console.log("🕐🕐🕐 BACKEND-CRON-JOBS.TS FULLY LOADED! 🕐🕐🕐");

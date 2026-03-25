@@ -1,6 +1,8 @@
 import * as Yup from "yup";
 import AppError from "../../errors/AppError";
 import QuickMessage from "../../models/QuickMessage";
+import QuickReplySemanticService from "../../services/AIAgentServices/QuickReplySemanticService";
+import logger from "../../utils/logger";
 
 interface Data {
   shortcode: string;
@@ -11,6 +13,10 @@ interface Data {
   isMedia: boolean;
   mediaPath?: string | null;
   visao: boolean;
+  /** Texto de intención para búsqueda semántica por IA (ej: "saludo informal", "pedir email") */
+  intent?: string;
+  /** Si true, genera embedding del intent y habilita uso por IA */
+  isAiEnabled?: boolean;
 }
 
 const CreateService = async (data: Data): Promise<QuickMessage> => {
@@ -36,6 +42,16 @@ const CreateService = async (data: Data): Promise<QuickMessage> => {
     companyId: Number(data.companyId),
     userId: Number(data.userId)
   } as any);
+
+  // ✅ Hook: generar embedding semántico si IA habilitada
+  if (data.intent && data.isAiEnabled) {
+    try {
+      await QuickReplySemanticService.syncEmbedding(record.id);
+      logger.info(`[QuickMessage/Create] Embedding generado: qmId=${record.id}, intent="${data.intent}"`);
+    } catch (embedErr: any) {
+      logger.warn(`[QuickMessage/Create] Error generando embedding: ${embedErr.message}`);
+    }
+  }
 
   return record;
 };

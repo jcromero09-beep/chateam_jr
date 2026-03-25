@@ -26,6 +26,12 @@ const DEFAULT_WORDS_PER_CHUNK = 300;
 const DEFAULT_OVERLAP_WORDS = 50;
 const DEFAULT_MAX_TOKENS = 500;
 const DEFAULT_MAX_KEYWORDS = 10;
+// Hard limit: si un chunk supera este tamano, se fuerza el corte
+// 2000 caracteres ≈ 500 tokens max (ratio 4 chars/token), safe para embedding + RAG
+const MAX_CHARS_PER_CHUNK = 2000;
+// Minimo: descartar chunks que no tienen contenido suficiente
+// Menos de 10 caracteres es ruido, no aporta al RAG
+const MIN_CHARS_PER_CHUNK = 10;
 
 // Factor de conversion palabras -> tokens para espanol
 // En espanol, las palabras son mas largas que en ingles, por lo que
@@ -253,8 +259,16 @@ class ChunkingService {
 
           for (const sentence of sentences) {
             const sTokens = ChunkingService.estimateTokens(sentence);
+            const newContent = sentenceBuffer.length > 0
+              ? sentenceBuffer.join(" ") + " " + sentence
+              : sentence;
 
-            if (sentenceTokens + sTokens > maxTokens && sentenceBuffer.length > 0) {
+            // Forzar corte si se excede limite de tokens O de caracteres
+            const forceCut = (
+              sentenceTokens + sTokens > maxTokens && sentenceBuffer.length > 0
+            ) || newContent.length > MAX_CHARS_PER_CHUNK;
+
+            if (forceCut) {
               const content = sentenceBuffer.join(" ");
               const keywords = ChunkingService.extractKeywords(content);
 
@@ -265,12 +279,12 @@ class ChunkingService {
                 keywords: keywords.length > 0 ? keywords : undefined,
                 metadata: { strategy: "semantic", type: "sentence_split" }
               });
-              sentenceBuffer = [];
-              sentenceTokens = 0;
+              sentenceBuffer = [sentence];
+              sentenceTokens = sTokens;
+            } else {
+              sentenceBuffer.push(sentence);
+              sentenceTokens += sTokens;
             }
-
-            sentenceBuffer.push(sentence);
-            sentenceTokens += sTokens;
           }
 
           // Guardar oraciones restantes
@@ -324,11 +338,56 @@ class ChunkingService {
         });
       }
 
+      // Truncar chunks que excedan el limite de caracteres absoluto
+      // (ultimo recurso: si una oracion sola supera MAX_CHARS_PER_CHUNK)
+      const oversizedBefore = chunks.filter(c => c.content.length > MAX_CHARS_PER_CHUNK).length;
+      const truncatedChunks: typeof chunks = [];
+
+      for (const chunk of chunks) {
+        const trimmed = chunk.content.trim();
+
+        // Descartar chunks vacios o triviales (menos de MIN_CHARS_PER_CHUNK)
+        if (trimmed.length < MIN_CHARS_PER_CHUNK) {
+          logger.warn(
+            `${SERVICE_PREFIX} Chunk #${chunk.index} descartado (${trimmed.length} chars < ${MIN_CHARS_PER_CHUNK} min)`
+          );
+          continue;
+        }
+
+        if (trimmed.length > MAX_CHARS_PER_CHUNK) {
+          const truncatedContent = trimmed.substring(0, MAX_CHARS_PER_CHUNK);
+          logger.warn(
+            `${SERVICE_PREFIX} Chunk #${chunk.index} truncado de ${trimmed.length} a ${MAX_CHARS_PER_CHUNK} chars (~500 tokens max)`
+          );
+          truncatedChunks.push({
+            ...chunk,
+            content: truncatedContent,
+            tokenCount: ChunkingService.estimateTokens(truncatedContent)
+          });
+        } else {
+          // Actualizar content con trimmed para limpiar espacios
+          truncatedChunks.push({ ...chunk, content: trimmed });
+        }
+      }
+
+      if (oversizedBefore > 0) {
+        logger.warn(
+          `${SERVICE_PREFIX} ${oversizedBefore} chunks excedian el limite de ${MAX_CHARS_PER_CHUNK} chars`
+        );
+      }
+
+      const discarded = chunks.length - truncatedChunks.length;
+      if (discarded > 0) {
+        logger.info(
+          `${SERVICE_PREFIX} ${discarded} chunks descartados (< ${MIN_CHARS_PER_CHUNK} chars o vacios)`
+        );
+      }
+
       logger.info(
-        `${SERVICE_PREFIX} Chunking semantico: ${chunks.length} chunks (maxTokens: ${maxTokens})`
+        `${SERVICE_PREFIX} Chunking semantico: ${truncatedChunks.length} chunks finales (de ${chunks.length} originales, maxTokens: ${maxTokens})`
       );
 
-      return chunks;
+      return truncatedChunks;
     } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(`${SERVICE_PREFIX} Error en chunking semantico: ${errorMsg}`);

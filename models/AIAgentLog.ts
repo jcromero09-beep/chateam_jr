@@ -91,6 +91,27 @@ class AIAgentLog extends Model<AIAgentLog> {
   @Column(DataType.JSONB)
   metadata!: Record<string, unknown>;
 
+  // ── Feedback Loop ──────────────────────────────────────────────────
+  /** Feedback implícito inferido: positive | negative | escalated | corrected */
+  @Column(DataType.STRING(20))
+  feedbackImplicit!: string;
+
+  /** Texto de la respuesta humana que reemplazó/corrigió la respuesta IA */
+  @Column(DataType.TEXT)
+  humanCorrection!: string;
+
+  /** Milisegundos desde la respuesta IA hasta la corrección humana */
+  @Column(DataType.INTEGER)
+  correctionDeltaMs!: number;
+
+  /** ID del log de IA que fue corregido */
+  @ForeignKey(() => AIAgentLog)
+  @Column(DataType.INTEGER)
+  parentLogId!: number;
+
+  @BelongsTo(() => AIAgentLog)
+  parentLog!: AIAgentLog;
+
   @CreatedAt
   createdAt!: Date;
 

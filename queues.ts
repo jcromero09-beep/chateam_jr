@@ -409,6 +409,22 @@ export const emailAutomationQueue = REDIS_ENABLED
   ? new Bull("EmailAutomationQueue", REDIS_URI_CONNECTION)
   : null as any;
 
+// ─── AI Learning Jobs ────────────────────────────────────────────────────────────
+// Cola para inferencia de feedback implícito (delay 5 min tras respuesta IA)
+export const feedbackInferenceQueue = REDIS_ENABLED
+  ? new Bull("FeedbackInference", REDIS_URI_CONNECTION)
+  : null as any;
+
+// Cola para detección de correcciones humanas
+export const humanCorrectionQueue = REDIS_ENABLED
+  ? new Bull("HumanCorrectionExtractor", REDIS_URI_CONNECTION)
+  : null as any;
+
+// Cola para extracción de memorias al cerrar ticket
+export const extractMemoryQueue = REDIS_ENABLED
+  ? new Bull("ExtractMemory", REDIS_URI_CONNECTION)
+  : null as any;
+
 /**
  * Parse time interval to milliseconds
  */
@@ -514,6 +530,28 @@ export const add = (name: string, data: any, options?: any): Promise<Bull.Job<an
     return sendPendingMessageQueue.add("SendPendingMessage", data, options || {
       removeOnComplete: { age: 60 * 60, count: 100 },
       removeOnFail: { age: 60 * 60, count: 50 }
+    });
+  }
+
+  // ── AI Learning Jobs ─────────────────────────────────────────────
+  if (name === "FeedbackInference") {
+    return feedbackInferenceQueue.add("FeedbackInference", data, {
+      removeOnComplete: { age: 60 * 60, count: 500 },
+      removeOnFail: { age: 24 * 60 * 60, count: 100 }
+    });
+  }
+
+  if (name === "HumanCorrectionExtractor") {
+    return humanCorrectionQueue.add("HumanCorrectionExtractor", data, {
+      removeOnComplete: { age: 60 * 60, count: 500 },
+      removeOnFail: { age: 24 * 60 * 60, count: 100 }
+    });
+  }
+
+  if (name === "ExtractMemory") {
+    return extractMemoryQueue.add("ExtractMemory", data, {
+      removeOnComplete: { age: 60 * 60, count: 500 },
+      removeOnFail: { age: 24 * 60 * 60, count: 100 }
     });
   }
 
@@ -1013,6 +1051,58 @@ export function startQueueProcess(): void {
 
   // Load heavy queues only in worker process
   loadHeavyQueues();
+
+  // ── AI Learning Jobs: processors específicos ──────────────────────────
+  // FeedbackInferenceJob — concurrencia 5, sin stall detection custom
+  if (REDIS_ENABLED && feedbackInferenceQueue) {
+    const FeedbackInference = require("./jobs/FeedbackInferenceJob").default;
+    feedbackInferenceQueue.process(5, async (bullJob: Bull.Job) => {
+      await FeedbackInference(bullJob);
+    });
+    feedbackInferenceQueue.on("failed", (failedJob, err) => {
+      logger.error(`❌ FeedbackInference failed: ${JSON.stringify(failedJob.data)} | ${err.message}`);
+    });
+    feedbackInferenceQueue.on("completed", (completedJob) => {
+      if (DEBUG_SCHEDULER) {
+        logger.info(`✅ FeedbackInference completed: ${JSON.stringify(completedJob.data)}`);
+      }
+    });
+    logger.info("✅ [QUEUES] FeedbackInferenceQueue configurada (concurrency=5)");
+  }
+
+  // HumanCorrectionExtractorJob — concurrencia 5
+  if (REDIS_ENABLED && humanCorrectionQueue) {
+    const HumanCorrectionExtractor = require("./jobs/HumanCorrectionExtractorJob").default;
+    humanCorrectionQueue.process(5, async (bullJob: Bull.Job) => {
+      await HumanCorrectionExtractor(bullJob);
+    });
+    humanCorrectionQueue.on("failed", (failedJob, err) => {
+      logger.error(`❌ HumanCorrectionExtractor failed: ${JSON.stringify(failedJob.data)} | ${err.message}`);
+    });
+    humanCorrectionQueue.on("completed", (completedJob) => {
+      if (DEBUG_SCHEDULER) {
+        logger.info(`✅ HumanCorrectionExtractor completed: ${JSON.stringify(completedJob.data)}`);
+      }
+    });
+    logger.info("✅ [QUEUES] HumanCorrectionExtractorQueue configurada (concurrency=5)");
+  }
+
+  // ExtractMemoryJob — concurrencia 2 (llama LLM)
+  if (REDIS_ENABLED && extractMemoryQueue) {
+    const ExtractMemory = require("./jobs/ExtractMemoryJob").default;
+    extractMemoryQueue.process(2, async (bullJob: Bull.Job) => {
+      await ExtractMemory(bullJob);
+    });
+    extractMemoryQueue.on("failed", (failedJob, err) => {
+      logger.error(`❌ ExtractMemory failed: ${JSON.stringify(failedJob.data)} | ${err.message}`);
+    });
+    extractMemoryQueue.on("completed", (completedJob) => {
+      if (DEBUG_SCHEDULER) {
+        logger.info(`✅ ExtractMemory completed: ${JSON.stringify(completedJob.data)}`);
+      }
+    });
+    logger.info("✅ [QUEUES] ExtractMemoryQueue configurada (concurrency=2)");
+  }
 
   jobs.forEach((job, index) => {
     logger.info(`⚙️ Configurando fila ${index + 1}/${jobs.length}: ${job.name}`);
