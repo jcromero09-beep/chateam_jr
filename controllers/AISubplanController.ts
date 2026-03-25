@@ -120,6 +120,7 @@ export const createSubplan = async (req: Request, res: Response): Promise<Respon
     name,
     description,
     tokens,
+    maxAgents,
     priceUsd,
     isActive,
     isPublic
@@ -133,6 +134,7 @@ export const createSubplan = async (req: Request, res: Response): Promise<Respon
       name,
       description,
       tokens,
+      maxAgents,
       priceUsd,
       isActive,
       isPublic,
@@ -156,6 +158,7 @@ export const createSubplan = async (req: Request, res: Response): Promise<Respon
       name: validatedData.name,
       description: validatedData.description || '',
       tokens: validatedData.tokens,
+      maxAgents: validatedData.maxAgents ?? 3,
       priceUsd: validatedData.priceUsd,
       isActive: validatedData.isActive ?? true,
       isPublic: validatedData.isPublic ?? false,
@@ -190,6 +193,7 @@ export const updateSubplan = async (req: Request, res: Response): Promise<Respon
     name,
     description,
     tokens,
+    maxAgents,
     priceUsd,
     isActive,
     isPublic
@@ -215,6 +219,7 @@ export const updateSubplan = async (req: Request, res: Response): Promise<Respon
       name,
       description,
       tokens,
+      maxAgents,
       priceUsd,
       isActive,
       isPublic

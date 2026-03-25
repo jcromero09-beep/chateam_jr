@@ -52,6 +52,14 @@ export const createSubplanSchema = Yup.object().shape({
     .optional()
     .default(false),
 
+  // Límite de agentes IA para este subplan (P3.49)
+  maxAgents: Yup.number()
+    .optional()
+    .integer("El límite de agentes debe ser un número entero")
+    .min(1, "Debe tener al menos 1 agente")
+    .max(100, "El límite de agentes no puede exceder 100")
+    .default(3),
+
   // Integraciones de pago
   stripeProductId: Yup.string()
     .optional()
@@ -119,6 +127,14 @@ export const updateSubplanSchema = Yup.object().shape({
 
   isPublic: Yup.boolean()
     .optional(),
+
+  // Límite de agentes IA para este subplan (P3.49)
+  maxAgents: Yup.number()
+    .optional()
+    .integer("El límite de agentes debe ser un número entero")
+    .min(1, "Debe tener al menos 1 agente")
+    .max(100, "El límite de agentes no puede exceder 100")
+    .default(3),
 
   // Integraciones de pago
   stripeProductId: Yup.string()
