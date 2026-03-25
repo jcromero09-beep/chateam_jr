@@ -76,7 +76,7 @@ function getRandomHexColor() {
 	return hexColor;
 }
 
-const TagModal = ({ open, onClose, tagId, kanban }) => {
+const TagModal = ({ open, onClose, onSaved, tagId, kanban }) => {
 	const classes = useStyles();
 	const [colorPickerModalOpen, setColorPickerModalOpen] = useState(false);
 	const [lanes, setLanes] = useState([]);
@@ -94,8 +94,16 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 		nextLaneId: 0,
 		greetingMessageLane: "",
 		rollbackLaneId: 0,
-		enableFollowup: true,
-		followupType: "once",
+		description: "",
+		enableFollowup: false,
+		followupType: "multiple",
+		followupCount: 1,
+		followupMessage1: "",
+		followupDelay1: 1,
+		followupMessage2: "",
+		followupDelay2: 3,
+		followupMessage3: "",
+		followupDelay3: 4,
 	};
 
 	const [tag, setTag] = useState(initialState);
@@ -163,6 +171,7 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 		} catch (err) {
 			toastError(err);
 		}
+		if (onSaved) onSaved();
 		handleClose();
 	};
 
@@ -388,28 +397,143 @@ const TagModal = ({ open, onClose, tagId, kanban }) => {
 											</Grid>
 
 											{values.enableFollowup !== false && (
-												<Grid item xs={12} md={12} xl={12}>
-													<FormControl
-														variant="outlined"
-														margin="dense"
-														fullWidth
-														className={classes.formControl}
-													>
-														<InputLabel id="followupType-label">Tipo de Seguimiento</InputLabel>
-														<Select
-															labelId="followupType-label"
-															id="followupType"
-															name="followupType"
-															value={values.followupType || "once"}
-															label="Tipo de Seguimiento"
-															onChange={(e) => setFieldValue("followupType", e.target.value)}
+												<>
+													<Grid item xs={12} md={12} xl={12}>
+														<FormControl
+															variant="outlined"
+															margin="dense"
+															fullWidth
+															className={classes.formControl}
 														>
-															<MenuItem value="once">Solo 1 vez</MenuItem>
-															<MenuItem value="multiple">Múltiples hasta 3</MenuItem>
-															<MenuItem value="adaptive">Adaptativo - IA decide</MenuItem>
-														</Select>
-													</FormControl>
-												</Grid>
+															<InputLabel id="followupType-label">Tipo de Seguimiento</InputLabel>
+															<Select
+																labelId="followupType-label"
+																id="followupType"
+																name="followupType"
+																value={values.followupType || "multiple"}
+																label="Tipo de Seguimiento"
+																onChange={(e) => setFieldValue("followupType", e.target.value)}
+															>
+																<MenuItem value="single">Mensaje único</MenuItem>
+																<MenuItem value="multiple">Múltiples mensajes</MenuItem>
+															</Select>
+														</FormControl>
+													</Grid>
+
+													<Grid item xs={12} md={4} xl={4}>
+														<Field
+															as={TextField}
+															label="Cant. mensajes"
+															name="followupCount"
+															type="number"
+															variant="outlined"
+															margin="dense"
+															fullWidth
+														/>
+													</Grid>
+
+													<Grid item xs={12} md={12} xl={12}>
+														<Field
+															as={TextField}
+															label="Mensaje 1"
+															name="followupMessage1"
+															rows={2}
+															multiline
+															variant="outlined"
+															margin="dense"
+															fullWidth
+														/>
+													</Grid>
+													<Grid item xs={12} md={3} xl={3}>
+														<FormControl variant="outlined" margin="dense" fullWidth>
+															<InputLabel>Delay 1</InputLabel>
+															<Select
+																value={values.followupDelay1 || 1}
+																label="Delay 1"
+																onChange={(e) => setFieldValue("followupDelay1", e.target.value)}
+															>
+																{[1,2,3,4,5,6,8,12,24,48].map(h => (
+																	<MenuItem key={h} value={h}>{h}h</MenuItem>
+																))}
+															</Select>
+														</FormControl>
+													</Grid>
+
+													{values.followupCount >= 2 && (
+														<>
+															<Grid item xs={12} md={12} xl={12}>
+																<Field
+																	as={TextField}
+																	label="Mensaje 2"
+																	name="followupMessage2"
+																	rows={2}
+																	multiline
+																	variant="outlined"
+																	margin="dense"
+																	fullWidth
+																/>
+															</Grid>
+															<Grid item xs={12} md={3} xl={3}>
+																<FormControl variant="outlined" margin="dense" fullWidth>
+																	<InputLabel>Delay 2</InputLabel>
+																	<Select
+																		value={values.followupDelay2 || 3}
+																		label="Delay 2"
+																		onChange={(e) => setFieldValue("followupDelay2", e.target.value)}
+																	>
+																		{[1,2,3,4,5,6,8,12,24,48].map(h => (
+																			<MenuItem key={h} value={h}>{h}h</MenuItem>
+																		))}
+																	</Select>
+																</FormControl>
+															</Grid>
+														</>
+													)}
+
+													{values.followupCount >= 3 && (
+														<>
+															<Grid item xs={12} md={12} xl={12}>
+																<Field
+																	as={TextField}
+																	label="Mensaje 3"
+																	name="followupMessage3"
+																	rows={2}
+																	multiline
+																	variant="outlined"
+																	margin="dense"
+																	fullWidth
+																/>
+															</Grid>
+															<Grid item xs={12} md={3} xl={3}>
+																<FormControl variant="outlined" margin="dense" fullWidth>
+																	<InputLabel>Delay 3</InputLabel>
+																	<Select
+																		value={values.followupDelay3 || 4}
+																		label="Delay 3"
+																		onChange={(e) => setFieldValue("followupDelay3", e.target.value)}
+																	>
+																		{[1,2,3,4,5,6,8,12,24,48].map(h => (
+																			<MenuItem key={h} value={h}>{h}h</MenuItem>
+																		))}
+																	</Select>
+																</FormControl>
+															</Grid>
+														</>
+													)}
+
+													<Grid item xs={12} md={12} xl={12}>
+														<Field
+															as={TextField}
+															label="Descripción"
+															name="description"
+															rows={2}
+															multiline
+															variant="outlined"
+															margin="dense"
+															fullWidth
+														/>
+													</Grid>
+												</>
 											)}
 										</>
 									)}
