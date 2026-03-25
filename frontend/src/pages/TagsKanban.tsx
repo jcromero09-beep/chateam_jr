@@ -147,6 +147,21 @@ const TagsKanban = () => {
     setPageNumber(1);
   }, [searchParam]);
 
+  const reloadTags = async () => {
+    try {
+      setLoading(true);
+      const { data } = await api.get("/tags/", {
+        params: { searchParam, pageNumber: 1, kanban: 1 },
+      });
+      dispatch({ type: "LOAD_TAGS", payload: data.tags });
+      setHasMore(data.hasMore);
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleOpenTagModal = () => {
     setSelectedTag(null);
     setTagModalOpen(true);
@@ -155,9 +170,12 @@ const TagsKanban = () => {
   const handleCloseTagModal = () => {
     setSelectedTag(null);
     setTagModalOpen(false);
-    // Refresh tags after modal closes
-    dispatch({ type: "RESET" });
-    setPageNumber(1);
+  };
+
+  const handleSaved = () => {
+    setSelectedTag(null);
+    setTagModalOpen(false);
+    reloadTags();
   };
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,6 +247,7 @@ const TagsKanban = () => {
         <TagModal
           open={tagModalOpen}
           onClose={handleCloseTagModal}
+          onSaved={handleSaved}
           aria-labelledby="form-dialog-title"
           tagId={selectedTag?.id}
           kanban={1}
