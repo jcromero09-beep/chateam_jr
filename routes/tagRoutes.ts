@@ -12,6 +12,7 @@ tagRoutes.get("/tags/:tagId", isAuth, TagController.show);
 tagRoutes.get("/tag/kanban", isAuth, TagController.kanban);
 
 tagRoutes.post("/tags", isAuth, TagController.store);
+tagRoutes.post("/tags/ai-recommend", isAuth, TagController.aiRecommend);
 tagRoutes.post("/tags/sync", isAuth, TagController.syncTags);
 
 tagRoutes.put("/tags/:tagId", isAuth, TagController.update);

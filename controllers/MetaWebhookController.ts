@@ -56,17 +56,38 @@ export const receiveMetaWebhook = async (req: Request, res: Response) => {
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   // ─────────────────────────────────────────────────────────────────
 
+  // 🔍 DIAGNÓSTICO: Time limit de seguridad para evitar cuelgues
+  const TIMEOUT_MS = 25000;
+  let completed = false;
+
+  const timeoutId = setTimeout(() => {
+    if (!completed) {
+      console.error(`⏰ [META WEBHOOK] ⏰ TIMEOUT después de ${TIMEOUT_MS}ms - el handler no completó`);
+      console.error(`[META WEBHOOK] Última acción conocida: ver arriba`);
+    }
+  }, TIMEOUT_MS);
+
   try {
     // Verificar si es un evento de actualización de estado de template
     if (isTemplateStatusWebhook(req.body)) {
       console.log("[Webhook Meta] Procesando evento de template status");
       await HandleTemplateStatusWebhookService(req.body);
+      completed = true;
+      clearTimeout(timeoutId);
+      console.log("[Webhook Meta] ✅ Template status procesado");
       return;
     }
 
     // Procesar mensajes normales de WhatsApp
+    console.log("[Webhook Meta] 🔄 Llamando handleMetaWebhookMessage...");
     await handleMetaWebhookMessage(req.body);
-  } catch (e) {
-    console.error("❌ Error al manejar evento Meta:", e);
+    completed = true;
+    clearTimeout(timeoutId);
+    console.log("[Webhook Meta] ✅ handleMetaWebhookMessage completó");
+  } catch (e: any) {
+    completed = true;
+    clearTimeout(timeoutId);
+    console.error("❌ Error al manejar evento Meta:", e?.message || e);
+    console.error("❌ Stack:", e?.stack);
   }
 };

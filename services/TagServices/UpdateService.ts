@@ -22,6 +22,9 @@ interface TagData {
   followupDelay2?: number;
   followupMessage3?: string;
   followupDelay3?: number;
+  aiGuidance1?: string;
+  aiGuidance2?: string;
+  aiGuidance3?: string;
 }
 
 interface Request {
@@ -52,7 +55,10 @@ const UpdateUserService = async ({
     followupMessage2,
     followupDelay2,
     followupMessage3,
-    followupDelay3} = tagData;
+    followupDelay3,
+    aiGuidance1,
+    aiGuidance2,
+    aiGuidance3} = tagData;
 
   try {
     await schema.validate({ name });
@@ -76,7 +82,10 @@ const UpdateUserService = async ({
     followupMessage2,
     followupDelay2,
     followupMessage3,
-    followupDelay3
+    followupDelay3,
+    aiGuidance1,
+    aiGuidance2,
+    aiGuidance3
   });
 
   await tag.reload();

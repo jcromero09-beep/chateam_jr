@@ -1,55 +1,72 @@
+/**
+ * ⚠️ REDIS CLUSTER CONFIG — JR CHATEAM v6.0.0
+ *
+ * HISTÓRICO: Este archivo definía un cluster Redis ficticio (puertos 7001-7006)
+ * que nunca existieron en producción, causando ECONNREFUSED y crasheos.
+ *
+ * CORRECCIÓN 25-Mar-2026: Se reconfigura para usar el Redis real de Docker
+ * en puerto 5000, SIN cluster, para evitar crasheos.
+ *
+ * @date 25 de marzo de 2026
+ */
+
 import Redis from 'ioredis';
 import logger from './logger';
 
-// Redis Cluster Configuration
-const redisClusterNodes = [
-  { host: process.env.REDIS_NODE_1_HOST || 'localhost', port: 7001 },
-  { host: process.env.REDIS_NODE_2_HOST || 'localhost', port: 7002 },
-  { host: process.env.REDIS_NODE_3_HOST || 'localhost', port: 7003 },
-  { host: process.env.REDIS_NODE_4_HOST || 'localhost', port: 7004 },
-  { host: process.env.REDIS_NODE_5_HOST || 'localhost', port: 7005 },
-  { host: process.env.REDIS_NODE_6_HOST || 'localhost', port: 7006 }
-];
+// ============================================================================
+// CONFIGURACIÓN: Cliente Redis único (NO cluster)
+// ============================================================================
 
-// Redis Cluster Instance
-export const redisCluster = new Redis.Cluster(redisClusterNodes, {
-  redisOptions: {
-    password: process.env.REDIS_PASSWORD,
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
-    lazyConnect: true
-  },
-  clusterRetryStrategy: (times: number) => {
-    const delay = Math.min(times * 50, 2000);
+// Redis real: puerto 5000 (Docker), fallback a 6379 (localhost)
+const REDIS_URL = process.env.REDIS_URL
+  || process.env.REDIS_URI
+  || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || '5000'}`;
+
+// Cliente único — se comparte en toda la app
+export const redisCluster = new Redis(REDIS_URL, {
+  lazyConnect: false,
+  maxRetriesPerRequest: null,          // No bloquear comandos si Redis falla
+  enableOfflineQueue: false,             // NO guardar comandos si no hay conexión
+  retryStrategy: (times: number) => {
+    if (times > 20) {
+      logger.warn('[Redis] Max reintentos alcanzados (20). Deteniendo.');
+      return null; // Detiene reintentos — la app sigue funcionando
+    }
+    const delay = Math.min(times * 200, 3000);
+    logger.warn(`[Redis] Reconectando en ${delay}ms (intento ${times})`);
     return delay;
   },
-  enableOfflineQueue: true,
-  scaleReads: 'slave', // Read from slaves
-  maxRedirections: 16
 });
 
-// Connection Events
+// ============================================================================
+// EVENT HANDLERS — previenen crasheos del proceso
+// ============================================================================
+
 redisCluster.on('connect', () => {
-  logger.info('Redis Cluster connected successfully');
+  logger.info('[Redis] ✅ Conectado exitosamente');
 });
 
 redisCluster.on('ready', () => {
-  logger.info('Redis Cluster is ready to accept commands');
+  logger.info('[Redis] ✅ Listo para aceptar comandos');
 });
 
 redisCluster.on('error', (err) => {
-  logger.error('Redis Cluster error:', err);
+  // Solo WARN — NO lanza ni crashea el proceso
+  logger.warn(`[Redis] ⚠️ Error de conexión: ${err.message}`);
 });
 
 redisCluster.on('close', () => {
-  logger.warn('Redis Cluster connection closed');
+  logger.warn('[Redis] Conexión cerrada');
 });
 
 redisCluster.on('reconnecting', () => {
-  logger.info('Redis Cluster reconnecting...');
+  logger.info('[Redis] Reconectando...');
 });
 
-// Cache Helper Class
+// ============================================================================
+// CACHE HELPER CLASS
+// ============================================================================
+
 export class CacheService {
   private prefix: string;
 
@@ -61,9 +78,6 @@ export class CacheService {
     return `${this.prefix}:${key}`;
   }
 
-  /**
-   * Get cached value
-   */
   async get<T>(key: string): Promise<T | null> {
     try {
       const data = await redisCluster.get(this.getKey(key));
@@ -74,13 +88,9 @@ export class CacheService {
     }
   }
 
-  /**
-   * Set cached value with TTL
-   */
   async set(key: string, value: any, ttl: number = 3600): Promise<boolean> {
     try {
-      const serialized = JSON.stringify(value);
-      await redisCluster.setex(this.getKey(key), ttl, serialized);
+      await redisCluster.setex(this.getKey(key), ttl, JSON.stringify(value));
       return true;
     } catch (error) {
       logger.error(`Cache SET error for key ${key}:`, error);
@@ -88,9 +98,6 @@ export class CacheService {
     }
   }
 
-  /**
-   * Delete cached value
-   */
   async del(key: string): Promise<boolean> {
     try {
       await redisCluster.del(this.getKey(key));
@@ -101,18 +108,13 @@ export class CacheService {
     }
   }
 
-  /**
-   * Delete multiple keys by pattern
-   */
   async delPattern(pattern: string): Promise<number> {
     try {
       const keys = await redisCluster.keys(this.getKey(pattern));
       if (keys.length === 0) return 0;
-
       const pipeline = redisCluster.pipeline();
       keys.forEach(key => pipeline.del(key));
       await pipeline.exec();
-
       return keys.length;
     } catch (error) {
       logger.error(`Cache DEL pattern error for ${pattern}:`, error);
@@ -120,9 +122,6 @@ export class CacheService {
     }
   }
 
-  /**
-   * Check if key exists
-   */
   async exists(key: string): Promise<boolean> {
     try {
       const result = await redisCluster.exists(this.getKey(key));
@@ -133,9 +132,6 @@ export class CacheService {
     }
   }
 
-  /**
-   * Get remaining TTL
-   */
   async ttl(key: string): Promise<number> {
     try {
       return await redisCluster.ttl(this.getKey(key));
@@ -145,9 +141,6 @@ export class CacheService {
     }
   }
 
-  /**
-   * Increment counter
-   */
   async incr(key: string, ttl?: number): Promise<number> {
     try {
       const value = await redisCluster.incr(this.getKey(key));
@@ -161,45 +154,27 @@ export class CacheService {
     }
   }
 
-  /**
-   * Cache-aside pattern with automatic refresh
-   */
   async getOrSet<T>(
     key: string,
     fetchFn: () => Promise<T>,
     ttl: number = 3600
   ): Promise<T> {
     try {
-      // Try to get from cache
       const cached = await this.get<T>(key);
-      if (cached !== null) {
-        return cached;
-      }
-
-      // Fetch fresh data
+      if (cached !== null) return cached;
       const fresh = await fetchFn();
-
-      // Store in cache
       await this.set(key, fresh, ttl);
-
       return fresh;
     } catch (error) {
       logger.error(`Cache getOrSet error for key ${key}:`, error);
-      // Return fresh data even if cache fails
-      return await fetchFn();
+      return await fetchFn(); // Fail-open: devolver datos frescos
     }
   }
 
-  /**
-   * Invalidate cache for company
-   */
   async invalidateCompany(companyId: number): Promise<void> {
     await this.delPattern(`*:company:${companyId}:*`);
   }
 
-  /**
-   * Invalidate cache for user
-   */
   async invalidateUser(userId: number): Promise<void> {
     await this.delPattern(`*:user:${userId}:*`);
   }
@@ -212,13 +187,16 @@ export const userCache = new CacheService('users');
 export const contactCache = new CacheService('contacts');
 export const analyticsCache = new CacheService('analytics');
 
-// Graceful shutdown
+// ============================================================================
+// GRACEFUL SHUTDOWN
+// ============================================================================
+
 process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, closing Redis Cluster connection...');
+  logger.info('SIGTERM received, closing Redis connection...');
   await redisCluster.quit();
 });
 
 process.on('SIGINT', async () => {
-  logger.info('SIGINT received, closing Redis Cluster connection...');
+  logger.info('SIGINT received, closing Redis connection...');
   await redisCluster.quit();
 });

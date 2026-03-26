@@ -4,6 +4,7 @@ import Queue from "../../models/Queue";
 import AIAgentLog from "../../models/AIAgentLog";
 import logger from "../../utils/logger";
 import { add as addJob } from "../../queues";
+import { Op } from "sequelize";
 
 export interface SaveAgentMessageOptions {
   ticketId: number;
@@ -251,40 +252,40 @@ class SupervisorActionsService {
     agentUsed: string
   ): Promise<{ success: boolean; stage?: string }> {
     try {
-      // Mapeo de intenciones a etapas del Kanban
+      // Mapeo de intenciones a etapas del Kanban (usa keys kanban reales)
       const intentToStage: Record<string, string> = {
-        // New - Primer contacto
-        greeting: "new",
-        "initial_contact": "new",
+        // Attraction - Primer contacto
+        greeting: "attraction",
+        "initial_contact": "attraction",
 
-        // Contact - Información del cliente
-        information_request: "contact",
-        "request_info": "contact",
-        "pregunta_informacion": "contact",
+        // Interest - Cliente curioso / solicita información
+        information_request: "interest",
+        "request_info": "interest",
+        "pregunta_informacion": "interest",
 
-        // Qualified - Cliente interesado
-        interest: "qualified",
-        "comprar": "qualified",
-        "interesado": "qualified",
-        "quiero_comprar": "qualified",
-        "presupuesto": "qualified",
+        // Consideration - Evalúa opciones / interesado en comprar
+        interest: "consideration",
+        "comprar": "consideration",
+        "interesado": "consideration",
+        "quiero_comprar": "consideration",
+        "presupuesto": "consideration",
 
-        // Proposal - Envío de propuesta
-        proposal: "proposal",
-        "enviar_propuesta": "proposal",
-        "cotizacion": "proposal",
+        // Hot-lead - Envío de propuesta / listo para comprar
+        proposal: "hot-lead",
+        "enviar_propuesta": "hot-lead",
+        "cotizacion": "hot-lead",
 
-        // Negotiation - Negociación
-        negotiation: "negotiation",
-        "negociar": "negotiation",
-        "descuento": "negotiation",
-        "oferta": "negotiation",
+        // Post-sale / Negotiation - Negociando precio
+        negotiation: "post-sale",
+        "negociar": "post-sale",
+        "descuento": "post-sale",
+        "oferta": "post-sale",
 
-        // Closed - Cerrado
-        farewell: "closed",
-        "gracias": "closed",
-        "cancel": "closed",
-        "no_interesado": "closed"
+        // Referrer / Closed - Cerrado
+        farewell: "referrer",
+        "gracias": "referrer",
+        "cancel": "referrer",
+        "no_interesado": "referrer"
       };
 
       // Si es un agente de soporte, no clasificamos etapa
@@ -302,7 +303,7 @@ class SupervisorActionsService {
         // Buscar el tag de la etapa
         const Tag = require("../../models/Tag").default;
         const tag = await Tag.findOne({
-          where: { companyId, name: stage }
+          where: { companyId, kanban: { [Op.gt]: 0 }, key: stage }
         });
 
         if (tag) {

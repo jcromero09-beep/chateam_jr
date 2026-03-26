@@ -11,6 +11,7 @@ import DeleteService from "../services/TagServices/DeleteService";
 import SimpleListService from "../services/TagServices/SimpleListService";
 import SyncTagService from "../services/TagServices/SyncTagsService";
 import KanbanListService from "../services/TagServices/KanbanListService";
+import TagAIRecommendationService from "../services/TagServices/TagAIRecommendationService";
 import ContactTag from "../models/ContactTag";
 
 type IndexQuery = {
@@ -51,7 +52,10 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     followupMessage2,
     followupDelay2,
     followupMessage3,
-    followupDelay3 } = req.body;
+    followupDelay3,
+    aiGuidance1,
+    aiGuidance2,
+    aiGuidance3 } = req.body;
   const { companyId } = req.user;
 //console.log('tags', req.body)
   const tag = await CreateService({
@@ -71,7 +75,10 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     followupMessage2,
     followupDelay2,
     followupMessage3,
-    followupDelay3
+    followupDelay3,
+    aiGuidance1,
+    aiGuidance2,
+    aiGuidance3
   });
 
   const io = getIO();
@@ -165,6 +172,34 @@ export const syncTags = async (
   const tags = await SyncTagService({ ...data, companyId });
 
   return res.json(tags);
+};
+
+/**
+ * POST /tags/ai-recommend
+ * Genera recomendaciones de seguimientos (intervalos + prompts IA)
+ * a partir del nombre y descripción de una etiqueta Kanban.
+ */
+export const aiRecommend = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { name, description } = req.body;
+  const { companyId } = req.user;
+
+  if (!name || typeof name !== "string" || name.trim().length < 2) {
+    throw new AppError("El nombre de la etiqueta es requerido (mínimo 2 caracteres)", 400);
+  }
+
+  const recommendation = await TagAIRecommendationService({
+    name: name.trim(),
+    description: description?.trim(),
+    companyId
+  });
+
+  return res.json({
+    success: true,
+    data: recommendation
+  });
 };
 
 export const removeContactTag = async (

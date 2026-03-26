@@ -83,39 +83,52 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     `msg="${message.substring(0, 80)}..."`
   );
 
-  // 🆕 0. Verificar si hay contexto de cita activo (esperando confirmación)
-  // Si el usuario responde "sí", "ok", "dale" sin keywords de cita,
-  // necesitamos delegar al AppointmentAgent directamente
-  if (ticketId) {
-    const appointmentContext = await AppointmentContextStore.get(ticketId);
-    if (appointmentContext?.step === 'awaiting_confirmation') {
-      logger.info(`[Supervisor] Contexto de cita activo detectado para ticket ${ticketId}, delegando a AppointmentAgent`);
+  // 🔍 TIMEOUT DE SEGURIDAD: 20 segundos máximo para todo el proceso
+  const TIMEOUT_MS = 20000;
+  let timedOut = false;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`[Supervisor] ⏰ TIMEOUT después de ${TIMEOUT_MS}ms`));
+    }, TIMEOUT_MS);
+  });
 
-      // El usuario está esperando confirmación, delegar siempre al AppointmentAgent
-      return await handleAppointmentAgent(
-        message, companyId, ticketId, contactId,
-        { intent: 'appointment_request', targetAgent: 'appointment', confidence: 1.0 } as ClassificationResult,
-        startTime, request
-      );
-    }
-  }
-
-  // 1. Router Agent — Clasificar intención
-  let classification: ClassificationResult;
   try {
-    classification = await RouterAgentService.classify(
-      message, companyId, ticketId, contactId
-    );
-  } catch (routerError: any) {
-    logger.error(`[Supervisor] Error en Router: ${routerError.message}`);
-    return buildErrorResponse(message, startTime);
-  }
+    // 🆕 0. Verificar si hay contexto de cita activo (esperando confirmación)
+    // Si el usuario responde "sí", "ok", "dale" sin keywords de cita,
+    // necesitamos delegar al AppointmentAgent directamente
+    if (ticketId && !timedOut) {
+      const appointmentContext = await AppointmentContextStore.get(ticketId);
+      if (appointmentContext?.step === 'awaiting_confirmation') {
+        logger.info(`[Supervisor] Contexto de cita activo detectado para ticket ${ticketId}, delegando a AppointmentAgent`);
 
-  // 2. Manejar intenciones simples (greeting, farewell)
-  if (classification.targetAgent === 'self') {
-    const isGreeting = classification.intent === 'greeting';
-    const responses = isGreeting ? greetingResponses : farewellResponses;
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+        // El usuario está esperando confirmación, delegar siempre al AppointmentAgent
+        return await handleAppointmentAgent(
+          message, companyId, ticketId, contactId,
+          { intent: 'appointment_request', targetAgent: 'appointment', confidence: 1.0 } as ClassificationResult,
+          startTime, request
+        );
+      }
+    }
+
+    // 1. Router Agent — Clasificar intención (con timeout)
+    let classification: ClassificationResult;
+    logger.info(`[Supervisor] 🔍 Clasificando intención con RouterAgent...`);
+    try {
+      const routerPromise = RouterAgentService.classify(message, companyId, ticketId, contactId);
+      classification = await Promise.race([routerPromise, timeoutPromise]);
+      logger.info(`[Supervisor] ✅ Clasificación: intent=${classification.intent}, targetAgent=${classification.targetAgent}, confidence=${classification.confidence}`);
+    } catch (routerError: any) {
+      if (timedOut) throw routerError;
+      logger.error(`[Supervisor] ❌ Error en Router: ${routerError.message}`);
+      return buildErrorResponse(message, startTime);
+    }
+
+    // 2. Manejar intenciones simples (greeting, farewell)
+    if (classification.targetAgent === 'self') {
+      const isGreeting = classification.intent === 'greeting';
+      const responses = isGreeting ? greetingResponses : farewellResponses;
+      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
 
     return {
       message: randomResponse,
@@ -293,6 +306,10 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   );
 
   return agentResponse;
+  } catch (err: any) {
+    logger.error(`[Supervisor] ❌ Error en processMessage: ${err.message}`);
+    return buildErrorResponse(message, startTime);
+  }
 };
 
 /**

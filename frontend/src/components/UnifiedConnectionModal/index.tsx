@@ -1019,9 +1019,10 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                 <FormControl>
                   <FormLabel>Agentes IA</FormLabel>
                   <Select
-                    value={formData.promptId ? String(formData.promptId) : ""}
+                    value={formData.promptId !== null && formData.promptId !== undefined ? String(formData.promptId) : ""}
                     onChange={(_, v) => {
-                      const newValue = v ? Number(v) : null;
+                      const strValue = v as string;
+                      const newValue = strValue ? parseInt(strValue, 10) : null;
                       setFormData({
                         ...formData,
                         promptId: newValue,

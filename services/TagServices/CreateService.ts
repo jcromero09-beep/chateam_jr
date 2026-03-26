@@ -21,6 +21,9 @@ interface Request {
   followupDelay2?: number;
   followupMessage3?: string;
   followupDelay3?: number;
+  aiGuidance1?: string;
+  aiGuidance2?: string;
+  aiGuidance3?: string;
 }
 
 const CreateService = async ({
@@ -40,7 +43,10 @@ const CreateService = async ({
   followupMessage2 = "",
   followupDelay2 = 3,
   followupMessage3 = "",
-  followupDelay3 = 4
+  followupDelay3 = 4,
+  aiGuidance1 = "",
+  aiGuidance2 = "",
+  aiGuidance3 = ""
 }: Request): Promise<Tag> => {
   const schema = Yup.object().shape({
     name: Yup.string().required().min(3)
@@ -68,7 +74,10 @@ const CreateService = async ({
       followupMessage2,
       followupDelay2,
       followupMessage3,
-      followupDelay3
+      followupDelay3,
+      aiGuidance1,
+      aiGuidance2,
+      aiGuidance3
     }
   });
 

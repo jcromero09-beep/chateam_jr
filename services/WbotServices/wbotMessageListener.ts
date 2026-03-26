@@ -4168,11 +4168,36 @@ export const handleMessageIntegration = async (
             aiResponse.intent,
             aiResponse.agentUsed
           );
+
+          // Encolar clasificación avanzada con IA (GPT-4o) + follow-ups automáticos
+          try {
+            const { enqueueStageClassifierJob } = await import(
+              "../../workers/stageClassifier.worker"
+            );
+            const { getApiKeyWithFallback } = await import(
+              "../AIProviderService"
+            );
+            const openAiApiKey = await getApiKeyWithFallback("openai", "OPENAI_API_KEY", companyId);
+
+            if (openAiApiKey) {
+              await enqueueStageClassifierJob({
+                texto: aiResponse.message || "",
+                ticketId: ticket.id,
+                companyId,
+                apiKey: openAiApiKey,
+                contactName: contact?.name || ""
+              });
+              logger.info(`[SupervisorAI] StageClassifier encolado: ticket=${ticket.id}`);
+            }
+          } catch (classifierError: any) {
+            logger.warn(`[SupervisorAI] Error encolando StageClassifier: ${classifierError.message}`);
+          }
         } catch (actionError: any) {
           logger.warn(`[SupervisorActions] Error guardando mensaje: ${actionError.message}`);
         }
 
-        // Enviar respuesta del agente IA
+        // Enviar respuesta del agente IA (delay 2.5s para evitar anti-ban)
+        await new Promise(resolve => setTimeout(resolve, 2500));
         await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: aiResponse.message }, "text");
         logger.info(
           `[SupervisorAI] Respuesta enviada: ticket=${ticket.id}, agente=${aiResponse.agentUsed}, ` +
@@ -4186,7 +4211,8 @@ export const handleMessageIntegration = async (
       }
     } catch (err) {
       logger.error(`[SupervisorAI] Error procesando msg ticket=${ticket.id}: ${err.message}`);
-      // Fallback: no romper el flujo, enviar mensaje genérico
+      // Fallback: no romper el flujo, enviar mensaje genérico (delay 2.5s para evitar anti-ban)
+      await new Promise(resolve => setTimeout(resolve, 2500));
       await sendMessageWithAntiBan(
         wbot,
         msg.key.remoteJid!,
@@ -5781,7 +5807,7 @@ const wbotMessageListener = (wbot: Session, companyId: number): void => {
   //     const ack = msg?.receipt?.receiptTimestamp ? 3 : msg?.receipt?.readTimestamp ? 4 : 0;
   //     if (!ack) return;
   //     await handleMsgAck(msg, ack);
-  //   });
+        //   });
   // })
 
   wbot.ev.on("presence.update", (events: any) => {

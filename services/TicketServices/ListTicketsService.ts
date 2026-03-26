@@ -74,6 +74,7 @@ const ListTicketsService = async ({
   searchOnMessages = "true",
   dateField = "updatedAt"
 }: Request): Promise<Response> => {
+  try {
   const user = await ShowUserService(userId, companyId);
 
   // Soportar tanto boolean como string para estos campos (la DB puede tener ambos tipos)
@@ -95,7 +96,8 @@ const ListTicketsService = async ({
   });
   const showGroups = user.allowGroup === true;
   const showPendingNotification = await FindCompanySettingOneService({ companyId, column: "showNotificationPending" });
-  const showNotificationPendingValue = showPendingNotification[0].showNotificationPending;
+  const showPendingSetting = showPendingNotification?.[0];
+  const showNotificationPendingValue = showPendingSetting?.showNotificationPending ?? false;
   let whereCondition: Filterable["where"];
 
   whereCondition = {
@@ -598,6 +600,11 @@ const ListTicketsService = async ({
     count,
     hasMore
   };
+  } catch (error) {
+    console.error("❌ [ListTicketsService] Error grave:", error);
+    console.error("❌ Stack:", error instanceof Error ? error.stack : "sin stack");
+    throw error;
+  }
 };
 
 export default ListTicketsService;

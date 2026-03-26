@@ -28,12 +28,10 @@ process.on('uncaughtException', err => {
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, p) => {
-  console.error(
-    `${new Date().toUTCString()} unhandledRejection:`,
-    reason,
-    p
-  );
+process.on('unhandledRejection', (reason: any, p: any) => {
+  console.error(`${new Date().toUTCString()} unhandledRejection:`, reason);
+  if (reason?.stack) console.error('Stack:', reason.stack);
+  process.exit(1);
 });
 
 // ✅ Manejo graceful de cierre del servidor principal

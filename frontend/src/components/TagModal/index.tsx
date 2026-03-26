@@ -17,10 +17,13 @@ import {
   Box,
   Divider,
   Tooltip,
+  LinearProgress,
+  Alert,
 } from '@mui/joy'
 import DeleteForever from '@mui/icons-material/DeleteForever'
 import Add from '@mui/icons-material/Add'
 import Edit from '@mui/icons-material/Edit'
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import api from '../../services/api'
 import { toast } from 'react-toastify'
 
@@ -44,6 +47,19 @@ interface TagData {
   followupDelay3?: number
   followupType?: string
   timeLaneUnit?: string
+  aiGuidance1?: string
+  aiGuidance2?: string
+  aiGuidance3?: string
+}
+
+interface AIRecommendation {
+  followupDelay1: number
+  followupDelay2: number
+  followupDelay3: number
+  aiGuidance1: string
+  aiGuidance2: string
+  aiGuidance3: string
+  reasoning: string
 }
 
 interface KanbanTagOption {
@@ -65,6 +81,8 @@ const DELAY_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 12, 24, 48]
 const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanban = 1 }) => {
   const [loading, setLoading] = useState(false)
   const [kanbanTags, setKanbanTags] = useState<KanbanTagOption[]>([])
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiReasoning, setAiReasoning] = useState<string | null>(null)
   const [formData, setFormData] = useState<TagData>({
     name: '',
     color: '#3b82f6',
@@ -84,6 +102,9 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
     followupDelay3: 4,
     followupType: 'multiple',
     timeLaneUnit: 'hours',
+    aiGuidance1: '',
+    aiGuidance2: '',
+    aiGuidance3: '',
   })
 
   useEffect(() => {
@@ -132,6 +153,9 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
         followupDelay3: tag.followupDelay3 || 4,
         followupType: tag.followupType || 'multiple',
         timeLaneUnit: tag.timeLaneUnit || 'hours',
+        aiGuidance1: tag.aiGuidance1 || '',
+        aiGuidance2: tag.aiGuidance2 || '',
+        aiGuidance3: tag.aiGuidance3 || '',
       })
     } catch (error) {
       console.error('Error loading tag:', error)
@@ -161,6 +185,9 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
       followupDelay3: 4,
       followupType: 'multiple',
       timeLaneUnit: 'hours',
+      aiGuidance1: '',
+      aiGuidance2: '',
+      aiGuidance3: '',
     })
   }
 
@@ -215,6 +242,47 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
       toast.error('Error al eliminar la etiqueta')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAIRecommend = async () => {
+    if (!formData.name || formData.name.trim().length < 2) {
+      toast.error('Escribe un nombre de etiqueta (mínimo 2 caracteres) antes de pedir recomendación')
+      return
+    }
+
+    try {
+      setAiLoading(true)
+      setAiReasoning(null)
+      const response = await api.post<{ success: boolean; data: AIRecommendation }>(
+        '/tags/ai-recommend',
+        {
+          name: formData.name.trim(),
+          description: formData.description?.trim() || '',
+        }
+      )
+      const rec = response.data.data
+
+      // Limpiar guidance anterior y mostrar reasoning
+      setAiReasoning(rec.reasoning)
+
+      // Actualizar formData con recomendación de IA
+      setFormData((prev) => ({
+        ...prev,
+        followupDelay1: rec.followupDelay1,
+        followupDelay2: rec.followupDelay2,
+        followupDelay3: rec.followupDelay3,
+        aiGuidance1: rec.aiGuidance1 || '',
+        aiGuidance2: rec.aiGuidance2 || '',
+        aiGuidance3: rec.aiGuidance3 || '',
+      }))
+
+      toast.success('Recomendación IA aplicada')
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Error al generar recomendación IA')
+    } finally {
+      setAiLoading(false)
     }
   }
 
@@ -441,7 +509,34 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
                       <Option value="multiple">Múltiples mensajes</Option>
                     </Select>
                   </FormControl>
+                  <Tooltip title="La IA analiza el nombre y descripción de la etapa para sugerir intervalos óptimos y prompts de contexto">
+                    <Button
+                      size="sm"
+                      variant="outlined"
+                      color="primary"
+                      startDecorator={aiLoading ? undefined : <AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+                      onClick={handleAIRecommend}
+                      disabled={aiLoading || !formData.name?.trim()}
+                      sx={{ mt: 1.5, whiteSpace: 'nowrap', flexShrink: 0 }}
+                    >
+                      {aiLoading ? 'Analizando...' : '🤖 IA'}
+                    </Button>
+                  </Tooltip>
                 </Stack>
+
+                {/* Razonamiento IA */}
+                {aiReasoning && (
+                  <Alert
+                    variant="soft"
+                    color="primary"
+                    sx={{ fontSize: 'xs', py: 0.5 }}
+                    startDecorator={<AutoAwesomeIcon sx={{ fontSize: 12 }} />}
+                  >
+                    {aiReasoning}
+                  </Alert>
+                )}
+
+                {aiLoading && <LinearProgress sx={{ mb: 0.5 }} />}
 
                 {/* Mensaje 1 */}
                 {((formData.followupCount ?? 1) >= 1 && (
@@ -474,6 +569,18 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
                       placeholder="Escribe el mensaje de seguimiento..."
                       value={formData.followupMessage1 || ''}
                       onChange={(e) => handleChange('followupMessage1', e.target.value)}
+                    />
+                    <Textarea
+                      size="sm"
+                      minRows={1}
+                      placeholder="💡 Prompt IA: consejo de contexto para el agente (ej: 'El lead mostró interés en el producto, sé amable yenthsiasta')..."
+                      value={formData.aiGuidance1 || ''}
+                      onChange={(e) => handleChange('aiGuidance1', e.target.value)}
+                      sx={{
+                        mt: 0.5,
+                        fontSize: 'xs',
+                        '& textarea': { color: 'text.secondary' }
+                      }}
                     />
                   </Box>
                 ))}
@@ -510,6 +617,18 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
                       value={formData.followupMessage2 || ''}
                       onChange={(e) => handleChange('followupMessage2', e.target.value)}
                     />
+                    <Textarea
+                      size="sm"
+                      minRows={1}
+                      placeholder="💡 Prompt IA: consejo de contexto para el agente (ej: 'Lead sin respuesta, ofrece ayuda concreta')..."
+                      value={formData.aiGuidance2 || ''}
+                      onChange={(e) => handleChange('aiGuidance2', e.target.value)}
+                      sx={{
+                        mt: 0.5,
+                        fontSize: 'xs',
+                        '& textarea': { color: 'text.secondary' }
+                      }}
+                    />
                   </Box>
                 ))}
 
@@ -544,6 +663,18 @@ const TagModal: React.FC<TagModalProps> = ({ open, onClose, onSaved, tagId, kanb
                       placeholder="Escribe el tercer mensaje de seguimiento..."
                       value={formData.followupMessage3 || ''}
                       onChange={(e) => handleChange('followupMessage3', e.target.value)}
+                    />
+                    <Textarea
+                      size="sm"
+                      minRows={1}
+                      placeholder="💡 Prompt IA: consejo de contexto para el agente (ej: 'Último intento, ofrece incentivo o cierra el ticket')..."
+                      value={formData.aiGuidance3 || ''}
+                      onChange={(e) => handleChange('aiGuidance3', e.target.value)}
+                      sx={{
+                        mt: 0.5,
+                        fontSize: 'xs',
+                        '& textarea': { color: 'text.secondary' }
+                      }}
                     />
                   </Box>
                 ))}

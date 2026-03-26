@@ -31,7 +31,7 @@ import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
 import { getIO } from "../../libs/socket";
 import formatBody from "../../helpers/Mustache";
 import { head, isNil, isNull } from "lodash";
-import { logInfo, logError } from "../../config/logger";
+import { logInfo, logError, logWarn } from "../../config/logger";
 
 // ENVÍO por Meta (Cloud API)
 import { sendText as metaSendText, sendTextDynamic } from "./metaSendService";
@@ -703,7 +703,8 @@ export const handleMetaWebhookMessage = async (body: any) => {
           continue;
         }
 
-        // Resolver conexión por phoneNumberId (campo correcto de Meta)
+        // 🔍 DIAGNÓSTICO: Buscar conexión Meta
+        logInfo(`[META] 🔍 Buscando conexión Meta por phoneNumberId=${phoneNumberId}`);
         const whatsapp = await Whatsapp.findOne({
           where: { phoneNumberId, provider: "meta" },
           include: [
@@ -719,8 +720,19 @@ export const handleMetaWebhookMessage = async (body: any) => {
             ["queues", "chatbots", "id", "ASC"]
           ]
         });
+        logInfo(`[META] ✅ Conexión Meta ${whatsapp ? `encontrada: id=${whatsapp.id}, name=${whatsapp.name}` : 'NO encontrada'}`);
 
         if (!whatsapp) {
+          // ⚠️ IGNORAR: No hay conexión Meta configurada para este phoneNumberId
+          // Verificar si es un número que está en Baileys (evitar conflicto)
+          const displayPhone = value?.metadata?.display_phone_number;
+          const baileysConflict = await Whatsapp.findOne({
+            where: { number: displayPhone, channel: "whatsapp" }
+          });
+          if (baileysConflict) {
+            logWarn(`[META] ⛔ Ignorando: número ${displayPhone} está en Baileys (id=${baileysConflict.id}), no procesar desde Meta`);
+            continue;
+          }
           logError(`❌ Conexión META no encontrada para phoneNumberId: ${phoneNumberId}`);
           continue;
         }
@@ -780,20 +792,25 @@ export const handleMetaWebhookMessage = async (body: any) => {
           logInfo("[META] ℹ️ value.messages vacío, nada que procesar.");
           continue;
         }
-logInfo('[META] messages')
+        logInfo(`[META] 🔍 Procesando ${messages.length} mensaje(s)`);
         // Procesar cada mensaje
         for (const message of messages) {
           try {
-            logInfo(`[META] message: ${JSON.stringify(message).substring(0, 300)}`)
+            logInfo(`[META] 🔄 Procesando mensaje: ${JSON.stringify(message).substring(0, 300)}`);
             const fromMe = false; // inbound
             // 1) Contacto - pasar el message para extraer número real
+            logInfo(`[META] 🔍 Paso 1/4: verifyContactMeta...`);
             const contact = await verifyContactMeta(value, message);
             const companyId = contact.companyId;
+            logInfo(`[META] ✅ Paso 1/4 completo: contactId=${contact.id}, companyId=${companyId}`);
 
             // 2) Ajustes de la compañía
+            logInfo(`[META] 🔍 Paso 2/4: CompaniesSettings...`);
             const settings = await CompaniesSettings.findOne({ where: { companyId } });
-            logInfo('[META] setting')
+            logInfo(`[META] ✅ Paso 2/4: settings=${settings ? 'encontrado' : 'no encontrado'}`);
+
             // 3) Ticket
+            logInfo(`[META] 🔍 Paso 3/4: FindOrCreateTicketService...`);
             const unread = fromMe ? 0 : 1;
             const isFirstMsg = await Ticket.findOne({
               where: { contactId: contact.id, companyId },
@@ -813,15 +830,16 @@ logInfo('[META] messages')
               false,
               settings
             );
-            logInfo('[META] ticket')
+            logInfo(`[META] ✅ Paso 3/4: ticketId=${ticket.id}, status=${ticket.status}, isBot=${ticket.isBot}`);
 
             // 4) Guardar mensaje (texto o media)
+            logInfo(`[META] 🔍 Paso 4/4: Guardar mensaje (tipo=${message?.type})...`);
             if (["image", "audio", "video", "document", "sticker"].includes(message?.type)) {
               await verifyMessageMetaMedia(message, ticket, contact, whatsapp.tokenMeta, fromMe);
             } else {
               await verifyMessageMetaText(message, ticket, contact, fromMe);
-              logInfo('[META] message guardados')
             }
+            logInfo(`[META] ✅ Paso 4/4: Mensaje guardado`);
 
             // ================= Detectar mensaje de campaña publicitaria (Click-to-WhatsApp) =================
             const referral = message?.context?.referral;
@@ -904,7 +922,7 @@ logInfo('[META] messages')
             const hasSupervisorAI = whatsapp.promptId === 999;
 
             if (hasSupervisorAI) {
-              logInfo(`[DEBUG-SUPERVISOR] Ejecutando SupervisorAI - promptId: ${whatsapp.promptId}`);
+              logInfo(`[SupervisorAI] 🔍 INICIO - promptId=${whatsapp.promptId}, ticketId=${ticket.id}, isBot=${ticket.isBot}, status=${ticket.status}, userId=${ticket.userId}`);
 
               // ✅ CONDICIONES PARA NO RESPONDER
               // ✅ CONDICIONES PARA NO RESPONDER
@@ -912,7 +930,7 @@ logInfo('[META] messages')
 
               // 1. Si está desactivado manualmente (isBot = false)
               if (ticket.isBot === false) {
-                logInfo(`[SupervisorAI] Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
+                logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
                 return;
               }
 
@@ -920,28 +938,33 @@ logInfo('[META] messages')
 
               // 2. Si tiene usuario asignado Y el bot NO está activo manualmente
               if (ticket.userId && !isBotActivo) {
-                logInfo(`[SupervisorAI] Ticket ${ticket.id} tiene usuario asignado - no responde`);
+                logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} tiene usuario asignado - no responde`);
                 return;
               }
               // 3. Si está abierto Y el bot NO está activo manualmente
               if (ticket.status === 'open' && !isBotActivo) {
-                logInfo(`[SupervisorAI] Ticket ${ticket.id} está en estado open - no responde`);
+                logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} está en estado open - no responde`);
                 return;
               }
               // 4. Si está cerrado
               if (ticket.status === 'closed') {
-                logInfo(`[SupervisorAI] Ticket ${ticket.id} está cerrado - no responde`);
+                logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} está cerrado - no responde`);
                 return;
               }
 
               // console.log(`[SupervisorAI] 🤖 Iniciando agente IA para ticket=${ticket.id}`);
               try {
                 const body = getTextFromMetaMessage(message);
-                if (!body || body.trim().length === 0) return;
+                if (!body || body.trim().length === 0) {
+                  logInfo(`[SupervisorAI] ⛔ Mensaje vacío - no se procesa`);
+                  return;
+                }
 
+                logInfo(`[SupervisorAI] 🔄 Cargando servicios IA...`);
                 const SupervisorService = require("../AIAgentServices/SupervisorService").default;
                 const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
 
+                logInfo(`[SupervisorAI] 🔄 Obteniendo historial del ticket...`);
                 const Message = require("../../models/Message").default;
                 const recentMessages = await Message.findAll({
                   where: { ticketId: ticket.id },
@@ -953,8 +976,7 @@ logInfo('[META] messages')
                   content: m.body || ""
                 }));
 
-                logInfo(`[SupervisorAI] Procesando: "${body.substring(0, 50)}..."`);
-
+                logInfo(`[SupervisorAI] 🔄 Ejecutando processMessage con: "${body.substring(0, 50)}..."`);
                 const aiResponse = await SupervisorService.processMessage({
                   message: body,
                   companyId,
@@ -963,8 +985,10 @@ logInfo('[META] messages')
                   whatsappId: whatsapp?.id,
                   ticketHistory
                 });
+                logInfo(`[SupervisorAI] ✅ processMessage completado: agent=${aiResponse.agentUsed}, intent=${aiResponse.intent}`);
 
                 if (aiResponse.shouldEscalate) {
+                  logInfo(`[SupervisorAI] 🔄 Escalando a humano...`);
                   await SupervisorActionsService.saveAgentMessage({
                     ticketId: ticket.id,
                     companyId,
@@ -981,8 +1005,15 @@ logInfo('[META] messages')
                     aiResponse.escalationReason
                   );
 
-                  const { sendText } = require("../MetaServices/metaSendService");
-                  await sendText(contact.number.replace("+",""), "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️");
+                  const phoneNumberIdEsc = whatsapp.facebookPageUserId || whatsapp.number;
+                  const accessTokenEsc = whatsapp.tokenMeta;
+                  await new Promise(resolve => setTimeout(resolve, 2500));
+                  await sendTextDynamic(
+                    contact.number.replace("+",""),
+                    "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️",
+                    phoneNumberIdEsc,
+                    accessTokenEsc
+                  );
                 } else {
                   await SupervisorActionsService.saveAgentMessage({
                     ticketId: ticket.id,
@@ -1010,6 +1041,8 @@ logInfo('[META] messages')
                   const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
                   const accessToken = whatsapp.tokenMeta;
                   logInfo(`[SupervisorAI] phoneNumberId=${phoneNumberId}, hasToken=${!!accessToken}`);
+                  // Delay para evitar rate limit
+                  await new Promise(resolve => setTimeout(resolve, 2500));
                   try {
                     await sendTextDynamic(contact.number.replace("+",""), aiResponse.message, phoneNumberId, accessToken);
                     logInfo(`[SupervisorAI] ✅ Respuesta enviada`);
@@ -1029,6 +1062,7 @@ logInfo('[META] messages')
                 const { sendTextDynamic } = require("../MetaServices/metaSendService");
                 const phoneNumberIdErr = whatsapp.facebookPageUserId || whatsapp.number;
                 const accessTokenErr = whatsapp.tokenMeta;
+                await new Promise(resolve => setTimeout(resolve, 2500));
                 await sendTextDynamic(contact.number.replace("+",""), "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", phoneNumberIdErr, accessTokenErr);
                 await ticket.update({ useIntegration: false, status: "pending" });
                 return;
@@ -1103,19 +1137,23 @@ if (
 
 
             // 7) Verificar colas si aún no tiene
-            if (!ticket.queue && !fromMe && !ticket.userId && (whatsapp.queues?.length || 0) >= 1) {
-              await verifyQueue(whatsapp, message, ticket, contact);
+            try {
+              if (!ticket.queue && !fromMe && !ticket.userId && (whatsapp.queues?.length || 0) >= 1) {
+                await verifyQueue(whatsapp, message, ticket, contact);
+              }
+            } catch (queueErr) {
+              logError(`❌ Error en verifyQueue:`, queueErr);
             }
 
           } catch (perMsgErr) {
-            logError(`❌ Error procesando mensaje META: ${perMsgErr}`);
+            logError(`❌ Error procesando mensaje META:`, perMsgErr);
           }
         }
       }
     }
     
   } catch (err) {
-    logError(`❌ Error en handleMetaWebhookMessage: ${err}`);
+    logError(`❌ Error en handleMetaWebhookMessage:`, err);
   }
 };
 // export const   handleMetaWebhookMessage = async (

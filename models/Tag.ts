@@ -146,6 +146,27 @@ class Tag extends Model<Tag> {
     defaultValue: 4
   })
   followupDelay3: number;
+
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    comment: "Prompt de contexto IA para mensaje de seguimiento 1"
+  })
+  aiGuidance1: string;
+
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    comment: "Prompt de contexto IA para mensaje de seguimiento 2"
+  })
+  aiGuidance2: string;
+
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    comment: "Prompt de contexto IA para mensaje de seguimiento 3"
+  })
+  aiGuidance3: string;
 }
 
 export default Tag;

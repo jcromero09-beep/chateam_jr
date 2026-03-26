@@ -98,8 +98,7 @@ const ShowTicketService = async (
         {
           model: Whatsapp,
           as: "whatsapp",
-          attributes: ["id", "name", "groupAsTicket", "greetingMediaAttachment", "facebookUserToken", "facebookUserId", "status"]
-
+          attributes: ["id", "name", "groupAsTicket", "greetingMediaAttachment", "facebookUserToken", "facebookUserId", "status", "promptId", "integrationId"]
         },
         {
           model: Telegram,
