@@ -103,15 +103,14 @@ const processQuery = async (
   }
 
   // 4. Construir contexto con los chunks encontrados
+  // LIMITADO: máximo 3 chunks para evitar información excesiva
   const contextChunks = searchResults
     .filter((r: any) => r.score >= minRelevance)
-    .slice(0, maxResults);
+    .slice(0, 3); // Máximo 3 fuentes
 
   const context = contextChunks
-    .map((chunk: any, i: number) =>
-      `[Fuente ${i + 1}] (relevancia: ${(chunk.score * 100).toFixed(0)}%)\n${chunk.content}`
-    )
-    .join('\n\n---\n\n');
+    .map((chunk: any) => chunk.content)
+    .join('\n\n');
 
   // 5. Seleccionar modelo y generar respuesta
   const modelSelection = await selectModel('rag', query);
@@ -141,7 +140,7 @@ const processQuery = async (
       systemPrompt: dbSystemPrompt,
       modelKey,
       maxTokens: 1024,
-      temperature: 0.3 // Baja temperatura para factualidad
+      temperature: 0.5 // Baja temperatura para factualidad
     });
 
     answer = llmResponse.text;
@@ -218,27 +217,32 @@ const processQuery = async (
 
 /**
  * Construye el prompt para el LLM con contexto RAG
+ * AGENTE DE ATENCIÓN AL CLIENTE - NO buscador de información
  */
 function buildRAGPrompt(query: string, context: string, ticketContext?: string): string {
   const ticketSection = ticketContext ? `\n${ticketContext}\n` : '';
 
-  return `${ticketSection}Eres un asistente experto que responde preguntas usando la información proporcionada.
+  return `${ticketSection}Eres un agente de atención al cliente profesional y empático.
+NO eres un buscador de información. Tu trabajo es ATENDER al cliente, NO recitar información.
 
-CONTEXTO DE LA BASE DE CONOCIMIENTOS:
+REGLAS DE ATENCIÓN AL CLIENTE:
+1. PRIMERO saluda al cliente de forma amigable
+2. Comprende el problema/pregunta antes de dar información
+3. Da SOLO la información NECESARIA para resolver la consulta
+4. NO recites todo lo que sabes sobre el tema - solo lo relevante
+5. Si el cliente pregunta precio, da el precio y listo - no expliques todo el plan
+6. Usa un tono amigable y profesional
+7. Si necesitas más información para ayudar, PREGUNTA al cliente
+8. NO menciones fuentes ni cites documentos al cliente
+9. Mantén las respuestas cortas y enfocadas
+
+CONTEXTO DE LA BASE DE CONOCIMIENTOS (usa solo la información relevante):
 ${context}
 
-REGLAS ESTRICTAS:
-1. Responde ÚNICAMENTE con información del contexto proporcionado
-2. Si la información no está en el contexto, di "No tengo información sobre eso"
-3. Cita las fuentes usando [Fuente N] cuando uses información específica
-4. Responde en el mismo idioma que la pregunta del usuario
-5. Sé conciso pero completo
-6. No inventes información
-
-PREGUNTA DEL USUARIO:
+PREGUNTA DEL CLIENTE:
 ${query}
 
-RESPUESTA:`;
+RESPUESTA (ATENCIÓN AL CLIENTE):`;
 }
 
 /**
