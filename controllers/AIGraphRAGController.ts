@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { Op } from "sequelize";
+import axios from "axios";
+import * as cheerio from "cheerio";
 import sequelize from "../database";
 import GraphRAGService from "../services/AIGraphRAGServices/GraphRAGService";
 import TicketAutoIndexService from "../services/AIGraphRAGServices/TicketAutoIndexService";
@@ -7,6 +9,91 @@ import AIDocument from "../models/AIDocument";
 import AIChunk from "../models/AIChunk";
 import AppError from "../errors/AppError";
 import KnowledgeBaseService from "../services/RAGServices/KnowledgeBaseService";
+
+// ============================================================================
+// HELPERS - Extracción de contenido desde URLs y PDFs
+// ============================================================================
+
+/**
+ * Extrae contenido textual desde una URL usando cheerio
+ */
+async function extractContentFromUrl(url: string): Promise<string> {
+  try {
+    const response = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; ChatEAM-Bot/1.0)"
+      },
+      maxContentLength: 5 * 1024 * 1024 // 5MB max
+    });
+
+    const $ = cheerio.load(response.data);
+
+    // Remover scripts y estilos
+    $("script, style, nav, header, footer, iframe, noscript").remove();
+
+    // Extraer texto de elementos relevantes
+    const textParts: string[] = [];
+
+    // Títulos
+    $("h1, h2, h3, h4, h5, h6").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text) textParts.push(`## ${text}`);
+    });
+
+    // Párrafos
+    $("p").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text && text.length > 20) textParts.push(text);
+    });
+
+    // Listas
+    $("li").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text) textParts.push(`- ${text}`);
+    });
+
+    // Tablas
+    $("table").each((_, table) => {
+      const rows: string[] = [];
+      $(table).find("tr").each((_, tr) => {
+        const cells: string[] = [];
+        $(tr).find("td, th").each((_, cell) => {
+          cells.push($(cell).text().trim());
+        });
+        if (cells.length > 0) rows.push(cells.join(" | "));
+      });
+      if (rows.length > 0) textParts.push(rows.join("\n"));
+    });
+
+    // Articles y sections
+    $("article, section, main").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text && text.length > 50) textParts.push(text);
+    });
+
+    const finalContent = textParts.join("\n\n");
+
+    // Limpiar whitespace excesivo
+    return finalContent.replace(/\n{3,}/g, "\n\n").trim();
+  } catch (error: any) {
+    throw new Error(`Error extrayendo contenido de URL: ${error.message}`);
+  }
+}
+
+/**
+ * Extrae contenido textual desde un archivo PDF
+ */
+async function extractContentFromPdf(filePath: string): Promise<string> {
+  try {
+    const AIPDFProcessorService = require("../services/AIMultimodalServices/AIPDFProcessorService");
+    const pdfBuffer = await require("fs/promises").readFile(filePath);
+    const result = await AIPDFProcessorService.extractText(pdfBuffer);
+    return result.text;
+  } catch (error: any) {
+    throw new Error(`Error extrayendo contenido de PDF: ${error.message}`);
+  }
+}
 
 // GET /ai/rag/documents — Lista paginada de documentos RAG
 export const listDocuments = async (req: Request, res: Response): Promise<Response> => {
@@ -113,22 +200,54 @@ export const createDocument = async (req: Request, res: Response): Promise<Respo
 
   // Si es archivo subido via multer
   const file = (req as any).file;
-  let fileContent = content;
+  let fileContent = content || "";
   let filePath: string | undefined;
 
   if (file) {
     filePath = file.path;
-    // Para archivos de texto, leer contenido
-    if (['.txt', '.csv', '.md'].some(ext => file.originalname.toLowerCase().endsWith(ext))) {
+    const ext = file.originalname.toLowerCase();
+
+    // Para archivos de texto, leer contenido directamente
+    if (['.txt', '.csv', '.md'].some(e => ext.endsWith(e))) {
       const fs = await import("fs/promises");
       fileContent = await fs.readFile(file.path, "utf-8");
+    }
+    // Para PDFs, extraer texto usando el servicio
+    else if (ext.endsWith('.pdf')) {
+      try {
+        const AIPDFProcessorService = require("../services/AIMultimodalServices/AIPDFProcessorService");
+        const pdfBuffer = await require("fs/promises").readFile(file.path);
+        const result = await AIPDFProcessorService.extractText(pdfBuffer);
+        fileContent = result.text;
+
+        if (!fileContent || fileContent.trim().length < 10) {
+          throw new Error("No se pudo extraer texto del PDF");
+        }
+      } catch (pdfError: any) {
+        throw new AppError(`Error extrayendo PDF: ${pdfError.message}`, 400);
+      }
+    }
+  }
+
+  // Para URLs, extraer contenido desde la web
+  if (sourceType === 'url' && sourceUrl) {
+    try {
+      const urlContent = await extractContentFromUrl(sourceUrl);
+
+      if (!urlContent || urlContent.trim().length < 20) {
+        throw new Error("No se pudo extraer contenido significativo de la URL");
+      }
+
+      fileContent = urlContent;
+    } catch (urlError: any) {
+      throw new AppError(`Error extrayendo URL: ${urlError.message}`, 400);
     }
   }
 
   const document = await KnowledgeBaseService.createDocument(companyId, {
     title: title.trim(),
     sourceType,
-    content: fileContent,
+    content: fileContent || undefined,
     filePath,
     sourceUrl
   });
