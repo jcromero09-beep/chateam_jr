@@ -28,6 +28,14 @@ import { FlowBuilderModel } from "../../models/FlowBuilder";
 import { FlowCampaignModel } from "../../models/FlowCampaign";
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
 
+// MessageRegistry para coordinación entre nodos
+import {
+  getPendingMessage,
+  unregisterPendingMessage,
+  getNodePort,
+  getCurrentNodeId
+} from "../../libs/messageRegistry";
+
 import { getIO } from "../../libs/socket";
 import formatBody from "../../helpers/Mustache";
 import { head, isNil, isNull } from "lodash";
@@ -524,82 +532,82 @@ const flowbuilderIntegration = async (
   const body = getTextFromMetaMessage(metaMsg);
   await ticket.update({ lastMessage: body });
 
-  // 1) Bienvenida si es primera
-  if (isFirstMsg) {
-    const flow = await FlowBuilderModel.findOne({
-      where: { id: whatsapp.flowIdWelcome }
-    });
-    if (flow) {
-      const nodes: INodes[] = flow.flow["nodes"];
-      const connections: IConnections[] = flow.flow["connections"];
-      const mountDataContact = {
-        number: contact.number,
-        name: contact.name,
-        email: contact.email
-      };
+  const bodyNorm = normalizeText(body || "");
+  const isInFlow = !!ticket?.flowWebhook;
 
+  const mountDataContact = {
+    number: contact.number,
+    name: contact.name,
+    email: contact.email
+  };
+
+  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
+  const listPhrase = await FlowCampaignModel.findAll({
+    where: { whatsappId: whatsapp.id }
+  });
+
+  const flowDispar = listPhrase.find(i =>
+    bodyNorm.includes(normalizeText(i.phrase))
+  );
+
+  if (flowDispar) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId } });
+    if (flow) {
+      console.log("[FlowBuilder-Meta] Prioridad 1: Palabra clave →", flowDispar.phrase);
       await ActionsWebhookMetaService(
-        whatsapp,
-        whatsapp.flowIdWelcome,
-        ticket.companyId,
-        nodes,
-        connections,
+        whatsapp, flowDispar.flowId, ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
         flow.flow["nodes"][0].id,
-        null,
-        "",
-        "",
-        null,
-        ticket.id,
-        mountDataContact
+        null, "", "", null, ticket.id, mountDataContact
       );
     }
+    return; // ← SALIR
   }
 
-  // 2) Not-phrase por tiempo
-  const dateTicket = new Date(isFirstMsg ? isFirstMsg.updatedAt : "");
-  const diffMs = Math.abs(differenceInMilliseconds(dateTicket, new Date()));
-  const thresholdMs = 2 * 1000;
-
-  if (!ticket.fromMe && isFirstMsg && diffMs >= thresholdMs) {
-    const listPhrase = await FlowCampaignModel.findAll({
-      where: { whatsappId: whatsapp.id }
-    });
-
-    const bodyNorm = normalizeText(body);
-    const flowDispar = listPhrase.find(i =>
-      bodyNorm.includes(normalizeText(i.phrase))
-    );
-
-    if (flowDispar) {
-      const flow = await FlowBuilderModel.findOne({
-        where: { id: flowDispar.flowId }
-      });
-      if (flow) {
-        const nodes: INodes[] = flow.flow["nodes"];
-        const connections: IConnections[] = flow.flow["connections"];
-        const mountDataContact = {
-          number: contact.number,
-          name: contact.name,
-          email: contact.email
-        };
-
-        await ActionsWebhookMetaService(
-          whatsapp,
-          whatsapp.flowIdNotPhrase, // igual que tu FB
-          ticket.companyId,
-          nodes,
-          connections,
-          flow.flow["nodes"][0].id,
-          null,
-          "",
-          "",
-          null,
-          ticket.id,
-          mountDataContact
-        );
-      }
-      return;
+  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
+  if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped } });
+    if (flow) {
+      console.log("[FlowBuilder-Meta] Prioridad 2: Continuación flujo activo");
+      await ActionsWebhookMetaService(
+        whatsapp, parseInt(ticket.flowStopped), ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        String(ticket.lastFlowId),
+        null, "", "", body, ticket.id, mountDataContact
+      );
     }
+    return; // ← SALIR
+  }
+
+  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
+  // isFirstMsg = Ticket object (existe ticket previo) en Meta/FB
+  if (isFirstMsg && whatsapp.flowIdWelcome) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdWelcome } });
+    if (flow) {
+      console.log("[FlowBuilder-Meta] Prioridad 3: Contacto con ticket → flowIdWelcome");
+      await ActionsWebhookMetaService(
+        whatsapp, whatsapp.flowIdWelcome, ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        flow.flow["nodes"][0].id,
+        null, "", "", null, ticket.id, mountDataContact
+      );
+    }
+    return; // ← SALIR
+  }
+
+  // ─── PRIORIDAD 4: CONTACTO SIN TICKET PREVIO → flowIdNotPhrase ───
+  if (!isFirstMsg && whatsapp.flowIdNotPhrase) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdNotPhrase } });
+    if (flow) {
+      console.log("[FlowBuilder-Meta] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
+      await ActionsWebhookMetaService(
+        whatsapp, whatsapp.flowIdNotPhrase, ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        flow.flow["nodes"][0].id,
+        null, "", "", null, ticket.id, mountDataContact
+      );
+    }
+    return; // ← SALIR
   }
 };
 
@@ -740,25 +748,28 @@ export const handleMetaWebhookMessage = async (body: any) => {
         const messages = value?.messages || [];
         const statuses = value?.statuses || [];
 
-        // ===== PROCESAR STATUSES (confirmaciones de envío) =====
-        // Cuando Meta confirma que el mensaje fue enviado (sent/delivered), actualizamos el wid del mensaje
+        // ═══════════════════════════════════════════════════════════════════
+        // 🔗 PROCESAR STATUSES (confirmaciones de envío) CON REDIS COORDINATION
+        // ═══════════════════════════════════════════════════════════════════
         if (statuses.length > 0) {
           logInfo(`[META] ℹ️ Procesando ${statuses.length} statuses de Meta`);
           for (const status of statuses) {
             try {
               const wamid = status.id; // El message_id de Meta
               const statusType = status.status; // "sent", "delivered", "failed", etc.
+              const recipientPhone = status.recipient_id;
 
-              logInfo(`[META] 📊 Status update: wamid=${wamid}, status=${statusType}, recipient=${status.recipient_id}`);
+              logInfo(`[META] 📊 Status update: wamid=${wamid}, status=${statusType}, recipient=${recipientPhone}`);
 
-              if (statusType === 'sent' || statusType === 'delivered') {
-                // Buscar mensaje por PENDING_xxx Y número de teléfono del destinatario
-                // El wid actual es PENDING_<externalId> pero necesitamos encontrarlo por teléfono
-                const recipientPhone = status.recipient_id;
+              if (statusType === 'sent' || statusType === 'delivered' || statusType === 'read') {
                 const { Op } = require('sequelize');
 
-                // Buscar el mensaje más reciente con wid PENDING para este companyId
-                // Meta envía statuses en orden cronológico, así que el más reciente es el correcto
+                // ═══════════════════════════════════════════════════════════
+                // ESTRATEGIA: Primero buscar por wamid en Redis
+                // Si no está en Redis, buscar por PENDING en BD (compatibilidad hacia atrás)
+                // ═══════════════════════════════════════════════════════════
+
+                // 1) Buscar mensaje PENDING por número de teléfono en Redis
                 const pendingMessages = await Message.findAll({
                   where: {
                     mediaType: "template",
@@ -770,16 +781,64 @@ export const handleMetaWebhookMessage = async (body: any) => {
                   limit: 1
                 });
 
-                logInfo(`[META] 🔍 Buscando mensaje PENDING para companyId=${whatsapp.companyId}, encontrados=${pendingMessages.length}, phone=${recipientPhone}`);
-
                 if (pendingMessages.length > 0) {
-                  // Actualizar el más reciente
                   const msg = pendingMessages[0];
+                  const pendingWid = msg.wid;
                   const oldWid = msg.wid;
+
+                  // ═══════════════════════════════════════════════════════════
+                  // Verificar si este nodo es el propietario del mensaje en Redis
+                  // ═══════════════════════════════════════════════════════════
+                  const msgRegistry = await getPendingMessage(pendingWid);
+                  const currentNode = getCurrentNodeId();
+
+                  if (msgRegistry && msgRegistry.nodeId !== currentNode) {
+                    // ═══════════════════════════════════════════════════════════
+                    // 🔀 ROUTING: El mensaje pertenece a OTRO nodo
+                    // Enviar HTTP POST al nodo correcto
+                    // ═══════════════════════════════════════════════════════════
+                    const targetPort = getNodePort(msgRegistry.nodeId);
+                    if (targetPort) {
+                      logInfo(`[META] 🔀 Routing: wid=${pendingWid} pertenece a ${msgRegistry.nodeId}, enviando a localhost:${targetPort}`);
+
+                      try {
+                        const routeResponse = await axios.post(
+                          `http://localhost:${targetPort}/internal/msg-status`,
+                          { wid: pendingWid, status: statusType, wamid, metadata: status },
+                          { timeout: 5000 }
+                        );
+
+                        logInfo(`[META] ✅ Routing exitoso a ${msgRegistry.nodeId}: ${routeResponse.data}`);
+                        continue; // Ir al siguiente status
+                      } catch (routeErr: any) {
+                        logError(`[META] ❌ Routing falló a ${msgRegistry.nodeId}: ${routeErr.message}`);
+                        // Continuar con procesamiento local como fallback
+                      }
+                    } else {
+                      logWarn(`[META] ⚠️ Nodo ${msgRegistry.nodeId} no tiene puerto registrado, procesando localmente`);
+                    }
+                  }
+
+                  // ═══════════════════════════════════════════════════════════
+                  // 🖥️ PROCESAMIENTO LOCAL: Este nodo tiene el mensaje
+                  // ═══════════════════════════════════════════════════════════
+
+                  // Actualizar wid del mensaje
                   await msg.update({ wid: wamid });
-                  logInfo(`[META] ✅ Message ${msg.id} updated: wid=${oldWid} -> ${wamid} (status: ${statusType})`);
+
+                  // Actualizar dataJson con el nuevo wid y status
+                  const dataJson = JSON.parse(msg.dataJson || '{}');
+                  dataJson.metaMessageId = wamid;
+                  dataJson.status = statusType;
+                  dataJson.statusUpdatedAt = new Date().toISOString();
+                  await msg.update({ dataJson: JSON.stringify(dataJson) });
+
+                  logInfo(`[META] ✅ Message ${msg.id} updated: wid=${oldWid} -> ${wamid} (status: ${statusType}) | nodo=${currentNode}`);
+
+                  // Eliminar del registry
+                  await unregisterPendingMessage(pendingWid);
                 } else {
-                  logInfo(`[META] ℹ️ No se encontró mensaje PENDING para phone=${recipientPhone}`);
+                  logInfo(`[META] ℹ️ No se encontró mensaje PENDING para phone=${recipientPhone} (puede que ya haya sido actualizado)`);
                 }
               }
             } catch (statusErr) {
@@ -919,7 +978,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
             // ═══════════════════════════════════════════════════════════════
 
             // 1. SUPERVISOR AI: Si promptId === 999 → ejecutar orquestador
-            const hasSupervisorAI = whatsapp.promptId === 999;
+            const hasSupervisorAI = whatsapp.useAIOrchestrator === true;
 
             if (hasSupervisorAI) {
               logInfo(`[SupervisorAI] 🔍 INICIO - promptId=${whatsapp.promptId}, ticketId=${ticket.id}, isBot=${ticket.isBot}, status=${ticket.status}, userId=${ticket.userId}`);
@@ -1051,8 +1110,8 @@ export const handleMetaWebhookMessage = async (body: any) => {
                   }
                 }
 
-                if (!ticket.useIntegration) {
-                  await ticket.update({ useIntegration: true });
+                if (ticket.aiStatus !== 'active') {
+                  await ticket.update({ aiStatus: 'active' });
                 }
 
                 logInfo(`[SupervisorAI] ✅ Completado: agente=${aiResponse.agentUsed}, intent=${aiResponse.intent}`);
@@ -1064,7 +1123,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
                 const accessTokenErr = whatsapp.tokenMeta;
                 await new Promise(resolve => setTimeout(resolve, 2500));
                 await sendTextDynamic(contact.number.replace("+",""), "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", phoneNumberIdErr, accessTokenErr);
-                await ticket.update({ useIntegration: false, status: "pending" });
+                await ticket.update({ aiStatus: 'handoff', status: "pending" });
                 return;
               }
             }

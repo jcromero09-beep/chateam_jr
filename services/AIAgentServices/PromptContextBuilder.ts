@@ -70,6 +70,18 @@ const buildSupervisorContext = async (
     sections.push(`## 🏢 CONTEXTO DE LA EMPRESA\n*(No disponible)*`);
   }
 
+  // ── 1b. DATOS DEL CLIENTE ────────────────────────────────────────────
+  if (contactInfo && Object.keys(contactInfo).length > 0) {
+    const ci = contactInfo as Record<string, any>;
+    const contactParts: string[] = [];
+    if (ci.name) contactParts.push(`**Nombre:** ${ci.name}`);
+    if (ci.email) contactParts.push(`**Email:** ${ci.email}`);
+    if (ci.number) contactParts.push(`**Teléfono:** ${ci.number}`);
+    if (contactParts.length > 0) {
+      sections.push(`## 👤 CLIENTE ACTUAL\n${contactParts.join(" | ")}\n*Usa el nombre del cliente en la conversación.*`);
+    }
+  }
+
   // ── 2. ESTADO DEL TICKET (Kanban + Tags) ───────────────────────────
   if (ticketId) {
     try {

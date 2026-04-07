@@ -37,7 +37,8 @@ const ShowTicketUUIDService = async (uuid: string,
       "userId",
       "amountUsedBotQueuesNPS",
       "lgpdSendMessageAt",
-      "isBot"
+      "isBot",
+      "aiStatus"
     ],
     include: [
       {

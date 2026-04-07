@@ -57,9 +57,32 @@ export interface ClassificationResult {
 const quickClassify = (input: string): ClassificationResult | null => {
   const lower = input.toLowerCase().trim();
 
-  // Saludos
+  // Saludos — SOLO si es saludo PURO (sin pregunta ni contenido sustantivo)
   const greetings = ['hola', 'buenos días', 'buenas tardes', 'buenas noches', 'hi', 'hello', 'hey', 'buen día'];
-  if (greetings.some(g => lower.startsWith(g)) && lower.split(/\s+/).length <= 4) {
+
+  // Detectar si el mensaje contiene una pregunta o contenido que requiere RAG/LLM
+  const hasQuestion = lower.includes('?');
+  const substantiveWords = [
+    'tienes', 'tienen', 'tenés', 'cuanto', 'cuánto', 'cuantos', 'cuántos',
+    'donde', 'dónde', 'como', 'cómo', 'hay', 'vendes', 'venden', 'vende',
+    'precio', 'precios', 'cuesta', 'cuestan', 'vale', 'valen',
+    'disponible', 'disponibles', 'stock', 'existencia',
+    'horario', 'horarios', 'abierto', 'abierta', 'abre', 'abren', 'cierra', 'cierran',
+    'envio', 'envío', 'envios', 'envíos', 'delivery', 'despacho',
+    'cual', 'cuál', 'cuales', 'cuáles', 'que', 'qué',
+    'cuando', 'cuándo', 'quien', 'quién', 'quienes', 'quiénes',
+    'necesito', 'busco', 'quiero', 'quisiera', 'podría', 'puede', 'pueden',
+    'ofrecen', 'ofreces', 'manejan', 'manejas', 'trabajan', 'trabajas',
+    'servicio', 'servicios', 'producto', 'productos', 'catalogo', 'catálogo',
+    'información', 'informacion', 'info', 'datos', 'cotización', 'cotizacion',
+    'promoción', 'promocion', 'oferta', 'ofertas', 'descuento', 'descuentos',
+    'garantía', 'garantia', 'devolución', 'devolucion', 'cambio', 'cambios'
+  ];
+  const hasSubstantiveContent = substantiveWords.some(w => lower.includes(w));
+
+  if (greetings.some(g => lower.startsWith(g)) && lower.split(/\s+/).length <= 4
+      && !hasQuestion && !hasSubstantiveContent) {
+    logger.info(`[RouterAgent] Clasificación rápida: greeting puro (sin pregunta)`);
     return {
       intent: 'greeting',
       confidence: 0.95,

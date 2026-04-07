@@ -84,11 +84,11 @@ const FindOrCreateTicketService = async (
       })
       // console.log("  📢 Ticket actualizado para campaña");
     } else {
-      // Si promptId === 999 (orquestador), preservar isBot para que responda la IA
+      // Si useAIOrchestrator = true, preservar isBot para que responda la IA
       // Si no, forzar isBot = false para comportamiento normal con chatbots
       await ticket.update({
         unreadMessages,
-        ...(whatsapp.promptId !== 999 && { isBot: false })
+        ...(!whatsapp.useAIOrchestrator && { isBot: false })
       });
     }
 

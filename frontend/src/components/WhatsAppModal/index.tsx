@@ -120,6 +120,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
     collectiveVacationStart: "",
     collectiveVacationMessage: "",
     promptId: null as number | null,
+    useAIOrchestrator: false,
     integrationId: null as number | null,
   });
 
@@ -222,6 +223,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
         collectiveVacationStart: data.collectiveVacationStart || "",
         collectiveVacationMessage: data.collectiveVacationMessage || "",
         promptId: data.promptId || null,
+        useAIOrchestrator: data.useAIOrchestrator || false,
         integrationId: data.integrationId || null,
       });
       setAutoToken(data.token || generateRandomCode(30));
@@ -843,26 +845,22 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
                 </Select>
               </FormControl>
 
-              <FormControl>
-                <FormLabel>Agentes IA</FormLabel>
-                <Select
-                  value={formData.promptId !== null && formData.promptId !== undefined ? String(formData.promptId) : ""}
-                  onChange={(_, v) => {
-                    const strValue = v as string;
-                    const newValue = strValue ? parseInt(strValue, 10) : null;
+              <FormControl orientation="horizontal" sx={{ justifyContent: "space-between", alignItems: "center" }}>
+                <FormLabel>Orquestador IA</FormLabel>
+                <Switch
+                  checked={formData.useAIOrchestrator}
+                  onChange={(e) => {
+                    const isActive = e.target.checked;
                     setFormData({
                       ...formData,
-                      promptId: newValue,
-                      // Limpiar flujo cuando se selecciona agente IA
-                      integrationId: newValue ? null : formData.integrationId
+                      useAIOrchestrator: isActive,
+                      // Mutuamente excluyente: si activa orquestador → limpiar flujo
+                      integrationId: isActive ? null : formData.integrationId,
+                      promptId: null
                     });
                   }}
-                  placeholder="Seleccionar agente"
-                >
-                  <Option value="">Ninguno</Option>
-                  {/* Solo mostrar Orquestador - los demás agentes se gestionan desde el SupervisorService */}
-                  <Option value="999">Orquestador IA</Option>
-                </Select>
+                  color={formData.useAIOrchestrator ? "primary" : "neutral"}
+                />
               </FormControl>
 
               <Divider />

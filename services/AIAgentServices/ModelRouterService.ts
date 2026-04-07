@@ -105,7 +105,7 @@ export async function selectModel(
   const maxPrice = tierPriceRanges[tier].maxPrice;
 
   const entity = await AIEntity.findOne({
-    where: { type: 'chat', status: 'active' },
+    where: { type: 'text', status: 'active' },
     order: [
       ["inputPrice", "ASC"],
       ["maxTokens", "DESC"]

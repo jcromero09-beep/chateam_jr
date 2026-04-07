@@ -278,141 +278,88 @@ const flowbuilderIntegration = async (
   message: any,
 ) => {
 
-  //console.log("======================================")
-  //console.log("|      flowbuilderIntegration        |")
-  //console.log("======================================")
+  await ticket.update({ lastMessage: message.text });
 
-
-  await ticket.update({
-    lastMessage: message.text,
-  });
-
-
-  if (
-    isFirstMsg
-  ) {
-    //console.log('getSession.flowIdWelcome',getSession.flowIdWelcome)
-
-    const flow = await FlowBuilderModel.findOne({
-      where: {
-        id: getSession.flowIdWelcome
-      }
-    });
-    //console.log('flow',                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                flow.id)
-
-    if (flow) {
-
-      const nodes: INodes[] = flow.flow["nodes"];
-      const connections: IConnections[] = flow.flow["connections"];
-
-      const mountDataContact = {
-        number: contact.number,
-        name: contact.name,
-        email: contact.email
-      };
-
-      await ActionsWebhookFacebookService(
-        getSession,
-        getSession.flowIdWelcome,
-        ticket.companyId,
-        nodes,
-        connections,
-        flow.flow["nodes"][0].id,
-        null,
-        "",
-        "",
-        null,
-        ticket.id,
-        mountDataContact
-      )
-    }
-  }
-
-  //console.log("🔵 Verificando tiempo transcurrido desde la última actualización del ticket...");
-  const dateTicket = new Date(isFirstMsg ? isFirstMsg.updatedAt : "");
-  const dateNow = new Date();
-  const diferencaEmMilissegundos = Math.abs(
-    differenceInMilliseconds(dateTicket, dateNow)
-  );
-  const seisHorasEmMilissegundos = 2 * 1000;
-  //console.log(`⏳ Diferencia en milisegundos: ${diferencaEmMilissegundos}`);
-  if (
-    !ticket.fromMe &&
-    isFirstMsg &&
-    diferencaEmMilissegundos >= seisHorasEmMilissegundos
-  ) {
-    //console.log("🟡 Buscando flujo de 'flowIdNotPhrase'...", getSession);
-    // const flow = await FlowBuilderModel.findOne({
-    //   where: {
-    //     id: getSession.flowIdNotPhrase
-    //   }
-    // });
-
-    const listPhrase = await FlowCampaignModel.findAll({
-      where: {
-        whatsappId: getSession.id
-      }
-    });
-    //console.log('listPhrase', listPhrase)
-    const normalizeText = (text: string): string => {
-      return text
-        .normalize("NFD") // Descompone caracteres acentuados en base + tilde
-        .replace(/[\u0300-\u036f]/g, "") // Elimina las tildes
-        .toLowerCase() // Convierte todo a minúsculas
-        .trim(); // Elimina espacios en los extremos
-    };
-    // Normaliza el mensaje recibido
-    const messageNormalized = normalizeText(message.text);
-    const flowDispar = listPhrase.find(item => messageNormalized.includes(normalizeText(item.phrase)));
-    //console.log('flowDispar', flowDispar, 'message.text', message.text)
-    //  if (listPhrase.filter(item => item.phrase === message.text).length !== 0) {
-    if (flowDispar) {
-      //console.log("🟢 Frase encontrada en FlowCampaignModel. Ejecutando flujo... ", message.text);
-      // ✅ Busca en FlowCampaignModel si la frase coincide con flujos predefinidos y los ejecuta
-      // const flowDispar = listPhrase.filter(item => item.phrase === message.text)[0];
-      // const flowDispar = listPhrase.find(item => message.text.toLowerCase().includes(item.phrase.toLowerCase()));
-
-      const flow = await FlowBuilderModel.findOne({
-        where: {
-          id: flowDispar.flowId
-        }
-      });
-
-
-      if (flow) {
-        //console.log("✅ Flujo 'flowIdNotPhrase' encontrado. Ejecutando acciones...");
-        const nodes: INodes[] = flow.flow["nodes"];
-        const connections: IConnections[] = flow.flow["connections"];
-
-        const mountDataContact = {
-          number: contact.number,
-          name: contact.name,
-          email: contact.email
-        };
-
-        await ActionsWebhookFacebookService(
-          getSession,
-          getSession.flowIdNotPhrase,
-          ticket.companyId,
-          nodes,
-          connections,
-          flow.flow["nodes"][0].id,
-          null,
-          "",
-          "",
-          null,
-          ticket.id,
-          mountDataContact
-        );
-      }
-      return; // 🔚 Se detiene aquí si la frase coincide con un flujo
-    }
-
-    //console.log("⚠️ No se encontró coincidencia en frases predefinidas.");
-
+  const normalizeText = (text: string): string => {
+    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
   };
 
+  const messageNormalized = normalizeText(message.text || "");
+  const isInFlow = !!ticket?.flowWebhook;
 
+  const mountDataContact = {
+    number: contact.number,
+    name: contact.name,
+    email: contact.email
+  };
+
+  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
+  const listPhrase = await FlowCampaignModel.findAll({
+    where: { whatsappId: getSession.id }
+  });
+
+  const flowDispar = listPhrase.find(item =>
+    messageNormalized.includes(normalizeText(item.phrase))
+  );
+
+  if (flowDispar) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId } });
+    if (flow) {
+      console.log("[FlowBuilder-FB] Prioridad 1: Palabra clave →", flowDispar.phrase);
+      await ActionsWebhookFacebookService(
+        getSession, flowDispar.flowId, ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        flow.flow["nodes"][0].id,
+        null, "", "", null, ticket.id, mountDataContact
+      );
+    }
+    return; // ← SALIR
+  }
+
+  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
+  if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped } });
+    if (flow) {
+      console.log("[FlowBuilder-FB] Prioridad 2: Continuación flujo activo");
+      await ActionsWebhookFacebookService(
+        getSession, parseInt(ticket.flowStopped), ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        String(ticket.lastFlowId),
+        null, "", "", message.text, ticket.id, mountDataContact
+      );
+    }
+    return; // ← SALIR
+  }
+
+  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
+  if (isFirstMsg && getSession.flowIdWelcome) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdWelcome } });
+    if (flow) {
+      console.log("[FlowBuilder-FB] Prioridad 3: Contacto con ticket previo → flowIdWelcome");
+      await ActionsWebhookFacebookService(
+        getSession, getSession.flowIdWelcome, ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        flow.flow["nodes"][0].id,
+        null, "", "", null, ticket.id, mountDataContact
+      );
+    }
+    return; // ← SALIR
+  }
+
+  // ─── PRIORIDAD 4: CONTACTO EXISTENTE → flowIdNotPhrase ───
+  if (!isFirstMsg && getSession.flowIdNotPhrase) {
+    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdNotPhrase } });
+    if (flow) {
+      console.log("[FlowBuilder-FB] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
+      await ActionsWebhookFacebookService(
+        getSession, getSession.flowIdNotPhrase, ticket.companyId,
+        flow.flow["nodes"], flow.flow["connections"],
+        flow.flow["nodes"][0].id,
+        null, "", "", null, ticket.id, mountDataContact
+      );
+    }
+    return; // ← SALIR
+  }
 }
 
 export const handleMessage = async (
@@ -967,7 +914,7 @@ const contactName = contact?.name || "Cliente";
         // ═══════════════════════════════════════════════════════════════
 
         // 1. SUPERVISOR AI: Si promptId === 999 → ejecutar orquestador
-        const hasSupervisorAI = getSession.promptId === 999;
+        const hasSupervisorAI = getSession.useAIOrchestrator === true;
 
         if (hasSupervisorAI) {
           console.log(`[DEBUG-SUPERVISOR-FB] Ejecutando SupervisorAI - promptId: ${getSession.promptId}`);
@@ -1079,8 +1026,8 @@ const contactName = contact?.name || "Cliente";
               await sendText(contact.number, aiResponse.message, getSession.facebookUserToken);
             }
 
-            if (!ticket.useIntegration) {
-              await ticket.update({ useIntegration: true });
+            if (ticket.aiStatus !== 'active') {
+              await ticket.update({ aiStatus: 'active' });
             }
 
             logger.info(`[SupervisorAI-FB] ✅ Completado: agente=${aiResponse.agentUsed}, intent=${aiResponse.intent}`);
@@ -1088,7 +1035,7 @@ const contactName = contact?.name || "Cliente";
           } catch (err: any) {
             logger.error(`[SupervisorAI-FB] ❌ Error: ${err.message}`);
             await sendText(contact.number, "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", getSession.facebookUserToken);
-            await ticket.update({ useIntegration: false, status: "pending" });
+            await ticket.update({ aiStatus: 'handoff', status: "pending" });
           }
         }
 

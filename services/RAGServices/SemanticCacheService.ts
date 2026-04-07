@@ -93,12 +93,12 @@ class SemanticCacheService {
           response,
           "modelUsed",
           "agentUsed",
-          (1 - (embedding <=> :embedding::vector)) AS similarity
+          (1 - ("queryEmbedding" <=> :queryEmbedding::vector)) AS similarity
         FROM "${TABLE_NAME}"
         WHERE "companyId" = :companyId
           AND "expiresAt" > NOW()
-          AND (1 - (embedding <=> :embedding::vector)) >= :threshold
-        ORDER BY embedding <=> :embedding::vector ASC
+          AND (1 - ("queryEmbedding" <=> :queryEmbedding::vector)) >= :threshold
+        ORDER BY "queryEmbedding" <=> :queryEmbedding::vector ASC
         LIMIT 1
       `;
 
@@ -111,7 +111,7 @@ class SemanticCacheService {
         similarity: number;
       }>(sqlQuery, {
         replacements: {
-          embedding: embeddingStr,
+          queryEmbedding: embeddingStr,
           companyId,
           threshold
         },
@@ -177,7 +177,7 @@ class SemanticCacheService {
         INSERT INTO "${TABLE_NAME}" (
           "companyId",
           "queryText",
-          embedding,
+          "queryEmbedding",
           response,
           "modelUsed",
           "agentUsed",
@@ -190,7 +190,7 @@ class SemanticCacheService {
         ) VALUES (
           :companyId,
           :queryText,
-          :embedding::vector,
+          :queryEmbedding::vector,
           :response,
           :modelUsed,
           :agentUsed,
@@ -207,7 +207,7 @@ class SemanticCacheService {
         replacements: {
           companyId,
           queryText: query,
-          embedding: embeddingStr,
+          queryEmbedding: embeddingStr,
           response,
           modelUsed: meta.modelUsed,
           agentUsed: meta.agentUsed || null,

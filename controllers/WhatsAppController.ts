@@ -57,6 +57,7 @@ interface WhatsappData {
   timeCreateNewTicket?: number;
   schedules?: any[];
   promptId?: number;
+  useAIOrchestrator?: boolean;
   collectiveVacationMessage?: string;
   collectiveVacationStart?: string;
   collectiveVacationEnd?: string;
@@ -137,6 +138,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     timeCreateNewTicket,
     schedules,
     promptId,
+    useAIOrchestrator,
     collectiveVacationEnd,
     collectiveVacationMessage,
     collectiveVacationStart,
@@ -207,6 +209,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     timeCreateNewTicket,
     schedules,
     promptId,
+    useAIOrchestrator,
     collectiveVacationEnd,
     collectiveVacationMessage,
     collectiveVacationStart,

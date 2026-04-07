@@ -21,7 +21,7 @@ import QuickMessage from "../../models/QuickMessage";
 import logger from "../../utils/logger";
 
 const SERVICE_PREFIX = "[QuickReplySemanticService]";
-const DEFAULT_SIMILARITY_THRESHOLD = 0.75;
+const DEFAULT_SIMILARITY_THRESHOLD = 0.45;
 const MAX_RELEVANT_REPLIES = 5;
 
 export interface RelevantQuickReply {
@@ -30,6 +30,8 @@ export interface RelevantQuickReply {
   message: string;
   intent: string;
   similarity: number;
+  mediaPath?: string;
+  mediaName?: string;
 }
 
 /**
@@ -102,6 +104,8 @@ const findRelevant = async (
         shortcode,
         message,
         intent,
+        "mediaPath",
+        "mediaName",
         (1 - ("intentEmbedding" <=> :embedding::vector)) AS similarity
       FROM "QuickMessages"
       WHERE "companyId" = :companyId
@@ -119,6 +123,8 @@ const findRelevant = async (
       message: string;
       intent: string;
       similarity: number;
+      mediaPath: string | null;
+      mediaName: string | null;
     }>(sql, {
       replacements: {
         embedding: embeddingStr,
@@ -139,7 +145,9 @@ const findRelevant = async (
       shortcode: r.shortcode,
       message: r.message,
       intent: r.intent,
-      similarity: parseFloat(String(r.similarity))
+      similarity: parseFloat(String(r.similarity)),
+      mediaPath: r.mediaPath || undefined,
+      mediaName: r.mediaName || undefined
     }));
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -163,15 +171,17 @@ const buildSupervisorBlock = async (
   }
 
   const lines = [
-    `## ⚡ RESPUESTAS RÁPIDAS DISPONIBLES (usa solo si aplican)`,
-    `Usa SOLO la(s) que matcheen con el mensaje del cliente:`,
+    `## ⚡ RESPUESTAS RÁPIDAS DISPONIBLES`,
+    `La respuesta rápida más relevante se enviará automáticamente como imagen al cliente.`,
+    `Tu respuesta debe COMPLEMENTAR esa imagen, NO repetir lo mismo. Sé breve y ofrece el siguiente paso (precio, agenda, etc).`,
     ``
   ];
 
   relevant.forEach((qr, i) => {
     const matchLabel = qr.similarity >= 0.90 ? "🔴" : qr.similarity >= 0.80 ? "🟡" : "🟢";
+    const mediaTag = qr.mediaPath ? " [📷 Tiene imagen adjunta]" : "";
     lines.push(
-      `[${matchLabel} Opción ${i + 1}] /${qr.shortcode} — intención: "${qr.intent}"`,
+      `[${matchLabel} Opción ${i + 1}] /${qr.shortcode} — intención: "${qr.intent}"${mediaTag}`,
       `→ ${qr.message}`,
       ``
     );

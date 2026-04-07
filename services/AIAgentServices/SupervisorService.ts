@@ -14,6 +14,11 @@ import AIAgentConfig from "../../models/AIAgentConfig";
 import { add as addJob } from "../../queues";
 import logger from "../../utils/logger";
 
+// ─── NUEVOS SERVICIOS: Lenguaje Natural + Calidad de Respuesta ──────────
+import SentimentDetectionService, { SentimentResult } from "./SentimentDetectionService";
+import PreprocessingService, { ProcessedMessage } from "./PreprocessingService";
+import DynamicPromptBuilder, { ContactContext, CompanyContext } from "./DynamicPromptBuilder";
+
 /**
  * Supervisor Service — Orquestador central del sistema Multi-Agente
  *
@@ -39,6 +44,7 @@ export interface SupervisorRequest {
   contactInfo?: Record<string, unknown>;
   chatbotId?: number; // Si viene de un chatbot específico
   ticketContext?: string; // Contexto de tags del ticket (kanban + notas)
+  channel?: string; // Canal de origen: "whatsapp", "webchat", "facebook", "instagram", "telegram"
 }
 
 export interface SupervisorResponse {
@@ -52,21 +58,13 @@ export interface SupervisorResponse {
   totalLatencyMs: number;
   totalTokens: { input: number; output: number };
   creditsDeducted: number;
+  sentiment?: string; // positive | neutral | negative | frustrated
   metadata: Record<string, unknown>;
 }
 
-// Respuestas predefinidas para saludos y despedidas
-const greetingResponses = [
-  "¡Hola! 👋 Soy tu asistente de IA. ¿En qué puedo ayudarte hoy?",
-  "¡Buenos días! 😊 Estoy aquí para ayudarte. ¿Qué necesitas?",
-  "¡Hola! ¿Cómo puedo asistirte?"
-];
-
-const farewellResponses = [
-  "¡Gracias por contactarnos! Si necesitas algo más, no dudes en escribir. 👋",
-  "¡Fue un placer ayudarte! Que tengas un excelente día. 😊",
-  "¡Hasta pronto! Estoy disponible cuando me necesites."
-];
+// ─── SALUDOS Y DESPEDIDAS PERSONALIZADOS ────────────────────────────────
+// Se movieron a DynamicPromptBuilder.buildPersonalizedGreeting/Farewell
+// para usar el nombre del contacto cuando esté disponible.
 
 /**
  * Procesa un mensaje completo a través del sistema Multi-Agente
@@ -82,6 +80,39 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     `[Supervisor] Procesando: company=${companyId}, ticket=${ticketId}, ` +
     `msg="${message.substring(0, 80)}..."`
   );
+
+  // ─── PASO 0a: PREPROCESAMIENTO DEL MENSAJE ───────────────────────
+  const processedMsg: ProcessedMessage = PreprocessingService.process(
+    message, request.channel
+  );
+
+  // ─── PASO 0b: DETECCIÓN DE SENTIMIENTO ────────────────────────────
+  const sentimentResult: SentimentResult = SentimentDetectionService.analyze(
+    processedMsg.normalizedText
+  );
+
+  // Si frustración SEVERA → forzar escalado inmediato sin pasar por LLM
+  if (sentimentResult.shouldForceEscalate) {
+    logger.warn(
+      `[Supervisor] 🚨 Frustración severa detectada, forzando escalado: ` +
+      `patterns=[${sentimentResult.matchedPatterns.join(",")}]`
+    );
+    return {
+      message: "Entiendo tu frustración y lamento mucho esta situación. " +
+               "Voy a conectarte con uno de nuestros asesores ahora mismo " +
+               "para que te atiendan de forma personalizada. Un momento por favor... 🤝",
+      intent: "escalation",
+      agentUsed: "sentiment_escalation",
+      confidence: 0.98,
+      shouldEscalate: true,
+      escalationReason: `Frustración severa detectada: ${sentimentResult.matchedPatterns.join(", ")}`,
+      totalLatencyMs: Date.now() - startTime,
+      totalTokens: { input: 0, output: 0 },
+      creditsDeducted: 0,
+      sentiment: sentimentResult.sentiment,
+      metadata: { sentimentResult, processedMsg: { language: processedMsg.language, channel: processedMsg.channel } }
+    };
+  }
 
   // 🔍 TIMEOUT DE SEGURIDAD: 20 segundos máximo para todo el proceso
   const TIMEOUT_MS = 20000;
@@ -124,14 +155,29 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
       return buildErrorResponse(message, startTime);
     }
 
-    // 2. Manejar intenciones simples (greeting, farewell)
+    // 2. Manejar intenciones simples (greeting, farewell) — CON personalización
     if (classification.targetAgent === 'self') {
       const isGreeting = classification.intent === 'greeting';
-      const responses = isGreeting ? greetingResponses : farewellResponses;
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+      const contactCtx = contactInfo as ContactContext | undefined;
+
+      // Cargar info de empresa para saludos personalizados
+      let companyCtx: CompanyContext | undefined;
+      try {
+        const Company = require("../../models/Company").default;
+        const company = await Company.findByPk(companyId, {
+          attributes: ["name", "phone", "email"]
+        });
+        if (company) {
+          companyCtx = { name: company.name, phone: company.phone, email: company.email };
+        }
+      } catch { /* silenciar */ }
+
+      const personalizedResponse = isGreeting
+        ? DynamicPromptBuilder.buildPersonalizedGreeting(contactCtx, companyCtx)
+        : DynamicPromptBuilder.buildPersonalizedFarewell(contactCtx);
 
     return {
-      message: randomResponse,
+      message: personalizedResponse,
       intent: classification.intent,
       agentUsed: 'router',
       confidence: classification.confidence,
@@ -139,7 +185,8 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
       totalLatencyMs: Date.now() - startTime,
       totalTokens: { input: 0, output: 0 },
       creditsDeducted: 0,
-      metadata: { classification }
+      sentiment: sentimentResult.sentiment,
+      metadata: { classification, processedMsg: { language: processedMsg.language, channel: processedMsg.channel } }
     };
   }
 
@@ -170,6 +217,18 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     }
   }
 
+  // 2c. Buscar QuickReplies relevantes (para enviar media si tienen imagen)
+  let matchedQuickReplies: Array<{ id: number; shortcode: string; message: string; mediaPath?: string; mediaName?: string; similarity: number }> = [];
+  try {
+    const QuickReplySemanticService = require("./QuickReplySemanticService").default;
+    matchedQuickReplies = await QuickReplySemanticService.findRelevant(message, companyId);
+    if (matchedQuickReplies.length > 0) {
+      logger.info(`[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => q.shortcode).join(', ')}`);
+    }
+  } catch (qrError: any) {
+    logger.warn(`[Supervisor] Error buscando QuickReplies: ${qrError.message}`);
+  }
+
   // Enriquecer request con el contexto unificado
   const enrichedRequest = {
     ...request,
@@ -178,12 +237,15 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
 
   // 3. Despachar al agente especializado
   let agentResponse: SupervisorResponse;
+  logger.info(`[Supervisor] 🚀 Despachando a agente: ${classification.targetAgent} (intent=${classification.intent})`);
 
   switch (classification.targetAgent) {
     case 'rag':
+      logger.info(`[Supervisor] → RAGAgent: query="${message.substring(0, 80)}...", company=${companyId}`);
       agentResponse = await handleRAGAgent(
         message, companyId, ticketId, contactId, classification, startTime, enrichedRequest
       );
+      logger.info(`[Supervisor] ← RAGAgent resultado: confidence=${agentResponse.confidence}, sources=${agentResponse.sources?.length || 0}, shouldEscalate=${agentResponse.shouldEscalate}`);
       break;
 
     case 'support':
@@ -228,11 +290,24 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
       );
   }
 
-  // 4. Evaluar calidad — si confianza < 0.4, sugerir escalación
-  if (agentResponse.confidence < 0.4 && !agentResponse.shouldEscalate) {
-    agentResponse.message += "\n\n¿Esta información te fue útil? Si necesitas más ayuda, " +
-      "puedo transferirte a un agente humano.";
+  // 4. Evaluar calidad — considerar confianza + sentimiento
+  // Solo escalar o agregar disclaimer si la confianza es MUY baja (< 0.15)
+  // Confianzas entre 0.15-0.5 son normales para queries cortas con RAG
+  if (agentResponse.confidence < 0.15 && !agentResponse.shouldEscalate) {
+    // Si además hay frustración moderada, escalar directamente
+    if (sentimentResult.frustrationLevel >= 2) {
+      agentResponse.shouldEscalate = true;
+      agentResponse.escalationReason = "Baja confianza en respuesta + frustración detectada";
+      agentResponse.message += "\n\nVeo que no estoy resolviendo tu consulta como necesitas. " +
+        "Te voy a conectar con un asesor para que te ayude directamente.";
+    } else {
+      agentResponse.shouldEscalate = true;
+      agentResponse.escalationReason = "Confianza muy baja en respuesta RAG";
+    }
   }
+
+  // Inyectar sentiment en la respuesta para métricas
+  agentResponse.sentiment = sentimentResult.sentiment;
 
   // 5. Deducir créditos basado en tokens reales consumidos
   const tokensConsumed = (agentResponse.totalTokens.input || 0) + (agentResponse.totalTokens.output || 0);
@@ -299,9 +374,18 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     logger.warn(`[Supervisor] Error en log: ${logError.message}`);
   }
 
+  // Adjuntar SOLO el QuickReply más relevante con media (máximo 1 imagen por respuesta)
+  const bestQuickReply = matchedQuickReplies.find(qr => qr.mediaPath);
+  if (bestQuickReply) {
+    agentResponse.metadata.quickReplies = [bestQuickReply];
+    // Informar al LLM que se enviará la imagen para que no pregunte de nuevo
+    agentResponse.message += `\n\nTe envío la ficha con los detalles 👇`;
+  }
+
   logger.info(
     `[Supervisor] Completado: intent=${agentResponse.intent}, agent=${agentResponse.agentUsed}, ` +
     `confidence=${agentResponse.confidence.toFixed(2)}, escalate=${agentResponse.shouldEscalate}, ` +
+    `quickRepliesWithMedia=${matchedQuickReplies.filter(q => q.mediaPath).length}, ` +
     `latency=${agentResponse.totalLatencyMs}ms`
   );
 
@@ -330,7 +414,9 @@ async function handleRAGAgent(
         ticketId,
         contactId,
         chatbotId: request.chatbotId,
-        ticketContext: request.ticketContext
+        ticketContext: request.ticketContext,
+        channel: request.channel,
+        ticketHistory: request.ticketHistory
       }
     );
 
@@ -438,28 +524,47 @@ async function handleAgentWithTools(
     const AIClientService = require("../AIClientService").default;
 
     // 1. Cargar systemPrompt de BD
-    let systemPrompt = '';
+    let dbSystemPrompt: string | undefined;
     try {
       const agentConfig = await AIAgentConfig.findOne({ where: { slug: agentSlug } });
       if (agentConfig?.systemPrompt) {
-        systemPrompt = agentConfig.systemPrompt;
+        dbSystemPrompt = agentConfig.systemPrompt;
       }
     } catch (configErr: any) {
       logger.warn(`[Supervisor] No se pudo cargar config de BD para ${agentSlug}: ${configErr.message}`);
     }
 
-    // Fallback si no hay systemPrompt en BD
-    if (!systemPrompt) {
-      systemPrompt = `Eres un agente especializado de ${agentType} para un CRM omnicanal. ` +
-        `Responde en español, sé profesional y conciso. ` +
-        `Usa las herramientas disponibles cuando sea apropiado para ayudar al cliente.`;
-    }
+    // ─── NUEVO: Construir system prompt dinámico con identidad + reglas ───
+    // Detectar sentimiento y preprocesar (si no viene del Supervisor principal)
+    const localSentiment = SentimentDetectionService.analyze(message);
+    const localProcessed = PreprocessingService.process(message, request.channel);
+
+    // Cargar info de empresa
+    let companyCtx: CompanyContext | undefined;
+    try {
+      const Company = require("../../models/Company").default;
+      const company = await Company.findByPk(companyId, {
+        attributes: ["name", "phone", "email", "city"]
+      });
+      if (company) {
+        companyCtx = { name: company.name, phone: company.phone, email: company.email, city: company.city };
+      }
+    } catch { /* silenciar */ }
+
+    let systemPrompt = DynamicPromptBuilder.buildSystemPrompt({
+      agentIdentity: { agentType: agentType as any },
+      contactInfo: contactInfo as ContactContext | undefined,
+      companyInfo: companyCtx,
+      sentiment: localSentiment,
+      language: localProcessed.language,
+      channel: localProcessed.channel,
+      dbSystemPrompt,
+    });
 
     // Agregar instrucciones de tools al system prompt
     systemPrompt += `\n\nTienes acceso a herramientas para ejecutar acciones reales (agendar citas, consultar disponibilidad, enviar emails, etc.). ` +
       `Usa las herramientas cuando el cliente lo solicite o cuando sea apropiado. ` +
-      `IMPORTANTE: Cuando uses una herramienta, espera el resultado antes de responder al cliente. ` +
-      `Responde siempre en español y de forma amigable.`;
+      `IMPORTANTE: Cuando uses una herramienta, espera el resultado antes de responder al cliente.`;
 
     // 2. Construir mensajes con historial
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -476,12 +581,22 @@ async function handleAgentWithTools(
       }
     }
 
-    // Agregar contexto del contacto si existe
+    // Agregar contexto del contacto formateado (NO como JSON crudo)
     if (contactInfo && Object.keys(contactInfo).length > 0) {
-      messages.push({
-        role: 'system',
-        content: `Información del contacto: ${JSON.stringify(contactInfo)}`
-      });
+      const ci = contactInfo as Record<string, any>;
+      const contactLines: string[] = [];
+      if (ci.name) contactLines.push(`Nombre: ${ci.name}`);
+      if (ci.email) contactLines.push(`Email: ${ci.email}`);
+      if (ci.phone) contactLines.push(`Teléfono: ${ci.phone}`);
+      if (ci.plan) contactLines.push(`Plan: ${ci.plan}`);
+      if (ci.company) contactLines.push(`Empresa: ${ci.company}`);
+
+      if (contactLines.length > 0) {
+        messages.push({
+          role: 'system',
+          content: `Información del cliente:\n${contactLines.join("\n")}`
+        });
+      }
     }
 
     // Agregar el mensaje actual
@@ -500,12 +615,26 @@ async function handleAgentWithTools(
     const conversationMessages: any[] = [...messages];
 
     const MAX_TOOL_ITERATIONS = 3;
+    // max_tokens dinámico: WhatsApp=500, WebChat=1024, etc.
+    const dynamicMaxTokens = PreprocessingService.getMaxTokensForChannel(localProcessed.channel);
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      // 📤 Log del prompt enviado al LLM
+      logger.info(
+        `[Supervisor] 📤 Enviando al LLM (iter ${iteration + 1}): ` +
+        `${conversationMessages.length} mensajes, model=gpt-4.1-mini, company=${companyId}`
+      );
+
+      // Debug: mostrar system prompt y user message
+      const systemMsg = conversationMessages.find(m => m.role === 'system');
+      const userMsg = conversationMessages.find(m => m.role === 'user');
+      logger.debug(`[Supervisor] 📝 System prompt (${systemMsg?.content?.length || 0} chars): "${systemMsg?.content?.substring(0, 100)}..."`);
+      logger.debug(`[Supervisor] 📝 User message: "${userMsg?.content?.substring(0, 100)}..."`);
+
       const llmResponse = await AIClientService.chatCompletionWithTools({
         messages: conversationMessages,
         model: 'gpt-4.1-mini',
-        maxTokens: 1024,
+        maxTokens: dynamicMaxTokens,
         temperature: 0.4,
         companyId,
         tools: tools.length > 0 ? tools : undefined,
@@ -577,7 +706,7 @@ async function handleAgentWithTools(
       const finalResponse = await AIClientService.chatCompletion({
         messages: conversationMessages,
         model: 'gpt-4.1-mini',
-        maxTokens: 1024,
+        maxTokens: dynamicMaxTokens,
         temperature: 0.4,
         companyId
       });
@@ -596,10 +725,14 @@ async function handleAgentWithTools(
       totalLatencyMs: Date.now() - startTime,
       totalTokens,
       creditsDeducted: 0,
+      sentiment: localSentiment.sentiment,
       metadata: {
         classification,
         toolsUsed,
-        toolCallIterations: toolsUsed.length > 0 ? Math.ceil(toolsUsed.length) : 0
+        toolCallIterations: toolsUsed.length > 0 ? Math.ceil(toolsUsed.length) : 0,
+        language: localProcessed.language,
+        channel: localProcessed.channel,
+        frustrationLevel: localSentiment.frustrationLevel
       }
     };
   } catch (error: any) {

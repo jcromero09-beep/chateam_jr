@@ -221,6 +221,10 @@ class Whatsapp extends Model<Whatsapp> {
   @BelongsTo(() => Prompt)
   prompt: Prompt;
 
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  useAIOrchestrator: boolean;
+
   @Column(DataType.STRING)
   collectiveVacationMessage: string;
 

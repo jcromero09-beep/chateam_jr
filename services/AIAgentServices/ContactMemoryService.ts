@@ -54,19 +54,19 @@ const recall = async (
     const sql = `
       SELECT
         cm.id,
-        cm."contactId",
-        cm."companyId",
-        cm."memoryType",
+        cm.contact_id AS "contactId",
+        cm.company_id AS "companyId",
+        cm.memory_type AS "memoryType",
         cm.content,
         cm.confidence,
-        cm."sourceTicketId",
+        cm.source_ticket_id AS "sourceTicketId",
         cm.verified,
-        cm."createdAt",
-        cm."lastConfirmedAt",
+        cm.created_at AS "createdAt",
+        cm.last_confirmed_at AS "lastConfirmedAt",
         (1 - (cm.embedding <=> :embedding::vector)) AS similarity
       FROM contact_memory cm
-      WHERE cm."contactId" = :contactId
-        AND cm."companyId" = :companyId
+      WHERE cm.contact_id = :contactId
+        AND cm.company_id = :companyId
         AND cm.verified = true
         AND cm.embedding IS NOT NULL
         AND (1 - (cm.embedding <=> :embedding::vector)) >= 0.70

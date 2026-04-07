@@ -38,6 +38,7 @@ interface WhatsappData {
   integrationId?: number;
   schedules?: any[];
   promptId?: number;
+  useAIOrchestrator?: boolean;
   requestQR?: boolean;
   collectiveVacationMessage?: string;
   collectiveVacationStart?: string;
@@ -105,6 +106,7 @@ const UpdateWhatsAppService = async ({
     integrationId,
     schedules,
     promptId,
+    useAIOrchestrator,
     requestQR = false,
     collectiveVacationEnd,
     collectiveVacationMessage,
@@ -178,6 +180,7 @@ const UpdateWhatsAppService = async ({
     integrationId,
     schedules,
     promptId,
+    useAIOrchestrator,
     collectiveVacationEnd,
     collectiveVacationMessage,
     collectiveVacationStart,

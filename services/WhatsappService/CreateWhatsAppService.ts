@@ -44,6 +44,7 @@ interface Request {
   integrationId?: number;
   schedules?: any[];
   promptId?: number;
+  useAIOrchestrator?: boolean;
   collectiveVacationMessage?: string;
   collectiveVacationStart?: string;
   collectiveVacationEnd?: string;
@@ -95,6 +96,7 @@ const CreateWhatsAppService = async ({
   integrationId,
   schedules,
   promptId,
+  useAIOrchestrator,
   collectiveVacationEnd,
   collectiveVacationMessage,
   collectiveVacationStart,
@@ -230,6 +232,7 @@ const CreateWhatsAppService = async ({
       integrationId,
       schedules,
       promptId,
+      useAIOrchestrator,
       collectiveVacationEnd,
       collectiveVacationMessage,
       collectiveVacationStart,

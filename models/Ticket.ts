@@ -224,6 +224,10 @@ class Ticket extends Model<Ticket> {
 
   @Column(DataType.DATE)
   typebotSessionTime: Date;
+
+  @Default("inactive")
+  @Column(DataType.STRING(20))
+  aiStatus: string;
 }
 
 export default Ticket;

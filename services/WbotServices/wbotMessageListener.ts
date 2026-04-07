@@ -581,6 +581,69 @@ const getContactMessage = async (msg: proto.IWebMessageInfo, wbot: Session) => {
 
   if (msgKey.remoteJidAlt && msgKey.remoteJidAlt.includes("@s.whatsapp.net")) {
     remoteJidToUse = msgKey.remoteJidAlt;
+
+    // ========== CACHE LID→REAL para resoluciones futuras ==========
+    // Cuando tenemos remoteJidAlt, guardamos la relación en Redis
+    if (msg.key.remoteJid?.includes("@lid") && wbot?.id) {
+      const lidNumber = msg.key.remoteJid.split("@")[0];
+      try {
+        await cacheLayer.set(
+          `lid-resolve:${wbot.id}:${lidNumber}`,
+          remoteJidToUse,
+          "EX",
+          86400 * 30 // 30 días de TTL
+        );
+      } catch (e) {
+        // Silenciar errores de cache — no interrumpir flujo
+      }
+    }
+  } else if (msg.key.remoteJid?.includes("@lid") && !isGroup && wbot?.id) {
+    // ========== RESOLVER LID → NÚMERO REAL ==========
+    // Paso 1: Buscar en el lidMapping de Baileys (Redis auth state)
+    const lidNumber = msg.key.remoteJid.split("@")[0];
+    let resolved = false;
+
+    try {
+      // Baileys guarda: sessions:{whatsappId}:lid-mapping-{LID}_reverse → "593987009472"
+      const rawValue = await cacheLayer.get(
+        `sessions:${wbot.id}:lid-mapping-${lidNumber}_reverse`
+      );
+      if (rawValue) {
+        // El valor puede venir como JSON string ("593...") o string plano
+        const cleanNumber = rawValue.replace(/[^0-9]/g, "");
+        if (cleanNumber && cleanNumber.length >= 10 && cleanNumber.length <= 13) {
+          remoteJidToUse = `${cleanNumber}@s.whatsapp.net`;
+          resolved = true;
+          logger.info(
+            `[LID-RESOLVE] Baileys lidMapping: ${lidNumber}@lid → ${cleanNumber}@s.whatsapp.net (wbot:${wbot.id})`
+          );
+        }
+      }
+    } catch (e) {
+      // Silenciar — no interrumpir flujo de mensajes
+    }
+
+    // Paso 2: Fallback — buscar en nuestro cache propio (lid-resolve)
+    if (!resolved) {
+      try {
+        const cachedJid = await cacheLayer.get(`lid-resolve:${wbot.id}:${lidNumber}`);
+        if (cachedJid && cachedJid.includes("@s.whatsapp.net")) {
+          remoteJidToUse = cachedJid;
+          resolved = true;
+          logger.info(
+            `[LID-RESOLVE] Cache propio: ${lidNumber}@lid → ${cachedJid} (wbot:${wbot.id})`
+          );
+        }
+      } catch (e) {
+        // Silenciar
+      }
+    }
+
+    if (!resolved) {
+      logger.warn(
+        `[LID-UNRESOLVED] No se pudo resolver LID ${lidNumber}@lid para wbot:${wbot.id}. Se usará el LID como número.`
+      );
+    }
   }
 
   const rawNumber = remoteJidToUse.replace(/\D/g, "");
@@ -1219,7 +1282,8 @@ export const verifyMediaMessage = async (
           "userId",
           "amountUsedBotQueuesNPS",
           "lgpdSendMessageAt",
-          "isBot"
+          "isBot",
+          "aiStatus"
         ],
         include: [
           { model: Queue, as: "queue" },
@@ -1267,6 +1331,32 @@ export const verifyMessage = async (
   const quotedMsg = await verifyQuotedMessage(msg);
   const body = getBodyMessage(msg);
   const companyId = ticket.companyId;
+
+  // DEDUPLICACIÓN: Si el mensaje viene de WhatsApp (fromMe), verificar si ya existe
+  // un mensaje con wid "pending_xxx" para el mismo ticket y cuerpo. Esto evita duplicados
+  // cuando MessageController crea el mensaje primero (pending_xxx) y luego llega el
+  // mensaje real de WhatsApp con el ID verdadero.
+  let existingPendingMessage = null;
+  if (msg.key.fromMe && msg.key.id) {
+    existingPendingMessage = await Message.findOne({
+      where: {
+        ticketId: ticket.id,
+        body: body,
+        fromMe: true,
+        wid: { [Op.like]: 'pending_%' },
+        companyId
+      }
+    });
+    if (existingPendingMessage) {
+      console.log(`[verifyMessage] Mensaje pending previo ID=${existingPendingMessage.id}, actualizando wid a ${msg.key.id}`);
+      await existingPendingMessage.update({
+        wid: msg.key.id,
+        dataJson: JSON.stringify(msg),
+        messageStatus: 'sent',
+        sentAt: new Date()
+      });
+    }
+  }
 
   const messageData = {
     wid: msg.key.id,
@@ -3692,159 +3782,58 @@ const flowbuilderIntegration = async (
   const whatsapp = await ShowWhatsAppService(wbot.id!, companyId);
 
   const listPhrase = await FlowCampaignModel.findAll({
-    where: {
-      whatsappId: whatsapp.id
-    }
+    where: { whatsappId: whatsapp.id }
   });
-  // console.log('listPhrase',listPhrase)
 
-
-  if (
-    
-    !isFirstMsg &&
-    listPhrase.filter(item => item.phrase === body).length === 0
-    
-  ) {
-    const flow = await FlowBuilderModel.findOne({
-      where: {
-        id: whatsapp.flowIdWelcome
-      }
-    });
-    if (flow) {
-      const nodes: INodes[] = flow.flow["nodes"];
-      const connections: IConnections[] = flow.flow["connections"];
-
-      const mountDataContact = {
-        number: contact.number,
-        name: contact.name,
-        email: contact.email
-      };
-
-  // console.log('ActionsWebhookService', 1 )
-
-      await ActionsWebhookService(
-        whatsapp.id,
-        whatsapp.flowIdWelcome,
-        ticket.companyId,
-        nodes,
-        connections,
-        flow.flow["nodes"][0].id,
-        null,
-        "",
-        "",
-        null,
-        ticket.id,
-        mountDataContact,
-        msg
-      );
-    }
-  }
-  
-  // const dateTicket = new Date(
-  //   isFirstMsg?.updatedAt ? isFirstMsg.updatedAt : ""
-  // );
-  // const dateNow = new Date();
-  // const diferencaEmMilissegundos = Math.abs(
-  //   differenceInMilliseconds(dateTicket, dateNow)
-  // );
-  // const seisHorasEmMilissegundos =   10 * 1000; ;
-  // console.log("[NotPhrase]", {
-  //   difMs: diferencaEmMilissegundos,
-  //   ventanaMs: seisHorasEmMilissegundos,
-  //   sinFrase: listPhrase.filter(item => item.phrase === body).length === 0,
-  //   hasFirstMsg: !!isFirstMsg
-  // });
-  const noPhrase = listPhrase.filter(item => item.phrase === body).length === 0;
-const isInFlow = !!ticket?.flowWebhook;
-  
-  // if (
-  //   listPhrase.filter(item => item.phrase === body).length === 0 &&
-  //   diferencaEmMilissegundos >= seisHorasEmMilissegundos &&
-  //   isFirstMsg
-  // ) {
-    if (noPhrase && isFirstMsg && !isInFlow) {
-    // console.log("2427", "handleMessageIntegration");
-    // console.log( 'flowIdNotPhrase', whatsapp.flowIdNotPhrase);
-    const flow = await FlowBuilderModel.findOne({
-      where: {
-        id: whatsapp.flowIdNotPhrase
-      }
-    });
-
-    if (flow) {
-      const nodes: INodes[] = flow.flow["nodes"];
-      const connections: IConnections[] = flow.flow["connections"];
-
-      const mountDataContact = {
-        number: contact.number,
-        name: contact.name,
-        email: contact.email
-      };
-      console.log('ActionsWebhookService', 2 )
-      await ActionsWebhookService(
-        whatsapp.id,
-        whatsapp.flowIdNotPhrase,
-        ticket.companyId,
-        nodes,
-        connections,
-        flow.flow["nodes"][0].id,
-        null,
-        "",
-        "",
-        null,
-        ticket.id,
-        mountDataContact,
-        msg
-      );
-    }
-  }
   const normalizeText = (text: string): string => {
     return text
-      .normalize("NFD") // Descompone caracteres acentuados en base + tilde
-      .replace(/[\u0300-\u036f]/g, "") // Elimina las tildes
-      .toLowerCase() // Convierte todo a minúsculas
-      .trim(); // Elimina espacios en los extremos
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
   };
 
-   // const flowDispar = listPhrase.filter(item => item.phrase === body)[0];
-   const bodyNormalized = normalizeText(body);
+  const bodyNormalized = normalizeText(body);
+  const isInFlow = !!ticket?.flowWebhook;
 
-// Busca la primera frase que coincida parcialmente con el mensaje
-const flowDispar = listPhrase.find(item => bodyNormalized.includes(normalizeText(item.phrase)));
-// console.log('flowDispar',flowDispar)
-if (flowDispar) {
+  const mountDataContact = {
+    number: contact.number,
+    name: contact.name,
+    email: contact.email
+  };
+
+  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
+  // Siempre tiene prioridad máxima — usa normalización para coincidencia robusta
+  const flowDispar = listPhrase.find(item =>
+    bodyNormalized.includes(normalizeText(item.phrase))
+  );
+
+  if (flowDispar) {
     const flow = await FlowBuilderModel.findOne({
-      where: {
-        id: flowDispar.flowId
-      }
+      where: { id: flowDispar.flowId }
     });
-    const nodes: INodes[] = flow.flow["nodes"];
-    const connections: IConnections[] = flow.flow["connections"];
-
-    const mountDataContact = {
-      number: contact.number,
-      name: contact.name,
-      email: contact.email
-    };
-    console.log('ActionsWebhookService', 3 )
-    await ActionsWebhookService(
-      whatsapp.id,
-      flowDispar.flowId,
-      ticket.companyId,
-      nodes,
-      connections,
-      flow.flow["nodes"][0].id,
-      null,
-      "",
-      "",
-      null,
-      ticket.id,
-      mountDataContact
-    );
-    return;
+    if (flow) {
+      const nodes: INodes[] = flow.flow["nodes"];
+      const connections: IConnections[] = flow.flow["connections"];
+      console.log("[FlowBuilder] Prioridad 1: Palabra clave detectada →", flowDispar.phrase);
+      await ActionsWebhookService(
+        whatsapp.id,
+        flowDispar.flowId,
+        ticket.companyId,
+        nodes,
+        connections,
+        flow.flow["nodes"][0].id,
+        null, "", "", null,
+        ticket.id,
+        mountDataContact
+      );
+    }
+    return; // ← SALIR — solo 1 flujo por mensaje
   }
 
-  if (ticket.flowWebhook) {
+  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
+  // Si el usuario ya está dentro de un flujo (respondiendo menú/pregunta), continuar
+  if (isInFlow) {
     const webhook = await WebhookModel.findOne({
       where: {
         company_id: ticket.companyId,
@@ -3854,65 +3843,102 @@ if (flowDispar) {
 
     if (webhook && webhook.config["details"]) {
       const flow = await FlowBuilderModel.findOne({
-        where: {
-          id: webhook.config["details"].idFlow
-        }
+        where: { id: webhook.config["details"].idFlow }
       });
-      const nodes: INodes[] = flow.flow["nodes"];
-      const connections: IConnections[] = flow.flow["connections"];
-
-      console.log('ActionsWebhookService', 4 )
-      await ActionsWebhookService(
-        whatsapp.id,
-        webhook.config["details"].idFlow,
-        ticket.companyId,
-        nodes,
-        connections,
-        String(ticket.lastFlowId),
-        ticket.dataWebhook,
-        webhook.config["details"],
-        String(ticket.hashFlowId),
-        body,
-        ticket.id
-      );
-    } else {
-      const flow = await FlowBuilderModel.findOne({
-        where: {
-          id: ticket.flowStopped
-        }
-      });
-
-      const nodes: INodes[] = flow.flow["nodes"];
-      const connections: IConnections[] = flow.flow["connections"];
-
-      if (!ticket.lastFlowId) {
-        return;
+      if (flow) {
+        const nodes: INodes[] = flow.flow["nodes"];
+        const connections: IConnections[] = flow.flow["connections"];
+        console.log("[FlowBuilder] Prioridad 2: Continuación flujo activo (webhook)");
+        await ActionsWebhookService(
+          whatsapp.id,
+          webhook.config["details"].idFlow,
+          ticket.companyId,
+          nodes,
+          connections,
+          String(ticket.lastFlowId),
+          ticket.dataWebhook,
+          webhook.config["details"],
+          String(ticket.hashFlowId),
+          body,
+          ticket.id
+        );
       }
+    } else if (ticket.flowStopped && ticket.lastFlowId) {
+      const flow = await FlowBuilderModel.findOne({
+        where: { id: ticket.flowStopped }
+      });
+      if (flow) {
+        const nodes: INodes[] = flow.flow["nodes"];
+        const connections: IConnections[] = flow.flow["connections"];
+        console.log("[FlowBuilder] Prioridad 2: Continuación flujo activo (flowStopped)");
+        await ActionsWebhookService(
+          whatsapp.id,
+          parseInt(ticket.flowStopped),
+          ticket.companyId,
+          nodes,
+          connections,
+          String(ticket.lastFlowId),
+          null, "", "",
+          body,
+          ticket.id,
+          mountDataContact,
+          msg
+        );
+      }
+    }
+    return; // ← SALIR — solo 1 flujo por mensaje
+  }
 
-      const mountDataContact = {
-        number: contact.number,
-        name: contact.name,
-        email: contact.email
-      };
-
-    
-      console.log('ActionsWebhookService', 5 )
+  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
+  // isFirstMsg = null significa que NO existe ticket previo = contacto nuevo
+  if (!isFirstMsg && whatsapp.flowIdWelcome) {
+    const flow = await FlowBuilderModel.findOne({
+      where: { id: whatsapp.flowIdWelcome }
+    });
+    if (flow) {
+      const nodes: INodes[] = flow.flow["nodes"];
+      const connections: IConnections[] = flow.flow["connections"];
+      console.log("[FlowBuilder] Prioridad 3: Contacto NUEVO → flowIdWelcome");
       await ActionsWebhookService(
         whatsapp.id,
-        parseInt(ticket.flowStopped),
+        whatsapp.flowIdWelcome,
         ticket.companyId,
         nodes,
         connections,
-        String(ticket.lastFlowId),
-        null,
-        "",
-        "",
-        body,
+        flow.flow["nodes"][0].id,
+        null, "", "", null,
         ticket.id,
         mountDataContact,
         msg
       );
     }
+    return; // ← SALIR — solo 1 flujo por mensaje
+  }
+
+  // ─── PRIORIDAD 4: CONTACTO EXISTENTE → flowIdNotPhrase ───
+  // isFirstMsg = Ticket object significa que SÍ existe ticket previo = contacto conocido
+  if (isFirstMsg && whatsapp.flowIdNotPhrase) {
+    const flow = await FlowBuilderModel.findOne({
+      where: { id: whatsapp.flowIdNotPhrase }
+    });
+    if (flow) {
+      const nodes: INodes[] = flow.flow["nodes"];
+      const connections: IConnections[] = flow.flow["connections"];
+      console.log("[FlowBuilder] Prioridad 4: Contacto EXISTENTE → flowIdNotPhrase");
+      await ActionsWebhookService(
+        whatsapp.id,
+        whatsapp.flowIdNotPhrase,
+        ticket.companyId,
+        nodes,
+        connections,
+        flow.flow["nodes"][0].id,
+        null, "", "", null,
+        ticket.id,
+        mountDataContact,
+        msg
+      );
+    }
+    return; // ← SALIR — solo 1 flujo por mensaje
   }
 };
 export const handleMessageIntegration = async (
@@ -4063,9 +4089,21 @@ export const handleMessageIntegration = async (
     // Responde si: isBot !== false (incluye true y null)
     // - Si isBot = true → SIEMPRE responde (override)
     // - Si isBot = null o true → responde si no tiene userId o status open
+    // Flag para evitar doble respuesta: si ya se envió un mensaje IA, NO enviar fallback genérico
+    let responseSent = false;
     try {
       const body = getBodyMessage(msg);
       if (!body || body.trim().length === 0) return;
+
+      // ═══════════════════════════════════════════════════════════════
+      // PRIMERO: Marcar aiStatus='active' ANTES de procesar para evitar
+      // race conditions (otro mensaje entrante procesándose en paralelo)
+      // NO tocamos integrationId ni useIntegration — esos son para FlowBuilder
+      // ═══════════════════════════════════════════════════════════════
+      if (ticket.aiStatus !== 'active') {
+        await ticket.update({ aiStatus: 'active' });
+        logger.info(`[SupervisorAI] aiStatus=active marcado ANTES de procesar: ticket=${ticket.id}`);
+      }
 
       const SupervisorService = require("../AIAgentServices/SupervisorService").default;
 
@@ -4084,23 +4122,28 @@ export const handleMessageIntegration = async (
         `[SupervisorAI] Procesando msg empresa=${companyId} ticket=${ticket.id}: "${body.substring(0, 60)}..."`
       );
 
-      console.log("[SupervisorAI] Llamando al orquestador con mensaje:", body?.substring(0, 50));
       const aiResponse = await SupervisorService.processMessage({
         message: body,
         companyId,
         ticketId: ticket.id,
         contactId: contact?.id,
         whatsappId: whatsapp?.id,
-        ticketHistory
+        ticketHistory,
+        contactInfo: {
+          name: contact?.name || undefined,
+          number: contact?.number || undefined,
+          email: contact?.email || undefined
+        }
       });
 
-      console.log("[SupervisorAI] Respuesta - agente:", aiResponse.agentUsed, "confianza:", aiResponse.confidence);
-      console.log("[SupervisorAI] Mensaje respuesta:", aiResponse.message?.substring(0, 100));
+      logger.info(`[SupervisorAI] Respuesta - agente: ${aiResponse.agentUsed}, confianza: ${aiResponse.confidence}`);
 
       if (aiResponse.shouldEscalate) {
         // ═══════════════════════════════════════════════════════════════
         // Derivar a humano - buscar cola por defecto del WhatsApp
         // ═══════════════════════════════════════════════════════════════
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
         try {
           const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
 
@@ -4126,19 +4169,22 @@ export const handleMessageIntegration = async (
           const escalationMsg =
             "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️";
           await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: escalationMsg }, "text");
+          responseSent = true;
 
           logger.info(
             `[SupervisorAI] Escalado a humano: ticket=${ticket.id}, razón=${aiResponse.escalationReason}`
           );
         } catch (escalationError: any) {
           logger.error(`[SupervisorAI] Error en escalada: ${escalationError.message}`);
-          // Continuar con el flujo aunque falle la escalada
-          await sendMessageWithAntiBan(
-            wbot,
-            msg.key.remoteJid!,
-            { text: "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️" },
-            "text"
-          );
+          if (!responseSent) {
+            await sendMessageWithAntiBan(
+              wbot,
+              msg.key.remoteJid!,
+              { text: "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️" },
+              "text"
+            );
+            responseSent = true;
+          }
         }
       } else {
         // ═══════════════════════════════════════════════════════════════
@@ -4196,30 +4242,66 @@ export const handleMessageIntegration = async (
           logger.warn(`[SupervisorActions] Error guardando mensaje: ${actionError.message}`);
         }
 
-        // Enviar respuesta del agente IA (delay 2.5s para evitar anti-ban)
-        await new Promise(resolve => setTimeout(resolve, 2500));
+        // Enviar respuesta del agente IA (delay 1.5s para evitar anti-ban)
+        await new Promise(resolve => setTimeout(resolve, 1500));
         await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: aiResponse.message }, "text");
+        responseSent = true;
         logger.info(
           `[SupervisorAI] Respuesta enviada: ticket=${ticket.id}, agente=${aiResponse.agentUsed}, ` +
           `confianza=${aiResponse.confidence}, latencia=${aiResponse.totalLatencyMs}ms`
         );
-      }
 
-      // Marcar que está usando integración para que los siguientes mensajes sigan llegando aquí
-      if (!ticket.useIntegration) {
-        await ticket.update({ useIntegration: true, integrationId: queueIntegration.id });
+        // Enviar imágenes de QuickReplies matcheados (si tienen media)
+        const quickRepliesWithMedia = (aiResponse.metadata?.quickReplies || []) as Array<{
+          shortcode: string; message: string; mediaPath?: string; mediaName?: string;
+        }>;
+        if (quickRepliesWithMedia.length > 0) {
+          const path = require("path");
+          const fs = require("fs");
+          const publicDir = path.resolve(__dirname, "..", "..", "public");
+
+          for (const qr of quickRepliesWithMedia) {
+            if (!qr.mediaPath) continue;
+            const filePath = path.join(publicDir, `company${companyId}`, "quickMessage", qr.mediaPath);
+
+            if (fs.existsSync(filePath)) {
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              try {
+                await sendMessageWithAntiBan(
+                  wbot,
+                  msg.key.remoteJid!,
+                  { image: { url: filePath }, caption: qr.message || "" },
+                  "media"
+                );
+                logger.info(`[SupervisorAI] QuickReply media enviado: /${qr.shortcode} → ${qr.mediaName}`);
+              } catch (mediaErr: any) {
+                logger.warn(`[SupervisorAI] Error enviando media /${qr.shortcode}: ${mediaErr.message}`);
+              }
+            } else {
+              logger.warn(`[SupervisorAI] Archivo no encontrado: ${filePath}`);
+            }
+          }
+        }
       }
     } catch (err) {
       logger.error(`[SupervisorAI] Error procesando msg ticket=${ticket.id}: ${err.message}`);
-      // Fallback: no romper el flujo, enviar mensaje genérico (delay 2.5s para evitar anti-ban)
-      await new Promise(resolve => setTimeout(resolve, 2500));
-      await sendMessageWithAntiBan(
-        wbot,
-        msg.key.remoteJid!,
-        { text: "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏" },
-        "text"
-      );
-      await ticket.update({ useIntegration: false, status: "pending" });
+      // Solo enviar fallback genérico si NO se envió una respuesta IA previamente
+      if (!responseSent) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await sendMessageWithAntiBan(
+          wbot,
+          msg.key.remoteJid!,
+          { text: "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏" },
+          "text"
+        );
+      } else {
+        logger.warn(`[SupervisorAI] Respuesta ya fue enviada, NO se envía fallback duplicado: ticket=${ticket.id}`);
+      }
+      try {
+        await ticket.update({ aiStatus: 'handoff', status: "pending" });
+      } catch (updateErr: any) {
+        logger.error(`[SupervisorAI] Error actualizando ticket a pending: ${updateErr.message}`);
+      }
     }
     return;
   } else if (queueIntegration.type === "flowbuilder") {
@@ -4323,6 +4405,15 @@ const handleMessage = async (
 ): Promise<void> => {
   if (!isValidMsg(msg)) {
     return;
+  }
+
+  // 📥 Registrar mensaje entrante del cliente en anti-ban para calcular tiempo correctamente
+  if (!msg.key.fromMe && msg.messageTimestamp) {
+    const messageTimestampMs = getTimestampMessage(msg.messageTimestamp) * 1000;
+    const jid = msg.key.remoteJid;
+    if (jid) {
+      antiBanManager.registerIncomingMessage(jid, messageTimestampMs);
+    }
   }
 
   try {
@@ -5089,10 +5180,10 @@ const handleMessage = async (
 
     // console.log('por entrar 2')
 
-    console.log("DEBUG: Verificando integracion - ticket.isBot:", ticket.isBot, "whatsappId:", ticket.whatsappId, "integrationId:", ticket.whatsapp?.integrationId, "promptId:", ticket.whatsapp?.promptId, "useIntegration:", ticket.useIntegration);
+    logger.info(`[Integration] Verificando - isBot: ${ticket.isBot}, whatsappId: ${ticket.whatsappId}, useAIOrchestrator: ${ticket.whatsapp?.useAIOrchestrator}, integrationId: ${ticket.whatsapp?.integrationId}, aiStatus: ${ticket.aiStatus}, useIntegration: ${ticket.useIntegration}`);
 
     // ============================================================
-    // NUEVA LÓGICA: Solo SupervisorAI (promptId=999) o FlowBuilder (integrationId)
+    // LÓGICA: SupervisorAI (useAIOrchestrator=true) o FlowBuilder (integrationId)
     // ============================================================
 
     // 1. FLOWBUILDER: Si tiene integrationId → ejecutar flujo
@@ -5126,8 +5217,8 @@ const handleMessage = async (
       return;
     }
 
-    // 2. SUPERVISOR AI: Si promptId === 999 → ejecutar orquestador
-    const hasSupervisorAI = ticket.whatsapp?.promptId === 999;
+    // 2. SUPERVISOR AI: Si la conexión tiene useAIOrchestrator → ejecutar orquestador
+    const hasSupervisorAI = ticket.whatsapp?.useAIOrchestrator === true;
 
     if (
       !ticket.imported &&
@@ -5135,13 +5226,13 @@ const handleMessage = async (
       !ticket.isGroup &&
       !ticket.user &&
       hasSupervisorAI &&
-      !ticket.useIntegration
+      ticket.aiStatus !== 'handoff'
     ) {
-      console.log("🔍 [SupervisorAI] Ejecutando orquestador - promptId:", ticket.whatsapp?.promptId);
+      logger.info(`[SupervisorAI] Ejecutando orquestador - useAIOrchestrator=true, aiStatus=${ticket.aiStatus}`);
 
-      // Crear integración falsa para supervisor_ai
+      // Usar integración virtual para supervisor_ai (SIN id=999, no necesita FK)
       const supervisorIntegration = {
-        id: 999,
+        id: 0,
         name: "Orquestador IA",
         type: "supervisor_ai",
         companyId
@@ -5191,6 +5282,36 @@ const handleMessage = async (
     }
     */
 
+    // 3a. CONTINUACIÓN SUPERVISOR AI: si aiStatus='active', seguir procesando con orquestador
+    if (
+      !ticket.imported &&
+      !msg.key.fromMe &&
+      !ticket.isGroup &&
+      !ticket.userId &&
+      ticket.aiStatus === 'active' &&
+      hasSupervisorAI
+    ) {
+      const supervisorIntegration = {
+        id: 0,
+        name: "Orquestador IA",
+        type: "supervisor_ai",
+        companyId
+      } as QueueIntegrations;
+
+      await handleMessageIntegration(
+        msg,
+        wbot,
+        companyId,
+        supervisorIntegration,
+        ticket,
+        null,
+        whatsapp,
+        contact,
+        null
+      );
+    }
+
+    // 3b. CONTINUACIÓN FLOWBUILDER: solo si tiene integrationId REAL (FK válida) + useIntegration
     if (
       !ticket.imported &&
       !msg.key.fromMe &&
@@ -5204,8 +5325,6 @@ const handleMessage = async (
         companyId
       );
 
-      // console.log("3264");
-      // console.log("3257", { ticket });
       await handleMessageIntegration(
         msg,
         wbot,

@@ -66,7 +66,8 @@ const ShowTicketService = async (
         "isActiveDemand",
         "typebotSessionTime",
         "customerOriginId",
-        "followupEnabled"
+        "followupEnabled",
+        "aiStatus"
       ],
       include: [
         {
@@ -98,7 +99,7 @@ const ShowTicketService = async (
         {
           model: Whatsapp,
           as: "whatsapp",
-          attributes: ["id", "name", "groupAsTicket", "greetingMediaAttachment", "facebookUserToken", "facebookUserId", "status", "promptId", "integrationId"]
+          attributes: ["id", "name", "groupAsTicket", "greetingMediaAttachment", "facebookUserToken", "facebookUserId", "status", "promptId", "integrationId", "useAIOrchestrator"]
         },
         {
           model: Telegram,

@@ -49,13 +49,23 @@ class SupervisorActionsService {
     let agentLogId: number | undefined;
 
     try {
+      // Usar wid con prefijo "pending_ai_" para que el eco de Baileys
+      // lo encuentre vía deduplicación (wid LIKE 'pending_%') y actualice
+      // en vez de crear un mensaje duplicado
+      const pendingWid = `pending_ai_${Date.now()}`;
+
       const message = await Message.create({
+        wid: pendingWid,
         ticketId: options.ticketId,
         companyId: options.companyId,
         body: options.content,
         fromMe: true,
         read: true,
         mediaType: "text",
+        // Marcar como 'sent' con ack=2 para que ProcessPendingMessages NO lo re-envíe
+        // El envío real lo hace sendMessageWithAntiBan en wbotMessageListener
+        messageStatus: 'sent',
+        ack: 2,
         agentUsed: options.agentUsed,
         intent: options.intent,
         confidenceScore: options.confidence
@@ -72,8 +82,19 @@ class SupervisorActionsService {
       try {
         const { getIO } = require("../../libs/socket");
         const io = getIO();
-        io.to(`ticket:${options.ticketId}`).to(`company:${options.companyId}:tickets`).emit("appMessage", message);
-        logger.info(`[SupervisorActions] Mensaje emitido al socket: ticket=${options.ticketId}`);
+
+        // Emitir al canal que el frontend escucha: company-{companyId}-appMessage
+        // Incluir action para que el frontend lo procese correctamente
+        io.to(`company-${options.companyId}-appMessage`).emit("appMessage", {
+          action: 'create',
+          message: {
+            ...message.toJSON(),
+            ticketId: options.ticketId,
+            fromMe: true,
+            wid: message.wid
+          }
+        });
+        logger.info(`[SupervisorActions] Mensaje emitido al socket (canal: company-${options.companyId}-appMessage): ticket=${options.ticketId}`);
       } catch (socketErr: any) {
         logger.warn(`[SupervisorActions] Error emitiendo socket: ${socketErr.message}`);
       }
@@ -218,11 +239,11 @@ class SupervisorActionsService {
         return { success: true }; // Sin cola específica, pero marcado como pending
       }
 
-      // Derivar a la cola directamente
+      // Derivar a la cola directamente — marcar aiStatus='handoff' para que IA no responda más
       await ticket.update({
         queueId,
         status: "pending",
-        useIntegration: false
+        aiStatus: "handoff"
       });
 
       logger.info(
