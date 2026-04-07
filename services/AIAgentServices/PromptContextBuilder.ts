@@ -16,6 +16,7 @@
 import TicketContextService from "./TicketContextService";
 import QuickReplySemanticService from "./QuickReplySemanticService";
 import ContactMemoryService from "./ContactMemoryService";
+import CorrectionSearchService from "./CorrectionSearchService";
 import Company from "../../models/Company";
 import logger from "../../utils/logger";
 
@@ -68,6 +69,19 @@ const buildSupervisorContext = async (
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`empresa: ${msg}`);
     sections.push(`## 🏢 CONTEXTO DE LA EMPRESA\n*(No disponible)*`);
+  }
+
+  // ── 1a-bis. CORRECCIONES VERIFICADAS (PRIORIDAD MÁXIMA) ──────────────
+  try {
+    const correctionsBlock = await CorrectionSearchService.buildSupervisorBlock(
+      currentMessage, companyId
+    );
+    if (correctionsBlock.trim()) {
+      sections.push(correctionsBlock);
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`corrections: ${msg}`);
   }
 
   // ── 1b. DATOS DEL CLIENTE ────────────────────────────────────────────

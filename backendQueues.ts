@@ -44,6 +44,19 @@ export const notificationQueue = REDIS_ENABLED
   ? new Bull("NotificationQueue", REDIS_URI_CONNECTION)
   : null as any;
 
+// Colas de aprendizaje IA
+export const feedbackInferenceQueue = REDIS_ENABLED
+  ? new Bull("FeedbackInference", REDIS_URI_CONNECTION)
+  : null as any;
+
+export const humanCorrectionQueue = REDIS_ENABLED
+  ? new Bull("HumanCorrectionExtractor", REDIS_URI_CONNECTION)
+  : null as any;
+
+export const extractMemoryQueue = REDIS_ENABLED
+  ? new Bull("ExtractMemory", REDIS_URI_CONNECTION)
+  : null as any;
+
 // ============================================================
 // HANDLERS
 // ============================================================
@@ -151,6 +164,40 @@ export function startBackendQueueProcessors(): void {
   notificationQueue.on("failed", (job, err) => {
     logger.error(`❌ [BACKEND] NotificationQueue job failed: ${err.message}`);
   });
+
+  // ── AI Learning Jobs ──────────────────────────────────────────
+  if (feedbackInferenceQueue) {
+    const FeedbackInference = require("./jobs/FeedbackInferenceJob").default;
+    feedbackInferenceQueue.process(5, async (bullJob: Bull.Job) => {
+      await FeedbackInference(bullJob);
+    });
+    feedbackInferenceQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
+      logger.error(`❌ [BACKEND] FeedbackInference failed: ${err.message}`);
+    });
+    logger.info("✅ [BACKEND] FeedbackInferenceQueue processor iniciado");
+  }
+
+  if (humanCorrectionQueue) {
+    const HumanCorrectionExtractor = require("./jobs/HumanCorrectionExtractorJob").default;
+    humanCorrectionQueue.process(5, async (bullJob: Bull.Job) => {
+      await HumanCorrectionExtractor(bullJob);
+    });
+    humanCorrectionQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
+      logger.error(`❌ [BACKEND] HumanCorrectionExtractor failed: ${err.message}`);
+    });
+    logger.info("✅ [BACKEND] HumanCorrectionExtractorQueue processor iniciado");
+  }
+
+  if (extractMemoryQueue) {
+    const ExtractMemory = require("./jobs/ExtractMemoryJob").default;
+    extractMemoryQueue.process(2, async (bullJob: Bull.Job) => {
+      await ExtractMemory(bullJob);
+    });
+    extractMemoryQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
+      logger.error(`❌ [BACKEND] ExtractMemory failed: ${err.message}`);
+    });
+    logger.info("✅ [BACKEND] ExtractMemoryQueue processor iniciado");
+  }
 
   logger.info("✅ [BACKEND] Todos los procesadores de colas iniciados");
 }

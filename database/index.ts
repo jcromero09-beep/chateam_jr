@@ -177,6 +177,7 @@ import IntegrationSyncLog from "../models/Integrations/IntegrationSyncLog";
 import IntegrationWebhookEvent from "../models/Integrations/IntegrationWebhookEvent";
 import IntegrationEntityMapping from "../models/Integrations/IntegrationEntityMapping";
 import IntegrationApiRequest from "../models/Integrations/IntegrationApiRequest";
+import AISupportCorrection from "../models/AISupportCorrection";
 
 // AI Platform Models (batch)
 import AIDocument from "../models/AIDocument";
@@ -387,6 +388,7 @@ const models = [
   IntegrationWebhookEvent,
   IntegrationEntityMapping,
   IntegrationApiRequest,
+  AISupportCorrection,
 ];
 
 // console.log("🔄 Adding models to sequelize...");

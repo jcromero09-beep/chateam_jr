@@ -406,6 +406,7 @@ import aiTeamRoutes from "./aiTeamRoutes";
 
 // console.log("🛣️ [86] aiMercadoPagoRoutes...");
 import aiMercadoPagoRoutes from "./aiMercadoPagoRoutes";
+import aiCorrectionRoutes from "./aiCorrectionRoutes";
 // console.log("🛣️ [86] ✅ aiMercadoPagoRoutes OK");
 
 // ── BATCH: Rutas UGC/Agent faltantes ──
@@ -617,6 +618,7 @@ routes.use(aiRealtimeAudioRoutes);   // /ai/realtime-audio
 routes.use(aiEmailTemplateRoutes);   // /ai/email-templates
 routes.use(aiTeamRoutes);            // /ai/teams
 routes.use(aiMercadoPagoRoutes);     // /ai/mercado-pago
+routes.use(aiCorrectionRoutes);      // /ai/corrections + /ai/memories
 
 // ── BATCH: UGC Agent extras ──
 routes.use(agentDeviceRoutes);       // /ugc/devices
@@ -624,6 +626,10 @@ routes.use(agentInteractionRoutes);  // /ugc/interactions
 
 // Integrations (CRM, ERP, etc.)
 routes.use("/integrations", integrationRoutes);
+
+// ── INTERNAL: Rutas para comunicación entre nodos (Redis MessageRegistry) ──
+import internalRoutes from "./internal";
+routes.use(internalRoutes);  // /internal/* - Solo accesible desde localhost
 
 // console.log("🛣️ ✅✅✅ ALL ROUTES REGISTERED! ✅✅✅");
 
