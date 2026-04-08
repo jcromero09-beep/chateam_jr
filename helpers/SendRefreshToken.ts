@@ -13,9 +13,8 @@ export function SendRefreshToken(res: Response, token?: string): void {
   const base = {
     httpOnly: true as const,
     secure: IS_PROD,
-    sameSite: "lax" as const,
+    sameSite: "none" as const,  // Necesario para cookies cross-site (chat.chateam.ws -> appro.chateam.ws)
     path: COOKIE_PATH
-    // IMPORTANTE: NO pongas "domain" aquí porque tu cookie es host-only
   };
 
   if (token) {

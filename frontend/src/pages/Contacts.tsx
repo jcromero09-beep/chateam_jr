@@ -39,9 +39,14 @@ import {
   Block as BlockIcon,
   Upload as UploadIcon,
   Download as DownloadIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  FirstPage as FirstPageIcon,
+  LastPage as LastPageIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useAuth } from '../hooks/useAuth'
+import { UserRole } from '../utils/permissions'
 
 interface Contact {
   id: number
@@ -62,39 +67,70 @@ interface Contact {
 export default function Contacts() {
   const navigate = useNavigate()
   const { user } = useAuth()
+
+  // Obtener rol del usuario
+  const userRole: UserRole = (user?.profile?.toLowerCase()?.includes('super') ? 'super' :
+    user?.profile?.toLowerCase()?.includes('admin') ? 'admin' :
+    user?.profile?.toLowerCase()?.includes('supervisor') ? 'supervisor' : 'user') as UserRole
+
+  // Permisos de acciones sobre contactos
+  const canEditContacts = userRole === 'super' || userRole === 'admin' || userRole === 'supervisor'
+  const canDeleteContacts = userRole === 'super' || userRole === 'admin'
+  const canBlockContacts = userRole === 'super' || userRole === 'admin' || userRole === 'supervisor'
+  const canCreateContacts = userRole === 'super' || userRole === 'admin' || userRole === 'supervisor'
+
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [openModal, setOpenModal] = useState(false)
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [openingChatId, setOpeningChatId] = useState<number | null>(null)
+  const [pageNumber, setPageNumber] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
   const [formData, setFormData] = useState({
     name: '',
     number: '',
     email: '',
   })
 
+  // Debounce de búsqueda para no saturar el backend
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+      setPageNumber(1) // Resetear a página 1 al buscar
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
   useEffect(() => {
     fetchContacts()
-  }, [])
+  }, [pageNumber, debouncedSearch, rowsPerPage])
 
   const fetchContacts = async () => {
     try {
       setLoading(true)
-      const response = await api.get('/contacts')
-      console.log('Contacts API response:', response.data)
+      const params: Record<string, string | number> = {
+        pageNumber,
+        rowsPerPage,
+      }
+      if (debouncedSearch) {
+        params.searchParam = debouncedSearch
+      }
+      const response = await api.get('/contacts', { params })
 
       // Backend returns { contacts, count, hasMore }
       const contactsData = response.data.contacts || response.data || []
       setContacts(contactsData)
-
-      if (contactsData.length === 0) {
-        console.log('No contacts found in database')
-      }
+      setTotalCount(response.data.count || 0)
+      setHasMore(response.data.hasMore || false)
     } catch (error) {
       console.error('Error fetching contacts:', error)
-      // Show empty array on error to see real state
       setContacts([])
+      setTotalCount(0)
+      setHasMore(false)
     } finally {
       setLoading(false)
     }
@@ -218,14 +254,10 @@ export default function Contacts() {
     })
   }
 
-  const filteredContacts = contacts.filter((contact) =>
-    contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    contact.number.includes(searchTerm) ||
-    (contact.email && contact.email.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  const totalPages = Math.ceil(totalCount / rowsPerPage)
 
   const stats = {
-    total: contacts.length,
+    total: totalCount,
     individuals: contacts.filter((c) => !c.isGroup).length,
     groups: contacts.filter((c) => c.isGroup).length,
     botDisabled: contacts.filter((c) => c.disableBot).length,
@@ -246,28 +278,34 @@ export default function Contacts() {
             </Box>
           </Stack>
           <Stack direction="row" spacing={1}>
-            <Button
-              startDecorator={<UploadIcon />}
-              variant="outlined"
-              color="neutral"
-              onClick={handleImportContacts}
-            >
-              Importar
-            </Button>
-            <Button
-              startDecorator={<DownloadIcon />}
-              variant="outlined"
-              color="neutral"
-              onClick={handleExportContacts}
-            >
-              Exportar
-            </Button>
+            {canCreateContacts && (
+              <>
+                <Button
+                  startDecorator={<UploadIcon />}
+                  variant="outlined"
+                  color="neutral"
+                  onClick={handleImportContacts}
+                >
+                  Importar
+                </Button>
+                <Button
+                  startDecorator={<DownloadIcon />}
+                  variant="outlined"
+                  color="neutral"
+                  onClick={handleExportContacts}
+                >
+                  Exportar
+                </Button>
+              </>
+            )}
             <IconButton variant="outlined" color="neutral" onClick={fetchContacts}>
               <RefreshIcon />
             </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
-              Nuevo Contacto
-            </Button>
+            {canCreateContacts && (
+              <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
+                Nuevo Contacto
+              </Button>
+            )}
           </Stack>
         </Stack>
 
@@ -356,14 +394,14 @@ export default function Contacts() {
                       <Typography>Cargando contactos...</Typography>
                     </td>
                   </tr>
-                ) : filteredContacts.length === 0 ? (
+                ) : contacts.length === 0 ? (
                   <tr>
                     <td colSpan={10} style={{ textAlign: 'center', padding: '2rem' }}>
                       <Typography>No se encontraron contactos</Typography>
                     </td>
                   </tr>
                 ) : (
-                  filteredContacts.map((contact) => (
+                  contacts.map((contact) => (
                     <tr key={contact.id}>
                       <td>
                         <Avatar size="sm" src={contact.profilePicUrl}>
@@ -435,33 +473,39 @@ export default function Contacts() {
                                 : <WhatsAppIcon />}
                             </IconButton>
                           </Tooltip>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
-                            onClick={() => openEditModal(contact)}
-                            title="Editar"
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="warning"
-                            onClick={() => handleBlockUnblock(contact.id)}
-                            title="Bloquear"
-                          >
-                            <BlockIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
-                            onClick={() => handleDelete(contact.id)}
-                            title="Eliminar"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
+                          {canEditContacts && (
+                            <IconButton
+                              size="sm"
+                              variant="plain"
+                              color="primary"
+                              onClick={() => openEditModal(contact)}
+                              title="Editar"
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          )}
+                          {canBlockContacts && (
+                            <IconButton
+                              size="sm"
+                              variant="plain"
+                              color="warning"
+                              onClick={() => handleBlockUnblock(contact.id)}
+                              title="Bloquear"
+                            >
+                              <BlockIcon />
+                            </IconButton>
+                          )}
+                          {canDeleteContacts && (
+                            <IconButton
+                              size="sm"
+                              variant="plain"
+                              color="danger"
+                              onClick={() => handleDelete(contact.id)}
+                              title="Eliminar"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          )}
                         </Stack>
                       </td>
                     </tr>
@@ -470,6 +514,98 @@ export default function Contacts() {
               </tbody>
             </Table>
           </Sheet>
+        </Card>
+
+        {/* Paginación */}
+        <Card>
+          <CardContent>
+            <Stack
+              direction="row"
+              spacing={2}
+              alignItems="center"
+              justifyContent="space-between"
+              flexWrap="wrap"
+            >
+              {/* Info de registros */}
+              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                Mostrando {contacts.length === 0 ? 0 : (pageNumber - 1) * rowsPerPage + 1}
+                {' - '}
+                {Math.min(pageNumber * rowsPerPage, totalCount)} de{' '}
+                <strong>{totalCount.toLocaleString()}</strong> contactos
+              </Typography>
+
+              {/* Controles de paginación */}
+              <Stack direction="row" spacing={1} alignItems="center">
+                {/* Selector de filas por página */}
+                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                  Filas:
+                </Typography>
+                <_Select
+                  size="sm"
+                  value={rowsPerPage}
+                  onChange={(_e, val) => {
+                    if (val) {
+                      setRowsPerPage(val)
+                      setPageNumber(1)
+                    }
+                  }}
+                  sx={{ minWidth: 70 }}
+                >
+                  <_Option value={10}>10</_Option>
+                  <_Option value={20}>20</_Option>
+                  <_Option value={50}>50</_Option>
+                  <_Option value={100}>100</_Option>
+                </_Select>
+
+                {/* Botones de navegación */}
+                <IconButton
+                  size="sm"
+                  variant="outlined"
+                  color="neutral"
+                  disabled={pageNumber <= 1}
+                  onClick={() => setPageNumber(1)}
+                  title="Primera página"
+                >
+                  <FirstPageIcon />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  variant="outlined"
+                  color="neutral"
+                  disabled={pageNumber <= 1}
+                  onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                  title="Página anterior"
+                >
+                  <ChevronLeftIcon />
+                </IconButton>
+
+                <Typography level="body-sm" sx={{ px: 1 }}>
+                  Página <strong>{pageNumber}</strong> de <strong>{totalPages || 1}</strong>
+                </Typography>
+
+                <IconButton
+                  size="sm"
+                  variant="outlined"
+                  color="neutral"
+                  disabled={!hasMore}
+                  onClick={() => setPageNumber((p) => p + 1)}
+                  title="Página siguiente"
+                >
+                  <ChevronRightIcon />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  variant="outlined"
+                  color="neutral"
+                  disabled={!hasMore}
+                  onClick={() => setPageNumber(totalPages)}
+                  title="Última página"
+                >
+                  <LastPageIcon />
+                </IconButton>
+              </Stack>
+            </Stack>
+          </CardContent>
         </Card>
 
         {/* Modal Create/Edit */}

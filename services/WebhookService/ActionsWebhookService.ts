@@ -36,6 +36,8 @@ import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATi
 import ShowTicketUUIDService from "../TicketServices/ShowTicketFromUUIDService.js";
 import logger from "../../utils/logger.js";
 import CreateLogTicketService from "../TicketServices/CreateLogTicketService.js";
+import Tag from "../../models/Tag.js";
+import TicketTag from "../../models/TicketTag.js";
 import CompaniesSettings from "../../models/CompaniesSettings.js";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService.js";
 import Bluebird from "bluebird";
@@ -264,7 +266,11 @@ export const ActionsWebhookService = async (
           continue;
         }
 
-        if (nodeSelected.type === "message") {
+        // Resolver tipo real: data.type tiene prioridad sobre node.type
+        // (nodos de cola, tag, multimedia se guardan como type:"message" con data.type real)
+        const resolvedType = nodeSelected.data?.type || nodeSelected.type;
+
+        if (resolvedType === "message") {
 
           let msg;
 
@@ -294,7 +300,7 @@ export const ActionsWebhookService = async (
         await intervalWhats("1");
       }
   // console.log("273");
-      if (nodeSelected.type === "typebot") {
+      if (resolvedType === "typebot") {
     // console.log("275");
         const wbot = getWbot(whatsapp.id);
         await typebotListener({
@@ -305,7 +311,7 @@ export const ActionsWebhookService = async (
         });
       }
 
-      if (nodeSelected.type === "openai") {
+      if (resolvedType === "openai") {
         let {
           name,
           prompt,
@@ -356,7 +362,7 @@ export const ActionsWebhookService = async (
         );
       }
 
-      if (nodeSelected.type === "question") {
+      if (resolvedType === "question") {
         const webhook = ticket?.dataWebhook;
         const variables = ticket?.dataWebhook?.variables;
 
@@ -392,7 +398,7 @@ export const ActionsWebhookService = async (
         break;
       }
 
-      if (nodeSelected.type === "ticket") {
+      if (resolvedType === "ticket") {
         const queueId = nodeSelected.data?.data?.id || nodeSelected.data?.id;
         const queue = await ShowQueueService(queueId, companyId);
 
@@ -475,8 +481,26 @@ export const ActionsWebhookService = async (
         }
       }
 
-      if (nodeSelected.type === "singleBlock") {
-    // console.log("singleBlock")
+      // ─── NODO TAG: Asigna etiqueta al ticket ───
+      if (resolvedType === "tag") {
+        const tagId = nodeSelected.data?.data?.id || nodeSelected.data?.id;
+        if (tagId && ticket) {
+          try {
+            const tag = await Tag.findOne({ where: { id: tagId, companyId } });
+            if (tag) {
+              const [, created] = await TicketTag.findOrCreate({
+                where: { ticketId: ticket.id, tagId: tag.id },
+                defaults: { ticketId: ticket.id, tagId: tag.id } as any
+              });
+              console.log(`[FlowBuilder] Tag "${tag.name}" ${created ? 'asignada' : 'ya existia'} al ticket ${ticket.id}`);
+            }
+          } catch (tagError) {
+            console.error(`[FlowBuilder] Error asignando tag ${tagId}:`, tagError.message);
+          }
+        }
+      }
+
+      if (resolvedType === "singleBlock") {
 
           for (var iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
             const elementNowSelected = nodeSelected.data.seq[iLoc];
@@ -678,7 +702,7 @@ export const ActionsWebhookService = async (
       }
 
       let isRandomizer: boolean;
-      if (nodeSelected.type === "randomizer") {
+      if (resolvedType === "randomizer") {
         const selectedRandom = randomizarCaminho(
           nodeSelected.data.percent / 100
         );
@@ -700,7 +724,7 @@ export const ActionsWebhookService = async (
 
       let isMenu: boolean;
 
-      if (nodeSelected.type === "menu") {
+      if (resolvedType === "menu") {
      //   console.log(650, "menu");
         if (pressKey) {
           const filterOne = connectStatic.filter(

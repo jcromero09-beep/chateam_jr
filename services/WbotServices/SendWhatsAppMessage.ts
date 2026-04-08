@@ -16,6 +16,7 @@ interface Request {
   msdelay?: number;
   vCard?: Contact;
   isForwarded?: boolean;
+  wbot?: any; // Optional wbot para evitar llamar GetTicketWbot nuevamente
 }
 
 const SendWhatsAppMessage = async ({
@@ -24,10 +25,12 @@ const SendWhatsAppMessage = async ({
   quotedMsg,
   msdelay,
   vCard,
-  isForwarded = false
+  isForwarded = false,
+  wbot: providedWbot // Usar wbot proporcionado si existe
 }: Request): Promise<WAMessage> => {
   let options = {};
-  const wbot = await GetTicketWbot(ticket);
+  // Usar wbot proporcionado o obtenerlo via GetTicketWbot
+  const wbot = providedWbot || await GetTicketWbot(ticket);
   const contactNumber = await Contact.findByPk(ticket.contactId)
 
   let number: string;

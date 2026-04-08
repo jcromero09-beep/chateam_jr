@@ -1,4 +1,5 @@
 import RouterAgentService, { ClassificationResult } from "./RouterAgentService";
+import QueryEnrichmentAgent, { EnrichmentResult } from "./QueryEnrichmentAgent";
 import RAGAgentService, { RAGResponse } from "./RAGAgentService";
 import SupportAgentService, { SupportResponse } from "./SupportAgentService";
 import AppointmentAgentService from "./AppointmentAgentService";
@@ -142,16 +143,37 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
       }
     }
 
-    // 1. Router Agent — Clasificar intención (con timeout)
+    // 1. QueryEnrichmentAgent — Clasificar intención + enriquecer query (reemplaza RouterAgent)
     let classification: ClassificationResult;
-    logger.info(`[Supervisor] 🔍 Clasificando intención con RouterAgent...`);
+    let enrichment: EnrichmentResult | null = null;
+    logger.info(`[Supervisor] 🔍 Clasificando y enriqueciendo con QueryEnrichmentAgent...`);
     try {
-      const routerPromise = RouterAgentService.classify(message, companyId, ticketId, contactId);
-      classification = await Promise.race([routerPromise, timeoutPromise]);
-      logger.info(`[Supervisor] ✅ Clasificación: intent=${classification.intent}, targetAgent=${classification.targetAgent}, confidence=${classification.confidence}`);
+      const enrichPromise = QueryEnrichmentAgent.enrich({
+        message, companyId, ticketId, contactId,
+        ticketHistory, contactInfo
+      });
+      enrichment = await Promise.race([enrichPromise, timeoutPromise]);
+
+      // Mapear EnrichmentResult a ClassificationResult (compatibilidad)
+      classification = {
+        intent: enrichment.intent,
+        confidence: enrichment.confidence,
+        targetAgent: enrichment.targetAgent,
+        entities: enrichment.entities || {},
+        urgency: enrichment.urgency || "medium",
+        language: enrichment.language || "es",
+        modelUsed: enrichment.modelUsed,
+        latencyMs: enrichment.latencyMs,
+        cacheHit: enrichment.cacheHit
+      };
+
+      logger.info(
+        `[Supervisor] ✅ Enriquecimiento: intent=${classification.intent}, agent=${classification.targetAgent}, ` +
+        `confidence=${classification.confidence}, enrichedQuery="${(enrichment.enrichedQuery || "").substring(0, 60)}..."`
+      );
     } catch (routerError: any) {
       if (timedOut) throw routerError;
-      logger.error(`[Supervisor] ❌ Error en Router: ${routerError.message}`);
+      logger.error(`[Supervisor] ❌ Error en QueryEnrichment: ${routerError.message}`);
       return buildErrorResponse(message, startTime);
     }
 
@@ -229,10 +251,15 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     logger.warn(`[Supervisor] Error buscando QuickReplies: ${qrError.message}`);
   }
 
-  // Enriquecer request con el contexto unificado
+  // Enriquecer request con el contexto unificado + datos de enriquecimiento
   const enrichedRequest = {
     ...request,
-    ticketContext: unifiedContext
+    ticketContext: unifiedContext,
+    // Datos de QueryEnrichmentAgent para búsqueda multi-query
+    enrichedQuery: enrichment?.enrichedQuery || message,
+    hydeQuery: enrichment?.hydeQuery || "",
+    alternativeQueries: enrichment?.alternativeQueries || [],
+    keywords: enrichment?.keywords || []
   };
 
   // 3. Despachar al agente especializado
@@ -416,7 +443,12 @@ async function handleRAGAgent(
         chatbotId: request.chatbotId,
         ticketContext: request.ticketContext,
         channel: request.channel,
-        ticketHistory: request.ticketHistory
+        ticketHistory: request.ticketHistory,
+        // Datos de QueryEnrichmentAgent para búsqueda multi-query
+        enrichedQuery: (request as any).enrichedQuery,
+        hydeQuery: (request as any).hydeQuery,
+        alternativeQueries: (request as any).alternativeQueries,
+        keywords: (request as any).keywords
       }
     );
 

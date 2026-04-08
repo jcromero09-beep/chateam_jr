@@ -9,6 +9,13 @@ import {
   IconButton,
   Card,
   CardContent,
+  Modal,
+  ModalDialog,
+  FormControl,
+  FormLabel,
+  Select,
+  Option,
+  Chip,
 } from '@mui/joy'
 import {
   ArrowBack as BackIcon,
@@ -21,6 +28,8 @@ import {
   Image,
   PictureAsPdf,
   Dashboard,
+  MoveToInbox as QueueIcon,
+  LocalOffer as TagIcon,
 } from '@mui/icons-material'
 import ReactFlow, {
   MiniMap,
@@ -107,9 +116,33 @@ export default function FlowbuilderEditor() {
   const [modalSingleBlock, setModalSingleBlock] = useState<string | null>(null)
   const [modalRandomizer, setModalRandomizer] = useState<string | null>(null)
   const [modalInterval, setModalInterval] = useState<string | null>(null)
-  const [dataNode, _setDataNode] = useState<any>(null)
-  // Suppress unused warning for dataNode
+  const [modalQueue, setModalQueue] = useState<string | null>(null)
+  const [modalTag, setModalTag] = useState<string | null>(null)
+  const [dataNode, setDataNode] = useState<any>(null)
+  // dataNode se usa para pasar datos al modal en modo edición
   void dataNode
+
+  // Datos para selectores de cola y etiqueta
+  const [queues, setQueues] = useState<{ id: number; name: string; color: string }[]>([])
+  const [tags, setTags] = useState<{ id: number; name: string; color: string; kanban: number }[]>([])
+  const [selectedQueueId, setSelectedQueueId] = useState<string>('')
+  const [selectedTagId, setSelectedTagId] = useState<string>('')
+
+  useEffect(() => {
+    const loadOptions = async () => {
+      try {
+        const [qRes, tRes] = await Promise.all([
+          api.get('/queue'),
+          api.get('/tags')
+        ])
+        setQueues((qRes.data || []).map((q: any) => ({ id: q.id, name: q.name, color: q.color })))
+        setTags((tRes.data?.tags || tRes.data || []).filter((t: any) => t.kanban === 0).map((t: any) => ({ id: t.id, name: t.name, color: t.color, kanban: t.kanban })))
+      } catch (err) {
+        console.error('Error cargando colas/etiquetas:', err)
+      }
+    }
+    loadOptions()
+  }, [])
 
   useEffect(() => {
     if (flowId) {
@@ -209,6 +242,108 @@ export default function FlowbuilderEditor() {
     setModalInterval("create")
   }
 
+  const addQueueNode = () => {
+    setSelectedQueueId('')
+    setModalQueue("create")
+  }
+
+  const addTagNode = () => {
+    setSelectedTagId('')
+    setModalTag("create")
+  }
+
+  const handleSaveQueueNode = () => {
+    if (!selectedQueueId) return
+    const queue = queues.find(q => q.id === Number(selectedQueueId))
+    if (!queue) return
+    const posY = nodes[nodes.length - 1]?.position.y || 100
+    const posX = (nodes[nodes.length - 1]?.position.x || 100) + 240
+    setNodes((old) => [
+      ...old,
+      {
+        id: `node-${Date.now()}`,
+        position: { x: posX, y: posY },
+        data: { id: queue.id, queueName: queue.name, type: 'ticket' },
+        type: 'message',
+      },
+    ])
+    setModalQueue(null)
+    setSelectedQueueId('')
+  }
+
+  const handleSaveTagNode = () => {
+    if (!selectedTagId) return
+    const tag = tags.find(t => t.id === Number(selectedTagId))
+    if (!tag) return
+    const posY = nodes[nodes.length - 1]?.position.y || 100
+    const posX = (nodes[nodes.length - 1]?.position.x || 100) + 240
+    setNodes((old) => [
+      ...old,
+      {
+        id: `node-${Date.now()}`,
+        position: { x: posX, y: posY },
+        data: { id: tag.id, tagName: tag.name, tagColor: tag.color, type: 'tag' },
+        type: 'message',
+      },
+    ])
+    setModalTag(null)
+    setSelectedTagId('')
+  }
+
+  const handleNodeDoubleClick = (_event: React.MouseEvent, node: Node) => {
+    // No permitir editar el nodo de inicio
+    if (node.type === 'start') return
+
+    setDataNode(node)
+    // data.type tiene prioridad (nodos multimedia/cola/tag se guardan como type:"message" con data.type real)
+    const nodeType = node.data?.type || node.type
+    switch (nodeType) {
+      case 'message':
+        setModalAddText("edit")
+        break
+      case 'ticket':
+        setSelectedQueueId(String(node.data?.id || ''))
+        setModalQueue("edit")
+        break
+      case 'tag':
+        setSelectedTagId(String(node.data?.id || ''))
+        setModalTag("edit")
+        break
+      case 'menu':
+        setModalAddMenu("edit")
+        break
+      case 'image':
+        setModalAddImage("edit")
+        break
+      case 'audio':
+        setModalAddAudio("edit")
+        break
+      case 'video':
+        setModalAddVideo("edit")
+        break
+      case 'url':
+        setModalAddURL("edit")
+        break
+      case 'list':
+        setModalAddList("edit")
+        break
+      case 'pdf':
+        setModalAddPDF("edit")
+        break
+      case 'content':
+        setModalSingleBlock("edit")
+        break
+      case 'randomizer':
+        setModalRandomizer("edit")
+        break
+      case 'interval':
+        setModalInterval("edit")
+        break
+      default:
+        console.warn('Tipo de nodo no reconocido para edición:', nodeType)
+    }
+  }
+
   const textAdd = (data: any) => {
     const posY = nodes[nodes.length - 1].position.y;
     const posX = nodes[nodes.length - 1].position.x + 240;
@@ -277,6 +412,8 @@ export default function FlowbuilderEditor() {
     setModalSingleBlock(null);
     setModalRandomizer(null);
     setModalInterval(null);
+    setModalQueue(null);
+    setModalTag(null);
   };
 
   return (
@@ -345,6 +482,12 @@ export default function FlowbuilderEditor() {
               <Button size="sm" onClick={addIntervalNode} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
                 + Intervalo
               </Button>
+              <Button size="sm" onClick={addQueueNode} startDecorator={<QueueIcon />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2, bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6D28D9' } }}>
+                + Cola
+              </Button>
+              <Button size="sm" onClick={addTagNode} startDecorator={<TagIcon />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2, bgcolor: '#DB2777', '&:hover': { bgcolor: '#BE185D' } }}>
+                + Etiqueta
+              </Button>
             </Stack>
           </CardContent>
         </Card>
@@ -358,6 +501,7 @@ export default function FlowbuilderEditor() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onNodeDoubleClick={handleNodeDoubleClick}
               nodeTypes={nodeTypes}
               fitView
             >
@@ -464,6 +608,86 @@ export default function FlowbuilderEditor() {
           onUpdate={updateNode}
           close={setModalInterval}
         />
+
+        {/* Modal Cola */}
+        <Modal open={!!modalQueue} onClose={() => setModalQueue(null)}>
+          <ModalDialog sx={{ minWidth: 400 }}>
+            <Typography level="title-lg" sx={{ mb: 0.5 }}>
+              {modalQueue === 'edit' ? 'Editar Nodo Cola' : 'Asignar a Cola'}
+            </Typography>
+            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 2 }}>
+              Cuando el flujo llegue a este nodo, el ticket se asignara a la cola seleccionada.
+            </Typography>
+            <FormControl required>
+              <FormLabel>Cola</FormLabel>
+              <Select
+                placeholder="Selecciona una cola..."
+                value={selectedQueueId}
+                onChange={(_, v) => setSelectedQueueId(v as string)}
+              >
+                {queues.map(q => (
+                  <Option key={q.id} value={String(q.id)}>
+                    <Chip size="sm" sx={{ bgcolor: q.color || '#ccc', color: '#fff', mr: 1 }}>{' '}</Chip>
+                    {q.name}
+                  </Option>
+                ))}
+              </Select>
+            </FormControl>
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 3 }}>
+              <Button variant="outlined" color="neutral" onClick={() => setModalQueue(null)}>Cancelar</Button>
+              <Button disabled={!selectedQueueId} onClick={() => {
+                if (modalQueue === 'edit' && dataNode) {
+                  const queue = queues.find(q => q.id === Number(selectedQueueId))
+                  updateNode({ ...dataNode, data: { ...dataNode.data, id: Number(selectedQueueId), queueName: queue?.name || '', type: 'ticket' } })
+                } else {
+                  handleSaveQueueNode()
+                }
+              }} sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6D28D9' } }}>
+                {modalQueue === 'edit' ? 'Guardar' : 'Agregar'}
+              </Button>
+            </Stack>
+          </ModalDialog>
+        </Modal>
+
+        {/* Modal Etiqueta */}
+        <Modal open={!!modalTag} onClose={() => setModalTag(null)}>
+          <ModalDialog sx={{ minWidth: 400 }}>
+            <Typography level="title-lg" sx={{ mb: 0.5 }}>
+              {modalTag === 'edit' ? 'Editar Nodo Etiqueta' : 'Asignar Etiqueta'}
+            </Typography>
+            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 2 }}>
+              Cuando el flujo llegue a este nodo, se asignara la etiqueta al ticket automaticamente.
+            </Typography>
+            <FormControl required>
+              <FormLabel>Etiqueta (solo normales, no kanban)</FormLabel>
+              <Select
+                placeholder="Selecciona una etiqueta..."
+                value={selectedTagId}
+                onChange={(_, v) => setSelectedTagId(v as string)}
+              >
+                {tags.map(t => (
+                  <Option key={t.id} value={String(t.id)}>
+                    <Chip size="sm" sx={{ bgcolor: t.color || '#ccc', color: '#fff', mr: 1 }}>{' '}</Chip>
+                    {t.name}
+                  </Option>
+                ))}
+              </Select>
+            </FormControl>
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 3 }}>
+              <Button variant="outlined" color="neutral" onClick={() => setModalTag(null)}>Cancelar</Button>
+              <Button disabled={!selectedTagId} onClick={() => {
+                if (modalTag === 'edit' && dataNode) {
+                  const tag = tags.find(t => t.id === Number(selectedTagId))
+                  updateNode({ ...dataNode, data: { ...dataNode.data, id: Number(selectedTagId), tagName: tag?.name || '', tagColor: tag?.color || '', type: 'tag' } })
+                } else {
+                  handleSaveTagNode()
+                }
+              }} sx={{ bgcolor: '#DB2777', '&:hover': { bgcolor: '#BE185D' } }}>
+                {modalTag === 'edit' ? 'Guardar' : 'Agregar'}
+              </Button>
+            </Stack>
+          </ModalDialog>
+        </Modal>
       </Stack>
     </Container>
   )

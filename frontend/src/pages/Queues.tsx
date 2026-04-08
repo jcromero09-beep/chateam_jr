@@ -29,6 +29,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
+import { toast } from 'react-toastify'
 
 interface Queue {
   id: number
@@ -108,8 +109,10 @@ export default function Queues() {
       fetchQueues()
       setOpenModal(false)
       resetForm()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating queue:', error)
+      const msg = error.response?.data?.message || error.response?.data?.error || 'Error al crear la cola'
+      toast.error(msg)
     }
   }
 
@@ -120,8 +123,10 @@ export default function Queues() {
       fetchQueues()
       setOpenModal(false)
       resetForm()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating queue:', error)
+      const msg = error.response?.data?.message || error.response?.data?.error || 'Error al actualizar la cola'
+      toast.error(msg)
     }
   }
 
@@ -130,8 +135,10 @@ export default function Queues() {
       try {
         await api.delete(`/queue/${queueId}`)
         fetchQueues()
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error deleting queue:', error)
+        const msg = error.response?.data?.message || error.response?.data?.error || 'Error al eliminar la cola'
+        toast.error(msg)
       }
     }
   }

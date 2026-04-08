@@ -155,6 +155,15 @@ export const removeWbot = async (
       }
       sessions.splice(sessionIndex, 1);
     }
+
+    // NUEVO: Desregistrar sesión de Redis
+    try {
+      const { sessionRegistry } = require('./sessionRegistry');
+      await sessionRegistry.unregister(whatsappId);
+      console.log(`[removeWbot] Sesión ${whatsappId} desregistrada de Redis`);
+    } catch (regErr: any) {
+      console.error('[removeWbot] Error desregistrando sesión de Redis:', regErr.message);
+    }
   } catch (err) {
     logger.error(err);
   }
@@ -405,29 +414,17 @@ Tipo de mensaje : ${getTypeMessage(msg)}
               //   timestamp: new Date().toISOString()
               // });
 
-              logger.info(
-                `Socket ${name} Connection Update ${connection || ""} ${lastDisconnect ? lastDisconnect.error.message : ""
-                }`
-              );
+              // Solo loguear cambios significativos de estado (no cada segundo cuando connection es vacío)
+              if (connection === "open") {
+                logger.info(`Socket ${name} Connected successfully`);
+              } else if (connection === "close") {
+                logger.info(`Socket ${name} Disconnected: ${lastDisconnect?.error?.message || "unknown"}`);
+              } else if (qr) {
+                logger.info(`Socket ${name} QR code generated`);
+              }
+              // No loguear cuando connection está vacío (""), son actualizaciones internas frecuentes
 
               if (connection === "close") {
-                // console.log("🔌 [connection.update] Connection closed", {
-                //   whatsappId: id,
-                //   whatsappName: name,
-                //   lastDisconnect: lastDisconnect ? {
-                //     error: lastDisconnect.error?.message,
-                //     errorCode: (lastDisconnect.error as any)?.output?.statusCode
-                //   } : null,
-                //   timestamp: new Date().toISOString()
-                // });
-                // console.log(
-                //   "DESCONECTOU",
-                //   JSON.stringify(lastDisconnect, null, 2)
-                // );
-                logger.info(
-                  `Socket ${name} Connection Update ${connection || ""} ${lastDisconnect ? lastDisconnect.error.message : ""
-                  }`
-                );
 
                 // ⚠️ CRITICAL: Detectar device_removed (dispositivo eliminado de WhatsApp)
                 const errorData = (lastDisconnect?.error as any)?.data;
@@ -609,6 +606,15 @@ Tipo de mensaje : ${getTypeMessage(msg)}
                   // console.log("✅ [connection.update] Session added to memory");
                 } else {
                   // console.log("⚠️ [connection.update] Session already exists in memory");
+                }
+
+                // NUEVO: Registrar sesión en Redis para coordinación entre nodos
+                try {
+                  const { sessionRegistry } = require('./sessionRegistry');
+                  await sessionRegistry.register(whatsapp.id);
+                  console.log(`[wbot] Sesión ${whatsapp.id} registrada en Redis`);
+                } catch (regErr: any) {
+                  console.error('[wbot] Error registrando sesión en Redis:', regErr.message);
                 }
 
                 setSessionInitializing(id, false);

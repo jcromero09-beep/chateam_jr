@@ -26,10 +26,29 @@ export const createMetaClient = (phoneNumberId: string, accessToken: string) => 
         safeError.name = error.name || 'AxiosError';
         // Copiar propiedades importantes sin referencias circulares
         if (error.response) {
+          // Hacer deep clone de data para evitar referencias circulares
+          let safeData: any;
+          try {
+            // Intentar serialize/deserialize para clonar profundamente
+            safeData = JSON.parse(JSON.stringify(error.response.data));
+          } catch (cloneErr) {
+            // Si falla, extraer solo los campos que nos importan
+            const rawData = error.response.data;
+            if (typeof rawData === 'object' && rawData !== null) {
+              safeData = {
+                message: rawData.message || String(rawData),
+                type: rawData.type || rawData.error?.type || 'unknown',
+                code: rawData.code || rawData.error?.code || rawData.error?.error_subcode || 'unknown',
+                fbtrace_id: rawData.fbtrace_id || rawData.error?.fbtrace_id || null
+              };
+            } else {
+              safeData = String(rawData);
+            }
+          }
           (safeError as any).response = {
             status: error.response.status,
             statusText: error.response.statusText,
-            data: error.response.data
+            data: safeData
           };
         }
         if (error.code) {

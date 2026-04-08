@@ -87,7 +87,7 @@ const CreateTicketService = async ({
     // .to("notification")
     // .to(ticket.id.toString())
     .emit(`company-${companyId}-ticket`, {
-      action: "update",
+      action: "create",
       ticket
     });
 

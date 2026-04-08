@@ -30,6 +30,9 @@ import {
   Menu,
   MenuItem,
   Checkbox,
+  Modal,
+  ModalDialog,
+  Autocomplete,
 } from '@mui/joy'
 import {
   Search as SearchIcon,
@@ -65,6 +68,7 @@ import {
   Reply as ReplyIcon,
   Forward as ForwardIcon,
   Delete as DeleteIcon,
+  Add as AddIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
 import { toast } from 'react-toastify'
@@ -201,6 +205,17 @@ export default function Tickets() {
   const [showFilters, setShowFilters] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // ─── CREAR TICKET MANUAL ───
+  const [showNewTicketModal, setShowNewTicketModal] = useState(false)
+  const [newTicketContactSearch, setNewTicketContactSearch] = useState('')
+  const [newTicketContacts, setNewTicketContacts] = useState<{ id: number; name: string; number: string }[]>([])
+  const [newTicketContactId, setNewTicketContactId] = useState<number | null>(null)
+  const [newTicketQueueId, setNewTicketQueueId] = useState<string>('')
+  const [newTicketWhatsappId, setNewTicketWhatsappId] = useState<string>('')
+  const [newTicketLoading, setNewTicketLoading] = useState(false)
+  const [searchingNewTicketContacts, setSearchingNewTicketContacts] = useState(false)
+  const contactSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Campaign Message (para mostrar banner de campaña publicitaria)
   const [campaignMessage, setCampaignMessage] = useState<any>(null)
   const [editingConversion, setEditingConversion] = useState(false)
@@ -269,6 +284,12 @@ export default function Tickets() {
   const [forwardLoading, setForwardLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
+  // ─── PAGINACIÓN INFINITA ───
+  const [pageNumber, setPageNumber] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const ticketsListRef = useRef<HTMLDivElement>(null)
+
   // ─── MENÚ DE ACCIONES ───
   const [messageActionMenu, setMessageActionMenu] = useState<{
     messageId: number
@@ -276,27 +297,91 @@ export default function Tickets() {
     fromMe: boolean
   } | null>(null)
 
+  // ─── MENÚ DE OPCIONES DEL TICKET ───
+  const [ticketMoreMenu, setTicketMoreMenu] = useState<HTMLElement | null>(null)
+  const [showTransferModal, setShowTransferModal] = useState(false)
+  const [searchContact, setSearchContact] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [selectedContact, setSelectedContact] = useState<any | null>(null)
+  const [searchingContacts, setSearchingContacts] = useState(false)
+  const [transferring, setTransferring] = useState(false)
+
+  // Buscar contactos para transferencia
+  const handleSearchContact = async (query: string) => {
+    if (!query || query.length < 2) {
+      setSearchResults([])
+      return
+    }
+    setSearchingContacts(true)
+    try {
+      const res = await api.get('/contacts', {
+        params: { searchParam: query, pageNumber: 1, limit: 10 }
+      })
+      setSearchResults(res.data.contacts || res.data.records || [])
+    } catch (error) {
+      console.error('Error searching contacts:', error)
+      setSearchResults([])
+    } finally {
+      setSearchingContacts(false)
+    }
+  }
+
+  // Transferir ticket a otro contacto
+  const handleTransferTicket = async () => {
+    if (!selectedTicket?.id || !selectedContact) return
+    setTransferring(true)
+    try {
+      await api.put(`/tickets/${selectedTicket.id}`, { newContactId: selectedContact.id })
+      toast.success(`Ticket transferido a ${selectedContact.name}`)
+      setShowTransferModal(false)
+      setSelectedContact(null)
+      setSearchContact('')
+      setTicketMoreMenu(null)
+      // Recargar los tickets
+      fetchTickets(true)
+    } catch (error: any) {
+      console.error('Error transferring ticket:', error)
+      toast.error(error.response?.data?.message || 'Error al transferir el ticket')
+    } finally {
+      setTransferring(false)
+    }
+  }
+
   // Función para obtener contadores de todos los estados
   const fetchTicketCounts = useCallback(async () => {
     try {
       const showAllParam = showAll ? 'true' : 'false'
 
-      // Obtener contadores para cada estado en paralelo
+      // Construir parámetros base con TODOS los filtros activos
+      const baseParams = {
+        showAll: showAllParam,
+        limit: 0,
+        pageNumber: 1,
+        // Incluir todos los filtros activos para que el conteo sea preciso
+        ...(whatsappFilter && { whatsappIds: JSON.stringify([Number(whatsappFilter)]) }),
+        ...(userFilter && { users: JSON.stringify([Number(userFilter)]) }),
+        ...(queueFilter && { queueIds: JSON.stringify([Number(queueFilter)]) }),
+        ...(startDate && { startDate }),
+        ...(endDate && { endDate }),
+        ...(searchMessages && { searchOnMessages: 'true' })
+      }
+
+      // Obtener contadores reales de cada status usando el endpoint /tickets con limit=0
       const [openRes, pendingRes, closedRes, groupRes] = await Promise.all([
-        api.get('/tickets', { params: { status: 'open', showAll: showAllParam, pageNumber: 1 } }),
-        api.get('/tickets', { params: { status: 'pending', showAll: showAllParam, pageNumber: 1 } }),
-        api.get('/tickets', { params: { status: 'closed', showAll: showAllParam, pageNumber: 1 } }),
-        api.get('/tickets', { params: { status: 'group', showAll: showAllParam, pageNumber: 1 } }),
+        api.get('/tickets', { params: { ...baseParams, status: 'open' } }),
+        api.get('/tickets', { params: { ...baseParams, status: 'pending' } }),
+        api.get('/tickets', { params: { ...baseParams, status: 'closed' } }),
+        api.get('/tickets', { params: { ...baseParams, status: 'group' } })
       ])
 
-      setOpenCount(openRes.data.count || 0)
-      setPendingCount(pendingRes.data.count || 0)
-      setClosedCount(closedRes.data.count || 0)
-      setGroupCount(groupRes.data.count || 0)
+      setOpenCount(openRes.data.totalCount || 0)
+      setPendingCount(pendingRes.data.totalCount || 0)
+      setClosedCount(closedRes.data.totalCount || 0)
+      setGroupCount(groupRes.data.totalCount || 0)
     } catch (error) {
       console.error('Error fetching ticket counts:', error)
     }
-  }, [showAll])
+  }, [showAll, whatsappFilter, userFilter, queueFilter, startDate, endDate, searchMessages])
 
   // Debounce fetchTicketCounts to avoid excessive API calls from socket events
   const fetchTicketCountsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -306,11 +391,16 @@ export default function Tickets() {
     }
     fetchTicketCountsTimeoutRef.current = setTimeout(() => {
       fetchTicketCounts()
-    }, 2000)
+    }, 800)
   }, [fetchTicketCounts])
 
+  // Resetear paginación cuando cambian los filtros
   useEffect(() => {
-    fetchTickets()
+    setPageNumber(1)
+    setHasMore(true)
+    fetchTickets(true)
+    // Actualizar contadores con debounce para evitar demasiadas llamadas
+    debouncedFetchTicketCounts()
   }, [statusFilter, showAll, startDate, endDate, whatsappFilter, userFilter, queueFilter, searchMessages])
 
   // Obtener contadores al inicio y cuando cambie showAll
@@ -610,12 +700,14 @@ export default function Tickets() {
       console.log('📨 Socket appMessage received:', data.action, data.message?.id, 'wid:', (data.message as any)?.wid)
 
       if (data.action === 'create' || data.action === 'update') {
-        // Dedup helper: find by id OR by wid (race condition can create different ids for same wid)
+        // Dedup helper: buscar primero por wid (incluye pending_xxx), luego por id
         const findMsgIndex = (messages: Message[]) => {
           const msg = data.message as any
-          let idx = messages.findIndex(m => m.id === msg.id)
-          if (idx < 0 && msg.wid) {
-            idx = messages.findIndex(m => (m as any).wid === msg.wid)
+          // 1. Buscar por wid primero (incluye pending_xxx que luego se actualiza)
+          let idx = msg.wid ? messages.findIndex(m => (m as any).wid === msg.wid) : -1
+          // 2. Si no encuentra, buscar por id
+          if (idx < 0 && msg.id) {
+            idx = messages.findIndex(m => m.id === msg.id)
           }
           return idx
         }
@@ -713,9 +805,20 @@ export default function Tickets() {
       console.log('🎫 Socket ticket event received:', data.action, data.ticket?.id)
 
       if (data.action === 'update') {
-        setTickets(prevTickets =>
-          prevTickets.map(t => (t.id === data.ticket.id ? { ...t, ...data.ticket } : t))
-        )
+        let isNewTicket = false
+
+        setTickets(prevTickets => {
+          const exists = prevTickets.some(t => t.id === data.ticket.id)
+          if (exists) {
+            // Ticket existente — actualizar in-place
+            return prevTickets.map(t =>
+              t.id === data.ticket.id ? { ...t, ...data.ticket } : t
+            )
+          }
+          // Ticket nuevo (backend envió "update" en vez de "create") — agregarlo al inicio
+          isNewTicket = true
+          return [{ ...data.ticket, messages: data.ticket.messages || [] }, ...prevTickets]
+        })
 
         setSelectedTicket(prevSelected => {
           if (prevSelected && prevSelected.id === data.ticket.id) {
@@ -724,12 +827,16 @@ export default function Tickets() {
           return prevSelected
         })
 
-        // Refresh counts when ticket status changes
-        debouncedFetchTicketCounts()
+        // Counter inmediato para tickets nuevos, debounced para updates regulares
+        if (isNewTicket) {
+          fetchTicketCounts()
+        } else {
+          debouncedFetchTicketCounts()
+        }
       } else if (data.action === 'create') {
         // New ticket - refresh the list
-        fetchTickets()
-        debouncedFetchTicketCounts()
+        fetchTicketsRef.current(true)
+        fetchTicketCounts()
       } else if (data.action === 'delete') {
         // Get ticketId from either data.ticket.id or data.ticketId
         const ticketId = data.ticket?.id || (data as any).ticketId
@@ -764,6 +871,76 @@ export default function Tickets() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  // ─── BUSCAR CONTACTOS PARA NUEVO TICKET ───
+  const searchContacts = useCallback(async (term: string) => {
+    if (term.length < 2) {
+      setNewTicketContacts([])
+      return
+    }
+    try {
+      setSearchingNewTicketContacts(true)
+      const { data } = await api.get('/contacts', { params: { searchParam: term, pageNumber: 1 } })
+      const contacts = (data.contacts || data || []).map((c: any) => ({
+        id: c.id,
+        name: c.name || c.number,
+        number: c.number || '',
+      }))
+      setNewTicketContacts(contacts)
+    } catch (err) {
+      console.error('Error buscando contactos:', err)
+    } finally {
+      setSearchingNewTicketContacts(false)
+    }
+  }, [])
+
+  const handleContactSearchChange = useCallback((value: string) => {
+    setNewTicketContactSearch(value)
+    if (contactSearchDebounceRef.current) clearTimeout(contactSearchDebounceRef.current)
+    contactSearchDebounceRef.current = setTimeout(() => {
+      searchContacts(value)
+    }, 400)
+  }, [searchContacts])
+
+  const handleCreateNewTicket = async () => {
+    if (!newTicketContactId) {
+      toast.error('Selecciona un contacto')
+      return
+    }
+    try {
+      setNewTicketLoading(true)
+      const payload: any = {
+        contactId: newTicketContactId,
+        status: 'open',
+        userId: user?.id,
+      }
+      if (newTicketQueueId) payload.queueId = Number(newTicketQueueId)
+      if (newTicketWhatsappId) payload.whatsappId = Number(newTicketWhatsappId)
+
+      const { data } = await api.post('/tickets', payload)
+      toast.success('Ticket creado correctamente')
+      setShowNewTicketModal(false)
+      setNewTicketContactSearch('')
+      setNewTicketContacts([])
+      setNewTicketContactId(null)
+      setNewTicketQueueId('')
+      setNewTicketWhatsappId('')
+      fetchTickets(true)
+
+      // Seleccionar el ticket recién creado
+      if (data?.id) {
+        const ticketResponse = await api.get(`/tickets/${data.id}`)
+        if (ticketResponse.data) {
+          setSelectedTicket(ticketResponse.data)
+        }
+      }
+    } catch (error: any) {
+      console.error('Error creando ticket:', error)
+      toast.error(error.response?.data?.message || 'Error al crear el ticket')
+    } finally {
+      setNewTicketLoading(false)
+    }
+  }
+
   // Auto-selección de ticket cuando se navega desde Contactos
   const pendingContactIdRef = useRef<number | null>(null)
 
@@ -781,7 +958,8 @@ export default function Tickets() {
 
   const fetchTicketsAbortRef = useRef<AbortController | null>(null)
 
-  const fetchTickets = async () => {
+  // Función para cargar tickets con paginación
+  const fetchTickets = async (reset: boolean = false) => {
     try {
       // Cancel previous request
       if (fetchTicketsAbortRef.current) {
@@ -791,8 +969,12 @@ export default function Tickets() {
       const signal = fetchTicketsAbortRef.current.signal
 
       setLoading(true)
+      const currentPage = reset ? 1 : pageNumber
+
       const params: any = {
         showAll: showAll ? 'true' : 'false',
+        pageNumber: currentPage,
+        limit: 20
       }
 
       // Solo enviar status si no es 'all'
@@ -809,10 +991,15 @@ export default function Tickets() {
 
       const response = await api.get('/tickets', { params, signal })
       const ticketsData = response.data.tickets || response.data || []
+      const hasMoreData = response.data.hasMore ?? false
+
+      setHasMore(hasMoreData)
 
       if (ticketsData.length === 0) {
-        setTickets([])
-        setSelectedTicket(null)
+        if (reset) {
+          setTickets([])
+          setSelectedTicket(null)
+        }
         return
       }
 
@@ -828,7 +1015,12 @@ export default function Tickets() {
         })
       )
 
-      setTickets(ticketsWithMessages)
+      // Si es reset, reemplazar; si no, agregar al final
+      if (reset) {
+        setTickets(ticketsWithMessages)
+      } else {
+        setTickets(prev => [...prev, ...ticketsWithMessages])
+      }
 
       // Si venimos de Contactos, buscar y seleccionar el ticket del contacto
       if (pendingContactIdRef.current) {
@@ -841,18 +1033,53 @@ export default function Tickets() {
           setSelectedTicket(ticketsWithMessages[0])
         }
         pendingContactIdRef.current = null
-      } else if (ticketsWithMessages.length > 0 && !selectedTicket) {
+      } else if (reset && ticketsWithMessages.length > 0 && !selectedTicket) {
         setSelectedTicket(ticketsWithMessages[0])
       }
     } catch (error: any) {
       if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return
       console.error('❌ Error fetching tickets:', error?.response?.data || error.message || error)
-      setTickets([])
-      setSelectedTicket(null)
+      if (reset) {
+        setTickets([])
+        setSelectedTicket(null)
+      }
     } finally {
       setLoading(false)
     }
   }
+
+  // Ref para acceder siempre a la versión más reciente de fetchTickets (evita stale closure en socket handlers)
+  const fetchTicketsRef = useRef(fetchTickets)
+  useEffect(() => { fetchTicketsRef.current = fetchTickets })
+
+  // Función para cargar más tickets (paginación infinita)
+  const loadMoreTickets = async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    setPageNumber(prev => prev + 1)
+    await fetchTickets(false)
+    setLoadingMore(false)
+  }
+
+  // IntersectionObserver para paginación infinita
+  useEffect(() => {
+    if (!ticketsListRef.current) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          loadMoreTickets()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    if (ticketsListRef.current) {
+      observer.observe(ticketsListRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore, loading, pageNumber])
 
   const fetchFilterOptions = async () => {
     try {
@@ -875,7 +1102,7 @@ export default function Tickets() {
     if (!id) return
     try {
       await api.put(`/tickets/${id}`, { status: 'closed' })
-      fetchTickets()
+      fetchTickets(true)
       fetchTicketCounts() // Actualizar contadores
     } catch (error) {
       console.error('Error closing ticket:', error)
@@ -888,7 +1115,7 @@ export default function Tickets() {
       await api.put(`/tickets/${ticket.id}`, { status: newStatus })
       // Cambiar a la tab del nuevo estado
       setStatusFilter(newStatus)
-      fetchTickets()
+      fetchTickets(true)
       fetchTicketCounts() // Actualizar contadores
       setSelectedTicket({ ...ticket, status: newStatus })
     } catch (error) {
@@ -901,7 +1128,7 @@ export default function Tickets() {
       await api.put(`/tickets/${ticket.id}`, { status: 'open' })
       // Cambiar a la tab de abiertos
       setStatusFilter('open')
-      fetchTickets()
+      fetchTickets(true)
       fetchTicketCounts() // Actualizar contadores
       setSelectedTicket({ ...ticket, status: 'open' })
     } catch (error) {
@@ -1152,12 +1379,27 @@ export default function Tickets() {
                     {showAll ? <VisibilityIcon sx={{ fontSize: 20 }} /> : <VisibilityOffIcon sx={{ fontSize: 20 }} />}
                   </IconButton>
                 </Tooltip>
+                <Tooltip title="Nuevo ticket" placement="top">
+                  <IconButton
+                    size="sm"
+                    variant="solid"
+                    color="primary"
+                    onClick={() => setShowNewTicketModal(true)}
+                    sx={{
+                      borderRadius: '50%',
+                      bgcolor: '#5BC2D2',
+                      '&:hover': { bgcolor: '#4AA8B8' },
+                    }}
+                  >
+                    <AddIcon sx={{ fontSize: 20 }} />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Actualizar" placement="top">
                   <IconButton
                     size="sm"
                     variant="plain"
                     onClick={() => {
-                      fetchTickets()
+                      fetchTickets(true)
                       fetchTicketCounts()
                     }}
                     sx={{
@@ -1340,23 +1582,32 @@ export default function Tickets() {
                     },
                   }}
                 >
-                  <Badge
-                    badgeContent={openCount}
-                    sx={{
-                      '& .MuiBadge-badge': {
-                        bgcolor: statusFilter === 'open' ? 'rgba(255,255,255,0.3)' : '#22c55e',
-                        color: 'white',
-                        fontWeight: 700,
-                        fontSize: '0.65rem',
-                        minWidth: 18,
-                        height: 18,
-                        top: -4,
-                        right: -4,
-                      },
-                    }}
-                  >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative' }}>
                     <MessageIcon sx={{ fontSize: 22 }} />
-                  </Badge>
+                    {openCount > 0 && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -10,
+                          right: -10,
+                          bgcolor: statusFilter === 'open' ? 'rgba(255,255,255,0.3)' : '#22c55e',
+                          color: 'white',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          minWidth: 22,
+                          height: 22,
+                          borderRadius: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          px: 0.5,
+                          border: '2px solid white',
+                        }}
+                      >
+                        {openCount}
+                      </Box>
+                    )}
+                  </Box>
                 </Tab>
               </Tooltip>
 
@@ -1391,23 +1642,32 @@ export default function Tickets() {
                     },
                   }}
                 >
-                  <Badge
-                    badgeContent={pendingCount}
-                    sx={{
-                      '& .MuiBadge-badge': {
-                        bgcolor: statusFilter === 'pending' ? 'rgba(255,255,255,0.3)' : '#f97316',
-                        color: 'white',
-                        fontWeight: 700,
-                        fontSize: '0.65rem',
-                        minWidth: 18,
-                        height: 18,
-                        top: -4,
-                        right: -4,
-                      },
-                    }}
-                  >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative' }}>
                     <AccessTimeIcon sx={{ fontSize: 22 }} />
-                  </Badge>
+                    {pendingCount > 0 && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -10,
+                          right: -10,
+                          bgcolor: statusFilter === 'pending' ? 'rgba(255,255,255,0.3)' : '#f97316',
+                          color: 'white',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          minWidth: 22,
+                          height: 22,
+                          borderRadius: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          px: 0.5,
+                          border: '2px solid white',
+                        }}
+                      >
+                        {pendingCount}
+                      </Box>
+                    )}
+                  </Box>
                 </Tab>
               </Tooltip>
 
@@ -1442,23 +1702,32 @@ export default function Tickets() {
                     },
                   }}
                 >
-                  <Badge
-                    badgeContent={groupCount}
-                    sx={{
-                      '& .MuiBadge-badge': {
-                        bgcolor: statusFilter === 'group' ? 'rgba(255,255,255,0.3)' : '#5BC2D2',
-                        color: 'white',
-                        fontWeight: 700,
-                        fontSize: '0.65rem',
-                        minWidth: 18,
-                        height: 18,
-                        top: -4,
-                        right: -4,
-                      },
-                    }}
-                  >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative' }}>
                     <GroupIcon sx={{ fontSize: 22 }} />
-                  </Badge>
+                    {groupCount > 0 && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -10,
+                          right: -10,
+                          bgcolor: statusFilter === 'group' ? 'rgba(255,255,255,0.3)' : '#5BC2D2',
+                          color: 'white',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          minWidth: 22,
+                          height: 22,
+                          borderRadius: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          px: 0.5,
+                          border: '2px solid white',
+                        }}
+                      >
+                        {groupCount}
+                      </Box>
+                    )}
+                  </Box>
                 </Tab>
               </Tooltip>
 
@@ -1493,23 +1762,32 @@ export default function Tickets() {
                     },
                   }}
                 >
-                  <Badge
-                    badgeContent={closedCount}
-                    sx={{
-                      '& .MuiBadge-badge': {
-                        bgcolor: statusFilter === 'closed' ? 'rgba(255,255,255,0.3)' : '#6b7280',
-                        color: 'white',
-                        fontWeight: 700,
-                        fontSize: '0.65rem',
-                        minWidth: 18,
-                        height: 18,
-                        top: -4,
-                        right: -4,
-                      },
-                    }}
-                  >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative' }}>
                     <CheckBoxIcon sx={{ fontSize: 22 }} />
-                  </Badge>
+                    {closedCount > 0 && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -10,
+                          right: -10,
+                          bgcolor: statusFilter === 'closed' ? 'rgba(255,255,255,0.3)' : '#6b7280',
+                          color: 'white',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          minWidth: 22,
+                          height: 22,
+                          borderRadius: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          px: 0.5,
+                          border: '2px solid white',
+                        }}
+                      >
+                        {closedCount}
+                      </Box>
+                    )}
+                  </Box>
                 </Tab>
               </Tooltip>
             </TabList>
@@ -1803,6 +2081,43 @@ export default function Tickets() {
               })
             )}
           </List>
+
+          {/* Loader para paginación infinita */}
+          {loadingMore && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  color: 'text.secondary',
+                  fontSize: 'sm'
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 16,
+                    height: 16,
+                    border: '2px solid',
+                    borderColor: 'primary.main',
+                    borderTopColor: 'transparent',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                    '@keyframes spin': {
+                      '0%': { transform: 'rotate(0deg)' },
+                      '100%': { transform: 'rotate(360deg)' }
+                    }
+                  }}
+                />
+                <Typography level="body-sm">Cargando más tickets...</Typography>
+              </Box>
+            </Box>
+          )}
+
+          {/* Scroll sentinel para paginación infinita */}
+          {hasMore && tickets.length > 0 && (
+            <Box ref={ticketsListRef} sx={{ height: 1, mt: 1 }} />
+          )}
         </Sheet>
       </Box>
 
@@ -2171,17 +2486,68 @@ export default function Tickets() {
                     <ContactIcon sx={{ fontSize: 20 }} />
                   </IconButton>
                 </Tooltip>
-                <IconButton
-                  size="sm"
-                  variant="plain"
-                  sx={{
-                    borderRadius: '50%',
-                    color: 'text.secondary',
-                    '&:hover': { bgcolor: isDark ? '#3A3B3C' : '#E4E6EB' },
-                  }}
+                <Tooltip title="Más opciones">
+                  <IconButton
+                    size="sm"
+                    variant="plain"
+                    onClick={(e) => setTicketMoreMenu(e.currentTarget)}
+                    sx={{
+                      borderRadius: '50%',
+                      color: 'text.secondary',
+                      '&:hover': { bgcolor: isDark ? '#3A3B3C' : '#E4E6EB' },
+                    }}
+                  >
+                    <MoreIcon sx={{ fontSize: 20 }} />
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  open={Boolean(ticketMoreMenu)}
+                  anchorEl={ticketMoreMenu}
+                  onClose={() => setTicketMoreMenu(null)}
+                  placement="bottom-end"
                 >
-                  <MoreIcon sx={{ fontSize: 20 }} />
-                </IconButton>
+                  <MenuItem onClick={() => {
+                    setTicketMoreMenu(null)
+                    setContactDrawerOpen(true)
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <ContactIcon sx={{ fontSize: 18 }} />
+                      <Typography level="body-sm">Ver contacto</Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem onClick={() => {
+                    setTicketMoreMenu(null)
+                    setShowTransferModal(true)
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TransferIcon sx={{ fontSize: 18 }} />
+                      <Typography level="body-sm">Transferir ticket</Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem
+                    color="danger"
+                    onClick={async () => {
+                      setTicketMoreMenu(null)
+                      if (!selectedTicket) return
+                      const confirmed = window.confirm('¿Estás seguro de eliminar este ticket? Esta acción no se puede deshacer.')
+                      if (!confirmed) return
+                      try {
+                        await api.delete(`/tickets/${selectedTicket.id}`)
+                        toast.success('Ticket eliminado correctamente')
+                        setSelectedTicket(null)
+                        fetchTickets(true)
+                      } catch (error: any) {
+                        console.error('Error al eliminar ticket:', error)
+                        toast.error(error.response?.data?.message || 'Error al eliminar el ticket')
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <DeleteIcon sx={{ fontSize: 18, color: 'var(--joy-palette-danger-500)' }} />
+                      <Typography level="body-sm" color="danger">Eliminar ticket</Typography>
+                    </Box>
+                  </MenuItem>
+                </Menu>
                 <Tooltip title="Buscar en conversación">
                   <IconButton
                     size="sm"
@@ -2626,6 +2992,216 @@ export default function Tickets() {
         onForward={handleForwardMessages}
         loading={forwardLoading}
       />
+
+      {/* ─── MODAL NUEVO TICKET ─── */}
+      <Modal
+        open={showNewTicketModal}
+        onClose={() => {
+          setShowNewTicketModal(false)
+          setNewTicketContactSearch('')
+          setNewTicketContacts([])
+          setNewTicketContactId(null)
+          setNewTicketQueueId('')
+          setNewTicketWhatsappId('')
+        }}
+      >
+        <ModalDialog sx={{ minWidth: 420, maxWidth: 500 }}>
+          <Typography level="title-lg" sx={{ mb: 1 }}>
+            Nuevo Ticket
+          </Typography>
+          <Typography level="body-sm" sx={{ mb: 3, color: 'text.secondary' }}>
+            Crea un ticket manualmente seleccionando un contacto existente.
+          </Typography>
+
+          {/* Buscar contacto */}
+          <FormControl sx={{ mb: 2 }}>
+            <FormLabel>Contacto *</FormLabel>
+            <Autocomplete
+              placeholder="Busca por nombre o número..."
+              inputValue={newTicketContactSearch}
+              onInputChange={(_event, newInputValue) => {
+                handleContactSearchChange(newInputValue)
+              }}
+              onChange={(_event, newValue: any) => {
+                setNewTicketContactId(newValue?.id || null)
+              }}
+              loading={searchingNewTicketContacts}
+              options={newTicketContacts}
+              getOptionLabel={(option: any) => `${option.name} - ${option.number}`}
+              isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+              filterOptions={(options) => options}
+              renderOption={(props: any, option: any) => (
+                <Box component="li" {...props}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ width: 32, height: 32 }}>
+                      {option.name?.charAt(0)}
+                    </Avatar>
+                    <Box>
+                      <Typography level="body-sm">{option.name}</Typography>
+                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                        {option.number}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+            />
+          </FormControl>
+
+          {/* Cola */}
+          <FormControl sx={{ mb: 2 }}>
+            <FormLabel>Cola</FormLabel>
+            <Select
+              value={newTicketQueueId}
+              onChange={(_, value) => setNewTicketQueueId(value as string)}
+              size="sm"
+              placeholder="Selecciona una cola (opcional)"
+            >
+              <Option value="">Sin cola</Option>
+              {queues.map((queue) => (
+                <Option key={queue.id} value={queue.id.toString()}>
+                  {queue.name}
+                </Option>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Conexión WhatsApp */}
+          <FormControl sx={{ mb: 3 }}>
+            <FormLabel>Conexión</FormLabel>
+            <Select
+              value={newTicketWhatsappId}
+              onChange={(_, value) => setNewTicketWhatsappId(value as string)}
+              size="sm"
+              placeholder="Selecciona conexión (opcional)"
+            >
+              <Option value="">Predeterminada</Option>
+              {whatsapps.map((w) => (
+                <Option key={w.id} value={w.id.toString()}>
+                  {w.name}
+                </Option>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button
+              variant="outlined"
+              color="neutral"
+              onClick={() => {
+                setShowNewTicketModal(false)
+                setNewTicketContactSearch('')
+                setNewTicketContacts([])
+                setNewTicketContactId(null)
+                setNewTicketQueueId('')
+                setNewTicketWhatsappId('')
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateNewTicket}
+              loading={newTicketLoading}
+              disabled={!newTicketContactId}
+              color="primary"
+            >
+              Crear Ticket
+            </Button>
+          </Box>
+        </ModalDialog>
+      </Modal>
+
+      {/* ─── MODAL TRANSFERIR TICKET ─── */}
+      <Modal
+        open={showTransferModal}
+        onClose={() => {
+          setShowTransferModal(false)
+          setSelectedContact(null)
+          setSearchContact('')
+          setSearchResults([])
+        }}
+      >
+        <ModalDialog sx={{ minWidth: 400, maxWidth: 500 }}>
+          <Typography level="title-lg" sx={{ mb: 2 }}>
+            Transferir Ticket
+          </Typography>
+          <Typography level="body-sm" sx={{ mb: 3, color: 'text.secondary' }}>
+            Selecciona el nuevo contacto para este ticket. El ticket se asociará al contacto seleccionado.
+          </Typography>
+
+          <FormControl sx={{ mb: 3 }}>
+            <FormLabel>Buscar contacto</FormLabel>
+            <Autocomplete
+              placeholder="Escribe el nombre o número..."
+              value={selectedContact}
+              onChange={(_event, newValue) => {
+                setSelectedContact(newValue)
+              }}
+              inputValue={searchContact}
+              onInputChange={(_event, newInputValue) => {
+                setSearchContact(newInputValue)
+                handleSearchContact(newInputValue)
+              }}
+              loading={searchingContacts}
+              options={searchResults}
+              getOptionLabel={(option: any) => `${option.name} - ${option.number}`}
+              isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+              filterOptions={(options) => options}
+              renderOption={(props: any, option: any) => (
+                <Box component="li" {...props}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ width: 32, height: 32 }}>
+                      {option.name?.charAt(0)}
+                    </Avatar>
+                    <Box>
+                      <Typography level="body-sm">{option.name}</Typography>
+                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                        {option.number}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+            />
+          </FormControl>
+
+          {selectedContact && (
+            <Box sx={{ mb: 3, p: 2, bgcolor: 'background.level1', borderRadius: 'md' }}>
+              <Typography level="body-xs" sx={{ color: 'text.secondary', mb: 0.5 }}>
+                Contacto seleccionado
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Avatar sx={{ width: 24, height: 24 }}>
+                  {selectedContact.name?.charAt(0)}
+                </Avatar>
+                <Typography level="body-sm">{selectedContact.name}</Typography>
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button
+              variant="outlined"
+              color="neutral"
+              onClick={() => {
+                setShowTransferModal(false)
+                setSelectedContact(null)
+                setSearchContact('')
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleTransferTicket}
+              loading={transferring}
+              disabled={!selectedContact}
+              color="primary"
+            >
+              Transferir
+            </Button>
+          </Box>
+        </ModalDialog>
+      </Modal>
     </Box>
     </Box>
     </CssVarsProvider>

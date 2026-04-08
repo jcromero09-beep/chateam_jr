@@ -105,7 +105,8 @@ class VectorSearchService {
           (1 - (c.embedding <=> :embedding::vector)) AS similarity,
           c.topic,
           c.keywords,
-          c.metadata
+          c.metadata,
+          d.status AS "docStatus"
         FROM "AIChunks" c
         INNER JOIN "AIDocuments" d ON d.id = c."documentId"
         WHERE c."companyId" = :companyId
@@ -146,6 +147,22 @@ class VectorSearchService {
       logger.info(
         `${SERVICE_PREFIX} Busqueda vectorial: ${formattedResults.length} resultados (topK: ${topK}, minSim: ${minSimilarity}, empresa: ${companyId})`
       );
+
+      // 📊 Debug: mostrar status de documentos encontrados
+      if (formattedResults.length === 0) {
+        // Verificar si hay chunks con embeddings para esta empresa
+        const chunksDebug = await sequelize.query(`
+          SELECT d.status, COUNT(*) as total
+          FROM "AIChunks" c
+          INNER JOIN "AIDocuments" d ON d.id = c."documentId"
+          WHERE c."companyId" = :companyId AND c.embedding IS NOT NULL
+          GROUP BY d.status
+        `, {
+          replacements: { companyId },
+          type: QueryTypes.SELECT
+        });
+        logger.debug(`${SERVICE_PREFIX} DEBUG - Chunks por status: ${JSON.stringify(chunksDebug)}`);
+      }
 
       return formattedResults;
     } catch (error: unknown) {

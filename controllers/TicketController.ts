@@ -37,6 +37,7 @@ type IndexQuery = {
   isGroup?: string;
   sortTickets?: string;
   searchOnMessages?: string;
+  limit?: string;
 };
 
 type IndexQueryReport = {
@@ -82,7 +83,8 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     whatsapps: whatsappIdsStringified,
     statusFilter: statusStringfied,
     sortTickets,
-    searchOnMessages
+    searchOnMessages,
+    limit
   } = req.query as IndexQuery;
 
   // console.log(req.query);
@@ -116,7 +118,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     statusFilters = JSON.parse(statusStringfied);
   }
 
-  const { tickets, count, hasMore } = await ListTicketsService({
+  const { tickets, count, totalCount, hasMore } = await ListTicketsService({
     searchParam,
     tags: tagsIds,
     users: usersIds,
@@ -124,7 +126,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     status,
     date,
     startDate,  // Pasamos startDate al servicio
-    endDate, 
+    endDate,
     updatedAt,
     showAll,
     userId,
@@ -134,10 +136,11 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     statusFilters,
     companyId,
     sortTickets,
-    searchOnMessages
+    searchOnMessages,
+    limit: limit ? Number(limit) : undefined
   });
 
-  return res.status(200).json({ tickets, count, hasMore });
+  return res.status(200).json({ tickets, count, totalCount, hasMore });
 };
 
 export const report = async (req: Request, res: Response): Promise<Response> => {
@@ -450,5 +453,68 @@ export const toggleFollowup = async (req: Request, res: Response): Promise<Respo
   } catch (error) {
     console.error('Error toggling followup:', error);
     return res.status(500).json({ error: 'Error al togglear followup' });
+  }
+};
+
+// Endpoint para obtener contadores reales de tickets
+export const counts = async (req: Request, res: Response): Promise<Response> => {
+  const { showAll } = req.query;
+  const userId = Number(req.user.id);
+  const { companyId } = req.user;
+
+  try {
+    // Obtener contadores para cada status sin límite
+    const [openRes, pendingRes, closedRes, groupRes] = await Promise.all([
+      ListTicketsService({
+        userId,
+        companyId,
+        status: 'open',
+        showAll: showAll as string || 'false',
+        limit: 0,
+        queueIds: [],
+        tags: [],
+        users: []
+      } as any),
+      ListTicketsService({
+        userId,
+        companyId,
+        status: 'pending',
+        showAll: showAll as string || 'false',
+        limit: 0,
+        queueIds: [],
+        tags: [],
+        users: []
+      } as any),
+      ListTicketsService({
+        userId,
+        companyId,
+        status: 'closed',
+        showAll: showAll as string || 'false',
+        limit: 0,
+        queueIds: [],
+        tags: [],
+        users: []
+      } as any),
+      ListTicketsService({
+        userId,
+        companyId,
+        status: 'group',
+        showAll: showAll as string || 'false',
+        limit: 0,
+        queueIds: [],
+        tags: [],
+        users: []
+      } as any)
+    ]);
+
+    return res.status(200).json({
+      open: openRes.count,
+      pending: pendingRes.count,
+      closed: closedRes.count,
+      group: groupRes.count
+    });
+  } catch (error) {
+    console.error('Error fetching ticket counts:', error);
+    return res.status(500).json({ error: 'Error al obtener contadores' });
   }
 };

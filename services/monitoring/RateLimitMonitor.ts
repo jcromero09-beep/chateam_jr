@@ -5,7 +5,17 @@ export class RateLimitMonitor {
   private redisClient: Redis;
 
   constructor() {
-    this.redisClient = new Redis(process.env.REDIS_URL || process.env.REDIS_URI || 'redis://127.0.0.1:5000', {
+    // Construir URL con autenticación
+    const redisPassword = process.env.REDIS_PASSWORD || '';
+    const redisHost = process.env.REDIS_HOST || '127.0.0.1';
+    const redisPort = process.env.REDIS_PORT || '5000';
+    const redisUrl = process.env.REDIS_URL || process.env.REDIS_URI || (
+      redisPassword
+        ? `redis://:${redisPassword}@${redisHost}:${redisPort}`
+        : `redis://${redisHost}:${redisPort}`
+    );
+
+    this.redisClient = new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
       retryStrategy: (times: number) => {
         if (times > 5) return null;

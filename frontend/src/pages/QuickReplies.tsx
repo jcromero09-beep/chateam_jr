@@ -127,6 +127,7 @@ export default function QuickReplies() {
     const fd = new FormData()
     fd.append('file', selectedFile)
     fd.append('typeArch', 'quickMessage')
+    // Axios maneja automáticamente el Content-Type: multipart/form-data con boundary cuando usas FormData
     await api.post(`/quick-messages/${quickMessageId}/media-upload`, fd)
   }
 

@@ -353,6 +353,7 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
       collectiveVacationMessage: "",
       promptId: null,
       integrationId: null,
+      useAIOrchestrator: false,
     });
     setCredentials({
       token: "",

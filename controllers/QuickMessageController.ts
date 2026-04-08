@@ -164,11 +164,26 @@ export const mediaUpload = async (
 ): Promise<Response> => {
   const { id } = req.params;
   const files = req.files as Express.Multer.File[];
+
+  console.log('[mediaUpload] req.files:', files);
+  console.log('[mediaUpload] req.body:', req.body);
+
   const file = head(files);
+
+  // ✅ AGREGADO: Validar que existe archivo
+  if (!file) {
+    console.log('[mediaUpload] ERROR: No se detectó archivo en req.files');
+    return res.status(400).json({ error: 'No se ha proporcionado ningún archivo' });
+  }
 
   try {
     const quickmessage = await QuickMessage.findByPk(id);
-    
+
+    // ✅ AGREGADO: Validar que existe el quickmessage
+    if (!quickmessage) {
+      return res.status(404).json({ error: 'Quick message no encontrado' });
+    }
+
     await quickmessage.update ({
       mediaPath: file.filename,
       mediaName: file.originalname

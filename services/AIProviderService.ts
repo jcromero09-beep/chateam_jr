@@ -12,7 +12,8 @@ export type AICapability =
   | 'images'
   | 'imageAnalysis'
   | 'stt'
-  | 'tts';
+  | 'tts'
+  | 'embedding';
 
 // Mapeo de capacidad a campos del modelo
 const capabilityFieldMap: Record<AICapability, { enabled: string; isDefault: string }> = {
@@ -21,7 +22,8 @@ const capabilityFieldMap: Record<AICapability, { enabled: string; isDefault: str
   images: { enabled: 'imageGenerationEnabled', isDefault: 'isDefaultForImages' },
   imageAnalysis: { enabled: 'imageAnalysisEnabled', isDefault: 'isDefaultForImageAnalysis' },
   stt: { enabled: 'speechToTextEnabled', isDefault: 'isDefaultForSTT' },
-  tts: { enabled: 'textToSpeechEnabled', isDefault: 'isDefaultForTTS' }
+  tts: { enabled: 'textToSpeechEnabled', isDefault: 'isDefaultForTTS' },
+  embedding: { enabled: 'textGenerationEnabled', isDefault: 'isDefaultForText' } // Reutiliza flags de text para embeddings
 };
 
 /**
@@ -42,6 +44,8 @@ export async function getDefaultProviderForCapability(
 
   // Buscar proveedores GLOBAL (companyId=null) — compartidos por todas las companies
   // Primero buscar el proveedor marcado como default
+  console.log(`[AIProviderService] Buscando provider para ${capability}, companyId: null, isActive: true`);
+
   let provider = await AIProviderConfig.findOne({
     where: {
       companyId: null,  // GLOBAL
@@ -53,6 +57,7 @@ export async function getDefaultProviderForCapability(
 
   // Si no hay default, usar el primero disponible con esa capacidad
   if (!provider) {
+    console.log(`[AIProviderService] No hay default para ${capability}, buscando cualquier provider activo...`);
     provider = await AIProviderConfig.findOne({
       where: {
         companyId: null,  // GLOBAL
@@ -61,6 +66,15 @@ export async function getDefaultProviderForCapability(
       },
       order: [['id', 'ASC']]
     });
+  }
+
+  if (provider) {
+    console.log(`[AIProviderService] Provider encontrado para ${capability}: id=${provider.id}, name="${provider.name}", provider="${provider.provider}", apiKeyEXISTS=${!!provider.apiKey}`);
+  } else {
+    console.log(`[AIProviderService] NO se encontró provider para ${capability}`);
+    // Debug: listar todos los proveedores globales
+    const all = await AIProviderConfig.findAll({ where: { companyId: null } });
+    console.log(`[AIProviderService] Proveedores globales en BD:`, all.map(p => ({ id: p.id, name: p.name, provider: p.provider, isActive: p.isActive })));
   }
 
   return provider;

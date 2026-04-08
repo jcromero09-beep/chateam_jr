@@ -23,19 +23,24 @@ const extractText = async (
   options: { maxPages?: number } = {}
 ): Promise<{ text: string; pageCount: number }> => {
   try {
-    // Use pdf-parse library
-    const pdfParse = require('pdf-parse');
+    const pdfModule = require('pdf-parse');
+    const pdfParse = pdfModule.default || pdfModule;
+
+    console.log('[AIPDFProcessor] pdfParse type:', typeof pdfParse, 'Buffer:', pdfBuffer?.length, 'bytes');
+
     const data = await pdfParse(pdfBuffer, {
       max: options.maxPages || 100
     });
+
+    console.log('[AIPDFProcessor] Pages:', data.numpages, 'Text length:', data.text?.length);
 
     return {
       text: data.text || '',
       pageCount: data.numpages || 0
     };
   } catch (error: any) {
+    console.error('[AIPDFProcessor] extractText FULL error:', error);
     logger.error(`[AIPDFProcessor] Text extraction error: ${error.message}`);
-    // Fallback: try with OpenAI
     return { text: '', pageCount: 0 };
   }
 };

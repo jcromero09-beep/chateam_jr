@@ -58,6 +58,15 @@ export const StartWhatsAppSession = async (
       wbotMonitor(wbot, whatsapp, companyId);
       // console.log("✅ [StartWhatsAppSession] Monitor set up");
 
+      // NUEVO: Registrar sesión en Redis (como respaldo, en caso de que connection.update no se dispare)
+      try {
+        const { sessionRegistry } = require("../../libs/sessionRegistry");
+        await sessionRegistry.register(whatsapp.id);
+        console.log(`[StartWhatsAppSession] Sesión ${whatsapp.id} registrada en Redis`);
+      } catch (regErr: any) {
+        console.warn('[StartWhatsAppSession] Error registrando en Redis:', regErr.message);
+      }
+
       // console.log("🎉 [StartWhatsAppSession] WhatsApp session initialization completed successfully");
     } else {
       // console.warn("⚠️ [StartWhatsAppSession] wbot.id is undefined - session may not be properly initialized");

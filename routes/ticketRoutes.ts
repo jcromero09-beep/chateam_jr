@@ -29,4 +29,6 @@ ticketRoutes.post("/tickets/closeAll", isAuth, TicketController.closeAll);
 
 ticketRoutes.put("/tickets/:ticketId/followup", isAuth, TicketController.toggleFollowup);
 
+ticketRoutes.get("/tickets/counts", isAuth, TicketController.counts);
+
 export default ticketRoutes;

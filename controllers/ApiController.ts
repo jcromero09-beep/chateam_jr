@@ -28,6 +28,9 @@ import { verifyMediaMessage, verifyMessage } from "../services/WbotServices/wbot
 import ShowQueueService from "../services/QueueService/ShowQueueService";
 import path from "path";
 import Contact from "../models/Contact";
+
+// MessageRegistry para coordinación entre nodos
+import { registerPendingMessage, unregisterPendingMessage, getCurrentNodeId } from "../libs/messageRegistry";
 import { logInfo, logError, logWarn } from "../config/logger";
 import Ticket from "../models/Ticket";
 import FindOrCreateATicketTrakingService from "../services/TicketServices/FindOrCreateATicketTrakingService";
@@ -1674,7 +1677,9 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     }
 
     // 2. Crear mensaje con estado PENDING antes de enviar a Meta
-    const pendingWid = `PENDING_${externalId || Date.now()}`;
+    // Generar wid ÚNICO para evitar conflictos de SequelizeUniqueConstraintError
+    // IMPORTANTE: El externalId puede repetirse entre diferentes contactos/números
+    const pendingWid = `PENDING_${externalId || Date.now()}_${toNumber}_${Date.now().toString(36)}`;
     const messageBody = `[Plantilla: ${template.name}]${params && params.length > 0 ? "\n📋 Parámetros: " + params.join(", ") : ""}`;
     const messageDataJson = {
       templateId: template.id,
@@ -1704,6 +1709,27 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     });
 
     logInfo(`[API-TEMPLATE] ✅ Mensaje creado - messageId: ${message.id} | wid: ${pendingWid}`);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔗 REGISTRAR EN REDIS PARA COORDINACIÓN ENTRE NODOS
+    // ═══════════════════════════════════════════════════════════════════
+    try {
+      await registerPendingMessage(pendingWid, {
+        messageId: message.id,
+        whatsappId: sendWhatsapp.id,
+        companyId: companyId,
+        nodeId: getCurrentNodeId(),
+        phoneNumber: toNumber,
+        templateName: template.name,
+        externalId: externalId,
+        webhookUrl: webhookUrl,
+        createdAt: new Date().toISOString()
+      });
+      logInfo(`[API-TEMPLATE] 🔗 Registry: Mensaje ${pendingWid} registrado en Redis para nodo=${getCurrentNodeId()}`);
+    } catch (registryError) {
+      // No criticalo - el mensaje ya está en BD
+      logError(`[API-TEMPLATE] ⚠️ Error registrando en Redis (continuará igual): ${registryError}`);
+    }
 
     // 3. Enviar plantilla a Meta
     let templateResponse: any;
@@ -1737,7 +1763,10 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
           const errorData = metaError.response.data;
           // Si es un objeto con propiedad error o message
           if (typeof errorData === 'object') {
-            errorMessage = errorData.error?.message || errorData.message || JSON.stringify(errorData);
+            // Safe stringify para evitar crash por referencias circulares
+            let safeDataStr = 'N/A';
+            try { safeDataStr = JSON.stringify(errorData); } catch { safeDataStr = '[no serializable]'; }
+            errorMessage = errorData.error?.message || errorData.message || safeDataStr;
           } else {
             errorMessage = String(errorData);
           }
@@ -1753,7 +1782,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
       logError(`❌ [API-TEMPLATE] Error detallado: status=${metaError.response?.status}, code=${metaError.code}, message=${errorMessage}`);
 
       await message.update({
-        dataJson: JSON.stringify({ ...messageDataJson, status: 'failed', error: errorMessage, metaStatus: metaError.response?.status, metaCode: metaError.code })
+        dataJson: JSON.stringify({ status: 'failed', error: errorMessage, metaStatus: metaError.response?.status, metaCode: metaError.code })
       });
 
       logInfo(`[API-TEMPLATE] ✅ Mensaje marcado como failed en BD - messageId: ${message.id} | wid: ${pendingWid} | error: ${errorMessage}`);

@@ -16,7 +16,7 @@
 import OpenAI from "openai";
 import logger from "../../utils/logger";
 import { trackEmbeddings } from "../TokenTrackingService/TokenTrackingService";
-import { getDefaultProviderForCapability } from "../AIProviderService";
+import AIProviderConfig from "../../models/AIProviderConfig"; // Import directo para forzar OpenAI
 
 // ============================================================================
 // CONSTANTES
@@ -39,16 +39,31 @@ let openaiClient: OpenAI | null = null;
 
 async function getOpenAIClient(): Promise<OpenAI> {
   if (!openaiClient) {
-    // Usar AIProviderService para obtener la API key de la BD (configuración global SuperAdmin)
-    const provider = await getDefaultProviderForCapability('text');
+    // 🔥 FORZAR OpenAI para embeddings (Anthropic no tiene API de embeddings)
+    logger.info(`${SERVICE_PREFIX} 🔍 Buscando provider OpenAI para embeddings...`);
+
+    const provider = await AIProviderConfig.findOne({
+      where: {
+        companyId: null,  // GLOBAL
+        isActive: true,
+        provider: 'openai'
+      }
+    });
+
     if (!provider) {
-      throw new Error(`${SERVICE_PREFIX} No hay proveedor de IA configurado`);
+      logger.error(`${SERVICE_PREFIX} ❌ No hay proveedor OpenAI configurado para embeddings`);
+      throw new Error(`${SERVICE_PREFIX} No hay proveedor OpenAI configurado para embeddings`);
     }
 
     const apiKey = provider.apiKey;
     if (!apiKey) {
+      logger.error(`${SERVICE_PREFIX} ❌ API key no configurada en proveedor OpenAI`);
       throw new Error(`${SERVICE_PREFIX} API key no configurada en proveedor de IA`);
     }
+
+    // ✅ Mostrar provider encontrado (sin mostrar la key completa por seguridad)
+    const keyPreview = apiKey.substring(0, 10) + '...' + apiKey.substring(apiKey.length - 4);
+    logger.info(`${SERVICE_PREFIX} ✅ Proveedor encontrado: id=${provider.id}, name="${provider.name}", apiKey=${keyPreview}`);
 
     openaiClient = new OpenAI({
       apiKey,
@@ -57,7 +72,7 @@ async function getOpenAIClient(): Promise<OpenAI> {
       maxRetries: 0 // Manejamos reintentos manualmente
     });
 
-    logger.info(`${SERVICE_PREFIX} Cliente OpenAI inicializado con API de BD`);
+    logger.info(`${SERVICE_PREFIX} ✅ Cliente OpenAI inicializado (provider: ${provider.name})`);
   }
 
   return openaiClient;
@@ -171,6 +186,7 @@ class EmbeddingService {
 
           const embedding = response.data[0]?.embedding;
           if (!embedding || embedding.length === 0) {
+            logger.error(`${SERVICE_PREFIX} ❌ Respuesta de embedding vacia`);
             throw new Error(`${SERVICE_PREFIX} Respuesta de embedding vacia`);
           }
 
@@ -182,9 +198,10 @@ class EmbeddingService {
             });
           }
 
-          logger.info(
-            `${SERVICE_PREFIX} Embedding generado: ${embedding.length} dims, ${response.usage?.total_tokens || 0} tokens (empresa: ${companyId})`
-          );
+          // 📊 Log detallado del embedding generado
+          const preview = embedding.slice(0, 5).join(', ');
+          logger.info(`${SERVICE_PREFIX} ✅ Embedding generado: ${embedding.length} dims, ${response.usage?.total_tokens || 0} tokens, company=${companyId}`);
+          logger.debug(`${SERVICE_PREFIX} 📊 Primeras 5 dimensiones del embedding: [${preview}...]`);
 
           return embedding;
         } catch (err: unknown) {

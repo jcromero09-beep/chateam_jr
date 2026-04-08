@@ -9,8 +9,19 @@ import Redis from 'ioredis';
 // Configurado con Redis para funcionar en cluster/multi-servidor
 // ============================================================================
 
-// Crear cliente Redis
-const redisClient = new Redis(process.env.REDIS_URL || process.env.REDIS_URI || 'redis://127.0.0.1:5000', {
+// Crear cliente Redis con autenticación
+const redisPassword = process.env.REDIS_PASSWORD || '';
+const redisHost = process.env.REDIS_HOST || '127.0.0.1';
+const redisPort = parseInt(process.env.REDIS_PORT || '5000', 10);
+
+// Construir URL con contraseña embebida
+const redisUrl = redisPassword
+  ? `redis://:${redisPassword}@${redisHost}:${redisPort}`
+  : `redis://${redisHost}:${redisPort}`;
+
+console.log('[RateLimiter] Redis URL:', redisUrl.replace(/:[^:]+@/, ':****@'));
+
+const redisClient = new Redis(redisUrl, {
   lazyConnect: false,
   maxRetriesPerRequest: null,
   enableOfflineQueue: false,

@@ -46,7 +46,21 @@ export class RedisRateLimiter {
   private prefix: string;
 
   constructor(redisUrl?: string, prefix: string = "ratelimit") {
-    const url = redisUrl || process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || "localhost"}:${process.env.REDIS_PORT || 6379}`;
+    // Usar URL proporcionada o construir desde variables de entorno
+    // PRIORIDAD: redisUrl > construir desde componentes (IGNORAR REDIS_URL/REDIS_URI sin password)
+    let url = redisUrl;
+
+    // SIEMPRE construir URL correcta desde componentes (ignorar REDIS_URL/REDIS_URI que pueden no tener password)
+    const redisPassword = process.env.REDIS_PASSWORD || '';
+    const redisHost = process.env.REDIS_HOST || '127.0.0.1';
+    const redisPort = process.env.REDIS_PORT || '5000'; // Puerto correcto: 5000
+    url = redisPassword
+      ? `redis://:${redisPassword}@${redisHost}:${redisPort}`
+      : `redis://${redisHost}:${redisPort}`;
+
+    // DEBUG: Log de la URL que se usa (sin password)
+    const urlSafe = url.replace(/:([^@]+)@/, ':****@');
+    console.log('[RateLimiter] Redis URL:', urlSafe);
 
     this.redis = new Redis(url, {
       maxRetriesPerRequest: 3,

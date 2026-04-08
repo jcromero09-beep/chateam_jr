@@ -86,11 +86,24 @@ async function extractContentFromUrl(url: string): Promise<string> {
  */
 async function extractContentFromPdf(filePath: string): Promise<string> {
   try {
-    const AIPDFProcessorService = require("../services/AIMultimodalServices/AIPDFProcessorService");
+    console.log(`[KB] Extrayendo PDF desde: ${filePath}`);
+    const pdfModule = require("../services/AIMultimodalServices/AIPDFProcessorService");
+    console.log(`[KB] PDF module keys:`, Object.keys(pdfModule));
+    console.log(`[KB] PDF module default:`, pdfModule.default);
+
+    const extractText = pdfModule.extractText || pdfModule.default?.extractText;
+    if (!extractText) {
+      throw new Error("No se encontró la función extractText");
+    }
+
     const pdfBuffer = await require("fs/promises").readFile(filePath);
-    const result = await AIPDFProcessorService.extractText(pdfBuffer);
+    console.log(`[KB] PDF buffer size: ${pdfBuffer.length} bytes`);
+
+    const result = await extractText(pdfBuffer);
+    console.log(`[KB] PDF extraído: ${result.text.length} caracteres, ${result.pageCount} páginas`);
     return result.text;
   } catch (error: any) {
+    console.error(`[KB] Error extrayendo PDF:`, error);
     throw new Error(`Error extrayendo contenido de PDF: ${error.message}`);
   }
 }
@@ -212,18 +225,42 @@ export const createDocument = async (req: Request, res: Response): Promise<Respo
       const fs = await import("fs/promises");
       fileContent = await fs.readFile(file.path, "utf-8");
     }
+    // Para DOCX, extraer texto con mammoth
+    else if (ext.endsWith('.docx') || ext.endsWith('.doc')) {
+      try {
+        console.log(`[KB] Procesando DOCX: ${file.originalname}`);
+        const mammoth = require("mammoth");
+        const result = await mammoth.extractRawText({ path: file.path });
+        fileContent = result.value;
+
+        if (!fileContent || fileContent.trim().length < 10) {
+          throw new Error("No se pudo extraer texto del DOCX");
+        }
+        console.log(`[KB] DOCX extraído: ${fileContent.length} caracteres`);
+      } catch (docxError: any) {
+        console.error(`[KB] Error extrayendo DOCX:`, docxError);
+        throw new AppError(`Error extrayendo DOCX: ${docxError.message}`, 400);
+      }
+    }
     // Para PDFs, extraer texto usando el servicio
     else if (ext.endsWith('.pdf')) {
       try {
-        const AIPDFProcessorService = require("../services/AIMultimodalServices/AIPDFProcessorService");
+        console.log(`[KB] Procesando PDF: ${file.originalname}`);
+        const pdfModule = require("../services/AIMultimodalServices/AIPDFProcessorService");
+        const extractText = pdfModule.extractText || pdfModule.default?.extractText;
+        if (!extractText) {
+          throw new Error("No se encontró la función extractText");
+        }
         const pdfBuffer = await require("fs/promises").readFile(file.path);
-        const result = await AIPDFProcessorService.extractText(pdfBuffer);
+        const result = await extractText(pdfBuffer);
         fileContent = result.text;
 
         if (!fileContent || fileContent.trim().length < 10) {
           throw new Error("No se pudo extraer texto del PDF");
         }
+        console.log(`[KB] PDF extraído: ${fileContent.length} caracteres`);
       } catch (pdfError: any) {
+        console.error(`[KB] Error extrayendo PDF:`, pdfError);
         throw new AppError(`Error extrayendo PDF: ${pdfError.message}`, 400);
       }
     }
@@ -288,7 +325,7 @@ export const getDocumentDetail = async (req: Request, res: Response): Promise<Re
     where: { documentId: document.id, companyId },
     attributes: ["id", "chunkIndex", "content", "tokenCount", "topic", "keywords", "metadata", "createdAt"],
     order: [["chunkIndex", "ASC"]],
-    limit: 50
+    limit: 500
   });
 
   return res.json({

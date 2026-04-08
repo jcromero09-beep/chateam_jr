@@ -20,7 +20,6 @@ import Compressor from "compressorjs";
 import api from "../../services/api";
 import toastError from "../../errors/toastError";
 import {
-  Checkbox,
   FormControl,
   InputLabel,
   MenuItem,
@@ -293,11 +292,11 @@ const FlowBuilderSingleBlockModal = ({
     const newArrVideo = elementsSeq.filter((item) => item.includes("video"));
     const newArrPdf = elementsSeq.filter((item) => item.includes("pdf"));
 
-    //Todas as mensagens
+    //Todos los mensajes
     for (let i = 0; i < numberMessages; i++) {
-      const value = document
-        .querySelector(`.${newArrMessage[i]}`)
-        .querySelector(".MuiInputBase-input").value;
+      const msgEl = document.querySelector(`.${newArrMessage[i]}`);
+      const inputEl = msgEl?.querySelector(".MuiInputBase-input") || msgEl?.querySelector("textarea");
+      const value = inputEl?.value || "";
       if (!value) {
         toast.error("Campos de mensaje vacíos");
         setLoading(false);
@@ -309,11 +308,11 @@ const FlowBuilderSingleBlockModal = ({
         number: newArrMessage[i],
       });
     }
-    //Todos os intervalos
+    //Todos los intervalos
     for (let i = 0; i < numberInterval; i++) {
-      const value = document
-        .querySelector(`.${newArrInterval[i]}`)
-        .querySelector(".MuiInputBase-input").value;
+      const intEl = document.querySelector(`.${newArrInterval[i]}`);
+      const inputEl = intEl?.querySelector(".MuiInputBase-input");
+      const value = inputEl?.value || "0";
       if (parseInt(value) === 0 || parseInt(value) > 120) {
         toast.error("El intervalo no puede ser 0 ni superior a 120.");
         setLoading(false);
@@ -429,14 +428,15 @@ const FlowBuilderSingleBlockModal = ({
         const itemSelectedEdit = elementsEdit.filter(
           (item) => item.number === newArrAudio[i]
         )[0];
+        const checkElEdit = document.querySelector(`.check${newArrAudio[i]}`);
+        // El checkbox ahora es un <input> nativo, buscamos directamente o como fallback
+        const switchElEdit = checkElEdit?.tagName === 'INPUT' ? checkElEdit : checkElEdit?.querySelector("input[type='checkbox']");
         elementsSequence.push({
           type: "audio",
           value: itemSelectedEdit.value,
           original: itemSelectedEdit.original,
           number: itemSelectedEdit.number,
-          record: document
-            .querySelector(`.check${newArrAudio[i]}`)
-            .querySelector(".PrivateSwitchBase-input").checked,
+          record: switchElEdit?.checked ?? true,
         });
       } else {
         let indexElem = 0;
@@ -448,14 +448,14 @@ const FlowBuilderSingleBlockModal = ({
         } else {
           indexElem = i;
         }
+        const checkElNew = document.querySelector(`.check${newArrAudio[i]}`);
+        const switchElNew = checkElNew?.tagName === 'INPUT' ? checkElNew : checkElNew?.querySelector("input[type='checkbox']");
         elementsSequence.push({
           type: "audio",
           value: onlyAudio[indexElem],
-          original: onlyAudioNameOriginal[indexElem].name,
+          original: onlyAudioNameOriginal?.[indexElem]?.name || "",
           number: newArrAudio[i],
-          record: document
-            .querySelector(`.check${newArrAudio[i]}`)
-            .querySelector(".PrivateSwitchBase-input").checked,
+          record: switchElNew?.checked ?? true,
         });
       }
     }
@@ -508,7 +508,7 @@ const FlowBuilderSingleBlockModal = ({
       setElementsSeqEdit((old) =>
         old.filter((item) => item !== `message${id}`)
       );
-      document.querySelector(`.stackMessage${id}`).remove();
+      document.querySelector(`.stackMessage${id}`)?.remove();
     }
     if (type === "interval") {
       setNumberInterval((old) => old - 1);
@@ -516,7 +516,7 @@ const FlowBuilderSingleBlockModal = ({
       setElementsSeqEdit((old) =>
         old.filter((item) => item !== `interval${id}`)
       );
-      document.querySelector(`.stackInterval${id}`).remove();
+      document.querySelector(`.stackInterval${id}`)?.remove();
     }
     if (type === "img") {
       setNumberImg((old) => old - 1);
@@ -536,7 +536,7 @@ const FlowBuilderSingleBlockModal = ({
       });
       setElementsSeq((old) => old.filter((item) => item !== `img${id}`));
       setElementsSeqEdit((old) => old.filter((item) => item !== `img${id}`));
-      document.querySelector(`.stackImg${id}`).remove();
+      document.querySelector(`.stackImg${id}`)?.remove();
     }
     if (type === "audio") {
       setNumberAudio((old) => old - 1);
@@ -556,7 +556,7 @@ const FlowBuilderSingleBlockModal = ({
       });
       setElementsSeq((old) => old.filter((item) => item !== `audio${id}`));
       setElementsSeqEdit((old) => old.filter((item) => item !== `audio${id}`));
-      document.querySelector(`.stackAudio${id}`).remove();
+      document.querySelector(`.stackAudio${id}`)?.remove();
     }
     if (type === "pdf") {
       setNumberPdf((old) => old - 1);
@@ -576,7 +576,7 @@ const FlowBuilderSingleBlockModal = ({
       });
       setElementsSeq((old) => old.filter((item) => item !== `pdf${id}`));
       setElementsSeqEdit((old) => old.filter((item) => item !== `pdf${id}`));
-      document.querySelector(`.stackPdf${id}`).remove(); // usamos optional chaining por seguridad
+      document.querySelector(`.stackPdf${id}`)?.remove();
     }
 
     if (type === "video") {
@@ -597,7 +597,7 @@ const FlowBuilderSingleBlockModal = ({
       });
       setElementsSeq((old) => old.filter((item) => item !== `video${id}`));
       setElementsSeqEdit((old) => old.filter((item) => item !== `video${id}`));
-      document.querySelector(`.stackVideo${id}`).remove();
+      document.querySelector(`.stackVideo${id}`)?.remove();
     }
   };
 
@@ -684,8 +684,9 @@ const FlowBuilderSingleBlockModal = ({
     const selectedMedias = Array.from(e.target.files);
     setMedias((old) => [...old, selectedMedias[0]]);
 
-    document.querySelector(`.img${number}`).src = imgBlob;
-    document.querySelector(`.btnImg${number}`).remove();
+    const imgEl = document.querySelector(`.img${number}`);
+    if (imgEl) imgEl.src = imgBlob;
+    document.querySelector(`.btnImg${number}`)?.remove();
   };
 
   const handleChangeMediasPdf = (e, number) => {
@@ -758,13 +759,14 @@ const FlowBuilderSingleBlockModal = ({
     const selectedMedias = Array.from(e.target.files);
     setMedias((old) => [...old, selectedMedias[0]]);
 
-    document.querySelector(
-      `.audio${number}`
-    ).innerHTML = `<audio controls="controls">
-    <source src="${audioBlob}" type="audio/mp3" />
-    tu navegador no soporta HTML5
-  </audio>`;
-    document.querySelector(`.btnAudio${number}`).remove();
+    const audioEl = document.querySelector(`.audio${number}`);
+    if (audioEl) {
+      audioEl.innerHTML = `<audio controls="controls">
+      <source src="${audioBlob}" type="audio/mp3" />
+      tu navegador no soporta HTML5
+    </audio>`;
+    }
+    document.querySelector(`.btnAudio${number}`)?.remove();
   };
 
   const handleChangeVideos = (e, number) => {
@@ -796,8 +798,9 @@ const FlowBuilderSingleBlockModal = ({
     tu navegador no soporta HTML5
   </video>`;
 
-    document.querySelector(`.video${number}`).appendChild(divConteudo);
-    document.querySelector(`.btnVideo${number}`).remove();
+    const videoEl = document.querySelector(`.video${number}`);
+    if (videoEl) videoEl.appendChild(divConteudo);
+    document.querySelector(`.btnVideo${number}`)?.remove();
   };
 
   const imgLayout = (number, valueDefault = "") => {
@@ -933,14 +936,14 @@ const FlowBuilderSingleBlockModal = ({
             />
           </Button>
         )}
-        <Stack direction={"row"} justifyContent={"center"}>
-          <Checkbox
+        <Stack direction={"row"} justifyContent={"center"} alignItems={"center"} gap={1}>
+          <input
+            type="checkbox"
             className={`checkaudio${number}`}
             defaultChecked={valueRecordDefault === "ok" ? false : true}
+            style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#5BC2D2" }}
           />
-          <Stack justifyContent={"center"}>
-            <Typography>Enviar como audio grabado</Typography>
-          </Stack>
+          <Typography style={{ fontSize: 14 }}>Enviar como audio grabado</Typography>
         </Stack>
       </Stack>
     );
@@ -1005,7 +1008,7 @@ const FlowBuilderSingleBlockModal = ({
         </Stack>
         <Typography className={classes.elementTitle}>Texto</Typography>
         <TextField
-          label={"Mensagem"}
+          label={"Mensaje"}
           defaultValue={valueDefault}
           multiline
           rows={7}
@@ -1030,7 +1033,7 @@ const FlowBuilderSingleBlockModal = ({
         </Stack>
         <Typography className={classes.elementTitle}>Intervalo</Typography>
         <TextField
-          label={"Tempo em segundos"}
+          label={"Tiempo en segundos"}
           className={`interval${number}`}
           defaultValue={valueDefault}
           type="number"
@@ -1451,7 +1454,7 @@ const FlowBuilderSingleBlockModal = ({
 
   const scrollToBottom = (className) => {
     const element = document.querySelector(className);
-    element.scrollTop = element.scrollHeight;
+    if (element) element.scrollTop = element.scrollHeight;
   };
 
   const variableFormatter = (item) => {
@@ -1485,7 +1488,7 @@ const FlowBuilderSingleBlockModal = ({
               overflow: "auto",
               height: "70vh",
               scrollBehavior: "smooth",
-              display: loading && "none",
+              display: loading ? "none" : "flex",
             }}
           >
             {elements.map((item) => (

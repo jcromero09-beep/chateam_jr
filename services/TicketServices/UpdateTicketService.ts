@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 import SetTicketMessagesAsRead from "../../helpers/SetTicketMessagesAsRead";
 import { getIO } from "../../libs/socket";
 import Ticket from "../../models/Ticket";
+import Contact from "../../models/Contact";
 import Queue from "../../models/Queue";
 import ShowTicketService from "./ShowTicketService";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
@@ -44,6 +45,7 @@ interface TicketData {
   msgTransfer?: string;
   isTransfered?: boolean;
   customerOriginId?: number | null;
+  newContactId?: number;
 }
 
 interface Request {
@@ -110,6 +112,44 @@ const UpdateTicketService = async ({
     const oldStatus = ticket?.status;
     const oldUserId = ticket.user?.id;
     const oldQueueId = ticket?.queueId;
+    const oldContactId = ticket?.contactId;
+
+    // 🔄 Transferencia de ticket a otro contacto
+    if (ticketData.newContactId && ticketData.newContactId !== oldContactId) {
+      // Verificar que el nuevo contacto existe y pertenece a la company
+      const newContact = await Contact.findOne({
+        where: { id: ticketData.newContactId, companyId }
+      });
+
+      if (!newContact) {
+        throw new Error("Contacto no encontrado");
+      }
+
+      // Actualizar el ticket con el nuevo contactId
+      await ticket.update({ contactId: newContact.id });
+
+      // Crear log de la transferencia
+      await CreateLogTicketService({
+        userId: oldUserId,
+        queueId: ticket.queueId,
+        ticketId,
+        type: "userDefine"
+      });
+
+      logger.info(`[UpdateTicket] Contact transfer: ticket=${ticket.id}, from=${oldContactId}, to=${newContact.id}, toName=${newContact.name}`);
+
+      // Recargar ticket con los nuevos datos
+      await ticket.reload();
+
+      // Emitir evento de actualización
+      io.of(String(companyId))
+        .emit(`company-${companyId}-ticket`, {
+          action: "update",
+          ticket
+        });
+
+      return { ticket, oldStatus, oldUserId };
+    }
 
     if (isNil(ticket.whatsappId) && status === "closed") {
       await CreateLogTicketService({

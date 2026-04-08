@@ -29,6 +29,11 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`
     }
 
+    // ✅ NO forzar Content-Type cuando es FormData (Axios lo maneja automáticamente con el boundary)
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type']
+    }
+
     // Log en desarrollo
     if (import.meta.env.VITE_DEBUG === 'true') {
       console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`, {

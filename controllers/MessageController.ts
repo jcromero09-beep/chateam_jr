@@ -682,9 +682,9 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 })
             );
         } else {
-            console.log('isPrivate', isPrivate, 'ticket.channel ', ticket.channel)
+            console.log('[MessageController] isPrivate:', isPrivate, 'ticket.channel:', ticket.channel, 'ticket.status:', ticket.status);
             if (ticket.channel === "whatsapp" && isPrivate === "false") {
-                // NUEVO: Guardar mensaje en BD primero con estado "pending", luego encolar envío
+                // NUEVO: Guardar mensaje en BD primero con estado "pending", luego enviar directamente
                 const messageData = {
                     wid: `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`,
                     ticketId: ticket.id,
@@ -705,16 +705,43 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                     whatsappId: ticket.whatsappId
                 };
 
+                console.log('[MessageController] WhatsApp ID:', ticket.whatsappId);
+
                 // Guardar mensaje en BD primero
                 const createdMessage = await CreateMessageService({ messageData, companyId: ticket.companyId });
                 console.log('[MessageController] Mensaje guardado con status pending, ID:', createdMessage.id);
 
-                // Procesar envío directamente en backend (no usar worker)
+                // Enviar directamente si la sesión está conectada
+                // IMPORTANTE: Usar GetTicketWbot para soportar routing entre nodos
                 try {
-                    await ProcessPendingMessagesService(ticket.whatsappId);
-                    console.log('[MessageController] Mensaje procesado, ID:', createdMessage.id);
-                } catch (processError) {
-                    console.error('[MessageController] Error procesando mensaje:', processError);
+                    const SendWhatsAppMessage = require("../services/WbotServices/SendWhatsAppMessage").default;
+                    const wbot = await GetTicketWbot(ticket);
+                    console.log('[MessageController] Intentando enviar mensaje...');
+                    await SendWhatsAppMessage({
+                        body: body,
+                        ticket: ticket,
+                        wbot // Pasar el wbot obtenido
+                    });
+
+                    // Actualizar mensaje como enviado
+                    await createdMessage.update({
+                        messageStatus: 'sent',
+                        sentAt: new Date(),
+                        ack: 1
+                    });
+                    console.log('[MessageController] ✅ Mensaje enviado directamente, ID:', createdMessage.id);
+
+                    // Emitir socket para actualizar mensaje en tiempo real (evita duplicados en frontend)
+                    const io = getIO();
+                    io.of(String(ticket.companyId)).emit(`company-${ticket.companyId}-appMessage`, {
+                        action: 'update',
+                        message: {
+                            ...createdMessage.toJSON(),
+                            ticketId: ticket.id
+                        }
+                    });
+                } catch (sendError: any) {
+                    console.error('[MessageController] ❌ Error enviando mensaje directamente:', sendError.message);
                     // El mensaje queda como pending, se reintentará después
                 }
 
@@ -722,7 +749,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 return res.status(200).json({
                     success: true,
                     message: createdMessage,
-                    pending: true
+                    pending: false
                 });
             } else if (ticket.channel === "whatsapp" && isPrivate === "true") {
                 const messageData = {

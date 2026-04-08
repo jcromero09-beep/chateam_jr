@@ -146,9 +146,9 @@ export class AntiBanManager {
       };
     }
 
-    // Prevenir spam: mínimo 1 segundo entre mensajes a la misma conversación
+    // Prevenir spam: mínimo 0.5 segundo entre mensajes a la misma conversación
     const timeSinceLastMessage = now - freqInfo.lastMessageTimestamp;
-    if (timeSinceLastMessage < 1000) {
+    if (timeSinceLastMessage < 500) {
       logWarn("⚠️ Message too soon after previous", {
         conversationId,
         timeSinceLastMessage
@@ -164,7 +164,7 @@ export class AntiBanManager {
   }
 
   /**
-   * 📝 Registrar mensaje enviado
+   * 📝 Registrar mensaje enviado (nosotros → cliente)
    */
   private registerMessage(conversationId: string): void {
     const cacheKey = `freq_${conversationId}`;
@@ -186,10 +186,46 @@ export class AntiBanManager {
 
     this.frequencyCache.set(cacheKey, freqInfo);
 
-    logDebug("📝 Message registered", {
+    logDebug("📝 Message registered (sent)", {
       conversationId,
       hourlyCount: freqInfo.hourlyCount,
       totalCount: freqInfo.messageCount
+    });
+  }
+
+  /**
+   * 📥 Registrar mensaje entrante (cliente → nosotros)
+   * Usa el timestamp de WhatsApp para mayor precisión
+   * @param conversationId - JID del cliente
+   * @param timestampMs - Timestamp del mensaje en milisegundos (msg.messageTimestamp * 1000)
+   */
+  registerIncomingMessage(conversationId: string, timestampMs?: number): void {
+    const cacheKey = `freq_${conversationId}`;
+    let freqInfo: FrequencyInfo | undefined = this.frequencyCache.get(cacheKey);
+
+    // Usar el timestamp de WhatsApp si está disponible, sino usar Date.now()
+    const messageTime = timestampMs || Date.now();
+
+    if (!freqInfo) {
+      freqInfo = {
+        lastMessageTimestamp: messageTime,
+        messageCount: 0,
+        hourlyCount: 0,
+        lastHourReset: Date.now()
+      };
+    } else {
+      // Solo actualizar si el mensaje es más reciente que el último registrado
+      if (messageTime > freqInfo.lastMessageTimestamp) {
+        freqInfo.lastMessageTimestamp = messageTime;
+      }
+    }
+
+    this.frequencyCache.set(cacheKey, freqInfo);
+
+    logDebug("📥 Incoming message registered", {
+      conversationId,
+      timestamp: messageTime,
+      lastMessageTime: freqInfo.lastMessageTimestamp
     });
   }
 

@@ -17,10 +17,17 @@ import logger from './logger';
 // CONFIGURACIÓN: Cliente Redis único (NO cluster)
 // ============================================================================
 
-// Redis real: puerto 5000 (Docker), fallback a 6379 (localhost)
+// Construir URL de Redis con autenticación
+const redisPassword = process.env.REDIS_PASSWORD || '';
+const redisHost = process.env.REDIS_HOST || '127.0.0.1';
+const redisPort = process.env.REDIS_PORT || '5000';
+
+// Usar REDIS_URL si está definido, sino construir con autenticación
 const REDIS_URL = process.env.REDIS_URL
-  || process.env.REDIS_URI
-  || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || '5000'}`;
+  ? process.env.REDIS_URL
+  : redisPassword
+    ? `redis://:${redisPassword}@${redisHost}:${redisPort}`
+    : `redis://${redisHost}:${redisPort}`;
 
 // Cliente único — se comparte en toda la app
 export const redisCluster = new Redis(REDIS_URL, {

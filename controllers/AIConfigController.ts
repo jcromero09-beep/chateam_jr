@@ -112,19 +112,30 @@ export const listProviders = async (req: Request, res: Response): Promise<Respon
  * Obtiene un proveedor por ID
  */
 export const getProvider = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user as { companyId: number };
+  const { companyId, super: isSuper } = req.user as unknown as { companyId: number; super?: boolean };
   const { id } = req.params;
 
-  devLog(`[AIConfig] getProvider - id: ${id}, companyId: ${companyId}`);
+  devLog(`[AIConfig] getProvider - id: ${id}, companyId: ${companyId}, isSuper: ${isSuper}`);
 
   try {
     const provider = await AIProviderConfig.findOne({
-      where: { id, companyId }
+      where: { id }
     });
 
     if (!provider) {
       devLog(`[AIConfig] getProvider - Provider not found`);
       return res.status(404).json({ error: "Proveedor no encontrado" });
+    }
+
+    // Verificar permisos
+    if (isSuper) {
+      if (provider.companyId !== null && provider.companyId !== companyId) {
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
+    } else {
+      if (provider.companyId !== companyId) {
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
     }
 
     const masked = {
@@ -149,9 +160,12 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
   const authUser = req.user as { companyId: number; super?: boolean };
   const { companyId: userCompanyId, super: isSuperAdmin } = authUser;
 
-  // Superadmin puede crear proveedores globales (companyId: null)
+  // Superadmin puede crear proveedores globales (companyId: null o companyId: undefined)
   // Empresas solo pueden crear proveedores para su company
-  const targetCompanyId = isSuperAdmin && req.body.companyId === null ? null : userCompanyId;
+  const isGlobalProvider = req.body.companyId === null || req.body.companyId === undefined;
+  const targetCompanyId = isSuperAdmin && isGlobalProvider ? null : userCompanyId;
+
+  devLog(`[AIConfig] createProvider - companyId en body: ${req.body.companyId}, isGlobalProvider: ${isGlobalProvider}, targetCompanyId: ${targetCompanyId}, isSuperAdmin: ${isSuperAdmin}`);
 
   const {
     provider, name, apiKey, apiSecret, baseUrl, settings, isDefault,
@@ -188,10 +202,10 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
       return res.status(400).json({ error: "Ya existe una configuracion con este nombre para este proveedor" });
     }
 
-    // Si es default, quitar default de otros
+    // Si es default, quitar default de otros y setear isDefaultForText
     if (isDefault) {
       await AIProviderConfig.update(
-        { isDefault: false },
+        { isDefault: false, isDefaultForText: false },
         { where: { companyId: targetCompanyId } }
       );
       devLog(`[AIConfig] createProvider - Removed default from other providers`);
@@ -207,6 +221,7 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
       baseUrl,
       settings: settings || {},
       isDefault: isDefault || false,
+      isDefaultForText: isDefault || false, // IMPORTANTE: setear isDefaultForText cuando es default
       connectionStatus: "pending",
       availableModels: getDefaultModels(provider),
       // Capacidades de IA
@@ -242,7 +257,7 @@ export const createProvider = async (req: Request, res: Response): Promise<Respo
  * Actualiza una configuracion de proveedor
  */
 export const updateProvider = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user as { companyId: number };
+  const { companyId, super: isSuper } = req.user as unknown as { companyId: number; super?: boolean };
   const { id } = req.params;
   const {
     name, apiKey, apiSecret, baseUrl, settings, isActive, isDefault,
@@ -252,16 +267,33 @@ export const updateProvider = async (req: Request, res: Response): Promise<Respo
     imageAnalysisPricing, speechToTextPricing
   } = req.body;
 
-  devLog(`[AIConfig] updateProvider - id: ${id}, companyId: ${companyId}`);
+  devLog(`[AIConfig] updateProvider - id: ${id}, companyId: ${companyId}, isSuper: ${isSuper}`);
 
   try {
+    // Buscar el proveedor solo por ID
     const provider = await AIProviderConfig.findOne({
-      where: { id, companyId }
+      where: { id }
     });
 
+    // Verificar acceso: superadmin puede editar globales (null) o de su company
     if (!provider) {
       devLog(`[AIConfig] updateProvider - Provider not found`);
       return res.status(404).json({ error: "Proveedor no encontrado" });
+    }
+
+    // Verificar permisos
+    if (isSuper) {
+      // Superadmin: permitir si es global (null) o de su company
+      if (provider.companyId !== null && provider.companyId !== companyId) {
+        devLog(`[AIConfig] updateProvider - No access to provider of other company`);
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
+    } else {
+      // No superadmin: solo puede editar proveedores de su company
+      if (provider.companyId !== companyId) {
+        devLog(`[AIConfig] updateProvider - No access to global provider`);
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
     }
 
     const updateData: any = {};
@@ -302,13 +334,14 @@ export const updateProvider = async (req: Request, res: Response): Promise<Respo
     if (imageAnalysisPricing !== undefined) updateData.imageAnalysisPricing = imageAnalysisPricing;
     if (speechToTextPricing !== undefined) updateData.speechToTextPricing = speechToTextPricing;
 
-    // Si es default, quitar default de otros
+    // Si es default, quitar default de otros y setear isDefaultForText
     if (isDefault) {
       await AIProviderConfig.update(
-        { isDefault: false },
-        { where: { companyId, id: { [Op.ne]: id } } }
+        { isDefault: false, isDefaultForText: false },
+        { where: { companyId: provider.companyId, id: { [Op.ne]: id } } }
       );
       updateData.isDefault = true;
+      updateData.isDefaultForText = true; // IMPORTANTE: setear isDefaultForText cuando es default
       devLog(`[AIConfig] updateProvider - Set as default`);
     }
 
@@ -332,19 +365,30 @@ export const updateProvider = async (req: Request, res: Response): Promise<Respo
  * Elimina una configuracion de proveedor
  */
 export const deleteProvider = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user as { companyId: number };
+  const { companyId, super: isSuper } = req.user as unknown as { companyId: number; super?: boolean };
   const { id } = req.params;
 
-  devLog(`[AIConfig] deleteProvider - id: ${id}, companyId: ${companyId}`);
+  devLog(`[AIConfig] deleteProvider - id: ${id}, companyId: ${companyId}, isSuper: ${isSuper}`);
 
   try {
     const provider = await AIProviderConfig.findOne({
-      where: { id, companyId }
+      where: { id }
     });
 
     if (!provider) {
       devLog(`[AIConfig] deleteProvider - Provider not found`);
       return res.status(404).json({ error: "Proveedor no encontrado" });
+    }
+
+    // Verificar permisos
+    if (isSuper) {
+      if (provider.companyId !== null && provider.companyId !== companyId) {
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
+    } else {
+      if (provider.companyId !== companyId) {
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
     }
 
     const providerName = provider.name;
@@ -363,19 +407,30 @@ export const deleteProvider = async (req: Request, res: Response): Promise<Respo
  * Prueba la conexion con un proveedor
  */
 export const testConnection = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user as { companyId: number };
+  const { companyId, super: isSuper } = req.user as unknown as { companyId: number; super?: boolean };
   const { id } = req.params;
 
-  devLog(`[AIConfig] testConnection - id: ${id}, companyId: ${companyId}`);
+  devLog(`[AIConfig] testConnection - id: ${id}, companyId: ${companyId}, isSuper: ${isSuper}`);
 
   try {
     const provider = await AIProviderConfig.findOne({
-      where: { id, companyId }
+      where: { id }
     });
 
     if (!provider) {
       devLog(`[AIConfig] testConnection - Provider not found`);
       return res.status(404).json({ error: "Proveedor no encontrado" });
+    }
+
+    // Verificar permisos
+    if (isSuper) {
+      if (provider.companyId !== null && provider.companyId !== companyId) {
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
+    } else {
+      if (provider.companyId !== companyId) {
+        return res.status(403).json({ error: "No tienes acceso a este proveedor" });
+      }
     }
 
     devLog(`[AIConfig] testConnection - Testing provider: ${provider.provider}`);

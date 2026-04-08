@@ -11,27 +11,51 @@ export default {
   storage: multer.diskStorage({
     destination: async function (req, file, cb) {
 
-      let companyId;
-      companyId = req.user?.companyId
+      let companyId = req.user?.companyId;
       const { typeArch, fileId } = req.body;
 
-      if (companyId === undefined && isNil(companyId) && isEmpty(companyId)) {
-        const authHeader = req.headers.authorization;
-        const [, token] = authHeader.split(" ");
-        const whatsapp = await Whatsapp.findOne({ where: { token } });
-        companyId = whatsapp.companyId;
+      console.log('[Upload] companyId:', companyId, 'typeArch:', typeArch, 'fileId:', fileId);
+      console.log('[Upload] req.user:', req.user ? { id: req.user.id, companyId: req.user.companyId } : 'no user');
+      console.log('[Upload] authHeader:', req.headers.authorization ? 'present' : 'missing');
+
+      // ✅ CORREGIDO: usar OR (||) para verificar si companyId falta
+      if (!companyId || isNil(companyId) || isEmpty(companyId)) {
+        try {
+          const authHeader = req.headers.authorization;
+          const [, token] = authHeader.split(" ");
+          const whatsapp = await Whatsapp.findOne({ where: { token } });
+          if (whatsapp?.companyId) {
+            companyId = whatsapp.companyId;
+          }
+        } catch (err) {
+          console.error('Error getting companyId from token:', err);
+        }
       }
+
+      // Si aún no hay companyId, rechazar el upload
+      if (!companyId || isNil(companyId)) {
+        return cb(new Error('Company ID not found'), '');
+      }
+
+      // typeArch llega undefined en destination porque multer no ha parseado el body todavía
+      // Usar valor por defecto si es undefined
+      const archiveType = typeArch || 'quickMessage';
+
       let folder;
 
-      if (typeArch && typeArch !== "announcements" && typeArch !== "logo") {
-        folder = path.resolve(publicFolder, `company${companyId}`, typeArch, fileId ? fileId : "")
-      } else if (typeArch && typeArch === "announcements") {
-        folder = path.resolve(publicFolder, typeArch)
-      } else if (typeArch === "logo") {
+      if (archiveType && archiveType !== "announcements" && archiveType !== "logo") {
+        folder = path.resolve(publicFolder, `company${companyId}`, archiveType, fileId ? fileId : "")
+        console.log('[Upload] Folder (typeArch):', folder);
+      } else if (archiveType && archiveType === "announcements") {
+        folder = path.resolve(publicFolder, archiveType)
+        console.log('[Upload] Folder (announcements):', folder);
+      } else if (archiveType === "logo") {
         folder = path.resolve(publicFolder)
+        console.log('[Upload] Folder (logo):', folder);
       }
       else {
         folder = path.resolve(publicFolder, `company${companyId}`)
+        console.log('[Upload] Folder (default):', folder);
       }
 
       if (!fs.existsSync(folder)) {

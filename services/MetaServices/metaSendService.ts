@@ -209,13 +209,66 @@ export async function sendTemplateDynamic(
   console.log("📤 [META-TEMPLATE] PAYLOAD COMPLETO:", JSON.stringify(payload, null, 2));
   console.log("📤 [META-TEMPLATE] ================================================");
 
-  const response = await client.waPost(`/messages`, payload) as any;
+  let response: any;
+  try {
+    response = await client.waPost(`/messages`, payload);
+  } catch (error: any) {
+    // Capturar error de forma segura para evitar referencias circulares
+    console.error("❌ [META-TEMPLATE] ERROR CAPTURADO:");
+    console.error("   error.message:", String(error.message).substring(0, 200));
+    console.error("   error.code:", error.code);
+    console.error("   error.response?.status:", error.response?.status);
+    // Safe stringify para evitar crash por referencias circulares
+    let responseDataStr = 'N/A';
+    try { responseDataStr = JSON.stringify(error.response?.data); } catch { responseDataStr = '[no serializable]'; }
+    console.error("   error.response?.data:", responseDataStr);
+
+    // Crear error seguro con información útil
+    const safeError = new Error(
+      error.response?.data?.error?.message ||
+      error.response?.data?.message ||
+      error.message ||
+      'Error enviando plantilla a Meta'
+    );
+    // Extraer datos seguros sin referencias circulares
+    let safeData: any;
+    try {
+      safeData = JSON.parse(JSON.stringify(error.response?.data));
+    } catch {
+      const raw = error.response?.data;
+      safeData = {
+        message: raw?.message || String(raw),
+        type: raw?.type || raw?.error?.type || 'unknown',
+        code: raw?.code || raw?.error?.code || raw?.error?.error_subcode || 'unknown',
+        fbtrace_id: raw?.fbtrace_id || raw?.error?.fbtrace_id || null
+      };
+    }
+    (safeError as any).response = {
+      status: error.response?.status,
+      data: safeData
+    };
+    (safeError as any).code = error.code;
+    throw safeError;
+  }
 
   // Extraer el message_id de la respuesta de Meta
-  const messagingMessageId = response?.messages?.[0]?.id || response?.message_id || response?.id || null;
+  // IMPORTANTE: La respuesta viene en response.data, no directamente en response
+  // porque waPost retorna la respuesta completa de axios
+  const responseData = response?.data || response;
+  const messagingMessageId = responseData?.messages?.[0]?.id || responseData?.message_id || responseData?.id || null;
 
-  console.log("📤 [META-TEMPLATE] Message ID de Meta:", messagingMessageId);
-  console.log("📤 [META-TEMPLATE] Respuesta completa:", JSON.stringify(response));
+  console.log("📤 [META-TEMPLATE] ========== RESPUESTA DE META ==========");
+  console.log("📤 [META-TEMPLATE] response completa:", JSON.stringify(responseData));
+  console.log("📤 [META-TEMPLATE] Message ID extraído:", messagingMessageId);
+  console.log("📤 [META-TEMPLATE] Status del mensaje:", responseData?.messages?.[0]?.message_status);
+  console.log("📤 [META-TEMPLATE] ================================================");
+
+  // Verificar si el mensaje fue aceptado
+  const messageStatus = responseData?.messages?.[0]?.message_status;
+  if (messageStatus === 'accepted' && !messagingMessageId) {
+    // Meta aceptó el mensaje pero no tenemos el ID - extraer del wamid
+    console.warn("⚠️ [META-TEMPLATE] Mensaje aceptado pero sin messageId. Revisando estructura...");
+  }
 
   return { messagingMessageId };
 }

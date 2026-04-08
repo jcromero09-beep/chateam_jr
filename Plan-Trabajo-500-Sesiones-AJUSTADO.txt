@@ -1,0 +1,423 @@
+PLAN DE TRABAJO
+
+Escalamiento a 500+ Sesiones WhatsApp
+
+JR Chateam - Contabo VM
+
+Plan ajustado a infraestructura real
+
+  --------------------------------------- -----------------------------------
+  Tu Maquina Actual                       Capacidad de Sesiones
+  20 cores CPU                            Actual: 97 (saturado)
+  94 GB RAM (61 GB libres)                Objetivo: 500+ sesiones
+  Ubuntu Linux - Contabo                  Inversion extra: $0 en servidores
+  Redis + PostgreSQL + Nginx instalados   Solo proxies: ~$70/mes
+  --------------------------------------- -----------------------------------
+
+1. TU SITUACION REAL
+
+1.1 Lo que tienes hoy
+
+  ------------------- ---------------------------------------------------------------
+  Componente          Detalle
+  Servidor            1 VM Contabo: 20 cores, 94 GB RAM, Ubuntu Linux
+  Backend             server-simple.ts -> 1 proceso Node.js en puerto 3001
+  Worker              worker.ts -> 1 proceso separado para colas Bull
+  Redis               1 instancia (REDIS_URI), guarda auth state de sesiones
+  PostgreSQL          Base de datos principal (Sequelize ORM)
+  Nginx               Reverse proxy, 2 dominios (frontend + backend)
+  Sesiones WhatsApp   97 activas en array sessions[] de libs/wbot.ts
+  Baileys             @whiskeysockets/baileys v7, auth en Redis, msgCache 5000 keys
+  ------------------- ---------------------------------------------------------------
+
+1.2 Por que no funciona con 500 sesiones
+
+El problema es simple: tu server-simple.ts lanza UN solo proceso
+Node.js. Ese proceso tiene el array sessions[] en memoria con las 97
+conexiones WebSocket de Baileys. Node.js es single-threaded: no importa
+que tengas 20 cores, un proceso solo usa 1 core (mas algo de garbage
+collection en otro). Los otros 19 cores estan ociosos.
+
+Tu intento con PM2 cluster fallo porque: en cluster mode, PM2 crea
+copias del proceso. Cada copia tiene su PROPIO array sessions[] vacio.
+Si el proceso A inicializa la sesion 5, el proceso B no puede acceder a
+ella porque la memoria NO se comparte entre procesos. Es una limitacion
+de como funciona Node.js, no un bug.
+
+1.3 La solucion para tu caso
+
+Con 20 cores y 94 GB RAM, tu maquina puede manejar 500+ sesiones SIN
+comprar nada mas. La clave es lanzar 8 procesos Node.js con PM2 en modo
+FORK (no cluster), cada uno en su propio puerto, cada uno dueno de ~60
+sesiones. Redis coordina quien tiene que sesion.
+
+2. COMO VA A FUNCIONAR
+
+2.1 Antes vs Despues
+
+  -------------------------------------- --------------------------------------------
+  HOY (1 proceso)                        DESPUES (8 procesos)
+  server-simple.ts puerto 3001           server-distributed.ts puertos 3001-3008
+  sessions[] = 97 sockets en 1 proceso   sessions[] = ~60 sockets por proceso
+  1 core usado (233% = GC overflow)      8 cores usados (~60% cada uno)
+  ~5 GB RAM para sesiones                ~32 GB RAM para sesiones
+  Si el proceso muere, TODO cae          Si un proceso muere, solo caen 60 sesiones
+  -------------------------------------- --------------------------------------------
+
+2.2 Flujo de un Mensaje (paso a paso)
+
+Ejemplo: un cliente del frontend quiere enviar un mensaje por la sesion
+WhatsApp #45.
+
+1.  El frontend hace POST /api/messages con sessionId=45 al dominio
+    backend
+
+2.  Nginx recibe el request y lo pasa al proceso Gateway (puerto 3001)
+
+3.  El Gateway consulta Redis: HGET sessions:registry 45 -> responde
+    'node-3:3004'
+
+4.  El Gateway hace HTTP POST interno a
+    http://localhost:3004/internal/send
+
+5.  El proceso node-3 (puerto 3004) tiene la sesion 45 en su array
+    sessions[]
+
+6.  node-3 llama a Baileys sendMessage() y responde al Gateway
+
+7.  El Gateway responde al frontend con el resultado
+
+Latencia adicional del routing: ~5-10ms. Imperceptible para el usuario.
+
+2.3 Distribucion de Recursos en tu Maquina
+
+  -------------------- -------- ----------- -------- ----------------
+  Proceso              Puerto   Sesiones    RAM      CPU Core
+  node-1 (Gateway)     3001     60          ~4 GB    Core 1-2
+  node-2               3002     60          ~4 GB    Core 3-4
+  node-3               3003     60          ~4 GB    Core 5-6
+  node-4               3004     60          ~4 GB    Core 7-8
+  node-5               3005     60          ~4 GB    Core 9-10
+  node-6               3006     60          ~4 GB    Core 11-12
+  node-7               3007     60          ~4 GB    Core 13-14
+  node-8               3008     60          ~4 GB    Core 15-16
+  worker (colas)       -        0           ~2 GB    Core 17
+  Redis + PG + Nginx   -        0           ~8 GB    Core 18-20
+  TOTAL                         480 (max)   ~42 GB   20 de 20 cores
+  -------------------- -------- ----------- -------- ----------------
+
+Sobran 52 GB de RAM como headroom. Si necesitas mas de 480 sesiones,
+agregas un proceso mas (node-9 en puerto 3009) y listo.
+
+3. ARCHIVOS: QUE CREAR Y QUE MODIFICAR
+
+3.1 Archivos NUEVOS a crear (7 archivos)
+
+  ---------------------------- ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  Archivo                      Que hace
+  libs/sessionRegistry.ts      Registra en Redis que proceso tiene que sesion. Metodos: register(sessionId, nodeId), lookup(sessionId) -> nodeId, unregister(sessionId), getNodeSessions(nodeId) -> [ids]
+  libs/heartbeat.ts            Cada proceso reporta 'estoy vivo' a Redis cada 10s con TTL de 30s. Si no renueva, Redis lo expira y el watchdog sabe que murio
+  libs/watchdog.ts             Corre en node-1. Cada 30s escanea sesiones huerfanas (su nodo no tiene heartbeat). Las reasigna al nodo con menos carga
+  libs/interProcessRouter.ts   Cuando GetWhatsappWbot no encuentra la sesion local, consulta Redis y hace HTTP POST a http://localhost:{puerto}/internal/... del proceso correcto
+  routes/internal.ts           Endpoints internos: POST /internal/send, POST /internal/session/:id/status, POST /internal/session/:id/restart. Solo accesibles desde localhost
+  server-distributed.ts        Nuevo entry point. Igual que server-simple.ts pero: lee NODE_ID y PORT de env vars, solo inicia sesiones asignadas a este nodo, activa heartbeat y registry
+  libs/stagedConnection.ts     Inicia sesiones en batches de 20 con delay de 3s entre batches. Evita saturar CPU y rate-limit de WhatsApp al arrancar
+  ---------------------------- ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+3.2 Archivos a MODIFICAR (5 archivos)
+
+  ----------------------------------------------------- -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  Archivo                                               Cambio exacto
+  libs/wbot.ts                                          1) Reducir msgCache: maxKeys 1000, stdTTL 600. 2) Desactivar: emitOwnEvents=false, fireInitQueries=false, generateHighQualityLinkPreview=false. 3) Agregar: despues de connection 'open', llamar sessionRegistry.register(id, NODE_ID). 4) En removeWbot, llamar sessionRegistry.unregister(id)
+  helpers/GetWhatsappWbot.ts                            Si getWbot() lanza ERR_WAPP_NOT_INITIALIZED, en vez de fallar: consultar sessionRegistry.lookup(id) para encontrar que nodo la tiene, y hacer HTTP POST via interProcessRouter al nodo correcto
+  libs/socket.ts                                        Agregar @socket.io/redis-adapter para que eventos emitidos en node-3 lleguen a clientes conectados en node-1. Solo agregar 3 lineas de codigo
+  services/WbotServices/ StartAllWhatsAppsSessions.ts   Filtrar: solo iniciar sesiones asignadas a este NODE_ID (consultando Redis). Usar stagedConnection para iniciar en batches
+  ecosystem.config.js                                   Cambiar a fork mode. Crear 8 instancias de server-distributed.js, cada una con NODE_ID y PORT distintos via env vars. worker.ts sigue igual como instancia separada
+  ----------------------------------------------------- -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+3.3 Archivos que NO cambian
+
+Todo el resto del codigo sigue igual: controllers/, models/,
+services/WbotServices/SendWhatsAppMessage.ts,
+services/WbotServices/wbotMessageListener.ts, routes/ (las de API),
+frontend/, worker.ts, config/. La logica de negocio no se toca.
+
+4. PLAN DE TRABAJO: FASE POR FASE
+
+FASE 1: Optimizaciones de Baileys (Dia 1, 0 downtime)
+
+Objetivo: Sin cambiar arquitectura, reducir consumo 30-40% y llegar a
+~150 sesiones.
+
+Cambios en libs/wbot.ts:
+
+  -------------------------------- --------------- --------------
+  Configuracion                    Valor Actual    Valor Nuevo
+  msgCache stdTTL                  3600 (1 hora)   600 (10 min)
+  msgCache maxKeys                 5000            1000
+  generateHighQualityLinkPreview   true            false
+  emitOwnEvents                    true            false
+  fireInitQueries                  true            false
+  keepAliveIntervalMs              30000           45000
+  -------------------------------- --------------- --------------
+
+Impacto estimado: -30% RAM por sesion, -20% CPU, startup 60% mas rapido.
+
+Tiempo: 2-3 horas. Riesgo: Bajo. Rollback: revertir valores.
+
+FASE 2: Servicios de Coordinacion (Dia 2-5, 0 downtime)
+
+Objetivo: Construir toda la infraestructura de multi-proceso sin
+activarla. El sistema sigue corriendo con 1 proceso mientras
+desarrollas.
+
+Dia 2: sessionRegistry.ts + heartbeat.ts
+
+-   Crear libs/sessionRegistry.ts con metodos CRUD sobre Redis HASH
+    'sessions:registry'
+
+-   Crear libs/heartbeat.ts que hace SETEX cada 10s en Redis key
+    'nodes:heartbeat:{nodeId}'
+
+-   Tests: verificar que register/lookup/unregister funcionan
+    correctamente
+
+Dia 3: interProcessRouter.ts + routes/internal.ts
+
+-   Crear libs/interProcessRouter.ts con funcion routeToNode(nodeId,
+    path, body)
+
+-   Crear routes/internal.ts con endpoints POST /internal/send,
+    /internal/session/:id/status
+
+-   Middleware de seguridad: solo aceptar requests desde 127.0.0.1
+
+Dia 4: watchdog.ts + stagedConnection.ts
+
+-   Crear libs/watchdog.ts que detecta nodos muertos y reasigna sesiones
+
+-   Crear libs/stagedConnection.ts con cola de conexion: 20
+    concurrentes, 3s delay entre batches
+
+Dia 5: Modificar archivos existentes (backward compatible)
+
+-   libs/wbot.ts: agregar sessionRegistry.register() en connection
+    'open' (no rompe nada si registry no existe)
+
+-   helpers/GetWhatsappWbot.ts: agregar fallback a interProcessRouter
+    (si no hay multi-proceso, nunca se activa)
+
+-   libs/socket.ts: agregar @socket.io/redis-adapter (npm install
+    @socket.io/redis-adapter)
+
+-   Instalar dependencia: npm install @socket.io/redis-adapter
+
+Tiempo: 4 dias. Riesgo: Bajo (todo backward compatible, no se activa
+hasta Fase 3).
+
+FASE 3: Activar Multi-Proceso (Dia 6-8, 15 min downtime)
+
+Objetivo: Pasar de 1 proceso a 8 procesos. Aqui es donde se resuelve el
+problema.
+
+Dia 6: server-distributed.ts + ecosystem.config.js
+
+-   Crear server-distributed.ts basado en server-simple.ts pero con:
+    NODE_ID desde env, filtro de sesiones, heartbeat activo
+
+-   Modificar ecosystem.config.js para lanzar 8 instancias fork con
+    puertos 3001-3008
+
+Dia 7: Nginx + Testing local
+
+-   Actualizar Nginx: upstream con los 8 puertos, sticky sessions para
+    Socket.IO
+
+-   Script de asignacion inicial: distribuir las 97 sesiones existentes
+    entre los 8 nodos en Redis
+
+-   Test local: levantar 2 procesos, verificar que mensajes se rutean
+    correctamente
+
+Dia 8: Migracion en Produccion
+
+1.  Backup de Redis (redis-cli BGSAVE)
+
+2.  Ejecutar script de asignacion: distribuir sesiones en Redis
+
+3.  pm2 stop backend-server (DOWNTIME INICIA)
+
+4.  Cambiar ecosystem.config.js al nuevo, reload Nginx
+
+5.  pm2 start ecosystem.config.js --env production (DOWNTIME TERMINA)
+
+6.  Monitorear 2 horas: pm2 monit, htop, logs
+
+Tiempo: 3 dias. Downtime: ~15 minutos. Rollback: revertir
+ecosystem.config.js y reiniciar.
+
+FASE 4: Escalar a 500 sesiones (Dia 9-12)
+
+Objetivo: Agregar sesiones gradualmente hasta 500.
+
+1.  Dia 9: Subir de 97 a 200 sesiones. Monitorear RAM/CPU por 24h
+
+2.  Dia 10: Subir de 200 a 350 sesiones. Monitorear
+
+3.  Dia 11: Subir de 350 a 500 sesiones. Monitorear
+
+4.  Dia 12: Contratar proxies y configurar rotacion (20 IPs, ~$70/mes)
+
+Tiempo: 4 dias. Riesgo: Bajo (escalamiento gradual con monitoreo).
+
+5. CONFIGURACION EXACTA DE PM2
+
+5.1 ecosystem.config.js (nuevo)
+
+Este es el archivo que reemplaza tu ecosystem.config.js actual. PM2
+lanza 8 procesos en modo fork, cada uno con su NODE_ID y PORT:
+
+  ---------- ----------------------- ------ ------ --------- --------------
+  PM2 Name   Script                  Mode   PORT   NODE_ID   MAX_SESSIONS
+  node-1     server-distributed.js   fork   3001   node-1    60
+  node-2     server-distributed.js   fork   3002   node-2    60
+  node-3     server-distributed.js   fork   3003   node-3    60
+  node-4     server-distributed.js   fork   3004   node-4    60
+  node-5     server-distributed.js   fork   3005   node-5    60
+  node-6     server-distributed.js   fork   3006   node-6    60
+  node-7     server-distributed.js   fork   3007   node-7    60
+  node-8     server-distributed.js   fork   3008   node-8    60
+  worker     worker.js               fork   -      -         -
+  ---------- ----------------------- ------ ------ --------- --------------
+
+max_memory_restart: 5G por proceso (4GB sesiones + 1GB headroom).
+
+node_args: --max-old-space-size=5120
+
+5.2 Nginx (agregar upstream)
+
+Tu Nginx actual apunta a localhost:3001. Cambiarlo a un upstream con los
+8 puertos y ip_hash para sticky sessions de Socket.IO:
+
+-   upstream backend { ip_hash; server 127.0.0.1:3001; server
+    127.0.0.1:3002; ... server 127.0.0.1:3008; }
+
+-   La ruta /api/* y /socket.io/* apunta al upstream 'backend'
+
+-   ip_hash asegura que un cliente siempre va al mismo proceso
+    (necesario para Socket.IO polling fallback)
+
+6. REDIS: COMO COORDINA TODO
+
+6.1 Keys nuevas en Redis
+
+  ------------------------------- ---------------------- ---------------------------------------------------
+  Key                             Tipo/TTL               Ejemplo de valor
+  sessions:registry               HASH (persistente)     { '45': 'node-3:3004', '12': 'node-1:3001', ... }
+  nodes:heartbeat:node-3          STRING, TTL 30s        'alive:1711468800:sessions=58'
+  sessions:lock:45                STRING, TTL 60s        'node-3' (SET NX para evitar duplicados)
+  sessions:45:creds (YA EXISTE)   STRING (persistente)   Auth state de Baileys (no cambia)
+  ------------------------------- ---------------------- ---------------------------------------------------
+
+Tu Redis actual solo guarda auth state (sessions:{id}:creds). Se agregan
+3 tipos de keys nuevas para coordinacion. No hay conflicto con las
+existentes.
+
+6.2 Que pasa si un proceso muere
+
+1.  Proceso node-3 (puerto 3004) hace crash o se queda sin memoria
+
+2.  Su heartbeat 'nodes:heartbeat:node-3' expira en 30 segundos (Redis
+    lo borra solo)
+
+3.  El watchdog (corriendo en node-1) detecta que node-3 no tiene
+    heartbeat
+
+4.  Busca en sessions:registry todas las sesiones de node-3 (ej: 45, 78,
+    102...)
+
+5.  Las reasigna al nodo con menos sesiones: HSET sessions:registry 45
+    'node-5:3006'
+
+6.  Llama POST http://localhost:3006/internal/session/45/restart
+
+7.  node-5 lee el auth state de Redis (sessions:45:creds) y reconecta.
+    Las credenciales ya estan en Redis, no se perdieron
+
+Tiempo total de recuperacion: <30 segundos. Automatico, sin
+intervencion.
+
+7. PROXIES: POR QUE Y COMO
+
+7.1 El problema de la IP unica
+
+Tu VM de Contabo tiene 1 IP publica. WhatsApp ve 500 conexiones
+WebSocket desde esa misma IP. Eso es una senal inequivoca de
+automatizacion. Un usuario normal tiene 1 WhatsApp por IP.
+
+7.2 Como funcionan los proxies
+
+Un proxy es un servidor intermediario. Tu proceso se conecta a WhatsApp,
+pero la conexion sale por el proxy, asi que WhatsApp ve la IP del proxy,
+no la tuya.
+
+-   Sin proxy: Tu VM (IP 1.2.3.4) -> WhatsApp. WhatsApp ve: 500
+    conexiones desde 1.2.3.4
+
+-   Con proxy: Tu VM -> Proxy (IP 5.6.7.8) -> WhatsApp. WhatsApp ve: 25
+    conexiones desde 5.6.7.8
+
+-   Con 20 proxies: 500 sesiones / 20 proxies = 25 sesiones por IP.
+    Normal y seguro.
+
+7.3 No instalas nada en tu servidor
+
+Los proxies son un servicio externo que contratas. Te dan una lista de
+IPs con usuario:password. Solo agregas 1 linea de codigo por sesion en
+Baileys:
+
+-   npm install https-proxy-agent (una vez)
+
+-   En initWASocket, agregar: agent: new
+    HttpsProxyAgent('http://user:pass@proxy-ip:port')
+
+-   Redis guarda que proxy tiene cada sesion: HSET sessions:proxies 45
+    'proxy-7'
+
+7.4 Proveedores y costos
+
+  ------------- ------------- ----------- ------------
+  Proveedor     Tipo          20 IPs      Riesgo ban
+  Webshare      Datacenter    ~$40/mes    Medio
+  IPRoyal       Residencial   ~$70/mes    Bajo
+  Bright Data   Residencial   ~$100/mes   Muy bajo
+  ------------- ------------- ----------- ------------
+
+Recomendacion: IPRoyal residencial ($70/mes). IPs que parecen de usuario
+normal de ISP, WhatsApp no los detecta facilmente.
+
+8. TIMELINE COMPLETO
+
+  ------- ------------------------------ ---------- ---------- ---------- -------- ---------
+  Fase    Que                            Dias       Downtime   Sesiones   Riesgo   Costo
+  1       Optimizar Baileys              0.5 dia    0          ~150       Bajo     $0
+  2       Crear servicios coordinacion   4 dias     0          ~150       Bajo     $0
+  3       Activar multi-proceso          3 dias     15 min     ~200       Medio    $0
+  4       Escalar a 500+                 4 dias     0          500+       Bajo     $70/mes
+  TOTAL                                  ~12 dias   15 min     500+                $70/mes
+  ------- ------------------------------ ---------- ---------- ---------- -------- ---------
+
+9. RESUMEN FINAL
+
+  --------------------------------- ------------------------------------------------------------------
+  Pregunta                          Respuesta
+  Necesito comprar otro servidor?   NO. Tu VM de 20 cores y 94GB sobra para 500+
+  Necesito Docker/Kubernetes?       NO. PM2 fork mode en tu Ubuntu es suficiente
+  Cuanto downtime?                  15 minutos en Fase 3. El resto es 0 downtime
+  Cuanto cuesta?                    $0 en servidores. Solo ~$70/mes en proxies
+  Cuanto tarda?                     ~12 dias de desarrollo
+  Que pasa si un proceso muere?     Watchdog redistribuye sus 60 sesiones en <30s
+  Se puede escalar a mas de 500?    Si. Agregas otro proceso PM2 y listo. Hasta ~800 en esta maquina
+  El frontend cambia?               NO. Nginx se encarga del routing. Frontend no se entera
+  Que hago primero (HOY)?           Fase 1: cambiar 6 valores en libs/wbot.ts y reiniciar
+  --------------------------------- ------------------------------------------------------------------

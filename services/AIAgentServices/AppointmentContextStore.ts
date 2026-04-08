@@ -45,11 +45,23 @@ class AppointmentContextStore {
 
     try {
       const { createClient } = await import('redis');
+
+      // Detectar si la URL tiene password
+      const hasPassword = REDIS_URI_CONNECTION.includes('@');
+
       this.redisClient = createClient({
-        url: REDIS_URI_CONNECTION
+        url: REDIS_URI_CONNECTION,
+        // Si no hay password en la URL, no usar autenticación
+        ...(hasPassword ? {} : { socket: { reconnectStrategy: false } })
       });
 
       this.redisClient.on('error', (err: any) => {
+        // Silenciar errores de conexión si no hay password configurado en Redis
+        if (err.message?.includes('AUTH')) {
+          logger.warn('[AppointmentContextStore] Redis sin password, usando store en memoria');
+          this.useRedis = false;
+          return;
+        }
         logger.error(`[AppointmentContextStore] Error en Redis: ${err.message}`);
       });
 
@@ -57,7 +69,12 @@ class AppointmentContextStore {
       this.useRedis = true;
       logger.info('[AppointmentContextStore] Conectado a Redis para contexto de citas');
     } catch (error: any) {
-      logger.warn(`[AppointmentContextStore] No se pudo conectar a Redis: ${error.message}. Usando store en memoria.`);
+      // Si el error es de AUTH, usar store en memoria sin warning
+      if (error.message?.includes('AUTH') || error.message?.includes('no password')) {
+        logger.info('[AppointmentContextStore] Redis sin password configurado, usando store en memoria');
+      } else {
+        logger.warn(`[AppointmentContextStore] No se pudo conectar a Redis: ${error.message}. Usando store en memoria.`);
+      }
       this.useRedis = false;
     }
   }

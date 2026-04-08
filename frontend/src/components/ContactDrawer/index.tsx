@@ -19,6 +19,12 @@ import {
   Option,
   Divider,
   Tooltip,
+  Menu,
+  MenuItem,
+  Modal,
+  ModalDialog,
+  Autocomplete,
+  List,
 } from '@mui/joy'
 import {
   Close as CloseIcon,
@@ -35,6 +41,8 @@ import {
   CheckCircle,
   Notifications,
   NotificationsOff,
+  MoreVert as MoreVertIcon,
+  SwapHoriz as TransferIcon,
 } from '@mui/icons-material'
 import api from '../../services/api'
 import { toast } from 'react-toastify'
@@ -125,6 +133,13 @@ export default function ContactDrawer({
   const [followupEnabled, setFollowupEnabled] = useState(true)
   const [togglingFollowup, setTogglingFollowup] = useState(false)
   const [togglingBot, setTogglingBot] = useState(false)
+  const [openTransferMenu, setOpenTransferMenu] = useState<HTMLElement | null>(null)
+  const [showTransferModal, setShowTransferModal] = useState(false)
+  const [searchContact, setSearchContact] = useState('')
+  const [searchResults, setSearchResults] = useState<Contact[]>([])
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
+  const [searchingContacts, setSearchingContacts] = useState(false)
+  const [transferring, setTransferring] = useState(false)
 
   useEffect(() => {
     if (contact) {
@@ -290,6 +305,55 @@ export default function ContactDrawer({
     }
   }
 
+  // Buscar contactos para transferir ticket
+  const handleSearchContact = async (query: string) => {
+    setSearchContact(query)
+    if (query.length < 3) {
+      setSearchResults([])
+      return
+    }
+    setSearchingContacts(true)
+    try {
+      const response = await api.get('/contacts', {
+        params: {
+          searchParam: query,
+          rowsPerPage: 10,
+          pageNumber: 1,
+          // Excluir el contacto actual del ticket - filtrar en cliente
+        }
+      })
+      const contacts = response.data.contacts || []
+      // Filtrar cliente para excluir el contacto actual
+      const filtered = contacts.filter((c: Contact) => c.id !== ticket?.contactId)
+      setSearchResults(filtered)
+    } catch (error) {
+      console.error('Error searching contacts:', error)
+      setSearchResults([])
+    } finally {
+      setSearchingContacts(false)
+    }
+  }
+
+  // Transferir ticket a otro contacto
+  const handleTransferTicket = async () => {
+    if (!ticket?.id || !selectedContact) return
+    setTransferring(true)
+    try {
+      await api.put(`/tickets/${ticket.id}`, { newContactId: selectedContact.id })
+      toast.success(`Ticket transferido a ${selectedContact.name}`)
+      setShowTransferModal(false)
+      setSelectedContact(null)
+      setSearchContact('')
+      // Notificar al padre para actualizar
+      if (onClose) onClose()
+    } catch (error: any) {
+      console.error('Error transferring ticket:', error)
+      toast.error(error.response?.data?.message || 'Error al transferir el ticket')
+    } finally {
+      setTransferring(false)
+    }
+  }
+
   const handleSaveContact = async () => {
     if (!contact?.id) return
     setSaving(true)
@@ -406,9 +470,37 @@ export default function ContactDrawer({
           }}
         >
           <Typography level="title-lg">Datos del contacto</Typography>
-          <IconButton variant="plain" onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {ticket && (
+              <>
+                <IconButton
+                  variant="plain"
+                  onClick={(e) => setOpenTransferMenu(e.currentTarget)}
+                >
+                  <MoreVertIcon />
+                </IconButton>
+                <Menu
+                  open={Boolean(openTransferMenu)}
+                  onClose={() => setOpenTransferMenu(null)}
+                  anchorEl={openTransferMenu}
+                  placement="bottom-end"
+                >
+                  <MenuItem onClick={() => {
+                    setOpenTransferMenu(null)
+                    setShowTransferModal(true)
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TransferIcon fontSize="small" />
+                      <Typography level="body-sm">Transferir ticket</Typography>
+                    </Box>
+                  </MenuItem>
+                </Menu>
+              </>
+            )}
+            <IconButton variant="plain" onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </Box>
 
         {/* Content */}
@@ -778,6 +870,109 @@ export default function ContactDrawer({
         existingAppointment={existingAppointment}
         mode={existingAppointment ? 'reschedule' : 'create'}
       />
+
+      {/* Transfer Ticket Modal */}
+      <Modal
+        open={showTransferModal}
+        onClose={() => {
+          setShowTransferModal(false)
+          setSelectedContact(null)
+          setSearchContact('')
+          setSearchResults([])
+        }}
+      >
+        <ModalDialog
+          sx={{
+            minWidth: 400,
+            maxWidth: 500,
+          }}
+        >
+          <Typography level="title-lg" sx={{ mb: 2 }}>
+            Transferir Ticket
+          </Typography>
+          <Typography level="body-sm" sx={{ mb: 3, color: 'text.secondary' }}>
+            Selecciona el nuevo contacto para este ticket. El ticket se asociará al contacto seleccionado.
+          </Typography>
+
+          <FormControl sx={{ mb: 3 }}>
+            <FormLabel>Buscar contacto</FormLabel>
+            <Autocomplete
+              placeholder="Escribe el nombre o número..."
+              value={selectedContact}
+              onChange={(_event, newValue) => {
+                setSelectedContact(newValue)
+              }}
+              inputValue={searchContact}
+              onInputChange={(_event, newInputValue) => {
+                handleSearchContact(newInputValue)
+              }}
+              loading={searchingContacts}
+              options={searchResults}
+              getOptionLabel={(option) => `${option.name} - ${option.number}`}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              filterOptions={(options) => options}
+              renderOption={(props, option) => (
+                <Box component="li" {...props}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ width: 32, height: 32 }}>
+                      {option.name?.charAt(0)}
+                    </Avatar>
+                    <Box>
+                      <Typography level="body-sm">{option.name}</Typography>
+                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                        {option.number}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+            />
+          </FormControl>
+
+          {selectedContact && (
+            <Card variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'background.level1' }}>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Avatar src={selectedContact.urlPicture || selectedContact.profilePicUrl}>
+                  {selectedContact.name?.charAt(0)}
+                </Avatar>
+                <Box>
+                  <Typography level="body-sm" fontWeight="bold">
+                    {selectedContact.name}
+                  </Typography>
+                  <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+                    {selectedContact.number}
+                    {selectedContact.email && ` • ${selectedContact.email}`}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Card>
+          )}
+
+          <Stack direction="row" spacing={2} justifyContent="flex-end">
+            <Button
+              variant="outlined"
+              color="neutral"
+              onClick={() => {
+                setShowTransferModal(false)
+                setSelectedContact(null)
+                setSearchContact('')
+                setSearchResults([])
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="solid"
+              color="primary"
+              onClick={handleTransferTicket}
+              disabled={!selectedContact || transferring}
+              loading={transferring}
+            >
+              Transferir
+            </Button>
+          </Stack>
+        </ModalDialog>
+      </Modal>
     </Drawer>
   )
 }

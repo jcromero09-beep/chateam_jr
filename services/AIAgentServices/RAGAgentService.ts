@@ -50,13 +50,21 @@ const processQuery = async (
     maxResults?: number;
     minRelevance?: number;
     chatbotId?: number;
-    ticketContext?: string; // Contexto unificado (empresa, kanban, quickreplies, contacto)
+    ticketContext?: string;
     channel?: string;
-    ticketHistory?: Array<{ role: string; content: string }>; // Historial de conversación
+    ticketHistory?: Array<{ role: string; content: string }>;
+    // Datos de QueryEnrichmentAgent
+    enrichedQuery?: string;
+    hydeQuery?: string;
+    alternativeQueries?: string[];
+    keywords?: string[];
   } = {}
 ): Promise<RAGResponse> => {
   const startTime = Date.now();
-  const { ticketId, contactId, maxResults = 5, minRelevance = 0.3, ticketContext, channel, ticketHistory = [] } = options;
+  const {
+    ticketId, contactId, maxResults = 5, minRelevance = 0.3, ticketContext, channel,
+    ticketHistory = [], enrichedQuery, hydeQuery, alternativeQueries = [], keywords = []
+  } = options;
 
   // 1. Verificar cache semántico
   const cacheKey = `rag:${companyId}:${query}`;
@@ -74,16 +82,86 @@ const processQuery = async (
     return cachedResponse;
   }
 
-  // 2. Búsqueda híbrida en Knowledge Base
-  let searchResults;
+  // 2. Búsqueda híbrida MULTI-QUERY con datos de QueryEnrichmentAgent
+  const primaryQuery = enrichedQuery || query;
+
+  // Construir array de queries para búsqueda paralela
+  const queriesToSearch: Array<{ query: string; weight: number; label: string }> = [
+    { query: primaryQuery, weight: 0.4, label: "enriched" }
+  ];
+
+  if (hydeQuery && hydeQuery.length > 10) {
+    queriesToSearch.push({ query: hydeQuery, weight: 0.3, label: "hyde" });
+  }
+
+  if (alternativeQueries.length > 0) {
+    // Usar la mejor alternativa
+    queriesToSearch.push({ query: alternativeQueries[0], weight: 0.2, label: "alt" });
+  }
+
+  // Keywords para BM25 adicional
+  if (keywords.length > 0) {
+    queriesToSearch.push({ query: keywords.join(" "), weight: 0.1, label: "keywords" });
+  }
+
+  // Si no hay enriquecimiento, usar query original con fallback de historial
+  if (queriesToSearch.length === 1 && query.trim().split(/\s+/).length <= 4 && ticketHistory.length > 0) {
+    const lastMessages = ticketHistory.slice(-4)
+      .map(m => m.content)
+      .filter(c => c && c.length > 3)
+      .join(" ");
+    queriesToSearch[0].query = `${lastMessages} ${query}`.trim();
+  }
+
+  logger.info(`[RAGAgent] Búsqueda multi-query: ${queriesToSearch.map(q => `${q.label}(w=${q.weight})`).join(", ")}`);
+
+  let searchResults: any[] = [];
   try {
-    searchResults = await HybridSearchService.search(query, companyId, {
-      topK: maxResults,
-      vectorWeight: 0.6,
-      bm25Weight: 0.4
+    // Ejecutar todas las búsquedas en paralelo
+    const searchPromises = queriesToSearch.map(q =>
+      HybridSearchService.search(q.query, companyId, {
+        topK: maxResults,
+        vectorWeight: 0.6,
+        bm25Weight: 0.4
+      }).then(results => results.map(r => ({ ...r, _searchWeight: q.weight, _searchLabel: q.label })))
+        .catch(() => [])
+    );
+
+    const allResults = await Promise.all(searchPromises);
+
+    // Fusionar y deduplicar por chunkId con scoring ponderado
+    const scoreMap = new Map<number, any>();
+    for (const results of allResults) {
+      for (const r of results) {
+        const existing = scoreMap.get(r.chunkId);
+        const weightedScore = (r.vectorScore || r.combinedScore || 0) * r._searchWeight;
+        if (existing) {
+          existing.fusedScore += weightedScore;
+          existing.matchCount += 1;
+        } else {
+          scoreMap.set(r.chunkId, {
+            ...r,
+            fusedScore: weightedScore,
+            matchCount: 1
+          });
+        }
+      }
+    }
+
+    // Ordenar por score fusionado y tomar los mejores
+    searchResults = Array.from(scoreMap.values())
+      .sort((a, b) => b.fusedScore - a.fusedScore)
+      .slice(0, maxResults);
+
+    // Bonus: chunks que matchearon en múltiples queries son más relevantes
+    searchResults.forEach(r => {
+      if (r.matchCount >= 2) r.fusedScore *= 1.3;
+      if (r.matchCount >= 3) r.fusedScore *= 1.2;
     });
+
+    logger.info(`[RAGAgent] Multi-query completada: ${scoreMap.size} chunks únicos → top ${searchResults.length}`);
   } catch (searchError: any) {
-    logger.error(`[RAGAgent] ❌ Error en búsqueda híbrida: ${searchError.message}`);
+    logger.error(`[RAGAgent] ❌ Error en búsqueda multi-query: ${searchError.message}`);
     searchResults = [];
   }
 
@@ -121,13 +199,13 @@ const processQuery = async (
 
   // 4. Construir contexto con los chunks encontrados
   // LIMITADO: máximo 3 chunks para evitar información excesiva
-  // HybridSearchService devuelve 'combinedScore' (RRF ~0.009) y 'vectorScore' (coseno 0-1)
-  // Filtrar por vectorScore (similitud real) si disponible, o combinedScore > 0 como fallback
+  // Filtrar chunks relevantes — usar fusedScore (multi-query) o vectorScore como fallback
   const contextChunks = searchResults
     .filter((r: any) => {
+      const fused = r.fusedScore || 0;
       const vectorSim = r.vectorScore || r.similarity || 0;
       const combined = r.combinedScore || r.score || 0;
-      return vectorSim >= minRelevance || combined > 0;
+      return fused > 0 || vectorSim >= minRelevance || combined > 0;
     })
     .slice(0, 3); // Máximo 3 fuentes
 
@@ -213,13 +291,18 @@ const processQuery = async (
     snippet: chunk.content.substring(0, 200)
   }));
 
-  // Confianza basada en vectorScore (similitud coseno real, 0-1)
-  // Si hay chunks relevantes con buena similitud, la confianza es alta
+  // Confianza: usar fusedScore (multi-query) normalizado, o vectorScore como fallback
+  // fusedScore con multi-query puede ser > 1 por acumulación de pesos, normalizamos a 0-1
+  const getConfidence = (chunk: any) => {
+    if (chunk.fusedScore) return Math.min(chunk.fusedScore * 2, 0.95); // fusedScore ~0.1-0.5 → 0.2-0.95
+    return getRelevance(chunk);
+  };
+
   const confidence = contextChunks.length > 0
-    ? getRelevance(contextChunks[0])
+    ? getConfidence(contextChunks[0])
     : 0.1;
 
-  logger.info(`[RAGAgent] Confianza calculada: ${confidence.toFixed(3)}, chunks usados: ${contextChunks.length}, vectorScores: [${contextChunks.map((c: any) => getRelevance(c).toFixed(3)).join(', ')}]`);
+  logger.info(`[RAGAgent] Confianza calculada: ${confidence.toFixed(3)}, chunks usados: ${contextChunks.length}, fusedScores: [${contextChunks.map((c: any) => (c.fusedScore || getRelevance(c)).toFixed(3)).join(', ')}]`);
 
   const response: RAGResponse = {
     answer,

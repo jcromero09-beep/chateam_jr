@@ -45,11 +45,13 @@ interface Request {
   sortTickets?: string;
   searchOnMessages?: string;
   dateField?: 'createdAt' | 'updatedAt' | 'closedAt';
+  limit?: number;
 }
 
 interface Response {
   tickets: Ticket[];
   count: number;
+  totalCount: number;
   hasMore: boolean;
 }
 
@@ -72,7 +74,8 @@ const ListTicketsService = async ({
   companyId,
   sortTickets = "DESC",
   searchOnMessages = "true",
-  dateField = "updatedAt"
+  dateField = "updatedAt",
+  limit = 20
 }: Request): Promise<Response> => {
   try {
   const user = await ShowUserService(userId, companyId);
@@ -313,9 +316,9 @@ const ListTicketsService = async ({
       }
 
       latestTickets = await Ticket.findAll({
-        attributes: ['companyId', 'contactId', 'whatsappId', [literal('MAX("id")'), 'id']],
+        attributes: ['companyId', 'contactId', 'whatsappId', 'channel', [literal('MAX("id")'), 'id']],
         where: whereCondition2,
-        group: ['companyId', 'contactId', 'whatsappId'],
+        group: ['companyId', 'contactId', 'whatsappId', 'channel'],
       });
 
     } else {
@@ -338,9 +341,9 @@ const ListTicketsService = async ({
       }
 
       latestTickets = await Ticket.findAll({
-        attributes: ['companyId', 'contactId', 'whatsappId', [literal('MAX("id")'), 'id']],
+        attributes: ['companyId', 'contactId', 'whatsappId', 'channel', [literal('MAX("id")'), 'id']],
         where: whereCondition2,
-        group: ['companyId', 'contactId', 'whatsappId'],
+        group: ['companyId', 'contactId', 'whatsappId', 'channel'],
       });
 
     }
@@ -360,13 +363,13 @@ const ListTicketsService = async ({
       let latestTickets;
       if (!showTicketAllQueues && user.profile === "user") {
         latestTickets = await Ticket.findAll({
-          attributes: ['companyId', 'contactId', 'whatsappId', [literal('MAX("id")'), 'id']],
+          attributes: ['companyId', 'contactId', 'whatsappId', 'channel', [literal('MAX("id")'), 'id']],
           where: {
             [Op.or]: [{ userId }, { status: ["pending", "closed", "group"] }],
             queueId: showAll === "true" || showTicketWithoutQueue ? { [Op.or]: [queueIds, null] } : queueIds,
             companyId
           },
-          group: ['companyId', 'contactId', 'whatsappId'],
+          group: ['companyId', 'contactId', 'whatsappId', 'channel'],
         });
       } else {
         let whereCondition2: Filterable["where"] = {
@@ -391,9 +394,9 @@ const ListTicketsService = async ({
         }
 
         latestTickets = await Ticket.findAll({
-          attributes: ['companyId', 'contactId', 'whatsappId', [literal('MAX("id")'), 'id']],
+          attributes: ['companyId', 'contactId', 'whatsappId', 'channel', [literal('MAX("id")'), 'id']],
           where: whereCondition2,
-          group: ['companyId', 'contactId', 'whatsappId'],
+          group: ['companyId', 'contactId', 'whatsappId', 'channel'],
         });
 
       }
@@ -579,15 +582,16 @@ const ListTicketsService = async ({
     companyId
   };
 
-  const limit = 40;
-  const offset = limit * (+pageNumber - 1);
+  // Si limit es 0, retornar todos los registros (para contadores)
+  const effectiveLimit = (limit === 0) ? undefined : limit;
+  const offset = effectiveLimit ? effectiveLimit * (+pageNumber - 1) : 0;
 
   const { count, rows: tickets } = await Ticket.findAndCountAll({
     where: whereCondition,
     include: includeCondition,
     attributes: ["id", "uuid", "userId", "queueId", "isGroup", "channel", "status", "contactId", "useIntegration", "lastMessage", "updatedAt", "unreadMessages", "customerOriginId"],
     distinct: true,
-    limit,
+    limit: effectiveLimit,
     offset,
     order: [["updatedAt", sortTickets]],
     subQuery: false
@@ -597,8 +601,9 @@ const ListTicketsService = async ({
 
   return {
     tickets,
-    count,
-    hasMore
+    count: tickets.length,
+    totalCount: count,
+    hasMore: effectiveLimit ? count > offset + tickets.length : false
   };
   } catch (error) {
     console.error("❌ [ListTicketsService] Error grave:", error);

@@ -277,6 +277,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
       collectiveVacationMessage: "",
       promptId: null,
       integrationId: null,
+      useAIOrchestrator: false,
     });
     setSchedules(defaultSchedules);
     setSelectedQueueIds([]);

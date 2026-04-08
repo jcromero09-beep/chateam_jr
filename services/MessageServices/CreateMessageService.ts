@@ -184,19 +184,20 @@ const CreateMessageService = async ({
 
   if (!messageData?.ticketImported) {
     const socketAction = existingMessage ? "update" : "create";
-    // console.log("  📡 Emitiendo evento Socket.io (" + socketAction + "): company-" + companyId + "-appMessage");
+
+    // Convertir Sequelize a objeto plano para asegurar que ticketId esté incluido
+    const plainMessage = message.get ? message.get({ plain: true }) : message;
 
     io.of(String(companyId))
       .emit(`company-${companyId}-appMessage`, {
         action: socketAction,
-        message,
+        message: {
+          ...plainMessage,
+          ticketId: message.ticketId // Asegurar que ticketId esté incluido
+        },
         ticket: message.ticket,
         contact: message.ticket.contact
       });
-
-    // console.log("  ✅ Evento Socket.io emitido correctamente");
-  } else {
-    // console.log("  ℹ️ Mensaje importado - no se emite evento Socket.io");
   }
 
   // console.log("  ✅ [CreateMessageService] FIN\n");
