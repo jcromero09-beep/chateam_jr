@@ -240,12 +240,14 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   }
 
   // 2c. Buscar QuickReplies relevantes (para enviar media si tienen imagen)
+  // Usa la query enriquecida para mejor matching (ej: "el de carro" → "GPS para auto")
+  const queryForQuickReply = enrichment?.enrichedQuery || message;
   let matchedQuickReplies: Array<{ id: number; shortcode: string; message: string; mediaPath?: string; mediaName?: string; similarity: number }> = [];
   try {
     const QuickReplySemanticService = require("./QuickReplySemanticService").default;
-    matchedQuickReplies = await QuickReplySemanticService.findRelevant(message, companyId);
+    matchedQuickReplies = await QuickReplySemanticService.findRelevant(queryForQuickReply, companyId);
     if (matchedQuickReplies.length > 0) {
-      logger.info(`[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => q.shortcode).join(', ')}`);
+      logger.info(`[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => `${q.shortcode}(${q.similarity.toFixed(2)})`).join(', ')}`);
     }
   } catch (qrError: any) {
     logger.warn(`[Supervisor] Error buscando QuickReplies: ${qrError.message}`);
@@ -402,11 +404,19 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   }
 
   // Adjuntar SOLO el QuickReply más relevante con media (máximo 1 imagen por respuesta)
+  // REGLA: Enviar imagen solo cuando el bot da info concreta del producto
+  // Si SOLO pregunta (sin dar info) → no enviar imagen (aún no sabe qué recomendar)
+  // Si da info concreta (precio, nombre producto) + pregunta al final → SÍ enviar
+  const hasQuestion = agentResponse.message.includes("?");
+  const hasConcreteInfo = /\$\d|plan |GPS |cuesta|precio|incluye|instalación/i.test(agentResponse.message);
+  const botIsAsking = hasQuestion && !hasConcreteInfo;
   const bestQuickReply = matchedQuickReplies.find(qr => qr.mediaPath);
-  if (bestQuickReply) {
+
+  if (bestQuickReply && !botIsAsking) {
     agentResponse.metadata.quickReplies = [bestQuickReply];
-    // Informar al LLM que se enviará la imagen para que no pregunte de nuevo
-    agentResponse.message += `\n\nTe envío la ficha con los detalles 👇`;
+    logger.info(`[Supervisor] QuickReply adjuntado: /${bestQuickReply.shortcode} (bot no pregunta, envía ficha)`);
+  } else if (bestQuickReply && botIsAsking) {
+    logger.info(`[Supervisor] QuickReply omitido: /${bestQuickReply.shortcode} (bot está preguntando, espera respuesta del cliente)`);
   }
 
   logger.info(
@@ -602,6 +612,34 @@ async function handleAgentWithTools(
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt }
     ];
+
+    // Inyectar contexto unificado (empresa, kanban, quickreplies, etc.)
+    if (request.ticketContext) {
+      messages.push({ role: 'system', content: request.ticketContext });
+    }
+
+    // Inyectar chunks obligatorios (reglas, horarios, protocolo) — sourceType='manual'
+    // Estos son críticos para que el agente de ventas/soporte conozca las políticas
+    try {
+      const { QueryTypes: QT } = require("sequelize");
+      const db = require("../../database").default;
+      const mandatoryChunks = await db.query(`
+        SELECT c.content FROM "AIChunks" c
+        JOIN "AIDocuments" d ON d.id = c."documentId"
+        WHERE c."companyId" = :companyId AND d."sourceType" = 'manual' AND d.status = 'completed'
+        ORDER BY c.id ASC
+      `, { replacements: { companyId }, type: QT.SELECT });
+
+      if (mandatoryChunks.length > 0) {
+        const rulesContent = mandatoryChunks.map((c: any) => c.content).join('\n\n');
+        messages.push({
+          role: 'system',
+          content: `--- REGLAS Y POLÍTICAS DE LA EMPRESA (CUMPLIMIENTO OBLIGATORIO) ---\n${rulesContent}\n\nResponde SOLO con datos que aparecen aquí. Si no tienes la información, ofrece conectar con un asesor.`
+        });
+      }
+    } catch (chunkErr: any) {
+      logger.warn(`[Supervisor] Error cargando chunks obligatorios para ${agentType}: ${chunkErr.message}`);
+    }
 
     // Agregar historial de conversación
     if (ticketHistory && ticketHistory.length > 0) {

@@ -1,3 +1,5 @@
+import { QueryTypes } from "sequelize";
+import sequelize from "../../database";
 import HybridSearchService from "../RAGServices/HybridSearchService";
 import SemanticCacheService from "../RAGServices/SemanticCacheService";
 import EmbeddingService from "../RAGServices/EmbeddingService";
@@ -197,23 +199,127 @@ const processQuery = async (
     return noResultResponse;
   }
 
-  // 4. Construir contexto con los chunks encontrados
-  // LIMITADO: máximo 3 chunks para evitar información excesiva
-  // Filtrar chunks relevantes — usar fusedScore (multi-query) o vectorScore como fallback
-  const contextChunks = searchResults
+  // 4a. Cargar SIEMPRE los chunks de tipo "manual" (reglas, horarios, protocolo)
+  // Estos son instrucciones de la empresa que el agente SIEMPRE debe conocer
+  let mandatoryChunks: any[] = [];
+  try {
+    const mandatoryResults = await sequelize.query(`
+      SELECT c.id AS "chunkId", c."documentId", c.content, c.topic, c.keywords,
+        d.title AS "documentTitle", d."sourceType"
+      FROM "AIChunks" c
+      JOIN "AIDocuments" d ON d.id = c."documentId"
+      WHERE c."companyId" = :companyId
+        AND d."sourceType" = 'manual'
+        AND d.status = 'completed'
+      ORDER BY c.id ASC
+    `, {
+      replacements: { companyId },
+      type: QueryTypes.SELECT
+    });
+    mandatoryChunks = mandatoryResults as any[];
+    if (mandatoryChunks.length > 0) {
+      logger.info(`[RAGAgent] Chunks obligatorios (manual): ${mandatoryChunks.length} cargados`);
+    }
+  } catch (mandatoryErr: any) {
+    logger.warn(`[RAGAgent] Error cargando chunks obligatorios: ${mandatoryErr.message}`);
+  }
+
+  // 4b. RONDA 1: Filtrar chunks de búsqueda relevantes
+  let contextChunks = searchResults
     .filter((r: any) => {
       const fused = r.fusedScore || 0;
       const vectorSim = r.vectorScore || r.similarity || 0;
       const combined = r.combinedScore || r.score || 0;
       return fused > 0 || vectorSim >= minRelevance || combined > 0;
     })
-    .slice(0, 3); // Máximo 3 fuentes
+    .slice(0, 5);
 
-  logger.info(`[RAGAgent] Chunks filtrados: ${contextChunks.length}/${searchResults.length} (minRelevance=${minRelevance}, scores: ${searchResults.slice(0, 3).map((r: any) => (r.combinedScore || r.score || r.similarity || 0).toFixed(3)).join(', ')})`);
+  const getChunkScore = (c: any) => c.fusedScore || c.vectorScore || c.similarity || c.combinedScore || 0;
+  let bestScore = contextChunks.length > 0 ? getChunkScore(contextChunks[0]) : 0;
 
-  const context = contextChunks
-    .map((chunk: any) => chunk.content)
-    .join('\n\n');
+  logger.info(`[RAGAgent] RONDA 1: ${contextChunks.length} chunks, bestScore=${bestScore.toFixed(3)}`);
+
+  // 4b-R2. RONDA 2: Si score bajo, buscar con queries alternativos restantes + keywords
+  if (bestScore < 0.40 && alternativeQueries.length > 1) {
+    logger.info(`[RAGAgent] RONDA 2: Score bajo (${bestScore.toFixed(3)}), buscando con queries alternativos...`);
+
+    try {
+      const extraSearches = alternativeQueries.slice(1).map(altQ =>
+        HybridSearchService.search(altQ, companyId, {
+          topK: maxResults,
+          vectorWeight: 0.6,
+          bm25Weight: 0.4
+        }).catch(() => [])
+      );
+
+      // También buscar solo por keywords con BM25
+      if (keywords.length > 0) {
+        extraSearches.push(
+          HybridSearchService.search(keywords.join(" "), companyId, {
+            topK: maxResults,
+            vectorWeight: 0.2,
+            bm25Weight: 0.8 // Más peso a BM25 para keywords
+          }).catch(() => [])
+        );
+      }
+
+      const extraResults = await Promise.all(extraSearches);
+
+      // Fusionar con resultados existentes (deduplicar por chunkId)
+      const existingIds = new Set(contextChunks.map((c: any) => c.chunkId));
+      for (const results of extraResults) {
+        for (const r of results) {
+          if (!existingIds.has(r.chunkId)) {
+            existingIds.add(r.chunkId);
+            contextChunks.push(r);
+          }
+        }
+      }
+
+      // Re-ordenar por score y tomar top 5
+      contextChunks.sort((a: any, b: any) => getChunkScore(b) - getChunkScore(a));
+      contextChunks = contextChunks.slice(0, 5);
+      bestScore = contextChunks.length > 0 ? getChunkScore(contextChunks[0]) : 0;
+
+      logger.info(`[RAGAgent] RONDA 2 completada: ${contextChunks.length} chunks, bestScore=${bestScore.toFixed(3)}`);
+    } catch (r2Error: any) {
+      logger.warn(`[RAGAgent] Error en RONDA 2: ${r2Error.message}`);
+    }
+  }
+
+  logger.info(`[RAGAgent] Chunks finales: ${contextChunks.length}/${searchResults.length}`);
+
+  // 4c. Combinar: reglas obligatorias PRIMERO + chunks de búsqueda DESPUÉS
+  const searchChunkIds = new Set(contextChunks.map((c: any) => c.chunkId));
+  const uniqueMandatory = mandatoryChunks.filter((m: any) => !searchChunkIds.has(m.chunkId));
+
+  const allContextParts: string[] = [];
+
+  if (uniqueMandatory.length > 0) {
+    allContextParts.push(
+      `--- REGLAS Y POLÍTICAS DE LA EMPRESA (CUMPLIMIENTO OBLIGATORIO) ---\n` +
+      uniqueMandatory.map((c: any) => c.content).join('\n\n')
+    );
+  }
+
+  if (contextChunks.length > 0) {
+    allContextParts.push(
+      `--- INFORMACIÓN DE PRODUCTOS Y SERVICIOS ---\n` +
+      contextChunks.map((chunk: any) => chunk.content).join('\n\n')
+    );
+  }
+
+  // 4d. RONDA 3: Si score SIGUE bajo, inyectar modo honesto
+  if (bestScore < 0.25) {
+    allContextParts.push(
+      `\n--- ⚠️ ALERTA DE BAJA RELEVANCIA ---\n` +
+      `No se encontró información relevante en la base de conocimientos para esta consulta.\n` +
+      `NO inventes datos. Responde que no tienes esa información específica y ofrece conectar con un asesor humano.`
+    );
+    logger.warn(`[RAGAgent] RONDA 3: Modo honesto activado (bestScore=${bestScore.toFixed(3)})`);
+  }
+
+  const context = allContextParts.join('\n\n');
 
   // 5. Seleccionar modelo y generar respuesta
   const modelSelection = await selectModel('rag', query);
@@ -369,19 +475,23 @@ ${customPrompt}
 6. **Cierra con acción** — termina con algo concreto, no con "Quedo a sus órdenes"
 7. **Refleja el tono del usuario** — si es informal, sé informal. Si es formal, sé formal
 
+## ⚠️ REGLA CRÍTICA — PROHIBIDO INVENTAR
+- Responde ÚNICAMENTE con datos que aparecen en la BASE DE CONOCIMIENTOS de abajo
+- Si un precio, horario, fecha, plan o característica NO aparece abajo, NO LO DIGAS
+- NO digas "te envío la ficha" ni "te envío información" — solo responde con texto
+- Si no tienes la información que el cliente pide, responde: "Esa información la maneja directamente nuestro equipo. ¿Te gustaría que te conecte con un asesor?"
+- Es MEJOR derivar a un humano que inventar un dato incorrecto
+
 ## REGLAS DE CONTENIDO
-- Da SOLO la información NECESARIA para resolver la consulta actual
+- Da SOLO la información que aparece en la BASE DE CONOCIMIENTOS de abajo
 - NO repitas información que ya dijiste en mensajes anteriores
-- Si el cliente pregunta precio, da el precio directamente
-- Si necesitas más información, PREGUNTA al cliente (solo una cosa a la vez)
+- Si necesitas más información del cliente, PREGUNTA (solo una cosa a la vez)
 - NO menciones fuentes, documentos ni bases de conocimiento al cliente
-- Si la información NO está en el contexto, dilo honestamente y ofrece alternativa
-- NUNCA inventes datos: precios, disponibilidad, fechas o políticas
-- Si ya enviaste una imagen/ficha de producto, NO repitas esa información — refiérete a ella
+- Si ya se envió una imagen/ficha de producto, NO repitas esa información
 
 ## CONTEXTO ACTUAL
 ${ticketSection}
-## BASE DE CONOCIMIENTOS (usa solo la información relevante):
+## BASE DE CONOCIMIENTOS (responde SOLO con esta información, NO inventes nada fuera de aquí):
 ${context}`;
 }
 

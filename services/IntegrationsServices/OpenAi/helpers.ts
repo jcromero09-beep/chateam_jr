@@ -31,7 +31,11 @@ export async function getSafeCompletion(
     const response = await chatCompletion({
       messages: basePayload.messages,
       maxTokens: basePayload.max_tokens,
-      temperature: basePayload.temperature,
+      // CAP de temperature: para chat de atención al cliente, máximo 0.2
+      // Esto evita que el LLM invente datos cuando no tiene contexto
+      temperature: module === 'chat'
+        ? Math.min(basePayload.temperature || 0.7, 0.2)
+        : (basePayload.temperature || 0.7),
       companyId,
       module
     });

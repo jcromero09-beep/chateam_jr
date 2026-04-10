@@ -4252,6 +4252,7 @@ export const handleMessageIntegration = async (
         );
 
         // Enviar imágenes de QuickReplies matcheados (si tienen media)
+        // NO repetir imágenes ya enviadas en este ticket
         const quickRepliesWithMedia = (aiResponse.metadata?.quickReplies || []) as Array<{
           shortcode: string; message: string; mediaPath?: string; mediaName?: string;
         }>;
@@ -4260,8 +4261,42 @@ export const handleMessageIntegration = async (
           const fs = require("fs");
           const publicDir = path.resolve(__dirname, "..", "..", "public");
 
+          // Buscar qué imágenes ya se enviaron en este ticket para no repetir
+          // Deduplicar por mediaPath (único por QuickReply) — más robusto que comparar caption
+          const alreadySent = await Message.findAll({
+            where: { ticketId: ticket.id, fromMe: true, mediaType: "image" },
+            attributes: ["body", "mediaUrl"],
+            raw: true
+          });
+          // Comparar por mediaPath (nombre del archivo) Y por shortcode en el body
+          const sentMediaPaths = new Set(
+            alreadySent.map((m: any) => m.mediaUrl || "").filter(Boolean)
+          );
+          const sentShortcodes = new Set(
+            alreadySent
+              .map((m: any) => {
+                // Extraer shortcode del body: "Plan Gold ⭐" → buscar match con shortcode
+                const body = (m.body || "").toLowerCase();
+                return body;
+              })
+              .filter(Boolean)
+          );
+
           for (const qr of quickRepliesWithMedia) {
             if (!qr.mediaPath) continue;
+
+            // Verificar si ya se envió por mediaPath O por contenido similar
+            const alreadySentByPath = sentMediaPaths.has(qr.mediaPath);
+            const alreadySentByContent = Array.from(sentShortcodes).some(
+              sent => sent.includes(qr.shortcode.toLowerCase()) ||
+                      (qr.message && sent.includes(qr.message.substring(0, 30).toLowerCase()))
+            );
+
+            if (alreadySentByPath || alreadySentByContent) {
+              logger.info(`[SupervisorAI] QuickReply /${qr.shortcode} ya enviado en este ticket (path=${alreadySentByPath}, content=${alreadySentByContent}), omitiendo`);
+              continue;
+            }
+
             const filePath = path.join(publicDir, `company${companyId}`, "quickMessage", qr.mediaPath);
 
             if (fs.existsSync(filePath)) {
@@ -5012,7 +5047,7 @@ const handleMessage = async (
 
         const nodeIndex = nodes.findIndex(node => node.id === nodeSelected.id);
 
-        const lastFlowId = parseInt(nodes[nodeIndex + 1].id);
+        const lastFlowId = String(nodes[nodeIndex + 1].id);
          await ticket.update({
           lastFlowId: lastFlowId,
           dataWebhook: {
@@ -5730,8 +5765,8 @@ const filterMessages = (msg: WAMessage): boolean => {
     [
       WAMessageStubType.REVOKE,
       WAMessageStubType.E2E_DEVICE_CHANGED,
-      WAMessageStubType.E2E_IDENTITY_CHANGED,
-      WAMessageStubType.CIPHERTEXT
+      WAMessageStubType.E2E_IDENTITY_CHANGED
+      // CIPHERTEXT ya NO se filtra — se guarda como placeholder en BD
     ].includes(msg.messageStubType!)
   ) {
     // console.log("❌ FILTRADO: messageStubType:", msg.messageStubType);
@@ -5802,50 +5837,161 @@ const wbotMessageListener = (wbot: Session, companyId: number): void => {
         };
         logWarn("MENSAGEM PERDIDA", lostMsg);
       }
-      const messageExists = await Message.count({
-        where: { wid: message.key.id!, companyId }
+      // ── CIPHERTEXT: mensaje aún no descifrado ──
+      const isCiphertext = message.messageStubType === WAMessageStubType.CIPHERTEXT && !message.message;
+
+      const existingMsg = await Message.findOne({
+        where: { wid: message.key.id!, companyId },
+        attributes: ['id', 'mediaType', 'body']
       });
 
-      console.log("🔍 Message exists:", messageExists);
+      const messageExists = !!existingMsg;
+
+      console.log("🔍 Message exists:", messageExists, isCiphertext ? "(CIPHERTEXT)" : "");
+
+      // Si ya existe como ciphertext Y ahora llega con contenido real → ACTUALIZAR
+      if (messageExists && existingMsg?.mediaType === 'ciphertext' && message.message) {
+        console.log("🔓 Mensaje CIPHERTEXT descifrado, actualizando ID:", existingMsg.id);
+        const decryptedBody = getBodyMessage(message) || '';
+        const decryptedType = getTypeMessage(message) || 'conversation';
+        const io = getIO();
+
+        await existingMsg.update({
+          body: decryptedBody,
+          mediaType: decryptedType,
+          dataJson: JSON.stringify(message),
+          ack: Number(String(message.status).replace("PENDING", "2").replace("NaN", "1")) || 2
+        });
+
+        // Notificar al frontend via socket para que actualice en tiempo real
+        io.of(String(companyId))
+          .emit(`company-${companyId}-appMessage`, {
+            action: "update",
+            message: existingMsg
+          });
+
+        // Ahora procesar como mensaje normal (media, ticket updates, etc.)
+        if (REDIS_URI_MSG_CONN !== "") {
+          try {
+            await BullQueues.add(
+              `${process.env.DB_NAME}-handleMessage`,
+              { message, wbot: wbot.id, companyId },
+              {
+                priority: 1,
+                jobId: `${wbot.id}-handleMessage-decrypted-${message.key.id}`
+              }
+            );
+          } catch (e) {
+            Sentry.captureException(e);
+          }
+        } else {
+          await handleMessage(message, wbot, companyId);
+        }
+      }
 
       if (!messageExists) {
-        console.log("🔄 Mensaje NO existe, creando...");
-        let isCampaign = false;
-        let body = await getBodyMessage(message);
-        console.log("📝 Body:", body?.substring(0, 100));
-        const fromMe = message?.key?.fromMe;
-        if (fromMe) {
-          isCampaign = /\u200c/.test(body);
-        } else {
-          if (/\u200c/.test(body)) body = body.replace(/\u200c/, "");
-          logDebug(
-            "Validação de mensagem de campanha enviada por terceiros: " + body
-          );
-        }
+        // ── Guardar CIPHERTEXT como placeholder ──
+        if (isCiphertext) {
+          console.log("🔒 Guardando mensaje CIPHERTEXT como placeholder, wid:", message.key.id);
+          try {
+            const io = getIO();
+            // Buscar o crear contacto y ticket mínimos para asociar
+            const jid = message.key.remoteJid;
+            if (jid && jid !== "status@broadcast") {
+              // Crear registro placeholder en BD
+              const ciphertextData = {
+                wid: message.key.id,
+                body: "⏳ Esperando mensaje. Esto puede tardar un momento.",
+                fromMe: message.key.fromMe || false,
+                mediaType: "ciphertext",
+                read: false,
+                ack: 0,
+                remoteJid: jid,
+                participant: message.key.participant,
+                dataJson: JSON.stringify(message),
+                companyId: companyId
+              };
 
-        if (!isCampaign) {
-          if (REDIS_URI_MSG_CONN !== "") {
-            //} && (!message.key.fromMe || (message.key.fromMe && !message.key.id.startsWith('BAE')))) {
-            try {
-              await BullQueues.add(
-                `${process.env.DB_NAME}-handleMessage`,
-                { message, wbot: wbot.id, companyId },
-                {
-                  priority: 1,
-                  jobId: `${wbot.id}-handleMessage-${message.key.id}`
+              // Buscar ticket activo para este jid
+              const contactNumber = jid.replace(/\D/g, "");
+              const existingContact = await Contact.findOne({
+                where: { number: contactNumber, companyId }
+              });
+
+              if (existingContact) {
+                const activeTicket = await Ticket.findOne({
+                  where: {
+                    contactId: existingContact.id,
+                    companyId,
+                    status: { [Op.in]: ["open", "pending"] }
+                  }
+                });
+
+                if (activeTicket) {
+                  const msgRecord = await Message.create({
+                    ...ciphertextData,
+                    ticketId: activeTicket.id,
+                    contactId: message.key.fromMe ? undefined : existingContact.id
+                  });
+
+                  io.of(String(companyId))
+                    .emit(`company-${companyId}-appMessage`, {
+                      action: "create",
+                      message: msgRecord,
+                      ticket: activeTicket,
+                      contact: existingContact
+                    });
+
+                  console.log("✅ CIPHERTEXT placeholder guardado, msgId:", msgRecord.id);
+                } else {
+                  console.log("⚠️ CIPHERTEXT: no hay ticket activo para", contactNumber);
                 }
-              );
-            } catch (e) {
-              Sentry.captureException(e);
+              } else {
+                console.log("⚠️ CIPHERTEXT: contacto no encontrado para", contactNumber);
+              }
             }
-          } else {
-            // console.log("log... 3970");
-            await handleMessage(message, wbot, companyId);
+          } catch (cipherErr) {
+            console.error("❌ Error guardando CIPHERTEXT:", cipherErr);
+            Sentry.captureException(cipherErr);
           }
-        }
+        } else {
+          // ── Flujo normal de mensaje nuevo ──
+          console.log("🔄 Mensaje NO existe, creando...");
+          let isCampaign = false;
+          let body = await getBodyMessage(message);
+          console.log("📝 Body:", body?.substring(0, 100));
+          const fromMe = message?.key?.fromMe;
+          if (fromMe) {
+            isCampaign = /\u200c/.test(body);
+          } else {
+            if (/\u200c/.test(body)) body = body.replace(/\u200c/, "");
+            logDebug(
+              "Validação de mensagem de campanha enviada por terceiros: " + body
+            );
+          }
 
-        await verifyRecentCampaign(message, companyId);
-        await verifyCampaignMessageAndCloseTicket(message, companyId, wbot);
+          if (!isCampaign) {
+            if (REDIS_URI_MSG_CONN !== "") {
+              try {
+                await BullQueues.add(
+                  `${process.env.DB_NAME}-handleMessage`,
+                  { message, wbot: wbot.id, companyId },
+                  {
+                    priority: 1,
+                    jobId: `${wbot.id}-handleMessage-${message.key.id}`
+                  }
+                );
+              } catch (e) {
+                Sentry.captureException(e);
+              }
+            } else {
+              await handleMessage(message, wbot, companyId);
+            }
+          }
+
+          await verifyRecentCampaign(message, companyId);
+          await verifyCampaignMessageAndCloseTicket(message, companyId, wbot);
+        }
       }
 
       if (message.key.remoteJid?.endsWith("@g.us")) {
