@@ -41,6 +41,12 @@ import {
 } from '@mui/icons-material'
 import api from '../services/api'
 
+interface QueueOption {
+  id: number
+  name: string
+  color?: string
+}
+
 interface User {
   id: number
   name: string
@@ -114,16 +120,19 @@ const initialFormData: FormData = {
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
+  const [queues, setQueues] = useState<QueueOption[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [profileFilter, setProfileFilter] = useState<string>('all')
   const [openModal, setOpenModal] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [formData, setFormData] = useState<FormData>(initialFormData)
+  const [selectedQueueIds, setSelectedQueueIds] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState<number>(0)
 
   useEffect(() => {
     fetchUsers()
+    fetchQueues()
   }, [])
 
   const fetchUsers = async () => {
@@ -140,10 +149,24 @@ export default function Users() {
     }
   }
 
+  const fetchQueues = async () => {
+    try {
+      const response = await api.get('/queue')
+      setQueues(response.data.queues || response.data || [])
+    } catch (error) {
+      console.error('[Users] Error fetching queues:', error)
+      setQueues([])
+    }
+  }
+
   const handleCreate = async () => {
     try {
-      console.log('[Users] Creating user:', formData)
-      await api.post('/users', formData)
+      const payload = {
+        ...formData,
+        queueIds: selectedQueueIds,
+      }
+      console.log('[Users] Creating user:', payload)
+      await api.post('/users', payload)
       fetchUsers()
       setOpenModal(false)
       resetForm()
@@ -156,9 +179,12 @@ export default function Users() {
     if (!selectedUser) return
     try {
       // Don't send password if empty
-      const updateData = { ...formData }
+      const updateData: any = {
+        ...formData,
+        queueIds: selectedQueueIds,
+      }
       if (!updateData.password) {
-        delete (updateData as any).password
+        delete updateData.password
       }
       console.log('[Users] Updating user:', selectedUser.id, updateData)
       await api.put(`/users/${selectedUser.id}`, updateData)
@@ -194,6 +220,7 @@ export default function Users() {
   const openEditModal = (user: User) => {
     console.log('[Users] Opening edit modal for user:', user)
     setSelectedUser(user)
+    setSelectedQueueIds((user.queues || []).map((queue: any) => Number(queue.id)).filter(Boolean))
     setFormData({
       name: user.name || '',
       email: user.email || '',
@@ -228,6 +255,7 @@ export default function Users() {
 
   const resetForm = () => {
     setFormData(initialFormData)
+    setSelectedQueueIds([])
   }
 
   const getProfileColor = (profile: string) => {
@@ -590,6 +618,22 @@ export default function Users() {
                       </FormControl>
                     </Grid>
                   </Grid>
+
+                  <FormControl>
+                    <FormLabel>Colas Asignadas</FormLabel>
+                    <Select
+                      multiple
+                      value={selectedQueueIds}
+                      onChange={(_, value) => setSelectedQueueIds((value as number[]) || [])}
+                      placeholder="Seleccionar colas"
+                    >
+                      {queues.map((queue) => (
+                        <Option key={queue.id} value={queue.id}>
+                          {queue.name}
+                        </Option>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Stack>
               </TabPanel>
 

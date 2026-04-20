@@ -286,17 +286,21 @@ export const ActionsWebhookService = async (
             };
           }
 
-        await SendMessage(whatsapp, {
-          number: numberClient,
-          body: msg.body
-        });
-        
+        console.log(`[FlowBuilder] Nodo MENSAJE: enviando "${msg.body?.substring(0, 50)}" a ticket=${ticket?.id || idTicket}`);
 
-        //TESTE BOTÃO
-        //await SendMessageFlow(whatsapp, {
-        //  number: numberClient,
-        //  body: msg.body
-        //} )
+        if (!msg.body) {
+          console.warn(`[FlowBuilder] Nodo MENSAJE: body vacío, saltando envío`);
+        } else {
+          const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
+          await typeSimulation(ticket, "composing");
+          await SendWhatsAppMessage({
+            body: formatBody(msg.body, ticketDetails as any),
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+          SetTicketMessagesAsRead(ticketDetails);
+        }
+
         await intervalWhats("1");
       }
   // console.log("273");
@@ -400,85 +404,33 @@ export const ActionsWebhookService = async (
 
       if (resolvedType === "ticket") {
         const queueId = nodeSelected.data?.data?.id || nodeSelected.data?.id;
-        const queue = await ShowQueueService(queueId, companyId);
+        try {
+          const queue = await ShowQueueService(queueId, companyId);
+          console.log(`[FlowBuilder] Nodo COLA: asignando ticket ${ticket?.id || idTicket} a cola "${queue.name}" (id=${queue.id})`);
 
-        await ticket.update({
-          status: "pending",
-          queueId: queue.id,
-          userId: ticket.userId,
-          companyId: Number(companyId) || undefined,
-          flowWebhook: true,
-          lastFlowId: nodeSelected.id,
-          hashFlowId: hashWebhookId,
-          flowStopped: idFlowDb.toString()
-        });
+          // Asignar cola al ticket SIN cambiar status a pending (para que el flujo continúe)
+          await UpdateTicketService({
+            ticketData: {
+              queueId: queue.id
+            },
+            ticketId: ticket?.id || idTicket,
+            companyId
+          });
 
-        await FindOrCreateATicketTrakingService({
-          ticketId: ticket.id,
-          companyId,
-          whatsappId: ticket.whatsappId,
-          userId: ticket.userId
-        });
+          // Recargar ticket con la cola asignada
+          ticket = await Ticket.findOne({
+            where: { id: ticket?.id || idTicket, companyId }
+          });
 
-        await UpdateTicketService({
-          ticketData: {
-            status: "pending",
+          await CreateLogTicketService({
+            ticketId: ticket.id,
+            type: "queue",
             queueId: queue.id
-          },
-          ticketId: ticket.id,
-          companyId
-        });
-
-        await CreateLogTicketService({
-          ticketId: ticket.id,
-          type: "queue",
-          queueId: queue.id
-        });
-
-        let settings = await CompaniesSettings.findOne({
-          where: {
-            companyId: companyId
-          }
-        });
-
-        const enableQueuePosition = settings.sendQueuePosition === "enabled";
-
-        if (enableQueuePosition) {
-          const count = await Ticket.findAndCountAll({
-            where: {
-              userId: Number(null) || undefined,
-              status: "pending",
-              companyId,
-              queueId: queue.id,
-              whatsappId: whatsapp.id,
-              isGroup: false
-            }
           });
-
-          // Lógica para enviar posição da fila de atendimento
-          const qtd = count.count === 0 ? 1 : count.count;
-
-          const msgFila = `${settings.sendQueuePositionMessage} *${qtd}*`;
-
-          const ticketDetails = await ShowTicketService(ticket.id, companyId);
-
-          const bodyFila = formatBody(`${msgFila}`, ticket.contact);
-
-          await delay(3000);
-          await typeSimulation(ticket, "composing");
-
-          await SendWhatsAppMessage({
-            body: bodyFila,
-            ticket: ticketDetails,
-            quotedMsg: null
-          });
-
-          SetTicketMessagesAsRead(ticketDetails);
-
-          await ticketDetails.update({
-            lastMessage: bodyFila
-          });
+        } catch (queueError) {
+          console.error(`[FlowBuilder] Error asignando cola ${queueId}:`, queueError.message);
         }
+        // NO hace break — el flujo continúa al siguiente nodo
       }
 
       // ─── NODO TAG: Asigna etiqueta al ticket ───
@@ -500,7 +452,7 @@ export const ActionsWebhookService = async (
         }
       }
 
-      if (resolvedType === "singleBlock") {
+      if (resolvedType === "singleBlock" || resolvedType === "content") {
 
           for (var iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
             const elementNowSelected = nodeSelected.data.seq[iLoc];
@@ -594,53 +546,42 @@ export const ActionsWebhookService = async (
           }
 
           if (elementNowSelected.includes("img")) {
-            await typeSimulation(ticket, "composing");
-
             const filename = nodeSelected.data.elements.filter(
               item => item.number === elementNowSelected
             )[0].value;
 
-            // Usar process.cwd() para construir la ruta correcta
             const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
+            console.log(`[FlowBuilder] singleBlock IMG: ${filename}, existe: ${fs.existsSync(mediaPath)}`);
 
-            // console.log('=== FLOW IMAGE ===');
-            // console.log('filename:', filename);
-            // console.log('mediaPath:', mediaPath);
-            // console.log('Archivo existe?:', fs.existsSync(mediaPath));
-
-            await SendMessage(whatsapp, {
-              number: numberClient,
-              body: "",
-              mediaPath: mediaPath,
-              mediaName: filename  // 🆕 Agregar mediaName para que getMessageOptions funcione correctamente
-            });
+            if (fs.existsSync(mediaPath)) {
+              const ticketInt = await Ticket.findOne({ where: { id: ticket.id } });
+              await typeSimulation(ticket, "composing");
+              await SendWhatsAppMediaFlow({
+                media: mediaPath,
+                ticket: ticketInt
+              });
+            }
             await intervalWhats("1");
           }
 
-                    if (elementNowSelected.includes("pdf")) {
-                      await typeSimulation(ticket, "composing");
+          if (elementNowSelected.includes("pdf")) {
+            const filename = nodeSelected.data.elements.find(
+              item => item.number === elementNowSelected
+            )?.value;
 
-                      const filename = nodeSelected.data.elements.find(
-                        item => item.number === elementNowSelected
-                      )?.value;
+            const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
+            console.log(`[FlowBuilder] singleBlock PDF: ${filename}, existe: ${fs.existsSync(mediaPath)}`);
 
-                      // Usar process.cwd() para construir la ruta correcta
-                      const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
-
-                      // console.log('=== FLOW PDF ===');
-                      // console.log('filename:', filename);
-                      // console.log('mediaPath:', mediaPath);
-                      // console.log('Archivo existe?:', fs.existsSync(mediaPath));
-
-                      await SendMessage(whatsapp, {
-                        number: numberClient,
-                        body: "",
-                        mediaPath: mediaPath,
-                        mediaName: filename  // 🆕 Agregar mediaName para que getMessageOptions funcione correctamente
-                      });
-
-                      await intervalWhats("1");
-                    }
+            if (fs.existsSync(mediaPath)) {
+              const ticketInt = await Ticket.findOne({ where: { id: ticket.id } });
+              await typeSimulation(ticket, "composing");
+              await SendWhatsAppMediaFlow({
+                media: mediaPath,
+                ticket: ticketInt
+              });
+            }
+            await intervalWhats("1");
+          }
 
           if (elementNowSelected.includes("audio")) {
             const filename = nodeSelected.data.elements.filter(
@@ -701,6 +642,106 @@ export const ActionsWebhookService = async (
         }
       }
 
+      // ─── NODOS MULTIMEDIA INDIVIDUALES (image, audio, video, pdf) ───
+      if (resolvedType === "image" || resolvedType === "pdf") {
+        const mediaUrl = nodeSelected.data?.url;
+        if (mediaUrl) {
+          console.log(`[FlowBuilder] Nodo ${resolvedType.toUpperCase()}: enviando ${mediaUrl} (ticket=${ticket?.id || idTicket})`);
+          const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", mediaUrl);
+          if (fs.existsSync(mediaPath)) {
+            const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
+            await typeSimulation(ticket, "composing");
+            await SendWhatsAppMediaFlow({
+              media: mediaPath,
+              ticket: ticketDetails
+            });
+          } else {
+            console.warn(`[FlowBuilder] Archivo no encontrado: ${mediaPath}`);
+          }
+          await intervalWhats("1");
+        }
+      }
+
+      if (resolvedType === "audio") {
+        const mediaUrl = nodeSelected.data?.url;
+        if (mediaUrl) {
+          console.log(`[FlowBuilder] Nodo AUDIO: enviando ${mediaUrl} (ticket=${ticket?.id || idTicket})`);
+          const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", mediaUrl);
+          if (fs.existsSync(mediaPath)) {
+            const ticketInt = await Ticket.findOne({ where: { id: ticket?.id || idTicket } });
+            await typeSimulation(ticket, "recording");
+            await SendWhatsAppMediaFlow({
+              media: mediaPath,
+              ticket: ticketInt,
+              isRecord: true
+            });
+          } else {
+            console.warn(`[FlowBuilder] Archivo no encontrado: ${mediaPath}`);
+          }
+          await intervalWhats("1");
+        }
+      }
+
+      if (resolvedType === "video") {
+        const mediaUrl = nodeSelected.data?.url;
+        if (mediaUrl) {
+          console.log(`[FlowBuilder] Nodo VIDEO: enviando ${mediaUrl} (ticket=${ticket?.id || idTicket})`);
+          const mediaPath = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", mediaUrl);
+          if (fs.existsSync(mediaPath)) {
+            const ticketInt = await Ticket.findOne({ where: { id: ticket?.id || idTicket } });
+            await typeSimulation(ticket, "recording");
+            await SendWhatsAppMediaFlow({
+              media: mediaPath,
+              ticket: ticketInt
+            });
+          } else {
+            console.warn(`[FlowBuilder] Archivo no encontrado: ${mediaPath}`);
+          }
+          await intervalWhats("1");
+        }
+      }
+
+      // ─── NODO INTERVALO (espera N segundos) ───
+      if (resolvedType === "interval") {
+        const sec = nodeSelected.data?.sec || nodeSelected.data?.value || "3";
+        console.log(`[FlowBuilder] Nodo INTERVALO: esperando ${sec}s`);
+        await intervalWhats(String(sec));
+      }
+
+      // ─── NODO URL (envía enlace como mensaje) ───
+      if (resolvedType === "url") {
+        const url = nodeSelected.data?.url;
+        if (url) {
+          console.log(`[FlowBuilder] Nodo URL: enviando ${url} (ticket=${ticket?.id || idTicket})`);
+          const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
+          await typeSimulation(ticket, "composing");
+          await SendWhatsAppMessage({
+            body: url,
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+          SetTicketMessagesAsRead(ticketDetails);
+        }
+        await intervalWhats("1");
+      }
+
+      // ─── NODO LIST (envía lista como mensaje) ───
+      if (resolvedType === "list") {
+        const listData = nodeSelected.data;
+        if (listData?.message) {
+          console.log(`[FlowBuilder] Nodo LISTA: enviando lista (ticket=${ticket?.id || idTicket})`);
+          const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
+          await typeSimulation(ticket, "composing");
+          await SendWhatsAppMessage({
+            body: listData.message,
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+          SetTicketMessagesAsRead(ticketDetails);
+        }
+        await intervalWhats("1");
+      }
+
       let isRandomizer: boolean;
       if (resolvedType === "randomizer") {
         const selectedRandom = randomizarCaminho(
@@ -758,8 +799,11 @@ export const ActionsWebhookService = async (
         } else {
       // console.log(681, "menu");
           let optionsMenu = "";
-          nodeSelected.data.arrayOption.map(item => {
-            optionsMenu += `[${item.number}] ${item.value}\n`;
+          const opts = nodeSelected.data.arrayOption || [];
+          opts.forEach((item: any, idx: number) => {
+            // Negritas en el número (WhatsApp formatea *texto* como bold) + doble salto entre opciones
+            optionsMenu += `*[${item.number}]* ${item.value}`;
+            if (idx < opts.length - 1) optionsMenu += "\n\n";
           });
 
           const menuCreate = `${nodeSelected.data.message}\n\n${optionsMenu}`;

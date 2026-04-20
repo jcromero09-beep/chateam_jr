@@ -421,12 +421,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
           module: 'campaigns',
           planFeature: 'campaigns',
           children: [
+            // Principal — pantalla unificada de campañas
             {
               path: '/campaigns',
               label: 'Lista',
               icon: <CampaignIcon />,
               module: 'campaigns',
             },
+            // Administración — items secundarios (menor prominencia, van al final)
             {
               path: '/campaigns/contacts',
               label: 'Contactos',
@@ -447,7 +449,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             },
             {
               path: '/campaigns/rules',
-              label: 'Reglas de Campaña',
+              label: 'Reglas',
               icon: <CampaignRulesIcon />,
               module: 'campaigns_rules',
             },

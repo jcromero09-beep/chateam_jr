@@ -48,6 +48,10 @@ import { createMetaClient } from "./metaClient";
 
 import handleOpenAiMeta from "../IntegrationsServices/OpenAiMetaService";
 import CreateCampaignMessageService from "../CampaignMessageServices/CreateCampaignMessageService";
+
+// Handlers de coexistencia (ya existen, solo faltaba importarlos)
+import { handleSmbMessageEchoes } from "./metaSmbMessageEchoesService";
+import { handleSmbAppStateSync } from "./metaSmbAppStateSyncService";
 import { sendButtonResponseWebhook } from "./sendButtonResponseWebhook";
 
 // ===== Helpers de Meta =====//
@@ -147,6 +151,8 @@ const extractNumberFromMessage = (message: any): string => {
 const verifyContactMeta = async (
   metaValue: any,
   metaMessage?: any,
+  overrideWhatsapp?: any,
+  overrideChannel?: string,
 ): Promise<Contact> => {
   const waFrom = metaValue?.contacts?.[0];
   const rawName = waFrom?.profile?.name || "Sin Nombre";
@@ -176,14 +182,18 @@ const verifyContactMeta = async (
     where: { phoneNumberId, provider: "meta" }
   });
 
+  // Usar override si viene (coexistencia)
+  const effectiveConnection = overrideWhatsapp || connection;
+  const effectiveChannel = overrideChannel || "meta";
+
   const contactData = {
     name: rawName,
     number,
     profilePicUrl: "", // si luego quieres, puedes pedir foto de perfil
     isGroup: false,
-    companyId: connection.companyId,
-    channel: "meta",
-    whatsappId: connection?.id,
+    companyId: effectiveConnection.companyId,
+    channel: effectiveChannel,
+    whatsappId: effectiveConnection?.id,
     phoneNumberId, // AGREGADO: guardar phoneNumberId del número Meta
     remoteJid // AGREGADO: guardar remoteJid en formato LID
   };
@@ -656,8 +666,8 @@ const verifyQueue = async (
       companyId: ticket.companyId
     });
 
-    // facebookPageUserId contiene el Phone Number ID de Meta
-    const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
+    // phoneNumberId contiene el Phone Number ID de Meta
+    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
 
     if (choosenQueue.chatbots.length > 0) {
       let options = "";
@@ -673,8 +683,8 @@ const verifyQueue = async (
     }
 
   } else {
-    // facebookPageUserId contiene el Phone Number ID de Meta
-    const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
+    // phoneNumberId contiene el Phone Number ID de Meta
+    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
     let options = "";
     queues.forEach((q, idx) => (options += `[${idx + 1}] - ${q.name}\n`));
     const body = `${greetingMessage}\n\n${options}`;
@@ -699,6 +709,29 @@ export const handleMetaWebhookMessage = async (body: any) => {
       logInfo(`[META] 📦 META entry: ${JSON.stringify(entry).substring(0, 500)}`);
 
       for (const change of entry.changes || []) {
+
+        // ══════ HANDLERS DE COEXISTENCIA ══════
+        if (change?.field === "smb_message_echoes") {
+          logInfo(`[META] 📱 Webhook tipo smb_message_echoes — delegando a handleSmbMessageEchoes`);
+          try {
+            await handleSmbMessageEchoes(entry, change.value);
+          } catch (echoErr: any) {
+            logError(`[META] ❌ Error en handleSmbMessageEchoes: ${echoErr.message}`);
+          }
+          continue;
+        }
+
+        if (change?.field === "smb_app_state_sync") {
+          logInfo(`[META] 🔄 Webhook tipo smb_app_state_sync — delegando a handleSmbAppStateSync`);
+          try {
+            await handleSmbAppStateSync(entry, change.value);
+          } catch (syncErr: any) {
+            logError(`[META] ❌ Error en handleSmbAppStateSync: ${syncErr.message}`);
+          }
+          continue;
+        }
+
+        // Ignorar campos que no procesamos (account_update, security, history, etc.)
         if (change?.field !== "messages") continue;
 
         const value = change?.value;
@@ -713,21 +746,38 @@ export const handleMetaWebhookMessage = async (body: any) => {
 
         // 🔍 DIAGNÓSTICO: Buscar conexión Meta
         logInfo(`[META] 🔍 Buscando conexión Meta por phoneNumberId=${phoneNumberId}`);
-        const whatsapp = await Whatsapp.findOne({
+        const metaIncludes = [
+          {
+            model: Queue,
+            as: "queues",
+            attributes: ["id", "name", "color", "greetingMessage"],
+            include: [{ model: Chatbot, as: "chatbots", attributes: ["id", "name", "greetingMessage"] }]
+          }
+        ];
+        const metaOrder: any = [
+          ["queues", "id", "ASC"],
+          ["queues", "chatbots", "id", "ASC"]
+        ];
+
+        let whatsapp = await Whatsapp.findOne({
           where: { phoneNumberId, provider: "meta" },
-          include: [
-            {
-              model: Queue,
-              as: "queues",
-              attributes: ["id", "name", "color", "greetingMessage"],
-              include: [{ model: Chatbot, as: "chatbots", attributes: ["id", "name", "greetingMessage"] }]
-            }
-          ],
-          order: [
-            ["queues", "id", "ASC"],
-            ["queues", "chatbots", "id", "ASC"]
-          ]
+          include: metaIncludes,
+          order: metaOrder
         });
+
+        // Fallback: buscar por campo `number` si phoneNumberId no coincide
+        // (prevención contra campos invertidos en BD)
+        if (!whatsapp) {
+          whatsapp = await Whatsapp.findOne({
+            where: { number: phoneNumberId, provider: "meta" },
+            include: metaIncludes,
+            order: metaOrder
+          });
+          if (whatsapp) {
+            logWarn(`[META] ⚠️ Conexión encontrada por number=${phoneNumberId} en vez de phoneNumberId (campo phoneNumberId desactualizado: ${whatsapp.phoneNumberId}). Corregir en BD.`);
+          }
+        }
+
         logInfo(`[META] ✅ Conexión Meta ${whatsapp ? `encontrada: id=${whatsapp.id}, name=${whatsapp.name}` : 'NO encontrada'}`);
 
         if (!whatsapp) {
@@ -744,6 +794,45 @@ export const handleMetaWebhookMessage = async (body: any) => {
           logError(`❌ Conexión META no encontrada para phoneNumberId: ${phoneNumberId}`);
           continue;
         }
+
+        // ══════ ROUTING COEXISTENCIA PARA MENSAJES ENTRANTES ══════
+        let effectiveWhatsapp: any = whatsapp;
+        let effectiveChannel: string = "meta";
+
+        if (whatsapp.coexistenceEnabled && whatsapp.sendChannel === "baileys" && whatsapp.linkedWhatsappId) {
+          const linkedBaileys = await Whatsapp.findByPk(whatsapp.linkedWhatsappId);
+          if (linkedBaileys && linkedBaileys.status === "CONNECTED") {
+            effectiveWhatsapp = linkedBaileys;
+            effectiveChannel = "whatsapp";
+            logInfo(`[META-COEX] 🔗 Coexistencia: tickets → Baileys id=${linkedBaileys.id} (${linkedBaileys.name})`);
+          } else {
+            logWarn(`[META-COEX] ⚠️ Baileys id=${whatsapp.linkedWhatsappId} no CONNECTED, usando Meta`);
+          }
+        }
+
+        // Helper: enviar mensaje por el canal configurado
+        const sendByConfiguredChannel = async (
+          msgBody: string,
+          ticket: any,
+          contactNumber: string
+        ): Promise<void> => {
+          if (effectiveChannel === "whatsapp" && effectiveWhatsapp) {
+            try {
+              const GetWhatsappWbot = require("../../helpers/GetWhatsappWbot").default;
+              const SendWhatsAppMessage = require("./../../services/WbotServices/SendWhatsAppMessage").default;
+              const wbot = await GetWhatsappWbot(effectiveWhatsapp);
+              await SendWhatsAppMessage({ body: msgBody, ticket, wbot });
+              logInfo(`[META-COEX] ✅ Respuesta enviada por Baileys`);
+            } catch (baileysErr: any) {
+              logError(`[META-COEX] ❌ Error Baileys: ${baileysErr.message}, fallback a Meta`);
+              const pnId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
+              await sendTextDynamic(contactNumber.replace("+",""), msgBody, pnId, whatsapp.tokenMeta);
+            }
+          } else {
+            const pnId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
+            await sendTextDynamic(contactNumber.replace("+",""), msgBody, pnId, whatsapp.tokenMeta);
+          }
+        };
 
         const messages = value?.messages || [];
         const statuses = value?.statuses || [];
@@ -859,7 +948,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
             const fromMe = false; // inbound
             // 1) Contacto - pasar el message para extraer número real
             logInfo(`[META] 🔍 Paso 1/4: verifyContactMeta...`);
-            const contact = await verifyContactMeta(value, message);
+            const contact = await verifyContactMeta(value, message, effectiveWhatsapp, effectiveChannel);
             const companyId = contact.companyId;
             logInfo(`[META] ✅ Paso 1/4 completo: contactId=${contact.id}, companyId=${companyId}`);
 
@@ -878,13 +967,13 @@ export const handleMetaWebhookMessage = async (body: any) => {
 
             const ticket = await FindOrCreateTicketService(
               contact,
-              whatsapp,
+              effectiveWhatsapp,
               unread,
               companyId,
               0,
               0,
               null,
-              "meta",
+              effectiveChannel,
               null,
               false,
               settings
@@ -1064,14 +1153,11 @@ export const handleMetaWebhookMessage = async (body: any) => {
                     aiResponse.escalationReason
                   );
 
-                  const phoneNumberIdEsc = whatsapp.facebookPageUserId || whatsapp.number;
-                  const accessTokenEsc = whatsapp.tokenMeta;
                   await new Promise(resolve => setTimeout(resolve, 2500));
-                  await sendTextDynamic(
-                    contact.number.replace("+",""),
+                  await sendByConfiguredChannel(
                     "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️",
-                    phoneNumberIdEsc,
-                    accessTokenEsc
+                    ticket,
+                    contact.number
                   );
                 } else {
                   await SupervisorActionsService.saveAgentMessage({
@@ -1095,18 +1181,14 @@ export const handleMetaWebhookMessage = async (body: any) => {
                   );
 
                   logInfo(`[SupervisorAI] Enviando respuesta: "${aiResponse.message.substring(0, 50)}..."`);
-                  logInfo(`[SupervisorAI] Destinatario: ${contact.number.replace("+","")}`);
-                  const { sendTextDynamic } = require("../MetaServices/metaSendService");
-                  const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
-                  const accessToken = whatsapp.tokenMeta;
-                  logInfo(`[SupervisorAI] phoneNumberId=${phoneNumberId}, hasToken=${!!accessToken}`);
+                  logInfo(`[SupervisorAI] Destinatario: ${contact.number.replace("+","")}, canal: ${effectiveChannel}`);
                   // Delay para evitar rate limit
                   await new Promise(resolve => setTimeout(resolve, 2500));
                   try {
-                    await sendTextDynamic(contact.number.replace("+",""), aiResponse.message, phoneNumberId, accessToken);
-                    logInfo(`[SupervisorAI] ✅ Respuesta enviada`);
+                    await sendByConfiguredChannel(aiResponse.message, ticket, contact.number);
+                    logInfo(`[SupervisorAI] ✅ Respuesta enviada por ${effectiveChannel}`);
                   } catch (sendErr: any) {
-                    logError(`[SupervisorAI] ❌ Error sendTextDynamic: ${sendErr.message}`);
+                    logError(`[SupervisorAI] ❌ Error envío: ${sendErr.message}`);
                   }
                 }
 
@@ -1118,11 +1200,8 @@ export const handleMetaWebhookMessage = async (body: any) => {
                 return;
               } catch (err: any) {
                 logError(`[SupervisorAI] ❌ Error: ${err.message}`);
-                const { sendTextDynamic } = require("../MetaServices/metaSendService");
-                const phoneNumberIdErr = whatsapp.facebookPageUserId || whatsapp.number;
-                const accessTokenErr = whatsapp.tokenMeta;
                 await new Promise(resolve => setTimeout(resolve, 2500));
-                await sendTextDynamic(contact.number.replace("+",""), "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", phoneNumberIdErr, accessTokenErr);
+                await sendByConfiguredChannel("Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", ticket, contact.number);
                 await ticket.update({ aiStatus: 'handoff', status: "pending" });
                 return;
               }

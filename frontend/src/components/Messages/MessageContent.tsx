@@ -12,6 +12,7 @@ import MediaDocument from './MediaDocument'
 import AudioPlayer from './AudioPlayer'
 import VCardMessage from './VCardMessage'
 import LocationMessage from './LocationMessage'
+import CiphertextMessage from './CiphertextMessage'
 
 interface MediaItem {
   id: number
@@ -44,6 +45,7 @@ export default function MessageContent({
   allMedia = [],
 }: MessageContentProps) {
   const mediaType = message.mediaType?.toLowerCase() || ''
+  const isCiphertext = mediaType === 'ciphertext'
 
   // Normalizar mediaType a categoría
   const isImage = mediaType.includes('image') || mediaType === 'image'
@@ -196,22 +198,33 @@ export default function MessageContent({
         />
       )}
 
-      {/* Media */}
-      {renderMedia()}
+      {/* Mensaje CIPHERTEXT — placeholder con boton de retry */}
+      {isCiphertext ? (
+        <CiphertextMessage
+          messageId={message.id}
+          createdAt={message.createdAt}
+          isDark={isDark}
+        />
+      ) : (
+        <>
+          {/* Media */}
+          {renderMedia()}
 
-      {/* Texto (si no hay media o es caption ya manejado) */}
-      {!hasMedia && renderText()}
-      {hasMedia && !isImage && !isSticker && textContent && !isAudio && !isDoc && !isContact && !isLocation && (
-        <Typography
-          level="body-sm"
-          sx={{
-            mt: 0.5,
-            color: isOwn ? 'inherit' : (isDark ? '#E9EDEF' : 'rgba(0,0,0,0.85)'),
-            wordBreak: 'break-word',
-          }}
-        >
-          {formatWhatsAppText(textContent, searchTerm)}
-        </Typography>
+          {/* Texto (si no hay media o es caption ya manejado) */}
+          {!hasMedia && renderText()}
+          {hasMedia && !isImage && !isSticker && textContent && !isAudio && !isDoc && !isContact && !isLocation && (
+            <Typography
+              level="body-sm"
+              sx={{
+                mt: 0.5,
+                color: isOwn ? 'inherit' : (isDark ? '#E9EDEF' : 'rgba(0,0,0,0.85)'),
+                wordBreak: 'break-word',
+              }}
+            >
+              {formatWhatsAppText(textContent, searchTerm)}
+            </Typography>
+          )}
+        </>
       )}
     </>
   )

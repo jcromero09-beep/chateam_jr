@@ -6,9 +6,30 @@ import ListQueuesService from "../services/QueueService/ListQueuesService";
 import ShowQueueService from "../services/QueueService/ShowQueueService";
 import UpdateQueueService from "../services/QueueService/UpdateQueueService";
 import { isNil } from "lodash";
+import { logWarn } from "../utils/logger";
 
 type QueueFilter = {
   companyId: number;
+};
+
+const emitQueueEvent = (
+  companyId: number,
+  action: "update" | "delete",
+  payload: Record<string, unknown>
+): void => {
+  try {
+    const io = getIO();
+    io.of(String(companyId)).emit(`company-${companyId}-queue`, {
+      action,
+      ...payload
+    });
+  } catch (error: any) {
+    logWarn("[QueueController] Queue action completed but socket emit failed", {
+      companyId,
+      action,
+      error: error?.message || String(error)
+    });
+  }
 };
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
@@ -59,13 +80,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     closeTicket,
     promptAI
   });
-
-  const io = getIO();
-  io.of(String(companyId))
-  .emit(`company-${companyId}-queue`, {
-    action: "update",
-    queue
-  });
+  emitQueueEvent(companyId, "update", { queue });
 
   return res.status(200).json(queue);
 };
@@ -117,13 +132,7 @@ export const update = async (
     closeTicket,
     promptAI},
     companyId);
-
-  const io = getIO();
-  io.of(String(companyId))
-  .emit(`company-${companyId}-queue`, {
-    action: "update",
-    queue
-  });
+  emitQueueEvent(companyId, "update", { queue });
 
   return res.status(201).json(queue);
 };
@@ -136,13 +145,7 @@ export const remove = async (
   const { companyId } = req.user;
 
   await DeleteQueueService(queueId, companyId);
-
-  const io = getIO();
-  io.of(String(companyId))
-  .emit(`company-${companyId}-queue`, {
-    action: "delete",
-    queueId: +queueId
-  });
+  emitQueueEvent(companyId, "delete", { queueId: +queueId });
 
   return res.status(200).send();
 };

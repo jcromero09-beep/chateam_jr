@@ -344,6 +344,22 @@ class Whatsapp extends Model<Whatsapp> {
   @AllowNull(true)
   @Column(DataType.STRING(255))
   embeddedSignupSessionId: string;
+
+  // ===== Campos de Routing Configurable (Coexistencia) =====
+
+  @AllowNull(true)
+  @Default("both")
+  @Column(DataType.STRING(20))
+  receiveChannel: string;
+
+  @AllowNull(true)
+  @Default("baileys")
+  @Column(DataType.STRING(20))
+  sendChannel: string;
+
+  @AllowNull(true)
+  @Column(DataType.INTEGER)
+  linkedWhatsappId: number;
 }
 
 export default Whatsapp;

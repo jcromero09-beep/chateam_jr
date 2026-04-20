@@ -4,7 +4,10 @@ import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import logger from "../../utils/logger";
 import AvailabilityService from "../AppointmentServices/AvailabilityService";
+import BookingService from "../AppointmentServices/BookingService";
+import ReminderService from "../AppointmentServices/ReminderService";
 import AppointmentContextStore from "./AppointmentContextStore";
+import AppointmentResponseClassifier from "./AppointmentResponseClassifier";
 
 /**
  * Appointment Agent — Gestión de Citas
@@ -24,6 +27,14 @@ export interface AppointmentContext {
   ticketId?: number;
   contactId?: number;
   companyId: number;
+  /**
+   * 🆕 Bug C fix: fecha/hora resuelta por QueryEnrichmentAgent.
+   * Si viene, tiene PRECEDENCIA sobre la extracción regex local (que es
+   * frágil con "mañana", "el lunes", etc). Formato YYYY-MM-DD y HH:mm 24h.
+   */
+  resolvedDate?: string;
+  resolvedTime?: string;
+  resolvedTimezone?: string;
 }
 
 export interface AppointmentResponse {
@@ -40,84 +51,47 @@ export interface AppointmentResponse {
   }[];
 }
 
-// Palabras clave para detectar intención de citas
+// Palabras clave para detectar INTENT de cita (solo keywords inequívocas).
+// Las respuestas conversacionales cortas ("si", "ok", "no", "dale", 👍, etc)
+// las maneja AppointmentResponseClassifier con comprensión semántica LLM,
+// no este regex. Aquí solo capturamos frases que CLARAMENTE son sobre citas.
 const INTENT_KEYWORDS = {
   create: [
     "agendar", "agenda", "cita", "citar", "turno", "reservar", "reservación",
     "quiero una cita", "necesito una cita", "sacar cita", "separar cita",
-    "programar cita", "reservar hora", "reservar turno", "disponible"
+    "programar cita", "reservar hora", "reservar turno"
   ],
   reschedule: [
-    "reagendar", "cambiar", "modificar", "mover", "reprogramar",
-    "cambiar cita", "cambiar hora", "otra fecha", "otro día", "otro horario"
+    "reagendar", "reprogramar",
+    "cambiar cita", "cambiar hora", "mover cita", "otra fecha para mi cita"
   ],
   cancel: [
-    "cancelar", "anular", "eliminar", "borrar", "quitar",
-    "cancelar cita", "anular cita", "eliminar cita", "no puedo", "ya no puedo"
+    "cancelar cita", "anular cita", "eliminar cita",
+    "ya no quiero la cita", "quitar mi cita"
   ],
   list: [
     "mis citas", "ver citas", "tengo cita", "cuándo es mi cita",
     "mi turno", "mi horario", "próxima cita"
   ],
   confirm: [
-    "confirmar", "confirmo", "si", "sí", "afirmativo", "dale", "ok",
-    "confirmar cita", "si quiero", "si, quiero"
+    "confirmar cita", "confirmo mi cita", "confirmar mi turno"
   ]
 };
 
 /**
- * Detecta si el mensaje es una confirmación simple de cita
- * (sí, ok, dale, confirmo, etc.)
- */
-function detectSimpleConfirmation(message: string): boolean {
-  const lowerMessage = message.toLowerCase().trim();
-  const confirmPatterns = [
-    /^sí$/i, /^si$/i, /^si,$/i, /^sí,$/i,
-    /^ok$/i, /^oke$/i, /^okay$/i,
-    /^dale$/i, /^dale,$/i,
-    /^confirmo$/i, /^confirmar$/i,
-    /^afirmativo$/i, /^perfecto$/i,
-    /^si,?\s*(confirmo|quiero|esta bien|está bien)/i,
-    /^(sí|si)\s+(confirmo|quiero|perfecto|esta bien|está bien)/i,
-    /^yes$/i, /^yep$/i, /^yup$/i
-  ];
-
-  return confirmPatterns.some(pattern => pattern.test(lowerMessage));
-}
-
-/**
- * Detecta si el mensaje es una negación simple de cita
- * (no, cancelar, etc.)
- */
-function detectSimpleNegation(message: string): boolean {
-  const lowerMessage = message.toLowerCase().trim();
-  const negatePatterns = [
-    /^no$/i, /^no,$/i,
-    /^cancelar$/i, /^cancelo$/i, /^cancelar cita$/i,
-    /^anular$/i, /^anulo$/i,
-    /^mejor no$/i, /^prefiero no$/i,
-    /^no puedo$/i, /^ya no puedo$/i,
-    /^cambié de opinión$/i, /^cambie de opinion$/i
-  ];
-
-  return negatePatterns.some(pattern => pattern.test(lowerMessage));
-}
-
-/**
- * Detecta la intención de cita en el mensaje
+ * Detecta la intención de cita en el mensaje usando solo keywords inequívocas.
+ *
+ * Las respuestas conversacionales cortas ("si", "ok", "no", "dale", emojis)
+ * NO se manejan aquí — las intercepta AppointmentResponseClassifier (LLM)
+ * en el bypass 0b del SupervisorService cuando hay una cita pendiente.
+ *
+ * Este regex solo captura intents claros de cita ("agendar", "mis citas",
+ * "cancelar cita", etc.) para el flujo inicial de agendamiento cuando NO
+ * hay una cita previa asociada al contacto.
  */
 function detectAppointmentIntent(message: string): string {
   const lowerMessage = message.toLowerCase();
 
-  // PRIMERO: Verificar confirmación/negación simple
-  if (detectSimpleConfirmation(message)) {
-    return "confirm";
-  }
-  if (detectSimpleNegation(message)) {
-    return "cancel";
-  }
-
-  // Luego verificar otras intenciones
   for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
     for (const keyword of keywords) {
       if (lowerMessage.includes(keyword)) {
@@ -301,8 +275,116 @@ const processAppointmentRequest = async (
     `contact=${contactId}, msg="${message.substring(0, 50)}..."`
   );
 
-  // 1. Detectar intención
-  const intent = detectAppointmentIntent(message);
+  // 🆕 FIX ticket 1099: si hay contexto awaiting_confirmation activo,
+  // FORZAR el flujo de confirmación pase lo que pase. Antes, si el cliente
+  // escribía algo como "para carro aveo" (sin keywords de cita ni número),
+  // el regex local decía 'none' y RAG tomaba control → alucinaba "cita
+  // confirmada" sin persistir. Ahora cualquier mensaje con contexto activo
+  // pasa a handleConfirmAppointment que sabe interpretar la selección.
+  if (ticketId) {
+    const ctx = await AppointmentContextStore.get(ticketId);
+    if (ctx?.step === 'awaiting_confirmation') {
+      logger.info(
+        `[AppointmentAgent] Contexto awaiting_confirmation detectado para ticket ${ticketId} — ` +
+        `forzando handleConfirmAppointment en lugar de evaluar regex`
+      );
+      // Buscar contacto si no vino en el context
+      let effectiveContactId = contactId;
+      if (!effectiveContactId && ticketId) {
+        const ticket = await Ticket.findByPk(ticketId);
+        if (ticket?.contactId) effectiveContactId = ticket.contactId;
+      }
+      if (effectiveContactId) {
+        return await handleConfirmAppointment(message, effectiveContactId, companyId, ticketId);
+      }
+    }
+  }
+
+  // 🆕 0. CLASIFICACIÓN SEMÁNTICA PRIORITARIA
+  // Si el contacto tiene una cita scheduled (pendiente de confirmar tras
+  // el 1er recordatorio) Y no hay contexto activo de agendamiento inicial,
+  // usamos el clasificador LLM en lugar del regex frágil.
+  if (contactId && ticketId) {
+    const existingContext = await AppointmentContextStore.get(ticketId);
+    const inInitialSchedulingFlow = existingContext?.step === 'awaiting_confirmation';
+
+    if (!inInitialSchedulingFlow) {
+      const pendingAppointment = await Appointment.findOne({
+        where: {
+          contactId,
+          companyId,
+          status: "scheduled"
+        },
+        order: [["startTime", "ASC"]]
+      });
+
+      if (pendingAppointment) {
+        const classification = await AppointmentResponseClassifier.classifyResponse(
+          message,
+          {
+            appointmentTitle: pendingAppointment.title,
+            appointmentStartTime: pendingAppointment.startTime,
+            companyId
+          }
+        );
+
+        // Umbral: si la confianza es muy baja, tratamos como ambiguous
+        const effectiveIntent = classification.confidence >= 0.6
+          ? classification.intent
+          : 'ambiguous';
+
+        logger.info(
+          `[AppointmentAgent] Clasificación semántica: intent=${effectiveIntent}, ` +
+          `confidence=${classification.confidence.toFixed(2)}, ` +
+          `appointmentId=${pendingAppointment.id}`
+        );
+
+        switch (effectiveIntent) {
+          case 'confirm':
+            return await handleSemanticConfirm(pendingAppointment.id, companyId, ticketId);
+
+          case 'reschedule':
+            // Extraer fecha/hora si el cliente la propuso en el mismo mensaje
+            return await handleSemanticReschedule(message, pendingAppointment.id, companyId);
+
+          case 'cancel':
+            return await handleSemanticCancel(pendingAppointment.id, companyId, ticketId);
+
+          case 'ambiguous':
+          default:
+            // Devolver 'none' para que el Supervisor continúe al flujo normal
+            // (Sales/Support con tools) — opción (b): el LLM principal decidirá
+            // si es pregunta informativa u otra intención.
+            logger.info(
+              `[AppointmentAgent] Intent ambiguo — devolviendo control al Supervisor`
+            );
+            return {
+              message: "",
+              action: "none",
+              confidence: 0
+            };
+        }
+      }
+    }
+  }
+
+  // 1. Detectar intención (fallback regex para flujos de agendamiento inicial)
+  let intent = detectAppointmentIntent(message);
+
+  // 🆕 FIX ticket 1100: si el regex no detectó keywords pero el enriquecedor
+  // ya resolvió una fecha absoluta (YYYY-MM-DD) para este mensaje,
+  // significa que el QueryEnrichmentAgent clasificó como appointment_request
+  // con una fecha concreta (ej: "para mañana a las 10:30 + info del carro").
+  // Forzamos 'create' para que el flujo de agendamiento tome control en vez
+  // de caer a RAG/sales que alucinan confirmaciones.
+  if (intent === "none" && context.resolvedDate) {
+    logger.info(
+      `[AppointmentAgent] Regex devolvió 'none' pero enriquecedor resolvió ` +
+      `fecha=${context.resolvedDate} hora=${context.resolvedTime || 'n/a'} → ` +
+      `forzando intent='create'`
+    );
+    intent = "create";
+  }
 
   if (intent === "none") {
     return {
@@ -339,16 +421,57 @@ const processAppointmentRequest = async (
       return await handleListAppointments(contact.id, companyId);
 
     case "create":
-      return await handleCreateAppointment(message, contact.id, companyId, ticketId);
+      return await handleCreateAppointment(
+        message, contact.id, companyId, ticketId,
+        { resolvedDate: context.resolvedDate, resolvedTime: context.resolvedTime }
+      );
 
     case "reschedule":
-      return await handleRescheduleAppointment(message, contact.id, companyId);
+      return await handleRescheduleAppointment(
+        message, contact.id, companyId,
+        { resolvedDate: context.resolvedDate, resolvedTime: context.resolvedTime }
+      );
 
     case "cancel":
       return await handleCancelAppointment(message, contact.id, companyId);
 
-    case "confirm":
+    case "confirm": {
+      // 🆕 Fix ticket 1097: si el cliente escribe algo como
+      // "si, puede ser para mañana a las 10:30" (confirm + propuesta de fecha
+      // todo en un mensaje) sin haber pasado por handleCreateAppointment,
+      // NO hay contexto awaiting_confirmation ni cita scheduled previa.
+      // handleConfirmAppointment caería al CASO 2 y respondería
+      // "No tienes citas pendientes por confirmar" — falso mensaje que
+      // el gatekeeper podría reescribir sin crear la cita en BD.
+      //
+      // En ese caso, SI hay fecha resuelta por el enriquecedor o extraída
+      // del mensaje, redirigimos a handleCreateAppointment para que se
+      // agende correctamente.
+      const hasResolvedDate = !!context.resolvedDate;
+      const localDt = hasResolvedDate ? null : extractDateTime(message);
+      const clientProposesDate = hasResolvedDate || !!(localDt?.date);
+
+      if (clientProposesDate && ticketId) {
+        const existingCtx = await AppointmentContextStore.get(ticketId);
+        const hasScheduledForContact = await Appointment.findOne({
+          where: { contactId: contact.id, companyId, status: "scheduled" }
+        });
+
+        if (!existingCtx && !hasScheduledForContact) {
+          logger.info(
+            `[AppointmentAgent] Intent 'confirm' SIN contexto ni cita previa, ` +
+            `pero el cliente propone fecha. Redirigiendo a handleCreateAppointment. ` +
+            `resolvedDate=${context.resolvedDate || (localDt?.date ? localDt.date.toISOString().slice(0,10) : 'n/a')}`
+          );
+          return await handleCreateAppointment(
+            message, contact.id, companyId, ticketId,
+            { resolvedDate: context.resolvedDate, resolvedTime: context.resolvedTime }
+          );
+        }
+      }
+
       return await handleConfirmAppointment(message, contact.id, companyId, ticketId);
+    }
 
     default:
       return {
@@ -421,22 +544,41 @@ async function checkAvailability(
   time: string
 ): Promise<{ available: boolean; availableUsers: number; slots: any[] }> {
   try {
-    // Obtener los bloques disponibles para esa fecha
-    const dateStr = date.toISOString().split('T')[0];
-    const blocks = await AvailabilityService.getAvailableBlocksForDate(
-      companyId,
-      dateStr,
-      undefined,
-      serviceId
-    );
+    // 🆕 Bug B2 fix: antes usábamos `getAvailableBlocksForDate` que compara
+    // horas en strings (frágil) y NO coordina bien con `getAvailableSlots`
+    // (que es la fuente de verdad usada para proponer slots). Resultado:
+    // se proponía un slot y luego se rechazaba al verificarlo.
+    // Ahora usamos `getAvailableSlots` con comparación de timestamps exactos.
 
-    // Filtrar solo los bloques no reservados
-    const availableSlots = blocks.filter(b => !b.isBooked);
+    // Construir timestamp preciso del slot solicitado
+    const [hh, mm] = (time || "00:00").split(":").map(n => parseInt(n, 10) || 0);
+    const slotStart = new Date(date);
+    slotStart.setHours(hh, mm, 0, 0);
+
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const allSlots = await AvailabilityService.getAvailableSlots({
+      companyId,
+      serviceId,
+      startDate: dayStart,
+      endDate: dayEnd
+    });
+
+    // Comparar por timestamp exacto (±1 minuto de tolerancia para microsegundos)
+    const TOL_MS = 60 * 1000;
+    const matching = allSlots.filter((s: any) => {
+      if (!s.available) return false;
+      const startTs = new Date(s.start).getTime();
+      return Math.abs(startTs - slotStart.getTime()) < TOL_MS;
+    });
 
     return {
-      available: availableSlots.length > 0,
-      availableUsers: availableSlots.length,
-      slots: availableSlots
+      available: matching.length > 0,
+      availableUsers: matching.length,
+      slots: matching
     };
   } catch (error: any) {
     logger.error(`[AppointmentAgent] Error consultando disponibilidad: ${error.message}`);
@@ -465,9 +607,20 @@ async function getNextAvailableSlots(
       endDate
     });
 
-    // Filtrar solo los disponibles y tomar los primeros 5
+    // 🆕 Bug A fix: deduplicar por horario (start) ANTES de slice.
+    // El usuario puede tener 2 bloques idénticos (ej: 8:30) configurados a
+    // propósito para permitir 2 citas simultáneas. Al cliente le mostramos
+    // el horario UNA sola vez; internamente los bloques se consumen secuencialmente
+    // y el slot seguirá apareciendo hasta que AMBOS estén ocupados.
+    const seen = new Set<string>();
     const availableSlots = slots
       .filter(s => s.available)
+      .filter(s => {
+        const key = new Date(s.start).toISOString();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, 5);
 
     return availableSlots.map(slot => {
@@ -493,10 +646,27 @@ async function handleCreateAppointment(
   message: string,
   contactId: number,
   companyId: number,
-  ticketId?: number
+  ticketId?: number,
+  resolved?: { resolvedDate?: string; resolvedTime?: string }
 ): Promise<AppointmentResponse> {
-  // Extraer fecha/hora del mensaje
-  const dateTime = extractDateTime(message);
+  // 🆕 Bug C fix: priorizar fecha/hora resuelta por el enriquecedor LLM
+  // sobre el regex local (que falla con expresiones naturales complejas).
+  // Si vienen ambas, usamos la del enriquecedor; si solo una, combinamos.
+  let dateTime: { date?: Date; time?: string } | null = null;
+  if (resolved?.resolvedDate) {
+    // resolvedDate en formato YYYY-MM-DD → crear Date en medianoche local
+    const [y, m, d] = resolved.resolvedDate.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const timeStr = resolved.resolvedTime || undefined;
+    dateTime = { date: dt, time: timeStr };
+    logger.info(
+      `[AppointmentAgent] Usando fecha resuelta por enriquecedor: ` +
+      `date=${resolved.resolvedDate}, time=${resolved.resolvedTime || '(sin hora)'}`
+    );
+  } else {
+    // Fallback al regex local
+    dateTime = extractDateTime(message);
+  }
 
   // Obtener servicios disponibles
   const services = await AppointmentService.findAll({
@@ -621,8 +791,19 @@ async function getAvailableSlotsForContext(
       endDate
     });
 
+    // 🆕 Bug A fix: deduplicar por start. En el contexto guardamos el primer
+    // slot de cada horario único. Si ese bloque se reserva y existe otro
+    // bloque gemelo (ej: 2 asesores a 8:30), el próximo `getAvailableSlots`
+    // devolverá el gemelo y el slot seguirá apareciendo.
+    const seen = new Set<string>();
     return slots
       .filter((s: any) => s.available)
+      .filter((s: any) => {
+        const key = new Date(s.start).toISOString();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, 10)
       .map((slot: any) => ({
         start: slot.start,
@@ -648,7 +829,8 @@ async function getAvailableSlotsForContext(
 async function handleRescheduleAppointment(
   message: string,
   contactId: number,
-  companyId: number
+  companyId: number,
+  resolved?: { resolvedDate?: string; resolvedTime?: string }
 ): Promise<AppointmentResponse> {
   // Buscar la próxima cita del contacto
   const appointment = await Appointment.findOne({
@@ -668,8 +850,14 @@ async function handleRescheduleAppointment(
     };
   }
 
-  // Extraer nueva fecha/hora
-  const dateTime = extractDateTime(message);
+  // 🆕 Bug C fix: priorizar fecha/hora resuelta por enriquecedor LLM
+  let dateTime: { date?: Date; time?: string } | null = null;
+  if (resolved?.resolvedDate) {
+    const [y, m, d] = resolved.resolvedDate.split('-').map(Number);
+    dateTime = { date: new Date(y, m - 1, d), time: resolved.resolvedTime || undefined };
+  } else {
+    dateTime = extractDateTime(message);
+  }
 
   if (!dateTime) {
     return {
@@ -809,21 +997,23 @@ async function handleConfirmAppointment(
         }
       }
 
-      // Si no se encontró selección, usar el primer slot por defecto
-      if (!selectedSlot && slots.length > 0) {
-        selectedSlot = slots[0];
-      }
-
+      // 🆕 FIX ticket 1099: eliminado el default peligroso `slots[0]`.
+      // Antes si el cliente escribía "para carro aveo" sin número, el sistema
+      // silenciosamente creaba la cita en el primer slot, que podía ser un
+      // horario diferente al que el cliente realmente quería.
+      // Ahora si no detectamos selección clara, PEDIMOS confirmación explícita.
       if (!selectedSlot) {
-        // No hay slots disponibles, pedir selección
         const optionsText = slots.slice(0, 5).map((s: any, i: number) =>
           `${i + 1}) ${s.formatted}`
         ).join("\n");
 
+        const hasOptions = slots.length > 0;
         return {
-          message: `No entendí tu respuesta. Por favor responde con el *número* del horario que prefieras:\n\n${optionsText}`,
+          message: hasOptions
+            ? `Para confirmar tu cita, por favor responde con el *número* del horario que prefieras:\n\n${optionsText}`
+            : `No tengo horarios disponibles en este momento. ¿Te contacto con un asesor?`,
           action: "confirm",
-          confidence: 0.8
+          confidence: 0.85
         };
       }
 
@@ -840,6 +1030,7 @@ async function handleConfirmAppointment(
       const startTime = new Date(selectedSlot.start);
       const endTime = new Date(selectedSlot.end);
       const assignedUserId = selectedSlot.userId;
+      const reminderTemplate = await ReminderService.resolveWhatsappTemplate(companyId);
 
       const appointmentData: any = {
         companyId,
@@ -860,11 +1051,65 @@ async function handleConfirmAppointment(
         locationType: "in_person"
       };
 
+      if (reminderTemplate) {
+        appointmentData.reminderTemplateId = reminderTemplate.id;
+        logger.info(
+          `[AppointmentAgent] Plantilla de recordatorio aplicada por defecto: ` +
+          `id=${reminderTemplate.id}, name="${reminderTemplate.name}"`
+        );
+      } else {
+        logger.warn(
+          `[AppointmentAgent] No hay plantilla activa de WhatsApp para companyId=${companyId}; ` +
+          `la cita se creará sin reminderTemplateId`
+        );
+      }
+
       if (assignedUserId) {
         appointmentData.userId = assignedUserId;
       }
 
-      const appointment = await Appointment.create(appointmentData);
+      // 🆕 Bug D fix: logs explícitos del payload ANTES del INSERT para poder
+      // depurar si Sequelize falla silenciosamente
+      logger.info(
+        `[AppointmentAgent] [PERSIST] Intentando crear cita: ` +
+        `companyId=${companyId}, contactId=${contactId}, ticketId=${ticketId}, ` +
+        `serviceId=${service.id}, userId=${assignedUserId ?? 'null'}, ` +
+        `startTime=${startTime.toISOString()}, endTime=${endTime.toISOString()}, ` +
+        `duration=${appointmentData.duration}, title="${appointmentData.title}"`
+      );
+
+      let appointment: any;
+      try {
+        appointment = await Appointment.create(appointmentData);
+        logger.info(
+          `[AppointmentAgent] [PERSIST] ✅ Cita creada: id=${appointment.id}, ` +
+          `status=${appointment.status}, startTime=${appointment.startTime}`
+        );
+      } catch (createErr: any) {
+        // 🆕 Log de error completo: Sequelize oculta detalles en message pero
+        // los pone en .errors (ValidationError) o .parent.detail (PG)
+        const sequelizeErrors = createErr?.errors?.map((e: any) => ({
+          field: e.path,
+          type: e.type,
+          message: e.message,
+          value: e.value
+        })) || [];
+        logger.error(
+          `[AppointmentAgent] [PERSIST] ❌ FALLO al crear cita: ${createErr?.message || createErr}\n` +
+          `  → sequelizeErrors: ${JSON.stringify(sequelizeErrors)}\n` +
+          `  → pgDetail: ${createErr?.parent?.detail || 'n/a'}\n` +
+          `  → pgCode: ${createErr?.parent?.code || 'n/a'}\n` +
+          `  → payload: ${JSON.stringify(appointmentData)}`
+        );
+        // Devolver respuesta amigable y NO limpiar contexto (permite reintento)
+        return {
+          message:
+            `😓 Hubo un problema al guardar tu cita. Un asesor te contactará en breve. ` +
+            `Si prefieres, puedes intentarlo de nuevo respondiendo con el número del horario.`,
+          action: "none",
+          confidence: 0
+        };
+      }
 
       // Marcar bloque como reservado
       if (assignedUserId && selectedSlot.id) {
@@ -876,6 +1121,46 @@ async function handleConfirmAppointment(
           );
         } catch (e) {
           logger.warn(`[AppointmentAgent] No se pudo marcar bloque: ${e}`);
+        }
+      }
+
+      // 🆕 Crear recordatorios por defecto (equivalente a BookingService.createBooking)
+      // Garantiza que las citas creadas desde el flujo IA también tengan seguimiento automático
+      try {
+        await ReminderService.createDefaultReminders(appointment);
+        logger.info(`[AppointmentAgent] Recordatorios creados para cita ID=${appointment.id}`);
+      } catch (reminderErr: any) {
+        logger.warn(`[AppointmentAgent] No se pudieron crear recordatorios para cita ID=${appointment.id}: ${reminderErr.message}`);
+        // No fallar la confirmación de la cita por un error de reminders
+      }
+
+      try {
+        await BookingService.enqueueConfirmationReminder(appointment);
+      } catch (reminderQueueErr: any) {
+        logger.warn(
+          `[AppointmentAgent] No se pudo encolar el mensaje inicial de confirmación ` +
+          `para cita ID=${appointment.id}: ${reminderQueueErr.message}`
+        );
+      }
+
+      // 🆕 Bug E fix: sync a Google Calendar / Outlook si el user tiene sync configurado
+      if (appointment.userId) {
+        try {
+          const CalendarSyncService = require("../AppointmentServices/CalendarSyncService").default;
+          const gEventId = await CalendarSyncService.syncToGoogleCalendar(
+            appointment, appointment.userId, companyId
+          );
+          if (gEventId) {
+            logger.info(`[AppointmentAgent] Cita sincronizada a Google Calendar: eventId=${gEventId}`);
+          }
+          const oEventId = await CalendarSyncService.syncToOutlookCalendar(
+            appointment, appointment.userId
+          );
+          if (oEventId) {
+            logger.info(`[AppointmentAgent] Cita sincronizada a Outlook: eventId=${oEventId}`);
+          }
+        } catch (syncErr: any) {
+          logger.warn(`[AppointmentAgent] Error en sync de calendario para cita ID=${appointment.id}: ${syncErr?.message || syncErr}`);
         }
       }
 
@@ -904,7 +1189,7 @@ async function handleConfirmAppointment(
 
   // ===== CASO 2: Sin contexto - buscar cita scheduled (compatibilidad) =====
   // Buscar la cita más reciente sin confirmar
-  const appointment = await Appointment.findOne({
+  const appointmentToConfirm = await Appointment.findOne({
     where: {
       contactId,
       companyId,
@@ -913,7 +1198,7 @@ async function handleConfirmAppointment(
     order: [["createdAt", "DESC"]]
   });
 
-  if (!appointment) {
+  if (!appointmentToConfirm) {
     return {
       message: "No tienes citas pendientes por confirmar.",
       action: "confirm",
@@ -921,8 +1206,15 @@ async function handleConfirmAppointment(
     };
   }
 
-  // Confirmar la cita
-  await appointment.update({ status: "confirmed" });
+  // 🆕 Confirmar vía BookingService.confirmAppointment
+  // Esto NO solo actualiza status=confirmed, sino que ENCOLA el job Bull
+  // 'AppointmentReminder' con delay 60s → es lo que dispara el 2do mensaje
+  // de recordatorio automático. Antes se usaba appointment.update() directo
+  // lo cual NUNCA disparaba el 2do mensaje (bug silencioso).
+  const appointment = await BookingService.confirmAppointment(
+    appointmentToConfirm.id,
+    companyId
+  );
 
   // 🆕 Limpiar contexto de cita después de confirmar
   if (appointment.ticketId) {
@@ -946,6 +1238,178 @@ async function handleConfirmAppointment(
       status: "confirmed"
     }]
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// HANDLERS SEMÁNTICOS (usados tras AppointmentResponseClassifier)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Confirma una cita semánticamente detectada.
+ * CRÍTICO: usa BookingService.confirmAppointment en lugar de update() directo.
+ * Eso es lo que encola el job 'AppointmentReminder' con el 2do mensaje.
+ */
+async function handleSemanticConfirm(
+  appointmentId: number,
+  companyId: number,
+  ticketId: number
+): Promise<AppointmentResponse> {
+  try {
+    const appointment = await BookingService.confirmAppointment(appointmentId, companyId);
+
+    // Limpiar cualquier contexto residual
+    await AppointmentContextStore.delete(ticketId);
+
+    const fechaStr = new Date(appointment.startTime).toLocaleDateString("es-ES", {
+      weekday: "long", day: "numeric", month: "long"
+    });
+    const horaStr = new Date(appointment.startTime).toLocaleTimeString("es-ES", {
+      hour: "2-digit", minute: "2-digit"
+    });
+
+    return {
+      message:
+        `¡Perfecto! Tu cita ha sido confirmada ✅\n\n` +
+        `*${appointment.title}*\n` +
+        `${fechaStr} a las ${horaStr}\n\n` +
+        `Te enviaremos un recordatorio cercano a la fecha. ¡Gracias!`,
+      action: "confirm",
+      confidence: 0.95,
+      appointmentId: appointment.id,
+      appointmentDetails: [{
+        id: appointment.id,
+        title: appointment.title,
+        startTime: appointment.startTime,
+        endTime: appointment.endTime,
+        status: "confirmed"
+      }]
+    };
+  } catch (error: any) {
+    logger.error(
+      `[AppointmentAgent] Error confirmando cita semánticamente ID=${appointmentId}: ${error.message}`
+    );
+    // Si falla el confirm, devolver ambiguous para que el Supervisor reintente con tools
+    return { message: "", action: "none", confidence: 0 };
+  }
+}
+
+/**
+ * Reagenda una cita semánticamente detectada.
+ * Si el cliente propuso una fecha en el mismo mensaje, la usa;
+ * si no, pide fecha/hora nueva.
+ */
+async function handleSemanticReschedule(
+  message: string,
+  appointmentId: number,
+  companyId: number
+): Promise<AppointmentResponse> {
+  const dateTime = extractDateTime(message);
+
+  const appointment = await Appointment.findOne({
+    where: { id: appointmentId, companyId }
+  });
+
+  if (!appointment) {
+    return { message: "", action: "none", confidence: 0 };
+  }
+
+  const fechaActualStr = new Date(appointment.startTime).toLocaleDateString("es-ES", {
+    weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit"
+  });
+
+  // Si el cliente NO propuso una nueva fecha, pedirla
+  if (!dateTime?.date) {
+    return {
+      message:
+        `Entiendo, quieres cambiar tu cita de *${fechaActualStr}*. ` +
+        `¿Qué nueva fecha y horario te vendría bien?`,
+      action: "reschedule",
+      confidence: 0.9,
+      appointmentId: appointment.id
+    };
+  }
+
+  // Reagendar con BookingService (valida disponibilidad y actualiza reminders)
+  try {
+    const [h, m] = (dateTime.time || "10:00").split(":").map(Number);
+    const newStart = new Date(dateTime.date);
+    newStart.setHours(h, m, 0, 0);
+
+    const updated = await BookingService.rescheduleAppointment(
+      appointmentId,
+      companyId,
+      newStart
+    );
+
+    const nuevaFecha = newStart.toLocaleDateString("es-ES", {
+      weekday: "long", day: "numeric", month: "long"
+    });
+    const nuevaHora = newStart.toLocaleTimeString("es-ES", {
+      hour: "2-digit", minute: "2-digit"
+    });
+
+    return {
+      message:
+        `Tu cita fue reagendada 📅\n\n` +
+        `*${updated.title}*\n` +
+        `Nueva fecha: ${nuevaFecha} a las ${nuevaHora}\n\n` +
+        `¿Confirmas este nuevo horario?`,
+      action: "reschedule",
+      confidence: 0.95,
+      appointmentId: updated.id,
+      appointmentDetails: [{
+        id: updated.id,
+        title: updated.title,
+        startTime: updated.startTime,
+        endTime: updated.endTime,
+        status: updated.status
+      }]
+    };
+  } catch (error: any) {
+    logger.warn(
+      `[AppointmentAgent] Reschedule semántico falló (${error.message}), ` +
+      `pidiendo al cliente otra fecha`
+    );
+    return {
+      message:
+        `Ese horario no está disponible. ¿Puedes proponerme otra fecha u hora?`,
+      action: "reschedule",
+      confidence: 0.8,
+      appointmentId: appointment.id
+    };
+  }
+}
+
+/**
+ * Cancela una cita semánticamente detectada.
+ */
+async function handleSemanticCancel(
+  appointmentId: number,
+  companyId: number,
+  ticketId: number
+): Promise<AppointmentResponse> {
+  try {
+    const appointment = await BookingService.cancelAppointment(
+      appointmentId,
+      companyId,
+      "Cancelada por el cliente (confirmación detectada por IA)"
+    );
+
+    await AppointmentContextStore.delete(ticketId);
+
+    return {
+      message:
+        `Tu cita ha sido cancelada. Si en el futuro quieres agendar nuevamente, escríbenos cuando gustes. ¡Gracias!`,
+      action: "cancel",
+      confidence: 0.95,
+      appointmentId: appointment.id
+    };
+  } catch (error: any) {
+    logger.error(
+      `[AppointmentAgent] Error cancelando cita semánticamente ID=${appointmentId}: ${error.message}`
+    );
+    return { message: "", action: "none", confidence: 0 };
+  }
 }
 
 export default {

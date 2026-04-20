@@ -51,6 +51,50 @@ class ReminderService {
   }
 
   /**
+   * Resolve the WhatsApp template to use for a booking.
+   * If a templateId is provided, it must belong to the company and be active.
+   * Otherwise, the most recently updated active WhatsApp template is used.
+   */
+  async resolveWhatsappTemplate(
+    companyId: number,
+    templateId?: number | null
+  ): Promise<ReminderTemplate | null> {
+    try {
+      if (templateId) {
+        const explicitTemplate = await ReminderTemplate.findOne({
+          where: {
+            id: templateId,
+            companyId,
+            channel: 'whatsapp',
+            isActive: true
+          }
+        });
+
+        if (!explicitTemplate) {
+          logWarn('Configured WhatsApp reminder template was not found or inactive', {
+            companyId,
+            templateId
+          });
+        }
+
+        return explicitTemplate;
+      }
+
+      return await ReminderTemplate.findOne({
+        where: {
+          companyId,
+          channel: 'whatsapp',
+          isActive: true
+        },
+        order: [['updatedAt', 'DESC'], ['createdAt', 'DESC']]
+      });
+    } catch (error) {
+      logError('Error resolving WhatsApp reminder template', { error, companyId, templateId });
+      throw error;
+    }
+  }
+
+  /**
    * Create a new template
    */
   async createTemplate(data: CreateTemplateRequest): Promise<ReminderTemplate> {
@@ -60,13 +104,14 @@ class ReminderService {
         name: data.name,
         channel: data.channel,
         subject: data.subject,
+        message: data.messageConfirm, // Legacy column NOT NULL — se replica desde messageConfirm
         messageConfirm: data.messageConfirm,
         messageReminder: data.messageReminder,
         timing: data.timing,
         isActive: data.isActive !== undefined ? data.isActive : true,
         sentCount: 0,
         deliveryRate: 0
-      });
+      } as any);
 
       logInfo('Reminder template created', {
         templateId: template.id,
@@ -94,15 +139,17 @@ class ReminderService {
         return null;
       }
 
+      const newMessageConfirm = data.messageConfirm ?? template.messageConfirm;
       await template.update({
         name: data.name ?? template.name,
         channel: data.channel ?? template.channel,
         subject: data.subject ?? template.subject,
-        messageConfirm: data.messageConfirm ?? template.messageConfirm,
+        message: newMessageConfirm, // Mantener columna legacy sincronizada
+        messageConfirm: newMessageConfirm,
         messageReminder: data.messageReminder ?? template.messageReminder,
         timing: data.timing ?? template.timing,
         isActive: data.isActive !== undefined ? data.isActive : template.isActive
-      });
+      } as any);
 
       logInfo('Reminder template updated', { templateId: data.id });
 

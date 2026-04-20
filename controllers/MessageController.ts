@@ -13,6 +13,7 @@ import Whatsapp from "../models/Whatsapp";
 import { verify } from "jsonwebtoken";
 import authConfig from "../config/auth";
 import path from "path";
+import mime from "mime-types";
 import formatBody from "../helpers/Mustache";
 import { isNil, isNull } from "lodash";
 import { Mutex } from "async-mutex";
@@ -38,6 +39,7 @@ import ShowContactService from "../services/ContactServices/ShowContactService";
 import FindOrCreateTicketService from "../services/TicketServices/FindOrCreateTicketService";
 
 import Contact from "../models/Contact";
+import QuickMessage from "../models/QuickMessage";
 import { verifyMessage, } from "../services/WbotServices/wbotMessageListener";
 import UpdateTicketService from "../services/TicketServices/UpdateTicketService";
 import ListSettingsService from "../services/SettingServices/ListSettingsService";
@@ -781,7 +783,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 // Obtener la conexión WhatsApp del ticket para credenciales META
                 const whatsapp = await Whatsapp.findByPk(ticket.whatsappId);
                 // facebookPageUserId contiene el Phone Number ID de Meta (necesario para enviar)
-                const phoneNumberId = whatsapp?.facebookPageUserId || whatsapp?.number;
+                const phoneNumberId = whatsapp?.phoneNumberId || whatsapp?.facebookPageUserId || whatsapp?.number;
 
                 // ── LOG DIAGNÓSTICO COMPLETO ──────────────────────────────
                 console.log("📤 [META-SEND] ========== INICIO ENVÍO META ==========");
@@ -1393,8 +1395,7 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
             throw new AppError("Ticket no encontrado", 404);
         }
 
-        // Buscar el mensaje rápido
-        const QuickMessage = (await import("../models/QuickMessage")).default;
+        // Buscar el mensaje rápido usando el modelo ya inicializado por Sequelize
         const quickMessage = await QuickMessage.findOne({
             where: {
                 id: quickMessageId,
@@ -1411,27 +1412,30 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
             SetTicketMessagesAsRead(ticket);
         }
 
+        const storedFilename = quickMessage.getDataValue("mediaPath");
+
         // Si el mensaje rápido tiene media (archivo adjunto)
-        if (quickMessage.mediaPath && quickMessage.mediaName) {
+        if (storedFilename) {
             // Construir la ruta del archivo
-            const publicFolder = path.join(__dirname, '..', '..', 'public');
-            const filePath = path.join(publicFolder, `company${companyId}`, 'quickMessage', quickMessage.mediaName);
+            const publicFolder = path.resolve("public");
+            const filePath = path.join(publicFolder, `company${companyId}`, 'quickMessage', storedFilename);
 
             // Verificar que el archivo existe
             if (fs.existsSync(filePath)) {
                 // Obtener información del archivo
                 const stats = fs.statSync(filePath);
+                const detectedMimeType = (mime.lookup(filePath) || 'application/octet-stream') as string;
 
                 const mediaSrc: Express.Multer.File = {
                     fieldname: 'medias',
-                    originalname: quickMessage.mediaName,
+                    originalname: quickMessage.mediaName || storedFilename,
                     encoding: '7bit',
-                    mimetype: 'application/octet-stream', // Se puede mejorar detectando el tipo real
-                    filename: quickMessage.mediaName,
+                    mimetype: detectedMimeType,
+                    filename: storedFilename,
                     path: filePath,
                     size: stats.size,
                     stream: fs.createReadStream(filePath),
-                    destination: path.join(__dirname, '..', '..', 'public', `company${companyId}`, 'quickMessage'),
+                    destination: path.join(publicFolder, `company${companyId}`, 'quickMessage'),
                     buffer: Buffer.alloc(0) // Buffer vacío, ya que usamos stream
                 };
 
@@ -1447,6 +1451,7 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
                 // Aquí puedes agregar soporte para otros canales como Facebook, Instagram, etc.
 
             } else {
+                console.warn(`[sendQuickMessage] Archivo adjunto no encontrado para quickMessageId=${quickMessageId}: ${filePath}`);
                 // Si el archivo no existe, solo enviar el texto
                 if (ticket.channel === "whatsapp") {
                     await SendWhatsAppMessage({
@@ -1484,4 +1489,42 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
         console.error('Error al enviar mensaje rápido:', error);
         throw new AppError("Error al enviar mensaje rápido", 500);
     }
+};
+
+/**
+ * Reintenta descifrar un mensaje CIPHERTEXT.
+ * POST /messages/:messageId/retry-decrypt
+ */
+export const retryDecrypt = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { messageId } = req.params;
+    const { companyId } = req.user;
+
+    if (!messageId || isNaN(Number(messageId))) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de mensaje inválido"
+      });
+    }
+
+    const RetryDecryptMessageService = (
+      await import("../services/MessageServices/RetryDecryptMessageService")
+    ).default;
+
+    const result = await RetryDecryptMessageService({
+      messageId: Number(messageId),
+      companyId
+    });
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    const statusCode = err.statusCode || 500;
+    const message = err.message || "Error al reintentar descifrado";
+    console.error("[retryDecrypt] Error:", message);
+    return res.status(statusCode).json({
+      success: false,
+      decrypted: false,
+      message
+    });
+  }
 };

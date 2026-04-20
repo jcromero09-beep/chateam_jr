@@ -133,10 +133,11 @@ export default function FlowbuilderEditor() {
       try {
         const [qRes, tRes] = await Promise.all([
           api.get('/queue'),
-          api.get('/tags')
+          api.get('/tags/list', { params: { kanban: 0 } })
         ])
         setQueues((qRes.data || []).map((q: any) => ({ id: q.id, name: q.name, color: q.color })))
-        setTags((tRes.data?.tags || tRes.data || []).filter((t: any) => t.kanban === 0).map((t: any) => ({ id: t.id, name: t.name, color: t.color, kanban: t.kanban })))
+        const tagList = Array.isArray(tRes.data) ? tRes.data : (tRes.data?.tags || [])
+        setTags(tagList.filter((t: any) => !t.kanban || t.kanban === 0).map((t: any) => ({ id: t.id, name: t.name, color: t.color, kanban: t.kanban || 0 })))
       } catch (err) {
         console.error('Error cargando colas/etiquetas:', err)
       }

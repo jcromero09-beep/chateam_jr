@@ -78,11 +78,9 @@ export default function AppointmentsCalendar() {
   const [dayAppointments, setDayAppointments] = useState<Appointment[]>([])
   const [loadingDayAppointments, setLoadingDayAppointments] = useState(false)
 
-  // Modal de reagendar
+  // Modal de reagendar (reutiliza CreateAppointmentModal en modo reschedule)
   const [openRescheduleModal, setOpenRescheduleModal] = useState(false)
   const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null)
-  const [newDateTime, setNewDateTime] = useState('')
-  const [rescheduling, setRescheduling] = useState(false)
 
   // Google Calendar sync state
   const [googleConnected, setGoogleConnected] = useState(false)
@@ -160,7 +158,7 @@ export default function AppointmentsCalendar() {
     try {
       // Build redirect URI for the OAuth callback
       const backendUrl = api.defaults.baseURL?.replace('/api', '') || window.location.origin
-      const redirectUri = `${backendUrl}/api/appointments/calendar/google/callback`
+      const redirectUri = `${backendUrl}/appointments/calendar/google/callback`
       const frontendUrl = window.location.origin + window.location.pathname
 
       // Backend generates auth URL with state containing companyId/userId
@@ -251,32 +249,7 @@ export default function AppointmentsCalendar() {
 
   const handleOpenReschedule = (appointment: Appointment) => {
     setAppointmentToReschedule(appointment)
-    setNewDateTime(appointment.startTime.slice(0, 16)) // Format for datetime-local input
     setOpenRescheduleModal(true)
-  }
-
-  const handleRescheduleAppointment = async () => {
-    if (!appointmentToReschedule || !newDateTime) return
-
-    setRescheduling(true)
-    try {
-      await api.post(`/appointments/appointments/${appointmentToReschedule.id}/reschedule`, {
-        newStartTime: new Date(newDateTime).toISOString()
-      })
-      toast.success('Cita reagendada exitosamente')
-      setOpenRescheduleModal(false)
-      setAppointmentToReschedule(null)
-      // Refresh
-      if (selectedDay) {
-        fetchDayAppointments(selectedDay)
-      }
-      fetchAppointmentDates()
-    } catch (error: any) {
-      console.error('Error rescheduling appointment:', error)
-      toast.error(error.response?.data?.error || 'Error al reagendar la cita')
-    } finally {
-      setRescheduling(false)
-    }
   }
 
   const getStatusChip = (status: string) => {
@@ -627,59 +600,56 @@ export default function AppointmentsCalendar() {
           </ModalDialog>
         </Modal>
 
-        {/* Reschedule Modal */}
-        <Modal open={openRescheduleModal} onClose={() => setOpenRescheduleModal(false)}>
-          <ModalDialog sx={{ minWidth: 400 }}>
-            <ModalClose />
-            <Stack spacing={2}>
-              <Typography level="h4">Reagendar Cita</Typography>
-
-              {appointmentToReschedule && (
-                <Stack spacing={1}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Servicio: {appointmentToReschedule.service?.name || appointmentToReschedule.title}
-                  </Typography>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Cliente: {appointmentToReschedule.contact?.name || 'Sin cliente'}
-                  </Typography>
-                </Stack>
-              )}
-
-              <Box>
-                <Typography level="body-sm" sx={{ mb: 0.5 }}>Nueva fecha y hora</Typography>
-                <input
-                  type="datetime-local"
-                  value={newDateTime}
-                  onChange={(e) => setNewDateTime(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #ccc',
-                    fontSize: '14px',
-                  }}
-                />
-              </Box>
-
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                <Button
-                  variant="outlined"
-                  color="neutral"
-                  onClick={() => setOpenRescheduleModal(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  color="primary"
-                  onClick={handleRescheduleAppointment}
-                  loading={rescheduling}
-                >
-                  Reagendar
-                </Button>
-              </Stack>
-            </Stack>
-          </ModalDialog>
-        </Modal>
+        {/* Reschedule Modal (reutiliza CreateAppointmentModal en modo reschedule) */}
+        {appointmentToReschedule && (
+          <CreateAppointmentModal
+            open={openRescheduleModal}
+            mode="reschedule"
+            preselectedContact={
+              appointmentToReschedule.contact
+                ? {
+                    id: appointmentToReschedule.contact.id,
+                    name: appointmentToReschedule.contact.name,
+                    number: appointmentToReschedule.contact.number,
+                  }
+                : null
+            }
+            lockContact={!!appointmentToReschedule.contact}
+            existingAppointment={{
+              id: appointmentToReschedule.id,
+              title: appointmentToReschedule.title,
+              startTime: appointmentToReschedule.startTime,
+              endTime: appointmentToReschedule.endTime,
+              status: appointmentToReschedule.status,
+              serviceId: appointmentToReschedule.service?.id ?? 0,
+              userId: appointmentToReschedule.assignedUser?.id,
+              service: appointmentToReschedule.service
+                ? {
+                    id: appointmentToReschedule.service.id,
+                    name: appointmentToReschedule.service.name,
+                    color: '#3b82f6',
+                    duration: appointmentToReschedule.service.duration,
+                  }
+                : undefined,
+              user: appointmentToReschedule.assignedUser
+                ? {
+                    id: appointmentToReschedule.assignedUser.id,
+                    name: appointmentToReschedule.assignedUser.name,
+                  }
+                : undefined,
+            }}
+            onClose={() => {
+              setOpenRescheduleModal(false)
+              setAppointmentToReschedule(null)
+            }}
+            onSuccess={() => {
+              if (selectedDay) fetchDayAppointments(selectedDay)
+              fetchAppointmentDates()
+              setOpenRescheduleModal(false)
+              setAppointmentToReschedule(null)
+            }}
+          />
+        )}
 
         {/* New Appointment Modal */}
         <CreateAppointmentModal

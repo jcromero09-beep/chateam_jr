@@ -1294,14 +1294,6 @@ export const verifyMediaMessage = async (
       });
 
       io.of(String(companyId))
-        // .to("closed")
-        .emit(`company-${companyId}-ticket`, {
-          action: "delete",
-          ticket,
-          ticketId: ticket.id
-        });
-      // // console.log("emitiu socket 902", ticket.id)
-      io.of(String(companyId))
         // .to(ticket.status)
         //   .to(ticket.id.toString())
         .emit(`company-${companyId}-ticket`, {
@@ -3761,18 +3753,6 @@ const flowbuilderIntegration = async (
       ticketId: ticket.id,
       companyId
     });
-
-    io.of(String(companyId)).emit(`company-${companyId}-ticket`, {
-      action: "delete",
-      ticket,
-      ticketId: ticket.id
-    });
-
-    io.to(ticket.status).emit(`company-${companyId}-ticket`, {
-      action: "update",
-      ticket,
-      ticketId: ticket.id
-    });
   }
 
   if (msg.key.fromMe) {
@@ -4138,7 +4118,18 @@ export const handleMessageIntegration = async (
 
       logger.info(`[SupervisorAI] Respuesta - agente: ${aiResponse.agentUsed}, confianza: ${aiResponse.confidence}`);
 
-      if (aiResponse.shouldEscalate) {
+      // 🆕 Gatekeeper decidió no enviar respuesta (ej: cliente solo dijo "gracias")
+      // Respetamos la decisión y NO enviamos nada al cliente; solo devolvemos aiStatus a 'passive'.
+      if (aiResponse.skipSend) {
+        logger.info(
+          `[SupervisorAI] skipSend=true (gatekeeper decidió ignorar). ` +
+          `Motivo: ${aiResponse.metadata?.gatekeeperReasoning || 'sin motivo'}`
+        );
+        try {
+          await ticket.update({ aiStatus: 'passive' });
+        } catch { /* silenciar */ }
+        responseSent = true; // marcamos como "respondido" para que no intente más abajo
+      } else if (aiResponse.shouldEscalate) {
         // ═══════════════════════════════════════════════════════════════
         // Derivar a humano - buscar cola por defecto del WhatsApp
         // ═══════════════════════════════════════════════════════════════
@@ -4256,7 +4247,24 @@ export const handleMessageIntegration = async (
         const quickRepliesWithMedia = (aiResponse.metadata?.quickReplies || []) as Array<{
           shortcode: string; message: string; mediaPath?: string; mediaName?: string;
         }>;
-        if (quickRepliesWithMedia.length > 0) {
+
+        // Gate: NO enviar imágenes de QuickReply cuando:
+        // 1. La respuesta del LLM es un fallback por error de red (metadata.isFallback)
+        // 2. Se va a escalar (shouldEscalate) — no enviar catálogo si estamos cerrando con handoff
+        // (El bloqueo por "primer mensaje" se hace aguas arriba en SupervisorService,
+        // omitiendo la búsqueda de QuickReplies; así no se contamina el historial de envíos.)
+        const isFallbackResponse = (aiResponse.metadata as any)?.isFallback === true;
+        const willEscalate = aiResponse.shouldEscalate === true;
+        const skipQuickReplyMedia = isFallbackResponse || willEscalate;
+
+        if (quickRepliesWithMedia.length > 0 && skipQuickReplyMedia) {
+          logger.info(
+            `[SupervisorAI] QuickReply media omitido: ticket=${ticket.id}, ` +
+            `fallback=${isFallbackResponse}, escalate=${willEscalate}`
+          );
+        }
+
+        if (quickRepliesWithMedia.length > 0 && !skipQuickReplyMedia) {
           const path = require("path");
           const fs = require("fs");
           const publicDir = path.resolve(__dirname, "..", "..", "public");

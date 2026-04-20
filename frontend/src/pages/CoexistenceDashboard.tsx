@@ -48,6 +48,7 @@ import {
 import { toast } from 'sonner'
 import api from '../services/api'
 import EmbeddedSignupModal from '../components/EmbeddedSignupModal'
+import CoexistenceConfigModal from '../components/CoexistenceConfigModal'
 
 // Tipos
 interface CoexistenceConnection {
@@ -63,6 +64,10 @@ interface CoexistenceConnection {
     status: string | null
     onboardedAt: string | null
     lastAppOpenedAt: string | null
+    receiveChannel: string | null
+    sendChannel: string | null
+    linkedWhatsappId: number | null
+    linkedWhatsappName: string | null
   }
 }
 
@@ -138,6 +143,13 @@ export default function CoexistenceDashboard() {
   const [setupResult, setSetupResult] = useState<SetupResult | null>(null)
   const [setupLoading, setSetupLoading] = useState(false)
   const [embeddedSignupOpen, setEmbeddedSignupOpen] = useState(false)
+  const [configModalOpen, setConfigModalOpen] = useState(false)
+  const [selectedConnection, setSelectedConnection] = useState<CoexistenceConnection | null>(null)
+
+  const openConfigModal = (conn: CoexistenceConnection) => {
+    setSelectedConnection(conn)
+    setConfigModalOpen(true)
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -388,7 +400,10 @@ export default function CoexistenceDashboard() {
                       <th>Numero</th>
                       <th style={{ width: 100 }}>Estado</th>
                       <th style={{ width: 110 }}>Coexistencia</th>
+                      <th style={{ width: 100 }}>Recibir</th>
+                      <th style={{ width: 100 }}>Enviar</th>
                       <th style={{ width: 120 }}>Business App</th>
+                      <th style={{ width: 60 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -463,6 +478,28 @@ export default function CoexistenceDashboard() {
                             )}
                           </td>
                           <td>
+                            <Chip
+                              size="sm"
+                              variant="soft"
+                              color={
+                                conn.coexistence.receiveChannel === 'both' ? 'primary' :
+                                conn.coexistence.receiveChannel === 'meta' ? 'success' : 'warning'
+                              }
+                            >
+                              {conn.coexistence.receiveChannel === 'both' ? 'Ambos' :
+                               conn.coexistence.receiveChannel === 'meta' ? 'Meta' : 'Baileys'}
+                            </Chip>
+                          </td>
+                          <td>
+                            <Chip
+                              size="sm"
+                              variant="soft"
+                              color={conn.coexistence.sendChannel === 'meta' ? 'success' : 'warning'}
+                            >
+                              {conn.coexistence.sendChannel === 'meta' ? 'Meta API' : 'Baileys'}
+                            </Chip>
+                          </td>
+                          <td>
                             {daysSinceOpen !== null ? (
                               <Stack>
                                 <Typography
@@ -493,6 +530,18 @@ export default function CoexistenceDashboard() {
                                 Sin datos
                               </Typography>
                             )}
+                          </td>
+                          <td>
+                            <Tooltip title="Configurar coexistencia">
+                              <IconButton
+                                size="sm"
+                                variant="plain"
+                                color="neutral"
+                                onClick={() => openConfigModal(conn)}
+                              >
+                                <SettingsIcon sx={{ fontSize: 18 }} />
+                              </IconButton>
+                            </Tooltip>
                           </td>
                         </tr>
                       )
@@ -727,6 +776,14 @@ export default function CoexistenceDashboard() {
         open={embeddedSignupOpen}
         onClose={() => setEmbeddedSignupOpen(false)}
         onSuccess={fetchData}
+      />
+
+      {/* Coexistence Config Modal */}
+      <CoexistenceConfigModal
+        open={configModalOpen}
+        onClose={() => setConfigModalOpen(false)}
+        connection={selectedConnection}
+        onSaved={fetchData}
       />
     </Box>
   )

@@ -1,11 +1,50 @@
 import { Server as SocketIO } from "socket.io";
 import { Server } from "http";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { createClient, RedisClientType } from "redis";
 import AppError from "../errors/AppError";
 import logger from "../utils/logger";
 import { instrument } from "@socket.io/admin-ui";
 import User from "../models/User";
 
 let io: SocketIO;
+let socketPubClient: RedisClientType | null = null;
+let socketSubClient: RedisClientType | null = null;
+let adapterInitializationPromise: Promise<void> | null = null;
+
+const setupDistributedAdapter = async (): Promise<void> => {
+  if (adapterInitializationPromise) {
+    return adapterInitializationPromise;
+  }
+
+  adapterInitializationPromise = (async () => {
+    const redisUrl =
+      process.env.REDIS_URI ||
+      process.env.REDIS_URL ||
+      "redis://127.0.0.1:5000";
+
+    socketPubClient = createClient({ url: redisUrl });
+    socketSubClient = socketPubClient.duplicate();
+
+    socketPubClient.on("error", err => {
+      logger.error(`[Socket.IO] Redis pub client error: ${err.message}`);
+    });
+
+    socketSubClient.on("error", err => {
+      logger.error(`[Socket.IO] Redis sub client error: ${err.message}`);
+    });
+
+    await Promise.all([
+      socketPubClient.connect(),
+      socketSubClient.connect()
+    ]);
+
+    io.adapter(createAdapter(socketPubClient, socketSubClient));
+    logger.info("[Socket.IO] Redis adapter connected for distributed mode");
+  })();
+
+  return adapterInitializationPromise;
+};
 
 export const initIO = (httpServer: Server): SocketIO => {
   io = new SocketIO(httpServer, {
@@ -20,6 +59,14 @@ export const initIO = (httpServer: Server): SocketIO => {
     maxHttpBufferSize: 1e8,  // 100 MB buffer
     transports: ['websocket', 'polling']  // Permitir ambos transportes
   });
+
+  if (process.env.DISTRIBUTED_MODE === "true") {
+    void setupDistributedAdapter().catch(error => {
+      logger.error(
+        `[Socket.IO] Failed to initialize Redis adapter: ${error?.message || error}`
+      );
+    });
+  }
 
   if (process.env.SOCKET_ADMIN && JSON.parse(process.env.SOCKET_ADMIN)) {
     User.findByPk(1).then(

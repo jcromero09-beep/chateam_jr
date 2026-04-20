@@ -18,6 +18,7 @@ import CloudUploadOutlinedIcon from "@material-ui/icons/CloudUploadOutlined";
 import DeleteOutlineIcon from "@material-ui/icons/DeleteOutline";
 
 import api from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
 
 const useStyles = makeStyles(theme => ({
   dialog: {
@@ -201,6 +202,8 @@ const useStyles = makeStyles(theme => ({
 const FlowBuilderAddAudioModal = ({ open, onSave, onUpdate, data, close }) => {
   const classes = useStyles();
   const isMounted = useRef(true);
+  const { user } = useAuth();
+  const companyId = user?.companyId;
 
   const [activeModal, setActiveModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -215,7 +218,7 @@ const FlowBuilderAddAudioModal = ({ open, onSave, onUpdate, data, close }) => {
   useEffect(() => {
     if (open === "edit") {
       setLabels({ title: "Editar audio", btn: "Guardar" });
-      setPreview(process.env.REACT_APP_BACKEND_URL + '/public/' + data.data.url);
+      setPreview(`${import.meta.env.VITE_API_URL}/public/company${companyId}/flowbuilder/${data.data.url}`);
       setRecord(data.data.record);
       setActiveModal(true);
     } else if (open === "create") {
@@ -250,6 +253,7 @@ const FlowBuilderAddAudioModal = ({ open, onSave, onUpdate, data, close }) => {
       setLoading(true);
       const formData = new FormData();
       formData.append("fromMe", true);
+      formData.append("typeArch", "flowbuilder");
 
       try {
         const compressionPromises = medias.map((media) => {

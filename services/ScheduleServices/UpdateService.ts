@@ -3,6 +3,7 @@ import * as Yup from "yup";
 import AppError from "../../errors/AppError";
 import Schedule from "../../models/Schedule";
 import ShowService from "./ShowService";
+import resolveScheduleTicketId from "./resolveScheduleTicketId";
 
 interface ScheduleData {
   id?: number;
@@ -71,12 +72,30 @@ const UpdateUserService = async ({
     throw new AppError(err.message);
   }
 
-  await schedule.update({
+  const shouldResolveTicketId =
+    ticketId !== undefined ||
+    contactId !== undefined ||
+    whatsappId !== undefined ||
+    !schedule.ticketId;
+
+  const resolvedTicketId = shouldResolveTicketId
+    ? await resolveScheduleTicketId({
+        companyId,
+        contactId: contactId ?? schedule.contactId,
+        ticketId,
+        userId: userId ?? schedule.userId,
+        queueId: queueId ?? schedule.queueId,
+        whatsappId: whatsappId ?? schedule.whatsappId,
+        statusTicket: statusTicket ?? schedule.statusTicket
+      })
+    : schedule.ticketId;
+
+  const buildUpdatePayload = (finalTicketId?: number) => ({
     body,
     sendAt: sendAt ? new Date(sendAt) : undefined,
     sentAt: sentAt ? new Date(sentAt) : undefined,
     contactId,
-    ticketId,
+    ticketId: finalTicketId,
     userId,
     ticketUserId: ticketUserId ? Number(ticketUserId) : undefined,
     queueId: queueId ? Number(queueId) : undefined,
@@ -89,6 +108,44 @@ const UpdateUserService = async ({
     tipoDias,
     assinar
   });
+
+  const isTicketConstraintError = (err: any): boolean => {
+    const databaseMessage =
+      err?.original?.message || err?.parent?.message || err?.message || "";
+
+    return (
+      typeof databaseMessage === "string" &&
+      databaseMessage.includes("ticketId") &&
+      databaseMessage.includes("violates not-null constraint")
+    );
+  };
+
+  try {
+    await schedule.update(buildUpdatePayload(resolvedTicketId));
+  } catch (err: any) {
+    if (isTicketConstraintError(err)) {
+      const fallbackTicketId = await resolveScheduleTicketId({
+        companyId,
+        contactId: contactId ?? schedule.contactId,
+        ticketId,
+        userId: userId ?? schedule.userId,
+        queueId: queueId ?? schedule.queueId,
+        whatsappId: whatsappId ?? schedule.whatsappId,
+        statusTicket: statusTicket ?? schedule.statusTicket,
+        createIfMissing: true
+      });
+
+      if (!fallbackTicketId) {
+        throw new AppError(
+          "La base de datos aún exige ticketId para guardar schedules. Si el mensaje se programa desde un ticket, vuelve a intentarlo con el ticket abierto; si se programa desde la pantalla de schedules, aplica la migración pendiente para permitir ticketId nulo."
+        );
+      }
+
+      await schedule.update(buildUpdatePayload(fallbackTicketId));
+    } else {
+      throw err;
+    }
+  }
 
   await schedule.reload();
   return schedule;

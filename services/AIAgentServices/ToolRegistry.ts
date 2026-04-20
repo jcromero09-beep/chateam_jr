@@ -117,6 +117,71 @@ function listTools(): string[] {
 // --- CITAS / CALENDARIO ---
 
 registerTool({
+  name: 'list_appointment_services',
+  description: 'Lista los servicios/tipos de cita disponibles para ofrecerlos al cliente. USAR ESTA HERRAMIENTA SIEMPRE antes de proponer una cita — NUNCA inventar servicios. Devuelve nombre, duración, precio y descripción de cada servicio activo.',
+  parameters: {
+    type: 'object',
+    properties: {
+      onlyActive: {
+        type: 'boolean',
+        description: 'Si true (default) devuelve solo servicios activos.'
+      }
+    },
+    required: []
+  },
+  allowedAgents: ['all'],
+  handler: async (args, context) => {
+    try {
+      const AppointmentService = require("../../models/AppointmentService").default;
+
+      if (!context.companyId) {
+        return { success: false, data: null, message: 'Error: falta companyId en el contexto.' };
+      }
+
+      const where: any = { companyId: context.companyId };
+      if (args.onlyActive !== false) {
+        where.isActive = true;
+      }
+
+      const services = await AppointmentService.findAll({
+        where,
+        order: [["name", "ASC"]],
+        attributes: ['id', 'name', 'duration', 'price', 'description', 'isActive']
+      });
+
+      if (services.length === 0) {
+        return {
+          success: true,
+          data: { services: [] },
+          message: 'No hay servicios de cita configurados para esta empresa. Informa al cliente y ofrece escalar a humano.'
+        };
+      }
+
+      const list = services.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        duration: s.duration, // minutos
+        price: s.price,
+        description: s.description || null
+      }));
+
+      return {
+        success: true,
+        data: { services: list, total: list.length },
+        message: `Servicios disponibles (${list.length}): ${list.map((s: any) => `${s.name} (${s.duration} min${s.price ? `, $${s.price}` : ''}) [id:${s.id}]`).join('; ')}`
+      };
+    } catch (error: any) {
+      logger.error(`[Tool:list_appointment_services] Error: ${error.message}`);
+      return {
+        success: false,
+        data: null,
+        message: `Error al listar servicios: ${error.message}`
+      };
+    }
+  }
+});
+
+registerTool({
   name: 'check_availability',
   description: 'Consulta los horarios disponibles para agendar una cita. Devuelve los slots libres para una fecha y servicio específicos.',
   parameters: {
@@ -218,18 +283,46 @@ registerTool({
     try {
       const BookingService = require("../AppointmentServices/BookingService").default;
       const Contact = require("../../models/Contact").default;
+      const Ticket = require("../../models/Ticket").default;
+      const User = require("../../models/User").default;
+
+      // Validaciones de contexto obligatorio
+      if (!context.companyId) {
+        return { success: false, data: null, message: 'Error: falta companyId en el contexto.' };
+      }
+      if (!context.contactId) {
+        return { success: false, data: null, message: 'No hay contacto asociado — no puedo agendar sin un contacto válido.' };
+      }
 
       // Obtener datos del contacto
       let contactData: any = {};
-      if (context.contactId) {
-        const contact = await Contact.findByPk(context.contactId);
-        if (contact) {
-          contactData = {
-            attendeeName: contact.name,
-            attendeeEmail: contact.email,
-            attendeePhone: contact.number
-          };
-        }
+      const contact = await Contact.findByPk(context.contactId);
+      if (contact) {
+        contactData = {
+          attendeeName: contact.name,
+          attendeeEmail: contact.email,
+          attendeePhone: contact.number
+        };
+      }
+
+      // 🆕 Resolver userId de forma segura:
+      // 1) context.userId explícito
+      // 2) user asignado al ticket
+      // 3) primer user activo del company (fallback)
+      let resolvedUserId = context.userId;
+      if (!resolvedUserId && context.ticketId) {
+        const ticket = await Ticket.findByPk(context.ticketId);
+        if (ticket?.userId) resolvedUserId = ticket.userId;
+      }
+      if (!resolvedUserId) {
+        const firstUser = await User.findOne({
+          where: { companyId: context.companyId },
+          order: [['id', 'ASC']]
+        });
+        if (firstUser) resolvedUserId = firstUser.id;
+      }
+      if (!resolvedUserId) {
+        return { success: false, data: null, message: 'No encontré un asesor disponible para asignar la cita.' };
       }
 
       const startTime = new Date(`${args.date}T${args.time}:00`);
@@ -237,8 +330,8 @@ registerTool({
       const appointment = await BookingService.createBooking({
         companyId: context.companyId,
         serviceId: args.serviceId || 1,
-        userId: context.userId || 1, // Asignar al primer usuario disponible
-        contactId: context.contactId || 0,
+        userId: resolvedUserId,
+        contactId: context.contactId,
         startTime,
         title: args.title || 'Cita agendada por asistente IA',
         notes: args.notes || 'Cita creada automáticamente por el agente de IA',
@@ -261,6 +354,56 @@ registerTool({
         success: false,
         data: null,
         message: `Error al agendar cita: ${error.message}`
+      };
+    }
+  }
+});
+
+registerTool({
+  name: 'confirm_appointment',
+  description: 'Confirma una cita existente (pone status=confirmed). Usa esta herramienta cuando el cliente responda afirmativamente a un mensaje de confirmación de cita (ej: "sí", "confirmo", "ok", "de acuerdo"). Al confirmar se dispara automáticamente el envío del mensaje de recordatorio posterior. Si no conoces el appointmentId, llama primero a get_my_appointments para obtenerlo.',
+  parameters: {
+    type: 'object',
+    properties: {
+      appointmentId: {
+        type: 'number',
+        description: 'ID de la cita a confirmar. Si no lo sabes, obtenlo con get_my_appointments.'
+      }
+    },
+    required: ['appointmentId']
+  },
+  allowedAgents: ['all'],
+  handler: async (args, context) => {
+    try {
+      const BookingService = require("../AppointmentServices/BookingService").default;
+
+      if (!context.companyId) {
+        return { success: false, data: null, message: 'Error: falta companyId en el contexto.' };
+      }
+      if (!args.appointmentId) {
+        return { success: false, data: null, message: 'Falta appointmentId. Usa get_my_appointments para obtenerlo.' };
+      }
+
+      const appointment = await BookingService.confirmAppointment(
+        args.appointmentId,
+        context.companyId
+      );
+
+      return {
+        success: true,
+        data: {
+          appointmentId: appointment.id,
+          status: 'confirmed',
+          confirmedAt: appointment.confirmedAt
+        },
+        message: `Cita #${appointment.id} confirmada exitosamente. El mensaje de recordatorio posterior ha sido programado.`
+      };
+    } catch (error: any) {
+      logger.error(`[Tool:confirm_appointment] Error: ${error.message}`);
+      return {
+        success: false,
+        data: null,
+        message: `Error al confirmar cita: ${error.message}`
       };
     }
   }

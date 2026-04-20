@@ -185,4 +185,81 @@ internalRoutes.post("/internal/wbot-call", async (req: Request, res: Response) =
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// ENDPOINTS DEDICADOS PARA DELETE / EDIT DE MENSAJES
+// Evitan el proxy genérico /internal/wbot-call que falla con objetos
+// complejos de Baileys (protobuf pierde estructura al serializar)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Eliminar mensaje via sesión local (evita proxy genérico)
+ * POST /internal/delete-message
+ *
+ * Body: {
+ *   whatsappId: number,
+ *   remoteJid: string,
+ *   messageKey: { remoteJid: string, fromMe: boolean, id: string, participant?: string }
+ * }
+ */
+internalRoutes.post("/internal/delete-message", async (req: Request, res: Response) => {
+  try {
+    const { whatsappId, remoteJid, messageKey } = req.body;
+
+    if (!whatsappId || !remoteJid || !messageKey) {
+      return res.status(400).json({ error: "whatsappId, remoteJid y messageKey son requeridos" });
+    }
+
+    logger.info(`[INTERNAL-DELETE] Eliminando mensaje en sesión ${whatsappId} desde nodo=${req.ip}`);
+
+    const wbot = getWbot(whatsappId);
+    await (wbot as any).sendMessage(remoteJid, { delete: messageKey });
+
+    logger.info(`[INTERNAL-DELETE] ✅ Mensaje eliminado exitosamente en sesión ${whatsappId}`);
+    return res.json({ success: true });
+  } catch (error: any) {
+    logger.error(`[INTERNAL-DELETE] ❌ Error: ${error.message}`);
+    if (error.message === "ERR_WAPP_NOT_INITIALIZED" ||
+        error.message?.includes("not initialized")) {
+      return res.status(404).json({ error: "ERR_WAPP_NOT_INITIALIZED" });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Editar mensaje via sesión local (evita proxy genérico)
+ * POST /internal/edit-message
+ *
+ * Body: {
+ *   whatsappId: number,
+ *   remoteJid: string,
+ *   messageKey: { remoteJid: string, fromMe: boolean, id: string, participant?: string },
+ *   newBody: string
+ * }
+ */
+internalRoutes.post("/internal/edit-message", async (req: Request, res: Response) => {
+  try {
+    const { whatsappId, remoteJid, messageKey, newBody } = req.body;
+
+    if (!whatsappId || !remoteJid || !messageKey || !newBody) {
+      return res.status(400).json({ error: "whatsappId, remoteJid, messageKey y newBody son requeridos" });
+    }
+
+    logger.info(`[INTERNAL-EDIT] Editando mensaje en sesión ${whatsappId} desde nodo=${req.ip}`);
+
+    const wbot = getWbot(whatsappId);
+    await (wbot as any).sendMessage(remoteJid, { text: newBody, edit: messageKey });
+
+    logger.info(`[INTERNAL-EDIT] ✅ Mensaje editado exitosamente en sesión ${whatsappId}`);
+    return res.json({ success: true });
+  } catch (error: any) {
+    logger.error(`[INTERNAL-EDIT] ❌ Error: ${error.message}`);
+    if (error.message === "ERR_WAPP_NOT_INITIALIZED" ||
+        error.message?.includes("not initialized")) {
+      return res.status(404).json({ error: "ERR_WAPP_NOT_INITIALIZED" });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default internalRoutes;

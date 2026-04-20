@@ -38,6 +38,9 @@ export interface RAGResponse {
   tokensUsed: { input: number; output: number };
   cacheHit: boolean;
   searchResults: number;
+  isFallback?: boolean;
+  shouldEscalate?: boolean;
+  escalationReason?: string;
 }
 
 /**
@@ -68,8 +71,11 @@ const processQuery = async (
     ticketHistory = [], enrichedQuery, hydeQuery, alternativeQueries = [], keywords = []
   } = options;
 
-  // 1. Verificar cache semántico
-  const cacheKey = `rag:${companyId}:${query}`;
+  // 🆕 Bug RAG-1 fix: cache key debe usar el enrichedQuery (contextualmente
+  // estable), no el mensaje literal. Antes "si", "ok", "cuánto" colisionaban
+  // en cache entre conversaciones distintas produciendo respuestas erróneas.
+  const effectiveQuery = enrichedQuery || query;
+  const cacheKey = `rag:${companyId}:${effectiveQuery}`;
   const cached = await SemanticCacheService.lookup(cacheKey, companyId);
 
   if (cached) {
@@ -77,7 +83,7 @@ const processQuery = async (
     cachedResponse.cacheHit = true;
     cachedResponse.latencyMs = Date.now() - startTime;
 
-    logger.info(`[RAGAgent] Cache hit para query: "${query.substring(0, 50)}..."`);
+    logger.info(`[RAGAgent] Cache hit para query: "${effectiveQuery.substring(0, 50)}..."`);
 
     // Log incluso para cache hits
     await logExecution(companyId, ticketId, contactId, cachedResponse, query);
@@ -168,8 +174,11 @@ const processQuery = async (
   }
 
   // 📊 Log detallado de resultados de búsqueda
+  // 🆕 Bug RAG-2 fix: loguear el query EFECTIVO (enriquecido) que se usó en
+  // el embedding, no el mensaje literal del cliente. Antes decía query="si..."
+  // aunque internamente buscara con el enrichedQuery.
   if (searchResults && searchResults.length > 0) {
-    logger.info(`[RAGAgent] 🔍 Búsqueda completada: ${searchResults.length} chunks encontrados para query="${query.substring(0, 50)}..."`);
+    logger.info(`[RAGAgent] 🔍 Búsqueda completada: ${searchResults.length} chunks encontrados para query="${effectiveQuery.substring(0, 50)}..."`);
 
     // Log de los primeros 3 chunks
     searchResults.slice(0, 3).forEach((result: any, index: number) => {
@@ -327,6 +336,7 @@ const processQuery = async (
 
   let answer: string;
   let tokensUsed = { input: 0, output: 0 };
+  let isFallback = false;
 
   // Cargar systemPrompt personalizado de BD (si existe)
   let dbSystemPrompt: string | undefined;
@@ -340,20 +350,125 @@ const processQuery = async (
     logger.warn(`[RAGAgent] No se pudo cargar config de BD: ${configErr.message}`);
   }
 
-  try {
+  // Helper local: retry con backoff exponencial para fallas de red con OpenAI
+  const chatCompletionWithRetry = async (params: any, maxAttempts = 3): Promise<any> => {
     const { chatCompletion } = require("../AIClientService");
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await chatCompletion(params);
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || "");
+        const transient =
+          msg.includes("ECONNRESET") ||
+          msg.includes("ETIMEDOUT") ||
+          msg.includes("fetch failed") ||
+          msg.includes("Connection error") ||
+          msg.includes("socket hang up") ||
+          msg.includes("network") ||
+          (err?.status && [408, 429, 500, 502, 503, 504].includes(err.status));
+        if (!transient || attempt === maxAttempts) throw err;
+        const delay = Math.min(500 * Math.pow(2, attempt - 1), 4000);
+        logger.warn(`[RAGAgent] chatCompletion falló (${msg.substring(0, 80)}), reintento ${attempt}/${maxAttempts - 1} en ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  };
 
-    // Construir mensajes en formato chat multi-turn
-    const systemPrompt = buildRAGSystemPrompt(context, ticketContext, dbSystemPrompt);
+  try {
     const ragMaxTokens = PreprocessingService.getMaxTokensForChannel(channel as any);
 
+    // ═══════════════════════════════════════════════════════════════════
+    // PASADA 1: ANÁLISIS Y DECISIÓN (JSON)
+    // El LLM razona sobre el contexto y decide qué hacer
+    // ═══════════════════════════════════════════════════════════════════
+    const analysisPrompt = `Eres un analizador experto de conversaciones de atención al cliente.
+Tu trabajo es analizar el mensaje del cliente con todo el contexto disponible y DECIDIR qué hacer.
+
+## CONTEXTO DISPONIBLE
+${ticketContext || '(sin contexto adicional)'}
+
+## REGLAS Y CONOCIMIENTO DE LA EMPRESA
+${context}
+
+## HISTORIAL DE LA CONVERSACIÓN
+${ticketHistory.length > 0
+  ? ticketHistory.slice(-10).map(m => `${m.role === 'assistant' ? 'AGENTE' : 'CLIENTE'}: ${m.content}`).join('\n')
+  : '(primer mensaje, sin historial)'}
+
+## MENSAJE ACTUAL DEL CLIENTE
+"${query}"
+
+## TU TAREA
+Analiza y responde SOLO con un JSON válido (sin markdown, sin backticks):
+
+{
+  "contexto_detectado": "descripción breve del contexto (ej: 'primer mensaje, petición vaga sobre GPS')",
+  "es_primer_mensaje": true|false,
+  "cliente_especifico_que_necesita": true|false,
+  "info_faltante": ["qué falta saber, ej: tipo de vehículo, presupuesto"],
+  "reglas_aplicables": ["qué reglas del CONOCIMIENTO aplican aquí"],
+  "opciones_consideradas": [
+    {"opcion": "descripción", "viable": true|false, "razon": "por qué"}
+  ],
+  "decision": "preguntar_clarificacion | dar_informacion | ofrecer_producto | derivar_humano | saludar",
+  "que_hacer": "instrucción específica para el redactor (ej: 'preguntar tipo de vehículo antes de recomendar')",
+  "datos_a_usar": "qué datos específicos del CONOCIMIENTO usar en la respuesta (copia textual si aplica)",
+  "prohibiciones": ["qué NO hacer en la respuesta"]
+}`;
+
+    logger.info(`[RAGAgent] PASADA 1: Análisis y decisión...`);
+    const analysisResponse = await chatCompletionWithRetry({
+      messages: [
+        { role: 'system', content: 'Responde SOLO con JSON válido. Sin markdown, sin backticks, sin explicación fuera del JSON.' },
+        { role: 'user', content: analysisPrompt }
+      ],
+      model: modelKey,
+      maxTokens: 800,
+      temperature: 0.1,
+      companyId,
+      module: 'classification' as any
+    });
+
+    let analysis: any = {};
+    try {
+      const text = analysisResponse.content?.trim() || '{}';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    } catch (parseErr) {
+      logger.warn(`[RAGAgent] Error parseando análisis JSON, usando fallback`);
+      analysis = { decision: 'dar_informacion', que_hacer: 'responder con la información disponible' };
+    }
+
+    logger.info(
+      `[RAGAgent] Decisión: ${analysis.decision} | ${analysis.que_hacer?.substring(0, 80) || ''}`
+    );
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PASADA 2: REDACCIÓN FINAL
+    // El LLM redacta el mensaje natural según la decisión tomada
+    // ═══════════════════════════════════════════════════════════════════
+    const systemPrompt = buildRAGSystemPrompt(context, ticketContext, dbSystemPrompt);
+
+    const instruccionRedactor = `
+## DECISIÓN TOMADA POR EL ANALIZADOR
+Acción: ${analysis.decision || 'dar_informacion'}
+Instrucción: ${analysis.que_hacer || 'responder con información disponible'}
+Datos a usar: ${analysis.datos_a_usar || 'los del CONTEXTO arriba'}
+Prohibiciones: ${Array.isArray(analysis.prohibiciones) ? analysis.prohibiciones.join(', ') : 'ninguna'}
+
+Redacta la respuesta final al cliente siguiendo EXACTAMENTE esta decisión.
+NO muestres el razonamiento, solo la respuesta final en lenguaje natural para WhatsApp.`;
+
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt }
+      { role: 'system', content: systemPrompt + '\n' + instruccionRedactor }
     ];
 
-    // Agregar historial de conversación para que el LLM entienda el contexto
+    // Agregar historial
     if (ticketHistory.length > 0) {
-      for (const msg of ticketHistory.slice(-10)) { // últimos 10 mensajes
+      for (const msg of ticketHistory.slice(-10)) {
         const role = msg.role === 'assistant' ? 'assistant' : 'user';
         if (msg.content && msg.content.trim()) {
           messages.push({ role, content: msg.content });
@@ -361,28 +476,35 @@ const processQuery = async (
       }
     }
 
-    // Agregar el mensaje actual del usuario
     messages.push({ role: 'user', content: query });
 
-    const llmResponse = await chatCompletion({
+    logger.info(`[RAGAgent] PASADA 2: Redacción final...`);
+    const llmResponse = await chatCompletionWithRetry({
       messages,
       model: modelKey,
       maxTokens: ragMaxTokens,
-      temperature: 0.5,
+      temperature: 0.3, // Baja para seguir la decisión sin inventar
       companyId,
       module: 'chat' as any
     });
 
     answer = llmResponse.content;
-    tokensUsed = {
-      input: llmResponse.usage?.prompt_tokens || llmResponse.usage?.input_tokens || Math.ceil(query.length / 4),
-      output: llmResponse.usage?.completion_tokens || llmResponse.usage?.output_tokens || Math.ceil(answer.length / 4)
-    };
-  } catch (llmError: any) {
-    logger.error(`[RAGAgent] Error en generación LLM: ${llmError.message}`);
 
-    // Fallback: respuesta genérica (NUNCA enviar chunks crudos al cliente)
-    answer = "Tengo información sobre ese tema pero no pude procesarla correctamente. ¿Podrías reformular tu pregunta?";
+    // Sumar tokens de ambas pasadas
+    const analysisTokens = (analysisResponse.usage?.prompt_tokens || 0) + (analysisResponse.usage?.completion_tokens || 0);
+    const redactionTokens = (llmResponse.usage?.prompt_tokens || 0) + (llmResponse.usage?.completion_tokens || 0);
+    tokensUsed = {
+      input: (analysisResponse.usage?.prompt_tokens || 0) + (llmResponse.usage?.prompt_tokens || 0),
+      output: (analysisResponse.usage?.completion_tokens || 0) + (llmResponse.usage?.completion_tokens || 0)
+    };
+
+    logger.info(
+      `[RAGAgent] Completado 2 pasadas: tokens=${analysisTokens + redactionTokens}, decisión=${analysis.decision}`
+    );
+  } catch (llmError: any) {
+    logger.error(`[RAGAgent] Error en generación LLM (2 pasadas): ${llmError.message}`);
+    answer = "Déjame conectarte con un asesor humano para que te ayude mejor con tu consulta. 🙏";
+    isFallback = true;
   }
 
   // 6. Construir respuesta
@@ -410,15 +532,26 @@ const processQuery = async (
 
   logger.info(`[RAGAgent] Confianza calculada: ${confidence.toFixed(3)}, chunks usados: ${contextChunks.length}, fusedScores: [${contextChunks.map((c: any) => (c.fusedScore || getRelevance(c)).toFixed(3)).join(', ')}]`);
 
+  // Detectar heurísticamente si la respuesta indica handoff a humano
+  const handoffRegex = /te conecto con (un )?asesor|conectarte con (un )?asesor|equipo de ventas|nuestro equipo te|deriva(r|re) (al|a un) asesor|asesor humano/i;
+  const hasHandoffText = handoffRegex.test(answer || "");
+
   const response: RAGResponse = {
     answer,
     sources,
-    confidence,
+    confidence: isFallback ? Math.min(confidence, 0.3) : confidence,
     modelUsed: modelKey,
     latencyMs: Date.now() - startTime,
     tokensUsed,
     cacheHit: false,
-    searchResults: searchResults.length
+    searchResults: searchResults.length,
+    isFallback,
+    shouldEscalate: isFallback || hasHandoffText,
+    escalationReason: isFallback
+      ? "llm_failure"
+      : hasHandoffText
+        ? "handoff_text_detected"
+        : undefined
   };
 
   // 7. Cachear si la confianza es suficiente (> 0.7)

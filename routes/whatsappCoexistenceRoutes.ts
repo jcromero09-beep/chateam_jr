@@ -69,6 +69,19 @@ whatsappCoexistenceRoutes.post(
   WhatsAppCoexistenceController.connectManual
 );
 
+// ── Configuración de Coexistencia ─────────────────────────
+// PUT /whatsapp/coexistence/:id/config — Actualizar config (receiveChannel, sendChannel, linkedWhatsappId)
+whatsappCoexistenceRoutes.put(
+  "/coexistence/:id/config",
+  WhatsAppCoexistenceController.updateCoexistenceConfig
+);
+
+// GET /whatsapp/coexistence/baileys-connections — Listar conexiones Baileys (para dropdown)
+whatsappCoexistenceRoutes.get(
+  "/coexistence/baileys-connections",
+  WhatsAppCoexistenceController.listBaileysConnections
+);
+
 // ── Migración ─────────────────────────────────────────────
 // GET /whatsapp/migration/eligibility/:id — Elegibilidad
 whatsappCoexistenceRoutes.get(

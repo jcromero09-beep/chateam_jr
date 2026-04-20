@@ -41,6 +41,24 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
     }
 
     const companyId = whatsapp.companyId;
+
+    // ══════ ROUTING COEXISTENCIA ══════
+    // Si la conexión tiene coexistencia activa y canal de envío configurado,
+    // determinar qué conexión y canal usar para crear el ticket
+    let effectiveWhatsapp: any = whatsapp;
+    let effectiveChannel: string = "meta";
+
+    if (whatsapp.coexistenceEnabled && whatsapp.sendChannel === "baileys" && whatsapp.linkedWhatsappId) {
+      const linkedBaileys = await Whatsapp.findByPk(whatsapp.linkedWhatsappId);
+      if (linkedBaileys && linkedBaileys.status === "CONNECTED") {
+        effectiveWhatsapp = linkedBaileys;
+        effectiveChannel = "whatsapp";
+        console.log(`[SmbEchoes] 🔗 Coexistencia activa: ticket → Baileys id=${linkedBaileys.id} (${linkedBaileys.name})`);
+      } else {
+        console.warn(`[SmbEchoes] ⚠️ linkedWhatsappId=${whatsapp.linkedWhatsappId} no está CONNECTED, usando Meta`);
+      }
+    }
+
     const messageEchoes = value?.message_echoes || [];
 
     if (!messageEchoes.length) {
@@ -103,8 +121,8 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
           profilePicUrl: "",
           isGroup: false,
           companyId,
-          channel: "meta",
-          whatsappId: whatsapp.id
+          channel: effectiveChannel,
+          whatsappId: effectiveWhatsapp.id
         };
         const contact = await CreateOrUpdateContactService(contactData);
 
@@ -112,13 +130,13 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
         const settings = await CompaniesSettings.findOne({ where: { companyId } });
         const ticket = await FindOrCreateTicketService(
           contact,
-          whatsapp,
+          effectiveWhatsapp,
           0, // unreadMessages: 0 (es mensaje propio)
           companyId,
           0,
           0,
           null,
-          "meta",
+          effectiveChannel,
           null,
           false,
           settings

@@ -85,29 +85,61 @@ const ListTicketsService = async ({
   const showTicketWithoutQueue = user.allTicket === "enabled" || user.allTicket === "enable" || (user.allTicket as unknown) === true;
   const showAllUserChat = user.allUserChat === "enabled" || (user.allUserChat as unknown) === true;
 
-  // Debug log - remover después de verificar
-  console.log("🎫 ListTicketsService Debug:", {
-    userId,
-    companyId,
-    status,
-    showAll,
-    userProfile: user.profile,
-    showTicketAllQueues,
-    showTicketWithoutQueue,
-    showAllUserChat,
-    queueIds
-  });
   const showGroups = user.allowGroup === true;
   const showPendingNotification = await FindCompanySettingOneService({ companyId, column: "showNotificationPending" });
   const showPendingSetting = showPendingNotification?.[0];
   const showNotificationPendingValue = showPendingSetting?.showNotificationPending ?? false;
   let whereCondition: Filterable["where"];
+  const isPrivilegedUser = user.profile === "admin" || user.profile === "super";
+  const requestedQueueIds = Array.isArray(queueIds) ? queueIds : [];
+  const userQueueIds = user.queues.map(queue => queue.id);
+  const hasQueueFilter = requestedQueueIds.length > 0;
+  const restrictedQueueIds = hasQueueFilter
+    ? intersection(userQueueIds, requestedQueueIds)
+    : userQueueIds;
+
+  const getQueueVisibilityCondition = ({
+    includeWithoutQueue = showTicketWithoutQueue,
+    allowAllQueues = false
+  }: {
+    includeWithoutQueue?: boolean;
+    allowAllQueues?: boolean;
+  } = {}) => {
+    const effectiveQueueIds = allowAllQueues ? requestedQueueIds : restrictedQueueIds;
+
+    if (allowAllQueues && !hasQueueFilter) {
+      return includeWithoutQueue ? undefined : { [Op.ne]: null };
+    }
+
+    if (effectiveQueueIds.length === 0) {
+      return includeWithoutQueue ? { [Op.is]: null } : { [Op.in]: [-1] };
+    }
+
+    if (includeWithoutQueue) {
+      return {
+        [Op.or]: [
+          { [Op.in]: effectiveQueueIds },
+          { [Op.is]: null }
+        ]
+      };
+    }
+
+    return { [Op.in]: effectiveQueueIds };
+  };
+
+  const baseQueueCondition = getQueueVisibilityCondition();
 
   whereCondition = {
     [Op.or]: [{ userId }, { status: "pending" }],
-    queueId: showTicketWithoutQueue ? { [Op.or]: [queueIds, null] } : { [Op.or]: [queueIds] },
     companyId
   };
+
+  if (baseQueueCondition !== undefined) {
+    whereCondition = {
+      ...whereCondition,
+      queueId: baseQueueCondition
+    };
+  }
 
 
   let includeCondition: Includeable[];
@@ -146,141 +178,78 @@ const ListTicketsService = async ({
     },
   ];
 
-  const userQueueIds = user.queues.map(queue => queue.id);
-
   if (status === "open" && showAll !== "true") {
-    // Solo aplicar filtro restrictivo si NO es showAll
+    const openQueueCondition = getQueueVisibilityCondition();
     whereCondition = {
       ...whereCondition,
-      userId,
-      queueId: { [Op.in]: queueIds }
+      userId
     };
+    if (openQueueCondition !== undefined) {
+      whereCondition = {
+        ...whereCondition,
+        queueId: openQueueCondition
+      };
+    }
   } else if (status === "open" && showAll === "true") {
     // Si showAll=true, mostrar todos los tickets open de la compañía
     // El filtro de queues se manejará más abajo en la sección de showAll
   } else
     if (status === "group" && user.allowGroup && user.whatsappId) {
+      const groupQueueCondition = getQueueVisibilityCondition();
       whereCondition = {
         companyId,
-        queueId: { [Op.or]: [queueIds, null] },
         whatsappId: user.whatsappId
       };
+      if (groupQueueCondition !== undefined) {
+        whereCondition = {
+          ...whereCondition,
+          queueId: groupQueueCondition
+        };
+      }
     }
     else
       if (status === "group" && (user.allowGroup) && !user.whatsappId) {
         whereCondition = {
           companyId,
-          queueId: { [Op.or]: [queueIds, null] },
         };
-      }
-      else
-        if (user.profile === "user" && status === "pending" && showTicketWithoutQueue) {
-          const TicketsUserFilter: any[] | null = [];
-
-          let ticketsIds = [];
-
-          if (!showTicketAllQueues) {
-            ticketsIds = await Ticket.findAll({
-              where: {
-                userId: { [Op.or]: [user.id, null] },
-                queueId: { [Op.or]: [queueIds, null] },
-                status: "pending",
-                companyId
-              },
-            });
-          } else {
-            ticketsIds = await Ticket.findAll({
-              where: {
-                userId: { [Op.or]: [user.id, null] },
-                // queueId: { [Op.or]: [queueIds, null] },
-                status: "pending",
-                companyId
-              },
-            });
-          }
-
-
-
-          if (ticketsIds) {
-            TicketsUserFilter.push(ticketsIds.map(t => t.id));
-          }
-          // }
-
-          const ticketsIntersection: number[] = intersection(...TicketsUserFilter);
-
+        const groupQueueCondition = getQueueVisibilityCondition();
+        if (groupQueueCondition !== undefined) {
           whereCondition = {
             ...whereCondition,
-            id: ticketsIntersection
+            queueId: groupQueueCondition
           };
         }
-        else
-          if (user.profile === "user" && status === "pending" && !showTicketWithoutQueue) {
-            const TicketsUserFilter: any[] | null = [];
-
-            let ticketsIds = [];
-
-            if (!showTicketAllQueues) {
-              ticketsIds = await Ticket.findAll({
-                where: {
-                  companyId,
-                  userId:
-                    { [Op.or]: [user.id, null] },
-                  status: "pending",
-                  queueId: { [Op.in]: queueIds }
-                },
-              });
-            } else {
-              ticketsIds = await Ticket.findAll({
-                where: {
-                  companyId,
-                  [Op.or]:
-                    [{
-                      userId:
-                        { [Op.or]: [user.id, null] }
-                    },
-                    {
-                      status: "pending"
-                    }
-                    ],
-                  // queueId: { [Op.in] : queueIds},
-                  status: "pending"
-                },
-              });
-            }
-            if (ticketsIds) {
-              TicketsUserFilter.push(ticketsIds.map(t => t.id));
-            }
-            // }
-
-            const ticketsIntersection: number[] = intersection(...TicketsUserFilter);
-
+      }
+      else
+        if (user.profile === "user" && status === "pending") {
+          const pendingQueueCondition = getQueueVisibilityCondition({
+            includeWithoutQueue: showTicketWithoutQueue,
+            allowAllQueues: showTicketAllQueues
+          });
+          whereCondition = {
+            companyId,
+            status: "pending",
+            userId: { [Op.or]: [user.id, null] }
+          };
+          if (pendingQueueCondition !== undefined) {
             whereCondition = {
               ...whereCondition,
-              id: ticketsIntersection
+              queueId: pendingQueueCondition
             };
           }
+        }
 
-  if (showAll === "true" && (user.profile === "admin" || user.profile === "super" || showAllUserChat) && status !== "search") {
-    // Resetear whereCondition completamente (no usar spread)
-    // Usar showTicketAllQueues que ya soporta boolean y string
-    if (showTicketAllQueues && showTicketWithoutQueue) {
-      whereCondition = { companyId };  // Ver todos los tickets, con y sin queue
-    } else if (showTicketAllQueues && !showTicketWithoutQueue) {
-      whereCondition = { companyId, queueId: { [Op.ne]: null } };  // Solo tickets con queue
-    } else if (!showTicketAllQueues && showTicketWithoutQueue) {
-      // Si queueIds está vacío, permitir todos los queueId incluido null
-      if (queueIds && queueIds.length > 0) {
-        whereCondition = { companyId, queueId: { [Op.or]: [{ [Op.in]: queueIds }, null] } };
-      } else {
-        whereCondition = { companyId };  // Sin filtro de queue si no hay queueIds
-      }
-    } else if (!showTicketAllQueues && !showTicketWithoutQueue) {
-      // Si queueIds está vacío, permitir todos los queueId excepto null
-      if (queueIds && queueIds.length > 0) {
-        whereCondition = { companyId, queueId: { [Op.in]: queueIds } };
-      } else {
-        whereCondition = { companyId, queueId: { [Op.ne]: null } };
-      }
+  if (showAll === "true" && (isPrivilegedUser || showAllUserChat) && status !== "search") {
+    const showAllQueueCondition = getQueueVisibilityCondition({
+      includeWithoutQueue: showTicketWithoutQueue,
+      allowAllQueues: showTicketAllQueues
+    });
+    whereCondition = { companyId };
+    if (showAllQueueCondition !== undefined) {
+      whereCondition = {
+        ...whereCondition,
+        queueId: showAllQueueCondition
+      };
     }
   }
 
@@ -302,16 +271,34 @@ const ListTicketsService = async ({
         status: "closed",
       }
 
-      if (showAll === "false" && (user.profile === "admin" || user.profile === "super")) {
+      if (showAll === "false" && isPrivilegedUser) {
+        const closedQueueCondition = getQueueVisibilityCondition({
+          includeWithoutQueue: false,
+          allowAllQueues: false
+        });
         whereCondition2 = {
           ...whereCondition2,
-          queueId: queueIds,
           userId
         }
+        if (closedQueueCondition !== undefined) {
+          whereCondition2 = {
+            ...whereCondition2,
+            queueId: closedQueueCondition
+          };
+        }
       } else {
+        const closedQueueCondition = getQueueVisibilityCondition({
+          includeWithoutQueue: showAll === "true" || showTicketWithoutQueue,
+          allowAllQueues: showTicketAllQueues
+        });
         whereCondition2 = {
           ...whereCondition2,
-          queueId: showAll === "true" || showTicketWithoutQueue ? { [Op.or]: [queueIds, null] } : queueIds,
+        };
+        if (closedQueueCondition !== undefined) {
+          whereCondition2 = {
+            ...whereCondition2,
+            queueId: closedQueueCondition
+          };
         }
       }
 
@@ -327,16 +314,34 @@ const ListTicketsService = async ({
         status: "closed",
       }
 
-      if (showAll === "false" && (user.profile === "admin" || user.profile === "super" || showAllUserChat)) {
+      if (showAll === "false" && (isPrivilegedUser || showAllUserChat)) {
+        const closedQueueCondition = getQueueVisibilityCondition({
+          includeWithoutQueue: false,
+          allowAllQueues: false
+        });
         whereCondition2 = {
           ...whereCondition2,
-          queueId: queueIds,
           userId
         }
+        if (closedQueueCondition !== undefined) {
+          whereCondition2 = {
+            ...whereCondition2,
+            queueId: closedQueueCondition
+          };
+        }
       } else {
+        const closedQueueCondition = getQueueVisibilityCondition({
+          includeWithoutQueue: showAll === "true" || showTicketWithoutQueue,
+          allowAllQueues: showTicketAllQueues
+        });
         whereCondition2 = {
           ...whereCondition2,
-          queueId: showAll === "true" || showTicketWithoutQueue ? { [Op.or]: [queueIds, null] } : queueIds,
+        };
+        if (closedQueueCondition !== undefined) {
+          whereCondition2 = {
+            ...whereCondition2,
+            queueId: closedQueueCondition
+          };
         }
       }
 
@@ -362,13 +367,22 @@ const ListTicketsService = async ({
       }
       let latestTickets;
       if (!showTicketAllQueues && user.profile === "user") {
+        const searchQueueCondition = getQueueVisibilityCondition({
+          includeWithoutQueue: showAll === "true" || showTicketWithoutQueue,
+          allowAllQueues: false
+        });
+        const searchWhere: any = {
+          [Op.or]: [{ userId }, { status: ["pending", "closed", "group"] }],
+          companyId
+        };
+
+        if (searchQueueCondition !== undefined) {
+          searchWhere.queueId = searchQueueCondition;
+        }
+
         latestTickets = await Ticket.findAll({
           attributes: ['companyId', 'contactId', 'whatsappId', 'channel', [literal('MAX("id")'), 'id']],
-          where: {
-            [Op.or]: [{ userId }, { status: ["pending", "closed", "group"] }],
-            queueId: showAll === "true" || showTicketWithoutQueue ? { [Op.or]: [queueIds, null] } : queueIds,
-            companyId
-          },
+          where: searchWhere,
           group: ['companyId', 'contactId', 'whatsappId', 'channel'],
         });
       } else {
@@ -377,19 +391,31 @@ const ListTicketsService = async ({
           [Op.or]: [{ userId }, { status: ["pending", "closed", "group"] }]
         }
 
-        if (showAll === "false" && (user.profile === "admin" || user.profile === "super")) {
+        if (showAll === "false" && isPrivilegedUser) {
+          const searchQueueCondition = getQueueVisibilityCondition({
+            includeWithoutQueue: false,
+            allowAllQueues: false
+          });
           whereCondition2 = {
             ...whereCondition2,
-            queueId: queueIds,
-
-            // [Op.or]: [{ userId }, { status: ["pending", "closed", "group"] }],
           }
-
-        } else if (showAll === "true" && (user.profile === "admin" || user.profile === "super")) {
-          whereCondition2 = {
-            companyId,
-            queueId: { [Op.or]: [queueIds, null] },
-            // status: ["pending", "closed", "group"]
+          if (searchQueueCondition !== undefined) {
+            whereCondition2 = {
+              ...whereCondition2,
+              queueId: searchQueueCondition
+            };
+          }
+        } else if (showAll === "true" && isPrivilegedUser) {
+          const searchQueueCondition = getQueueVisibilityCondition({
+            includeWithoutQueue: true,
+            allowAllQueues: showTicketAllQueues
+          });
+          whereCondition2 = { companyId };
+          if (searchQueueCondition !== undefined) {
+            whereCondition2 = {
+              ...whereCondition2,
+              queueId: searchQueueCondition
+            };
           }
         }
 
@@ -549,19 +575,21 @@ const ListTicketsService = async ({
     } else
       if (withUnreadMessages === "true") {
         // console.log(showNotificationPendingValue)
+        const unreadQueueCondition = getQueueVisibilityCondition({
+          includeWithoutQueue: showTicketWithoutQueue,
+          allowAllQueues: false
+        });
         whereCondition = {
           [Op.or]: [
             {
               userId,
               status: showNotificationPendingValue ? { [Op.notIn]: ["closed", "lgpd", "nps"] } : { [Op.notIn]: ["pending", "closed", "lgpd", "nps", "group"] },
-              queueId: { [Op.in]: userQueueIds },
               unreadMessages: { [Op.gt]: 0 },
               companyId,
               isGroup: showGroups ? { [Op.or]: [true, false] } : false
             },
             {
               status: showNotificationPendingValue ? { [Op.in]: ["pending", "group"] } : { [Op.in]: ["group"] },
-              queueId: showTicketWithoutQueue ? { [Op.or]: [userQueueIds, null] } : { [Op.or]: [userQueueIds] },
               unreadMessages: { [Op.gt]: 0 },
               companyId,
               isGroup: showGroups ? { [Op.or]: [true, false] } : false
@@ -569,11 +597,27 @@ const ListTicketsService = async ({
           ]
         };
 
+        if (unreadQueueCondition !== undefined) {
+          (whereCondition as any)[Op.or] = (whereCondition as any)[Op.or].map((condition: any) => ({
+            ...condition,
+            queueId: unreadQueueCondition
+          }));
+        }
+
         if (status === "group" && (user.allowGroup || showAll === "true")) {
+          const groupUnreadQueueCondition = getQueueVisibilityCondition({
+            includeWithoutQueue: showTicketWithoutQueue,
+            allowAllQueues: false
+          });
           whereCondition = {
             ...whereCondition,
-            queueId: { [Op.or]: [userQueueIds, null] },
           };
+          if (groupUnreadQueueCondition !== undefined) {
+            whereCondition = {
+              ...whereCondition,
+              queueId: groupUnreadQueueCondition
+            };
+          }
         }
       }
 
@@ -589,7 +633,7 @@ const ListTicketsService = async ({
   const { count, rows: tickets } = await Ticket.findAndCountAll({
     where: whereCondition,
     include: includeCondition,
-    attributes: ["id", "uuid", "userId", "queueId", "isGroup", "channel", "status", "contactId", "useIntegration", "lastMessage", "updatedAt", "unreadMessages", "customerOriginId"],
+    attributes: ["id", "uuid", "userId", "queueId", "whatsappId", "isGroup", "channel", "status", "contactId", "useIntegration", "lastMessage", "updatedAt", "unreadMessages", "customerOriginId"],
     distinct: true,
     limit: effectiveLimit,
     offset,

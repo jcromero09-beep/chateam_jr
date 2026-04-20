@@ -69,8 +69,24 @@ export const getCoexistenceStatus = async (
         "id", "name", "status", "number", "displayPhoneNumber",
         "phoneNumberId", "facebookUserId", "coexistenceEnabled",
         "coexistenceStatus", "coexistenceOnboardedAt", "lastAppOpenedAt",
+        "receiveChannel", "sendChannel", "linkedWhatsappId",
       ],
     });
+
+    // 1b. Resolver nombres de conexiones Baileys vinculadas
+    const linkedIds = connections
+      .map((c) => c.linkedWhatsappId)
+      .filter(Boolean);
+    const linkedMap: Record<number, string> = {};
+    if (linkedIds.length > 0) {
+      const linkedConnections = await Whatsapp.findAll({
+        where: { id: linkedIds },
+        attributes: ["id", "name"],
+      });
+      linkedConnections.forEach((lc) => {
+        linkedMap[lc.id] = lc.name;
+      });
+    }
 
     // 2. Liveness check (alertas)
     const livenessResult = await CoexistenceLivenessService();
@@ -113,6 +129,10 @@ export const getCoexistenceStatus = async (
             status: c.coexistenceStatus,
             onboardedAt: c.coexistenceOnboardedAt,
             lastAppOpenedAt: c.lastAppOpenedAt,
+            receiveChannel: c.receiveChannel || "both",
+            sendChannel: c.sendChannel || "meta",
+            linkedWhatsappId: c.linkedWhatsappId || null,
+            linkedWhatsappName: c.linkedWhatsappId ? (linkedMap[c.linkedWhatsappId] || null) : null,
           },
         })),
         envCheck,
@@ -542,5 +562,111 @@ export const connectManual = async (
       success: false,
       error: msg,
     });
+  }
+};
+
+// ─────────────────────────────────────────────
+// CONFIGURACIÓN DE COEXISTENCIA
+// ─────────────────────────────────────────────
+
+/**
+ * PUT /whatsapp/coexistence/:id/config
+ * Actualizar configuración de coexistencia (receiveChannel, sendChannel, linkedWhatsappId)
+ */
+export const updateCoexistenceConfig = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const { id } = req.params;
+    const { coexistenceEnabled, receiveChannel, sendChannel, linkedWhatsappId } = req.body;
+
+    // Validar que la conexión existe y pertenece a la company
+    const whatsapp = await Whatsapp.findOne({ where: { id: Number(id), companyId } });
+    if (!whatsapp) {
+      return res.status(404).json({ success: false, error: "Conexión no encontrada" });
+    }
+
+    // Validar valores permitidos
+    if (receiveChannel && !["meta", "baileys", "both"].includes(receiveChannel)) {
+      return res.status(400).json({ success: false, error: "receiveChannel inválido. Valores: meta | baileys | both" });
+    }
+    if (sendChannel && !["meta", "baileys"].includes(sendChannel)) {
+      return res.status(400).json({ success: false, error: "sendChannel inválido. Valores: meta | baileys" });
+    }
+
+    // Si linkedWhatsappId, verificar que existe y es de la misma company
+    if (linkedWhatsappId) {
+      const linked = await Whatsapp.findOne({
+        where: { id: linkedWhatsappId, companyId, channel: "whatsapp" }
+      });
+      if (!linked) {
+        return res.status(400).json({ success: false, error: "Conexión Baileys vinculada no encontrada en esta empresa" });
+      }
+    }
+
+    // Actualizar (NUNCA borrar — BD SAGRADA)
+    await whatsapp.update({
+      coexistenceEnabled: coexistenceEnabled !== undefined ? coexistenceEnabled : whatsapp.coexistenceEnabled,
+      coexistenceStatus: coexistenceEnabled === false ? "disabled" : (coexistenceEnabled === true ? "active" : whatsapp.coexistenceStatus),
+      receiveChannel: receiveChannel || whatsapp.receiveChannel,
+      sendChannel: sendChannel || whatsapp.sendChannel,
+      linkedWhatsappId: linkedWhatsappId !== undefined ? linkedWhatsappId : whatsapp.linkedWhatsappId,
+      ...(coexistenceEnabled && !whatsapp.coexistenceOnboardedAt ? { coexistenceOnboardedAt: new Date() } : {}),
+    });
+
+    logger.info(`[Coexistence:config] Conexión ${id} actualizada: receive=${receiveChannel}, send=${sendChannel}, linked=${linkedWhatsappId}`);
+
+    return res.json({
+      success: true,
+      message: "Configuración de coexistencia actualizada",
+      data: {
+        id: whatsapp.id,
+        name: whatsapp.name,
+        coexistenceEnabled: whatsapp.coexistenceEnabled,
+        receiveChannel: whatsapp.receiveChannel,
+        sendChannel: whatsapp.sendChannel,
+        linkedWhatsappId: whatsapp.linkedWhatsappId,
+      },
+    });
+  } catch (error: unknown) {
+    const { msg, statusCode } = extractError(error);
+    logger.error(`[Coexistence:config] Error: ${msg}`);
+    return res.status(statusCode).json({ success: false, error: msg });
+  }
+};
+
+/**
+ * GET /whatsapp/coexistence/baileys-connections
+ * Lista conexiones Baileys de la company (para dropdown en modal de config)
+ */
+export const listBaileysConnections = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+
+    const connections = await Whatsapp.findAll({
+      where: { companyId, channel: "whatsapp" },
+      attributes: ["id", "name", "number", "status", "provider"],
+      order: [["id", "ASC"]],
+    });
+
+    return res.json({
+      success: true,
+      data: connections.map((c) => ({
+        id: c.id,
+        name: c.name,
+        number: c.number,
+        status: c.status,
+        provider: c.provider,
+      })),
+    });
+  } catch (error: unknown) {
+    const { msg, statusCode } = extractError(error);
+    logger.error(`[Coexistence:baileys-list] Error: ${msg}`);
+    return res.status(statusCode).json({ success: false, error: msg });
   }
 };

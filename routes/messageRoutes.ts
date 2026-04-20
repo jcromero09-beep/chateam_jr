@@ -28,4 +28,7 @@ messageRoutes.post('/message/forward', isAuth, MessageController.forwardMessage)
 // Nueva ruta para enviar mensaje rápido por ID
 messageRoutes.post("/messages/quick/:ticketId", isAuth, MessageController.sendQuickMessage);
 
+// Reintento de descifrado de mensajes CIPHERTEXT
+messageRoutes.post("/messages/:messageId/retry-decrypt", isAuth, MessageController.retryDecrypt);
+
 export default messageRoutes;

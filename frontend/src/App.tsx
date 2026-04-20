@@ -102,7 +102,6 @@ import AppointmentsReports from './pages/AppointmentsReports'
 import WhatsAppDashboard from './pages/WhatsAppDashboard'
 import WhatsAppNumbers from './pages/WhatsAppNumbers'
 import WhatsAppTemplates from './pages/WhatsAppTemplates'
-import WhatsAppCampaigns from './pages/WhatsAppCampaigns'
 import WhatsAppWebhooks from './pages/WhatsAppWebhooks'
 import WhatsAppAnalytics from './pages/WhatsAppAnalytics'
 import WhatsAppSettings from './pages/WhatsAppSettings'
@@ -339,7 +338,6 @@ function App() {
           <Route path="/whatsapp/dashboard" element={<ProtectedRoute module="whatsapp_dashboard"><WhatsAppDashboard /></ProtectedRoute>} />
           <Route path="/whatsapp/numbers" element={<ProtectedRoute module="whatsapp_numbers"><WhatsAppNumbers /></ProtectedRoute>} />
           <Route path="/whatsapp/templates" element={<ProtectedRoute module="whatsapp_templates"><WhatsAppTemplates /></ProtectedRoute>} />
-          <Route path="/whatsapp/campaigns" element={<ProtectedRoute module="whatsapp_campaigns"><WhatsAppCampaigns /></ProtectedRoute>} />
           <Route path="/whatsapp/webhooks" element={<ProtectedRoute module="whatsapp_webhooks"><WhatsAppWebhooks /></ProtectedRoute>} />
           <Route path="/whatsapp/analytics" element={<ProtectedRoute module="webchat_analytics"><WhatsAppAnalytics /></ProtectedRoute>} />
           <Route path="/whatsapp/settings" element={<ProtectedRoute module="whatsapp_settings"><WhatsAppSettings /></ProtectedRoute>} />

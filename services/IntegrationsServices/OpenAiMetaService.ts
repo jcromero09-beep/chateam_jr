@@ -654,7 +654,7 @@ ${previousResponsesSummary || ""}
     let accessToken = "";
 
     if (whatsapp) {
-      phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
+      phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
       accessToken = whatsapp.tokenMeta;
     } else {
       // Buscar whatsapp del ticket
@@ -662,7 +662,7 @@ ${previousResponsesSummary || ""}
         where: { id: ticket.whatsappId }
       });
       if (ticketWhatsapp) {
-        phoneNumberId = ticketWhatsapp.facebookPageUserId || ticketWhatsapp.number;
+        phoneNumberId = ticketWhatsapp.phoneNumberId || ticketWhatsapp.facebookPageUserId || ticketWhatsapp.number;
         accessToken = ticketWhatsapp.tokenMeta;
       }
     }

@@ -7,6 +7,7 @@ import User from '../../models/User';
 import logger, { logError, logInfo, logWarn, logDebug } from '../../utils/logger';
 import AvailabilityService from './AvailabilityService';
 import ReminderService from './ReminderService';
+import CalendarSyncService from './CalendarSyncService';
 
 interface CreateBookingRequest {
   companyId: number;
@@ -14,13 +15,19 @@ interface CreateBookingRequest {
   userId: number;
   contactId: number;
   startTime: Date;
+  ticketId?: number;
+  reminderTemplateId?: number;
+  title?: string;
+  description?: string;
   timezone?: string;
   notes?: string;
   attendeeName?: string;
   attendeeEmail?: string;
   attendeePhone?: string;
   location?: string;
+  locationType?: string;
   meetingUrl?: string;
+  status?: string;
 }
 
 interface UpdateBookingRequest {
@@ -33,6 +40,34 @@ interface UpdateBookingRequest {
 }
 
 class BookingService {
+  async enqueueConfirmationReminder(appointment: Appointment): Promise<void> {
+    if (!appointment.reminderTemplateId) {
+      logInfo('Skipping confirmation reminder enqueue because appointment has no reminder template', {
+        appointmentId: appointment.id
+      });
+      return;
+    }
+
+    const delay = 60000;
+    const { add } = require('../../queues');
+
+    await add("AppointmentReminder", {
+      appointmentId: appointment.id,
+      companyId: appointment.companyId,
+      type: 'confirm'
+    }, {
+      delay,
+      removeOnComplete: { age: 60 * 60, count: 100 },
+      removeOnFail: { age: 60 * 60, count: 50 }
+    });
+
+    logInfo('Confirmation reminder enqueued', {
+      appointmentId: appointment.id,
+      reminderTemplateId: appointment.reminderTemplateId,
+      delayMs: delay
+    });
+  }
+
   /**
    * Create a new appointment booking
    */
@@ -106,22 +141,43 @@ class BookingService {
         }
       }
 
+      const reminderTemplate = await ReminderService.resolveWhatsappTemplate(
+        data.companyId,
+        data.reminderTemplateId
+      );
+
+      if (data.reminderTemplateId && !reminderTemplate) {
+        logWarn('Requested reminder template could not be attached to booking', {
+          companyId: data.companyId,
+          reminderTemplateId: data.reminderTemplateId
+        });
+      } else if (!data.reminderTemplateId && reminderTemplate) {
+        logInfo('Auto-selected active WhatsApp reminder template for booking', {
+          companyId: data.companyId,
+          reminderTemplateId: reminderTemplate.id,
+          templateName: reminderTemplate.name
+        });
+      }
+
       // Create the appointment
       const appointment = await Appointment.create({
         companyId: data.companyId,
         serviceId: data.serviceId,
         userId: data.userId,
         contactId: data.contactId,
-        title: service.name,
-        description: data.notes,
+        ticketId: data.ticketId,
+        reminderTemplateId: reminderTemplate?.id,
+        title: data.title || service.name,
+        description: data.description || data.notes,
         startTime: data.startTime,
         endTime,
         timezone: data.timezone || 'UTC',
-        status: service.requiresConfirmation ? 'scheduled' : 'confirmed',
+        status: data.status || (service.requiresConfirmation ? 'scheduled' : 'confirmed'),
         attendeeName,
         attendeeEmail: data.attendeeEmail,
         attendeePhone,
         location: data.location,
+        locationType: data.locationType,
         meetingUrl: data.meetingUrl,
         notes: data.notes
       });
@@ -129,12 +185,63 @@ class BookingService {
       // Create default reminders
       await ReminderService.createDefaultReminders(appointment);
 
+      try {
+        await this.enqueueConfirmationReminder(appointment);
+      } catch (reminderQueueErr: any) {
+        logWarn('Error enqueuing confirmation reminder after booking creation', {
+          appointmentId: appointment.id,
+          error: reminderQueueErr?.message || reminderQueueErr
+        });
+      }
+
+      // 🆕 Bug E fix: sync automático a calendarios externos (Google / Outlook)
+      // Antes este trigger solo existía en AppointmentController (REST) por lo que
+      // citas creadas desde IA nunca aparecían en Google Calendar del usuario
+      // aunque ya tuviera el sync configurado. Lo centralizamos aquí para que
+      // TODO path de creación (REST + IA) dispare la sincronización.
+      if (appointment.userId) {
+        try {
+          const googleEventId = await CalendarSyncService.syncToGoogleCalendar(
+            appointment, appointment.userId, appointment.companyId
+          );
+          if (googleEventId) {
+            logInfo('Appointment synced to Google Calendar', {
+              appointmentId: appointment.id,
+              googleEventId
+            });
+          }
+        } catch (syncErr: any) {
+          // No interrumpir la creación de la cita si el sync falla
+          logWarn('Error syncing to Google Calendar', {
+            appointmentId: appointment.id,
+            error: syncErr?.message || syncErr
+          });
+        }
+        try {
+          const outlookEventId = await CalendarSyncService.syncToOutlookCalendar(
+            appointment, appointment.userId
+          );
+          if (outlookEventId) {
+            logInfo('Appointment synced to Outlook Calendar', {
+              appointmentId: appointment.id,
+              outlookEventId
+            });
+          }
+        } catch (syncErr: any) {
+          logWarn('Error syncing to Outlook Calendar', {
+            appointmentId: appointment.id,
+            error: syncErr?.message || syncErr
+          });
+        }
+      }
+
       logInfo('Appointment booked', {
         appointmentId: appointment.id,
         serviceId: data.serviceId,
         userId: data.userId,
         contactId: data.contactId,
-        startTime: data.startTime
+        startTime: data.startTime,
+        reminderTemplateId: appointment.reminderTemplateId
       });
 
       return appointment;
@@ -234,6 +341,28 @@ class BookingService {
       // Update reminders
       await ReminderService.updateRemindersForReschedule(appointment);
 
+      // 🆕 Sync a calendarios externos. syncToGoogleCalendar detecta
+      // automáticamente si googleCalendarEventId ya existe → hace PATCH
+      // (actualizar) en vez de INSERT. Así el evento en Google Calendar
+      // del usuario se mueve al nuevo horario sin duplicar.
+      if (appointment.userId) {
+        try {
+          await CalendarSyncService.syncToGoogleCalendar(
+            appointment, appointment.userId, appointment.companyId
+          );
+          logInfo(`✅ [RESCHEDULE] Sincronizado a Google Calendar`, { appointmentId });
+        } catch (syncErr: any) {
+          logWarn(`⚠️ [RESCHEDULE] Error sincronizando Google Calendar: ${syncErr?.message}`, { appointmentId });
+        }
+        try {
+          await CalendarSyncService.syncToOutlookCalendar(
+            appointment, appointment.userId
+          );
+        } catch (syncErr: any) {
+          logWarn(`⚠️ [RESCHEDULE] Error sincronizando Outlook: ${syncErr?.message}`, { appointmentId });
+        }
+      }
+
       logInfo(`✅ [RESCHEDULE] Cita reagendada correctamente`, {
         appointmentId,
         anteriorInicio: appointment.startTime,
@@ -281,6 +410,40 @@ class BookingService {
           }
         }
       );
+
+      // 🆕 Borrar evento en calendarios externos si existe. Respeta la regla
+      // BD SAGRADA: en BD local la cita queda con status='cancelled' (soft),
+      // pero el evento externo SÍ se elimina del Google/Outlook del usuario
+      // para que no le moleste con recordatorios de citas canceladas.
+      if (appointment.googleCalendarEventId && appointment.userId) {
+        try {
+          await CalendarSyncService.deleteFromGoogleCalendar(
+            appointment.googleCalendarEventId,
+            appointment.userId,
+            appointment.companyId
+          );
+          logInfo('Evento Google Calendar eliminado', {
+            appointmentId,
+            googleEventId: appointment.googleCalendarEventId
+          });
+        } catch (syncErr: any) {
+          logWarn(`Error eliminando de Google Calendar: ${syncErr?.message}`, { appointmentId });
+        }
+      }
+      if (appointment.outlookCalendarEventId && appointment.userId) {
+        try {
+          await CalendarSyncService.deleteFromOutlookCalendar(
+            appointment.outlookCalendarEventId,
+            appointment.userId
+          );
+          logInfo('Evento Outlook eliminado', {
+            appointmentId,
+            outlookEventId: appointment.outlookCalendarEventId
+          });
+        } catch (syncErr: any) {
+          logWarn(`Error eliminando de Outlook: ${syncErr?.message}`, { appointmentId });
+        }
+      }
 
       logInfo('Appointment cancelled', {
         appointmentId,

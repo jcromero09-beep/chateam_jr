@@ -9,6 +9,7 @@ import UpdateService from "../services/ScheduleServices/UpdateService";
 import ShowService from "../services/ScheduleServices/ShowService";
 import DeleteService from "../services/ScheduleServices/DeleteService";
 import Schedule from "../models/Schedule";
+import { logWarn } from "../utils/logger";
 
 import { add, removeScheduledMessageJobs } from "../queues";
 import path from "path";
@@ -42,6 +43,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     body,
     sendAt,
     contactId,
+    ticketId,
     userId,
     ticketUserId,
     queueId,
@@ -62,6 +64,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     sendAt,
     contactId,
     companyId,
+    ticketId,
     userId,
     ticketUserId,
     queueId,
@@ -77,7 +80,15 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   });
 
   // Adiciona o trabalho na fila para o worker processar
-  add("ScheduledMessages", { id: schedule.id, companyId });
+  try {
+    await add("ScheduledMessages", { id: schedule.id, companyId });
+  } catch (error: any) {
+    logWarn("[ScheduleController] Schedule created but queue enqueue failed", {
+      scheduleId: schedule.id,
+      companyId,
+      error: error?.message || String(error)
+    });
+  }
 
   const io = getIO();
   io.of(String(companyId))
@@ -113,7 +124,15 @@ export const update = async (
   const schedule = await UpdateService({ scheduleData, id: scheduleId, companyId });
 
   // Adiciona o trabalho atualizado na fila para o worker processar
-  add("ScheduledMessages", { id: schedule.id, companyId });
+  try {
+    await add("ScheduledMessages", { id: schedule.id, companyId });
+  } catch (error: any) {
+    logWarn("[ScheduleController] Schedule updated but queue enqueue failed", {
+      scheduleId: schedule.id,
+      companyId,
+      error: error?.message || String(error)
+    });
+  }
 
   const io = getIO();
   io.of(String(companyId))

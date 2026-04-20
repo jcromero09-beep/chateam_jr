@@ -33,12 +33,30 @@ export interface EnrichmentRequest {
   contactInfo?: Record<string, unknown>;
 }
 
+/**
+ * Entidades temporales resueltas a fechas/horas absolutas.
+ * El enriquecedor transforma "mañana", "el lunes", "en una semana" en valores
+ * concretos para que el AppointmentAgent no tenga que inferir.
+ */
+export interface TemporalEntities {
+  /** Texto original del cliente (ej: "mañana", "el lunes a las 3") */
+  originalText?: string;
+  /** Fecha absoluta resuelta en formato YYYY-MM-DD (timezone del company) */
+  resolvedDate?: string;
+  /** Hora resuelta en formato HH:mm 24h, si se mencionó */
+  resolvedTime?: string;
+  /** Timezone usado para la resolución (IANA) */
+  timezone?: string;
+}
+
 export interface EnrichmentResult {
   // Clasificación (reemplaza RouterAgent)
   intent: IntentType;
   confidence: number;
   targetAgent: string;
   entities: Record<string, string>;
+  /** Entidades temporales resueltas (fechas/horas absolutas) */
+  temporalEntities?: TemporalEntities;
   urgency: "low" | "medium" | "high" | "critical";
 
   // Enriquecimiento
@@ -160,7 +178,9 @@ const mapIntentToAgent = (intent: string): string => {
 function buildEnrichmentPrompt(
   message: string,
   ticketHistory: Array<{ role: string; content: string }>,
-  contactInfo: Record<string, unknown>
+  contactInfo: Record<string, unknown>,
+  now: Date,
+  companyTimezone: string
 ): string {
   const historyText = ticketHistory.length > 0
     ? ticketHistory.slice(-6).map(m =>
@@ -175,8 +195,31 @@ function buildEnrichmentPrompt(
         .join(", ")
     : "(Sin datos del cliente)";
 
+  // 🆕 Bug C fix: contexto temporal del sistema para resolver términos relativos
+  // ("mañana", "el lunes", "hoy") a fechas absolutas en la zona horaria del company.
+  const nowInTz = now.toLocaleString("es-ES", {
+    timeZone: companyTimezone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  const todayIso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: companyTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now); // YYYY-MM-DD
+
   return `Eres un agente de preprocesamiento para un sistema de atención al cliente.
 Tu trabajo es analizar el mensaje del cliente con su contexto y generar un JSON de salida.
+
+## CONTEXTO TEMPORAL (usar para resolver términos relativos)
+- Fecha/hora actual (timezone empresa): ${nowInTz}
+- Hoy (YYYY-MM-DD): ${todayIso}
+- Timezone de la empresa: ${companyTimezone}
 
 ## ENTRADA
 - Mensaje del cliente: "${message}"
@@ -188,13 +231,18 @@ ${historyText}
 Responde SOLO con un JSON válido (sin markdown, sin backticks):
 
 {
-  "intencion_detectada": "cotizacion|soporte_tecnico|queja|seguimiento|informacion_general|product_info|sales_inquiry|rag_query|general",
+  "intencion_detectada": "cotizacion|soporte_tecnico|queja|seguimiento|informacion_general|product_info|sales_inquiry|rag_query|general|appointment_request",
   "confianza_intencion": 0.0 a 1.0,
   "query_enriquecido": "Oración completa que reformula lo que el cliente realmente quiere, usando el contexto del historial",
   "query_hipotetico_hyde": "2-3 oraciones simulando la RESPUESTA IDEAL que el agente daría. No inventes datos específicos como precios.",
   "queries_alternativos": ["variante con vocabulario técnico", "variante coloquial", "variante más amplia"],
   "keywords_extraidas": ["palabra1", "palabra2", "palabra3"],
-  "contexto_inferido": "Breve explicación de cómo interpretaste el mensaje"
+  "contexto_inferido": "Breve explicación de cómo interpretaste el mensaje",
+  "entidades_temporales": {
+    "texto_original": "string con lo que dijo el cliente sobre tiempo (ej: 'mañana', 'el lunes a las 3pm') o null si no mencionó nada",
+    "fecha_resuelta": "YYYY-MM-DD con la fecha absoluta que implica el mensaje, o null",
+    "hora_resuelta": "HH:mm 24h, o null si no mencionó hora"
+  }
 }
 
 ## REGLAS
@@ -202,7 +250,16 @@ Responde SOLO con un JSON válido (sin markdown, sin backticks):
 2. Para query_hipotetico_hyde, escribe como si fueras el agente respondiendo. NO inventes precios ni datos
 3. USA el historial para entender mensajes cortos ("si", "una moto", "auto")
 4. Si el mensaje es ambiguo (confianza < 0.5), indícalo en contexto_inferido
-5. keywords_extraidas deben incluir sinónimos relevantes`;
+5. keywords_extraidas deben incluir sinónimos relevantes
+6. entidades_temporales — REGLAS OBLIGATORIAS:
+   - Si el cliente dice "mañana" → fecha_resuelta = fecha de hoy + 1 día
+   - Si dice "hoy" → fecha_resuelta = hoy
+   - Si dice un día de semana ("el lunes", "viernes") → la PRÓXIMA ocurrencia de ese día (si hoy es lunes y dice "lunes", es el próximo lunes)
+   - Si da fecha explícita ("15 de abril") → usa esa fecha; si el año ya pasó, usa el próximo
+   - Si no hay referencia temporal → null todos los campos
+   - hora_resuelta: "3pm" → "15:00", "8 y media" → "08:30", "ocho de la mañana" → "08:00"
+   - NUNCA inventes una fecha si el cliente no la mencionó
+   - Usa SIEMPRE el timezone de la empresa para calcular`;
 }
 
 // ============================================================================
@@ -243,7 +300,23 @@ const enrich = async (request: EnrichmentRequest): Promise<EnrichmentResult> => 
   try {
     const { chatCompletion } = require("../AIClientService");
 
-    const prompt = buildEnrichmentPrompt(message, ticketHistory, contactInfo);
+    // 🆕 Bug C fix: cargar timezone del company para resolver términos relativos
+    let companyTimezone = "America/Lima"; // fallback razonable para mercado LATAM
+    try {
+      const Company = require("../../models/Company").default;
+      const company = await Company.findByPk(companyId, { attributes: ["timezone"] });
+      if (company?.timezone) companyTimezone = company.timezone;
+    } catch {
+      // silenciar — usar fallback
+    }
+
+    const prompt = buildEnrichmentPrompt(
+      message,
+      ticketHistory,
+      contactInfo,
+      new Date(),
+      companyTimezone
+    );
 
     const llmResponse = await chatCompletion({
       messages: [
@@ -271,11 +344,28 @@ const enrich = async (request: EnrichmentRequest): Promise<EnrichmentResult> => 
 
     const intent = (parsed.intencion_detectada || "general") as IntentType;
 
+    // 🆕 Bug C fix: parsear entidades temporales resueltas
+    let temporalEntities: TemporalEntities | undefined;
+    const rawTemporal = parsed.entidades_temporales;
+    if (rawTemporal && typeof rawTemporal === 'object') {
+      const hasSomething =
+        rawTemporal.texto_original || rawTemporal.fecha_resuelta || rawTemporal.hora_resuelta;
+      if (hasSomething) {
+        temporalEntities = {
+          originalText: rawTemporal.texto_original || undefined,
+          resolvedDate: rawTemporal.fecha_resuelta || undefined,
+          resolvedTime: rawTemporal.hora_resuelta || undefined,
+          timezone: companyTimezone
+        };
+      }
+    }
+
     result = {
       intent,
       confidence: parsed.confianza_intencion || 0.5,
       targetAgent: mapIntentToAgent(intent),
       entities: {},
+      temporalEntities,
       urgency: "medium",
       enrichedQuery: parsed.query_enriquecido || message,
       hydeQuery: parsed.query_hipotetico_hyde || "",
@@ -287,6 +377,16 @@ const enrich = async (request: EnrichmentRequest): Promise<EnrichmentResult> => 
       latencyMs: Date.now() - startTime,
       cacheHit: false
     };
+
+    if (temporalEntities) {
+      logger.info(
+        `${SERVICE_PREFIX} Entidades temporales: ` +
+        `originalText="${temporalEntities.originalText}", ` +
+        `resolvedDate=${temporalEntities.resolvedDate}, ` +
+        `resolvedTime=${temporalEntities.resolvedTime}, ` +
+        `tz=${temporalEntities.timezone}`
+      );
+    }
 
     logger.info(
       `${SERVICE_PREFIX} Enriquecido: intent=${result.intent}, confidence=${result.confidence}, ` +

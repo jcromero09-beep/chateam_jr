@@ -142,6 +142,8 @@ interface Ticket {
   whatsapp?: Whatsapp
   tags?: Tag[]
   messages: Message[]
+  messagesPageNumber?: number
+  messagesHasMore?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -197,13 +199,15 @@ export default function Tickets() {
   const [userFilter, setUserFilter] = useState<string>('')
   const [queueFilter, setQueueFilter] = useState<string>('')
   const [searchMessages, setSearchMessages] = useState(false)
-  const [users, setUsers] = useState<{ id: number; name: string }[]>([])
-  const [queues, setQueues] = useState<{ id: number; name: string }[]>([])
-  const [whatsapps, setWhatsapps] = useState<{ id: number; name: string }[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [queues, setQueues] = useState<Queue[]>([])
+  const [whatsapps, setWhatsapps] = useState<Whatsapp[]>([])
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [dragDropFiles] = useState<File[]>([])
   const [showFilters, setShowFilters] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const preserveMessageScrollRef = useRef(false)
 
   // ─── CREAR TICKET MANUAL ───
   const [showNewTicketModal, setShowNewTicketModal] = useState(false)
@@ -288,7 +292,12 @@ export default function Tickets() {
   const [pageNumber, setPageNumber] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false)
   const ticketsListRef = useRef<HTMLDivElement>(null)
+  const ticketsRef = useRef<Ticket[]>([])
+  const selectedTicketRef = useRef<Ticket | null>(null)
+  const fetchTicketsRef = useRef<(reset?: boolean, explicitPage?: number) => Promise<void>>(async () => {})
+  const ticketListRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ─── MENÚ DE ACCIONES ───
   const [messageActionMenu, setMessageActionMenu] = useState<{
@@ -305,6 +314,138 @@ export default function Tickets() {
   const [selectedContact, setSelectedContact] = useState<any | null>(null)
   const [searchingContacts, setSearchingContacts] = useState(false)
   const [transferring, setTransferring] = useState(false)
+
+  useEffect(() => {
+    ticketsRef.current = tickets
+  }, [tickets])
+
+  useEffect(() => {
+    selectedTicketRef.current = selectedTicket
+  }, [selectedTicket])
+
+  const getTicketTimestamp = useCallback((ticket?: Partial<Ticket> | null) => {
+    if (!ticket) return 0
+    const rawValue = ticket.updatedAt || ticket.createdAt
+    if (!rawValue) return 0
+
+    const parsedValue = new Date(rawValue).getTime()
+    return Number.isNaN(parsedValue) ? 0 : parsedValue
+  }, [])
+
+  const mergeTicketData = useCallback((
+    previousTicket: Ticket | null | undefined,
+    incomingTicket: Partial<Ticket> & { id: number }
+  ): Ticket => {
+    const fallbackDate = new Date().toISOString()
+    const baseTicket = (previousTicket ?? {
+      id: incomingTicket.id,
+      uuid: incomingTicket.uuid || '',
+      status: incomingTicket.status || 'pending',
+      unreadMessages: incomingTicket.unreadMessages ?? 0,
+      contactId: incomingTicket.contactId ?? incomingTicket.contact?.id ?? 0,
+      contact: (incomingTicket.contact ?? {
+        id: incomingTicket.contactId ?? 0,
+        name: '',
+        number: ''
+      }) as Contact,
+      messages: [],
+      createdAt: incomingTicket.createdAt || fallbackDate,
+      updatedAt: incomingTicket.updatedAt || incomingTicket.createdAt || fallbackDate
+    }) as Ticket
+
+    const mergedContact = incomingTicket.contact
+      ? ({
+          ...(baseTicket.contact || {}),
+          ...incomingTicket.contact,
+          tags: incomingTicket.contact.tags ?? baseTicket.contact?.tags
+        } as Contact)
+      : baseTicket.contact
+
+    return {
+      ...baseTicket,
+      ...incomingTicket,
+      contact: mergedContact,
+      user: incomingTicket.user ?? baseTicket.user,
+      queue: incomingTicket.queue ?? baseTicket.queue,
+      whatsapp: incomingTicket.whatsapp ?? baseTicket.whatsapp,
+      tags: incomingTicket.tags ?? baseTicket.tags,
+      messages: Array.isArray(incomingTicket.messages) ? incomingTicket.messages : baseTicket.messages || [],
+      messagesPageNumber: incomingTicket.messagesPageNumber ?? baseTicket.messagesPageNumber ?? 1,
+      messagesHasMore: incomingTicket.messagesHasMore ?? baseTicket.messagesHasMore ?? false,
+      createdAt: incomingTicket.createdAt ?? baseTicket.createdAt ?? fallbackDate,
+      updatedAt: incomingTicket.updatedAt ?? baseTicket.updatedAt ?? incomingTicket.createdAt ?? fallbackDate
+    }
+  }, [])
+
+  const normalizeTickets = useCallback((ticketList: Ticket[]) => {
+    const ticketMap = new Map<number, Ticket>()
+
+    ticketList.forEach(ticket => {
+      if (!ticket?.id) return
+
+      const previousTicket = ticketMap.get(ticket.id)
+      ticketMap.set(ticket.id, mergeTicketData(previousTicket, ticket))
+    })
+
+    return Array.from(ticketMap.values()).sort(
+      (leftTicket, rightTicket) => getTicketTimestamp(rightTicket) - getTicketTimestamp(leftTicket)
+    )
+  }, [getTicketTimestamp, mergeTicketData])
+
+  const shouldDisplayTicket = useCallback((ticket: Ticket) => {
+    if (statusFilter && statusFilter !== 'all') {
+      if (statusFilter === 'pending') {
+        if (!['pending', 'lgpd'].includes(ticket.status)) return false
+      } else if (ticket.status !== statusFilter) {
+        return false
+      }
+    }
+
+    if (whatsappFilter && ticket.whatsappId !== Number(whatsappFilter)) return false
+    if (userFilter && ticket.userId !== Number(userFilter)) return false
+    if (queueFilter && ticket.queueId !== Number(queueFilter)) return false
+
+    const ticketTimestamp = getTicketTimestamp(ticket)
+
+    if (startDate) {
+      const startTimestamp = new Date(`${startDate}T00:00:00`).getTime()
+      if (ticketTimestamp < startTimestamp) return false
+    }
+
+    if (endDate) {
+      const endTimestamp = new Date(`${endDate}T23:59:59.999`).getTime()
+      if (ticketTimestamp > endTimestamp) return false
+    }
+
+    if (!showAll && user?.id) {
+      if (statusFilter === 'open' && ticket.userId !== user.id) return false
+      if (statusFilter === 'pending' && ticket.userId !== undefined && ticket.userId !== null && ticket.userId !== user.id) return false
+      if (statusFilter === 'closed' && ticket.userId !== user.id) return false
+    }
+
+    return true
+  }, [endDate, getTicketTimestamp, queueFilter, showAll, startDate, statusFilter, user?.id, userFilter, whatsappFilter])
+
+  const upsertTicketInList = useCallback((ticketList: Ticket[], incomingTicket: Ticket) => {
+    const ticketIndex = ticketList.findIndex(ticket => ticket.id === incomingTicket.id)
+    const mergedTicket = mergeTicketData(ticketIndex >= 0 ? ticketList[ticketIndex] : null, incomingTicket)
+
+    if (!shouldDisplayTicket(mergedTicket)) {
+      return normalizeTickets(ticketList.filter(ticket => ticket.id !== incomingTicket.id))
+    }
+
+    if (ticketIndex >= 0) {
+      const nextTicketList = [...ticketList]
+      nextTicketList[ticketIndex] = mergedTicket
+      return normalizeTickets(nextTicketList)
+    }
+
+    return normalizeTickets([mergedTicket, ...ticketList])
+  }, [mergeTicketData, normalizeTickets, shouldDisplayTicket])
+
+  const removeTicketFromList = useCallback((ticketList: Ticket[], ticketId: number) => {
+    return normalizeTickets(ticketList.filter(ticket => ticket.id !== ticketId))
+  }, [normalizeTickets])
 
   // Buscar contactos para transferencia
   const handleSearchContact = async (query: string) => {
@@ -331,7 +472,15 @@ export default function Tickets() {
     if (!selectedTicket?.id || !selectedContact) return
     setTransferring(true)
     try {
-      await api.put(`/tickets/${selectedTicket.id}`, { newContactId: selectedContact.id })
+      const payload: { newContactId: number; userId?: number } = {
+        newContactId: selectedContact.id
+      }
+
+      if (user?.id) {
+        payload.userId = user.id
+      }
+
+      await api.put(`/tickets/${selectedTicket.id}`, payload)
       toast.success(`Ticket transferido a ${selectedContact.name}`)
       setShowTransferModal(false)
       setSelectedContact(null)
@@ -358,7 +507,7 @@ export default function Tickets() {
         limit: 0,
         pageNumber: 1,
         // Incluir todos los filtros activos para que el conteo sea preciso
-        ...(whatsappFilter && { whatsappIds: JSON.stringify([Number(whatsappFilter)]) }),
+        ...(whatsappFilter && { whatsapps: JSON.stringify([Number(whatsappFilter)]) }),
         ...(userFilter && { users: JSON.stringify([Number(userFilter)]) }),
         ...(queueFilter && { queueIds: JSON.stringify([Number(queueFilter)]) }),
         ...(startDate && { startDate }),
@@ -394,6 +543,24 @@ export default function Tickets() {
     }, 800)
   }, [fetchTicketCounts])
 
+  const scheduleTicketListRefresh = useCallback(() => {
+    if (ticketListRefreshTimeoutRef.current) {
+      clearTimeout(ticketListRefreshTimeoutRef.current)
+    }
+
+    ticketListRefreshTimeoutRef.current = setTimeout(() => {
+      void fetchTicketsRef.current(true)
+    }, 250)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (ticketListRefreshTimeoutRef.current) {
+        clearTimeout(ticketListRefreshTimeoutRef.current)
+      }
+    }
+  }, [])
+
   // Resetear paginación cuando cambian los filtros
   useEffect(() => {
     setPageNumber(1)
@@ -413,6 +580,7 @@ export default function Tickets() {
   }, [])
 
   useEffect(() => {
+    if (preserveMessageScrollRef.current) return
     scrollToBottom()
   }, [selectedTicket?.messages])
 
@@ -681,19 +849,20 @@ export default function Tickets() {
 
   // Socket event listeners for real-time updates
   useEffect(() => {
-    if (!user?.companyId) return
+    if (!user?.companyId || !user?.id) return
 
-    const socket = socketService.getSocket()
-    if (!socket) {
-      console.log('⚠️ Socket not available yet')
-      return
-    }
+    const socket = socketService.getSocket() ?? socketService.connect(user.companyId, user.id)
 
     const companyId = user.companyId
     const messageEvent = `company-${companyId}-appMessage`
     const ticketEvent = `company-${companyId}-ticket`
 
     console.log(`🔌 Setting up socket listeners for company ${companyId}`)
+
+    const refreshListAndCounts = () => {
+      scheduleTicketListRefresh()
+      debouncedFetchTicketCounts()
+    }
 
     // Handler for new/updated messages
     const handleAppMessage = (data: { action: string; message: Message & { ticketId: number; wid?: string } }) => {
@@ -714,7 +883,7 @@ export default function Tickets() {
 
         // Update messages in the ticket list
         setTickets(prevTickets =>
-          prevTickets.map(ticket => {
+          normalizeTickets(prevTickets.map(ticket => {
             if (ticket.id === data.message.ticketId) {
               const existingMsgIndex = findMsgIndex(ticket.messages)
               let updatedMessages: Message[]
@@ -740,7 +909,7 @@ export default function Tickets() {
               }
             }
             return ticket
-          })
+          }))
         )
 
         // Update selected ticket messages
@@ -775,10 +944,10 @@ export default function Tickets() {
 
         // Remover de tickets
         setTickets(prevTickets =>
-          prevTickets.map(ticket => ({
+          normalizeTickets(prevTickets.map(ticket => ({
             ...ticket,
             messages: ticket.messages.filter((m: Message) => m.id !== deletedId)
-          }))
+          })))
         )
 
         // Remover del ticket seleccionado
@@ -800,62 +969,107 @@ export default function Tickets() {
       }
     }
 
-    // Handler for ticket updates
-    const handleTicketUpdate = (data: { action: string; ticket: Ticket }) => {
-      console.log('🎫 Socket ticket event received:', data.action, data.ticket?.id)
-
-      if (data.action === 'update') {
-        let isNewTicket = false
-
-        setTickets(prevTickets => {
-          const exists = prevTickets.some(t => t.id === data.ticket.id)
-          if (exists) {
-            // Ticket existente — actualizar in-place
-            return prevTickets.map(t =>
-              t.id === data.ticket.id ? { ...t, ...data.ticket } : t
-            )
-          }
-          // Ticket nuevo (backend envió "update" en vez de "create") — agregarlo al inicio
-          isNewTicket = true
-          return [{ ...data.ticket, messages: data.ticket.messages || [] }, ...prevTickets]
+    const fetchTicketDetails = async (ticketId: number) => {
+      try {
+        const { data } = await api.get(`/tickets/${ticketId}`)
+        const detailedTicket = mergeTicketData(ticketsRef.current.find(ticket => ticket.id === ticketId), {
+          ...data,
+          messages: data.messages || [],
+          messagesPageNumber: data.messagesPageNumber || 1,
+          messagesHasMore: data.messagesHasMore ?? false
         })
 
+        setTickets(prevTickets => upsertTicketInList(prevTickets, detailedTicket))
+        setSelectedTicket(prevSelected => (
+          prevSelected && prevSelected.id === ticketId
+            ? mergeTicketData(prevSelected, detailedTicket)
+            : prevSelected
+        ))
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          setTickets(prevTickets => removeTicketFromList(prevTickets, ticketId))
+          setSelectedTicket(prevSelected => (prevSelected?.id === ticketId ? null : prevSelected))
+        } else {
+          console.error('Error fetching ticket details from socket event:', error)
+        }
+      }
+    }
+
+    // Handler for ticket updates
+    const handleTicketUpdate = (data: { action: string; ticket?: Ticket; ticketId?: number }) => {
+      console.log('🎫 Socket ticket event received:', data.action, data.ticket?.id || data.ticketId)
+
+      const incomingTicket = data.ticket
+      const incomingTicketId = incomingTicket?.id || data.ticketId
+
+      if (!incomingTicketId) return
+
+      if (data.action === 'update') {
+        if (!incomingTicket) {
+          refreshListAndCounts()
+          if (selectedTicketRef.current?.id === incomingTicketId) {
+            void fetchTicketDetails(incomingTicketId)
+          }
+          return
+        }
+
+        const existingTicket = ticketsRef.current.find(ticket => ticket.id === incomingTicketId)
+        const statusChanged = existingTicket ? existingTicket.status !== incomingTicket.status : false
+        const shouldAppearInCurrentList = shouldDisplayTicket(mergeTicketData(existingTicket, incomingTicket))
+
+        setTickets(prevTickets => upsertTicketInList(prevTickets, incomingTicket))
+
         setSelectedTicket(prevSelected => {
-          if (prevSelected && prevSelected.id === data.ticket.id) {
-            return { ...prevSelected, ...data.ticket }
+          if (prevSelected && prevSelected.id === incomingTicketId) {
+            return mergeTicketData(prevSelected, incomingTicket)
           }
           return prevSelected
         })
 
-        // Counter inmediato para tickets nuevos, debounced para updates regulares
-        if (isNewTicket) {
-          fetchTicketCounts()
-        } else {
-          debouncedFetchTicketCounts()
+        if (!existingTicket) {
+          if (shouldAppearInCurrentList) {
+            refreshListAndCounts()
+          } else {
+            debouncedFetchTicketCounts()
+          }
+          return
         }
       } else if (data.action === 'create') {
-        // New ticket - refresh the list
-        fetchTicketsRef.current(true)
-        fetchTicketCounts()
+        if (incomingTicket) {
+          setTickets(prevTickets => upsertTicketInList(prevTickets, incomingTicket))
+        }
+        refreshListAndCounts()
       } else if (data.action === 'delete') {
-        // Get ticketId from either data.ticket.id or data.ticketId
-        const ticketId = data.ticket?.id || (data as any).ticketId
-        if (ticketId) {
-          setTickets(prevTickets => prevTickets.filter(t => t.id !== ticketId))
-          setSelectedTicket(prevSelected => {
-            if (prevSelected && prevSelected.id === ticketId) {
-              return null
-            }
-            return prevSelected
-          })
+        setTickets(prevTickets => removeTicketFromList(prevTickets, incomingTicketId))
+        setSelectedTicket(prevSelected => (
+          prevSelected && prevSelected.id === incomingTicketId ? null : prevSelected
+        ))
+        refreshListAndCounts()
+      }
+
+      if (data.action === 'update' && incomingTicket) {
+        const existingTicket = ticketsRef.current.find(ticket => ticket.id === incomingTicketId)
+        const statusChanged = existingTicket ? existingTicket.status !== incomingTicket.status : false
+
+        if (statusChanged) {
+          refreshListAndCounts()
+        } else if (selectedTicketRef.current?.id === incomingTicketId && (!incomingTicket.contact || !incomingTicket.user || !incomingTicket.queue)) {
+          void fetchTicketDetails(incomingTicketId)
+        } else {
           debouncedFetchTicketCounts()
         }
       }
     }
 
+    const handleSocketConnect = () => {
+      console.log(`🔄 Socket reconnected for company ${companyId}, refreshing ticket list`)
+      refreshListAndCounts()
+    }
+
     // Register listeners
     socket.on(messageEvent, handleAppMessage)
     socket.on(ticketEvent, handleTicketUpdate)
+    socket.on('connect', handleSocketConnect)
 
     console.log(`✅ Socket listeners registered for ${messageEvent} and ${ticketEvent}`)
 
@@ -864,8 +1078,19 @@ export default function Tickets() {
       console.log(`🔌 Removing socket listeners for company ${companyId}`)
       socket.off(messageEvent, handleAppMessage)
       socket.off(ticketEvent, handleTicketUpdate)
+      socket.off('connect', handleSocketConnect)
     }
-  }, [user?.companyId, debouncedFetchTicketCounts])
+  }, [
+    user?.companyId,
+    user?.id,
+    debouncedFetchTicketCounts,
+    mergeTicketData,
+    normalizeTickets,
+    removeTicketFromList,
+    scheduleTicketListRefresh,
+    shouldDisplayTicket,
+    upsertTicketInList
+  ])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -930,7 +1155,12 @@ export default function Tickets() {
       if (data?.id) {
         const ticketResponse = await api.get(`/tickets/${data.id}`)
         if (ticketResponse.data) {
-          setSelectedTicket(ticketResponse.data)
+          setSelectedTicket({
+            ...ticketResponse.data,
+            messages: ticketResponse.data.messages || [],
+            messagesPageNumber: 1,
+            messagesHasMore: false
+          })
         }
       }
     } catch (error: any) {
@@ -959,7 +1189,7 @@ export default function Tickets() {
   const fetchTicketsAbortRef = useRef<AbortController | null>(null)
 
   // Función para cargar tickets con paginación
-  const fetchTickets = async (reset: boolean = false) => {
+  const fetchTickets = async (reset: boolean = false, explicitPage?: number) => {
     try {
       // Cancel previous request
       if (fetchTicketsAbortRef.current) {
@@ -969,7 +1199,11 @@ export default function Tickets() {
       const signal = fetchTicketsAbortRef.current.signal
 
       setLoading(true)
-      const currentPage = reset ? 1 : pageNumber
+      const currentPage = explicitPage ?? (reset ? 1 : pageNumber)
+
+      if (reset) {
+        setPageNumber(1)
+      }
 
       const params: any = {
         showAll: showAll ? 'true' : 'false',
@@ -984,7 +1218,7 @@ export default function Tickets() {
 
       if (startDate) params.startDate = startDate
       if (endDate) params.endDate = endDate
-      if (whatsappFilter) params.whatsappIds = JSON.stringify([Number(whatsappFilter)])
+      if (whatsappFilter) params.whatsapps = JSON.stringify([Number(whatsappFilter)])
       if (userFilter) params.users = JSON.stringify([Number(userFilter)])
       if (queueFilter) params.queueIds = JSON.stringify([Number(queueFilter)])
       if (searchMessages) params.searchOnMessages = 'true'
@@ -1007,19 +1241,32 @@ export default function Tickets() {
       const ticketsWithMessages = await Promise.all(
         ticketsData.map(async (ticket: Ticket) => {
           try {
-            const msgResponse = await api.get(`/messages/${ticket.id}`, { signal })
-            return { ...ticket, messages: msgResponse.data.messages || [] }
+            const msgResponse = await api.get(`/messages/${ticket.id}`, {
+              signal,
+              params: { pageNumber: 1 }
+            })
+            return {
+              ...ticket,
+              messages: msgResponse.data.messages || [],
+              messagesPageNumber: 1,
+              messagesHasMore: msgResponse.data.hasMore ?? false
+            }
           } catch {
-            return { ...ticket, messages: [] }
+            return {
+              ...ticket,
+              messages: [],
+              messagesPageNumber: 1,
+              messagesHasMore: false
+            }
           }
         })
       )
 
       // Si es reset, reemplazar; si no, agregar al final
       if (reset) {
-        setTickets(ticketsWithMessages)
+        setTickets(normalizeTickets(ticketsWithMessages))
       } else {
-        setTickets(prev => [...prev, ...ticketsWithMessages])
+        setTickets(prev => normalizeTickets([...prev, ...ticketsWithMessages]))
       }
 
       // Si venimos de Contactos, buscar y seleccionar el ticket del contacto
@@ -1049,15 +1296,15 @@ export default function Tickets() {
   }
 
   // Ref para acceder siempre a la versión más reciente de fetchTickets (evita stale closure en socket handlers)
-  const fetchTicketsRef = useRef(fetchTickets)
   useEffect(() => { fetchTicketsRef.current = fetchTickets })
 
   // Función para cargar más tickets (paginación infinita)
   const loadMoreTickets = async () => {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
-    setPageNumber(prev => prev + 1)
-    await fetchTickets(false)
+    const nextPage = pageNumber + 1
+    setPageNumber(nextPage)
+    await fetchTickets(false, nextPage)
     setLoadingMore(false)
   }
 
@@ -1097,6 +1344,80 @@ export default function Tickets() {
     }
   }
 
+  const handleSelectTicket = async (ticket: Ticket) => {
+    if (selectedTicket?.id === ticket.id) return
+
+    const nextTicket: Ticket = {
+      ...ticket,
+      messages: ticket.messages || [],
+      messagesPageNumber: ticket.messagesPageNumber || 1,
+      messagesHasMore: ticket.messagesHasMore ?? false
+    }
+
+    setSelectedTicket(nextTicket)
+  }
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!selectedTicket?.id || loadingMoreMessages) return
+    if (selectedTicket.messagesHasMore === false) return
+
+    const nextPage = (selectedTicket.messagesPageNumber || 1) + 1
+    const container = messagesContainerRef.current
+    const previousScrollHeight = container?.scrollHeight || 0
+    const previousScrollTop = container?.scrollTop || 0
+    const selectedTicketId = selectedTicket.id
+
+    setLoadingMoreMessages(true)
+    preserveMessageScrollRef.current = true
+
+    try {
+      const response = await api.get(`/messages/${selectedTicketId}`, {
+        params: { pageNumber: nextPage }
+      })
+
+      const olderMessages: Message[] = response.data.messages || []
+      const hasMoreData = response.data.hasMore ?? false
+
+      setSelectedTicket(prevSelected => {
+        if (!prevSelected || prevSelected.id !== selectedTicketId) return prevSelected
+
+        const existingIds = new Set(prevSelected.messages.map(message => message.id))
+        const dedupedOlderMessages = olderMessages.filter(message => !existingIds.has(message.id))
+
+        return {
+          ...prevSelected,
+          messages: [...dedupedOlderMessages, ...prevSelected.messages],
+          messagesPageNumber: nextPage,
+          messagesHasMore: hasMoreData
+        }
+      })
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (container) {
+            const newScrollHeight = container.scrollHeight
+            container.scrollTop = newScrollHeight - previousScrollHeight + previousScrollTop
+          }
+          preserveMessageScrollRef.current = false
+        })
+      })
+    } catch (error) {
+      console.error('Error loading older messages:', error)
+      preserveMessageScrollRef.current = false
+    } finally {
+      setLoadingMoreMessages(false)
+    }
+  }, [selectedTicket, loadingMoreMessages])
+
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container || loadingMoreMessages) return
+
+    if (container.scrollTop <= 80) {
+      loadOlderMessages()
+    }
+  }, [loadOlderMessages, loadingMoreMessages])
+
   const handleCloseTicket = async (ticketId?: number) => {
     const id = ticketId || selectedTicket?.id
     if (!id) return
@@ -1112,12 +1433,23 @@ export default function Tickets() {
   const handleAcceptTicket = async (ticket: Ticket) => {
     try {
       const newStatus = ticket.isGroup ? 'group' : 'open'
-      await api.put(`/tickets/${ticket.id}`, { status: newStatus })
+      const payload: { status: string; userId?: number } = { status: newStatus }
+
+      if (user?.id) {
+        payload.userId = user.id
+      }
+
+      await api.put(`/tickets/${ticket.id}`, payload)
       // Cambiar a la tab del nuevo estado
       setStatusFilter(newStatus)
       fetchTickets(true)
       fetchTicketCounts() // Actualizar contadores
-      setSelectedTicket({ ...ticket, status: newStatus })
+      setSelectedTicket({
+        ...ticket,
+        status: newStatus,
+        userId: user?.id || ticket.userId,
+        user: user?.id ? { id: user.id, name: user.name } : ticket.user
+      })
     } catch (error) {
       console.error('Error accepting ticket:', error)
     }
@@ -1145,6 +1477,46 @@ export default function Tickets() {
       ticket.contact?.number.includes(debouncedSearchTerm) ||
       ticket.lastMessage?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
   ), [tickets, debouncedSearchTerm])
+
+  const queueMap = useMemo(
+    () => new Map(queues.map(queue => [queue.id, queue])),
+    [queues]
+  )
+
+  const userMap = useMemo(
+    () => new Map(users.map(item => [item.id, item])),
+    [users]
+  )
+
+  const whatsappMap = useMemo(
+    () => new Map(whatsapps.map(item => [item.id, item])),
+    [whatsapps]
+  )
+
+  const getResolvedQueue = useCallback((ticket: Ticket) => {
+    if (ticket.queue?.name) return ticket.queue
+    if (!ticket.queueId) return null
+    const fallbackQueue = queueMap.get(ticket.queueId)
+    return fallbackQueue ? { ...fallbackQueue, color: fallbackQueue.color || '#64748B' } : null
+  }, [queueMap])
+
+  const getResolvedUser = useCallback((ticket: Ticket) => {
+    if (ticket.user?.name) return ticket.user
+    if (!ticket.userId) return null
+    return userMap.get(ticket.userId) || null
+  }, [userMap])
+
+  const getResolvedWhatsapp = useCallback((ticket: Ticket) => {
+    if (ticket.whatsapp?.name) return ticket.whatsapp
+    if (!ticket.whatsappId) return null
+    return whatsappMap.get(ticket.whatsappId) || null
+  }, [whatsappMap])
+
+  const getResolvedTags = useCallback((ticket: Ticket) => {
+    if (Array.isArray(ticket.tags) && ticket.tags.length > 0) return ticket.tags
+    if (Array.isArray(ticket.contact?.tags) && ticket.contact.tags.length > 0) return ticket.contact.tags
+    return []
+  }, [])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -1838,11 +2210,16 @@ export default function Tickets() {
                   }
                 }
 
+                const resolvedQueue = getResolvedQueue(ticket)
+                const resolvedUser = getResolvedUser(ticket)
+                const resolvedWhatsapp = getResolvedWhatsapp(ticket)
+                const resolvedTags = getResolvedTags(ticket)
+
                 return (
                   <ListItem key={ticket.id} sx={{ p: 0, mx: 1, my: 0.5 }}>
                     <ListItemButton
                       selected={selectedTicket?.id === ticket.id}
-                      onClick={() => setSelectedTicket(ticket)}
+                              onClick={() => handleSelectTicket(ticket)}
                       sx={{
                         py: 1.25,
                         px: 1.5,
@@ -1950,24 +2327,41 @@ export default function Tickets() {
                           {ticket.lastMessage || 'Sin mensajes'}
                         </Typography>
 
-                        {/* Linea 3: Cola + Usuario + Tags compactos + Botones accion */}
-                        <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" sx={{ mt: 0.5 }}>
-                          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ minWidth: 0, flex: 1 }}>
-                            {ticket.queue && (
+                        {/* Lineas 3 y 4: Conexion + Cola + Usuario + Tags + Botones accion */}
+                        <Stack spacing={0.5} sx={{ mt: 0.75 }}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ minWidth: 0 }}>
+                            {resolvedWhatsapp && (
+                              <Chip
+                                size="sm"
+                                variant="soft"
+                                sx={{
+                                  bgcolor: `${getChannelColor(ticket.channel || ticket.whatsapp?.channel)}22`,
+                                  color: getChannelColor(ticket.channel || ticket.whatsapp?.channel),
+                                  fontSize: '0.6rem',
+                                  fontWeight: 600,
+                                  height: 18,
+                                  px: 0.5,
+                                  maxWidth: '100%',
+                                }}
+                              >
+                                {resolvedWhatsapp.name}
+                              </Chip>
+                            )}
+                            {resolvedQueue && (
                               <Chip
                                 size="sm"
                                 sx={{
-                                  bgcolor: ticket.queue.color,
+                                  bgcolor: resolvedQueue.color,
                                   color: 'white',
                                   fontSize: '0.6rem',
                                   height: 18,
                                   px: 0.5,
                                 }}
                               >
-                                {ticket.queue.name}
+                                {resolvedQueue.name}
                               </Chip>
                             )}
-                            {ticket.user && (
+                            {resolvedUser && (
                               <Chip
                                 size="sm"
                                 variant="soft"
@@ -1977,53 +2371,73 @@ export default function Tickets() {
                                   px: 0.5,
                                 }}
                               >
-                                {ticket.user.name}
+                                {resolvedUser.name}
                               </Chip>
                             )}
-                            {ticket.tags && ticket.tags.length > 0 && ticket.tags.slice(0, 2).map((tag) => (
-                              <Chip
-                                key={tag.id}
-                                size="sm"
-                                sx={{
-                                  bgcolor: tag.color,
-                                  color: 'white',
-                                  fontSize: '0.55rem',
-                                  height: 16,
-                                  px: 0.5,
-                                  border: tag.kanban === 1 ? '1px solid rgba(255,255,255,0.5)' : 'none',
-                                }}
-                              >
-                                {tag.name}
-                              </Chip>
-                            ))}
                           </Stack>
-                          {/* Botones de accion - visibles en hover */}
-                          <Stack
-                            className="ticket-actions"
-                            direction="row"
-                            spacing={0.3}
-                            sx={{
-                              opacity: selectedTicket?.id === ticket.id ? 1 : 0,
-                              transition: 'opacity 0.15s ease',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {ticket.status === 'pending' && (
-                              <>
-                                <Tooltip title="Aceptar">
-                                  <IconButton
-                                    size="sm"
-                                    variant="soft"
-                                    color="success"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleAcceptTicket(ticket)
-                                    }}
-                                    sx={{ minWidth: 24, minHeight: 24 }}
-                                  >
-                                    <CheckIcon sx={{ fontSize: 14 }} />
-                                  </IconButton>
-                                </Tooltip>
+                          <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between">
+                            <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ minWidth: 0, flex: 1 }}>
+                              {resolvedTags.slice(0, 3).map((tag) => (
+                                <Chip
+                                  key={tag.id}
+                                  size="sm"
+                                  sx={{
+                                    bgcolor: tag.color,
+                                    color: 'white',
+                                    fontSize: '0.55rem',
+                                    height: 16,
+                                    px: 0.5,
+                                    border: tag.kanban === 1 ? '1px solid rgba(255,255,255,0.5)' : 'none',
+                                  }}
+                                >
+                                  {tag.name}
+                                </Chip>
+                              ))}
+                            </Stack>
+                            {/* Botones de accion - visibles en hover */}
+                            <Stack
+                              className="ticket-actions"
+                              direction="row"
+                              spacing={0.3}
+                              sx={{
+                                opacity: selectedTicket?.id === ticket.id ? 1 : 0,
+                                transition: 'opacity 0.15s ease',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {ticket.status === 'pending' && (
+                                <>
+                                  <Tooltip title="Aceptar">
+                                    <IconButton
+                                      size="sm"
+                                      variant="soft"
+                                      color="success"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleAcceptTicket(ticket)
+                                      }}
+                                      sx={{ minWidth: 24, minHeight: 24 }}
+                                    >
+                                      <CheckIcon sx={{ fontSize: 14 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Cerrar">
+                                    <IconButton
+                                      size="sm"
+                                      variant="soft"
+                                      color="danger"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleCloseTicket(ticket.id)
+                                      }}
+                                      sx={{ minWidth: 24, minHeight: 24 }}
+                                    >
+                                      <ClearIcon sx={{ fontSize: 14 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                </>
+                              )}
+                              {(ticket.status === 'open' || ticket.status === 'group') && (
                                 <Tooltip title="Cerrar">
                                   <IconButton
                                     size="sm"
@@ -2038,42 +2452,26 @@ export default function Tickets() {
                                     <ClearIcon sx={{ fontSize: 14 }} />
                                   </IconButton>
                                 </Tooltip>
-                              </>
-                            )}
-                            {(ticket.status === 'open' || ticket.status === 'group') && (
-                              <Tooltip title="Cerrar">
-                                <IconButton
-                                  size="sm"
-                                  variant="soft"
-                                  color="danger"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleCloseTicket(ticket.id)
-                                  }}
-                                  sx={{ minWidth: 24, minHeight: 24 }}
-                                >
-                                  <ClearIcon sx={{ fontSize: 14 }} />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                            {ticket.status === 'closed' && (
-                              <Tooltip title="Reabrir">
-                                <IconButton
-                                  size="sm"
-                                  variant="soft"
-                                  color="primary"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleReopenTicket(ticket)
-                                  }}
-                                  sx={{ minWidth: 24, minHeight: 24 }}
-                                >
-                                  <ReplayIcon sx={{ fontSize: 14 }} />
-                                </IconButton>
-                              </Tooltip>
+                              )}
+                              {ticket.status === 'closed' && (
+                                <Tooltip title="Reabrir">
+                                  <IconButton
+                                    size="sm"
+                                    variant="soft"
+                                    color="primary"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleReopenTicket(ticket)
+                                    }}
+                                    sx={{ minWidth: 24, minHeight: 24 }}
+                                  >
+                                    <ReplayIcon sx={{ fontSize: 14 }} />
+                                  </IconButton>
+                                </Tooltip>
                               )}
                             </Stack>
                           </Stack>
+                        </Stack>
                       </ListItemContent>
                     </ListItemButton>
                   </ListItem>
@@ -2578,6 +2976,8 @@ export default function Tickets() {
 
           {/* Messages */}
           <Box
+            ref={messagesContainerRef}
+            onScroll={handleMessagesScroll}
             sx={{
               flex: 1,
               minHeight: 0,
@@ -2592,6 +2992,13 @@ export default function Tickets() {
           >
             <FacebookBackground />
             <Stack spacing={0.5} sx={{ position: 'relative', zIndex: 1, marginTop: 'auto' }}>
+              {loadingMoreMessages && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                    Cargando mensajes anteriores...
+                  </Typography>
+                </Box>
+              )}
               {selectedTicket.messages.map((msg, index) => {
                 const isOwn = msg.fromMe
                 const prevMsg = index > 0 ? selectedTicket.messages[index - 1] : null
@@ -2698,58 +3105,6 @@ export default function Tickets() {
                                 position: 'relative',
                               }}
                             >
-                              {/* Media */}
-                              {msg.mediaUrl && !isMessageDeleted && (
-                                <Box sx={{ mb: 1 }}>
-                                  {msg.mediaType === 'image' && (
-                                    <Box
-                                      component="img"
-                                      src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
-                                      alt="Imagen"
-                                      sx={{ maxWidth: '100%', borderRadius: 1, cursor: 'pointer' }}
-                                      onClick={() => window.open(`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`, '_blank')}
-                                      onError={(e: any) => {
-                                        console.error('Error cargando imagen:', msg.mediaUrl)
-                                        e.currentTarget.style.display = 'none'
-                                      }}
-                                    />
-                                  )}
-                                  {msg.mediaType === 'video' && (
-                                    <Box component="video" controls
-                                      src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
-                                      sx={{ maxWidth: '100%', borderRadius: 1 }}
-                                    />
-                                  )}
-                                  {msg.mediaType === 'audio' && (
-                                    <Box component="audio" controls
-                                      src={`${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`}
-                                      sx={{ width: '100%' }}
-                                    />
-                                  )}
-                                  {msg.mediaType !== 'image' && msg.mediaType !== 'video' && msg.mediaType !== 'audio' && (
-                                    <Box
-                                      component="a"
-                                      href={`/company${user?.companyId}/${msg.mediaUrl}`}
-                                      target="_blank"
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1,
-                                        p: 1,
-                                        borderRadius: 1,
-                                        bgcolor: isOwn ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                                        color: 'inherit',
-                                        textDecoration: 'none',
-                                        '&:hover': { bgcolor: isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }
-                                      }}
-                                    >
-                                      <Box component="span" sx={{ fontSize: 20 }}>📎</Box>
-                                      <Typography level="body-sm">{msg.mediaUrl}</Typography>
-                                    </Box>
-                                  )}
-                                </Box>
-                              )}
-
                               {/* Body */}
                               {isMessageDeleted ? (
                                 <Stack direction="row" spacing={0.5} alignItems="center">
@@ -2760,7 +3115,12 @@ export default function Tickets() {
                                 </Stack>
                               ) : (
                                 <MessageContent
-                                  message={msg}
+                                  message={{
+                                    ...msg,
+                                    mediaUrl: msg.mediaUrl
+                                      ? `${BACKEND_URL}/public/company${user?.companyId}/${msg.mediaUrl}`
+                                      : msg.mediaUrl,
+                                  }}
                                   isDark={isDark}
                                   isOwn={isOwn}
                                   isGroup={selectedTicket?.isGroup}
@@ -2772,7 +3132,7 @@ export default function Tickets() {
                                     ?.filter((m) => m.mediaUrl && (m.mediaType?.toLowerCase().includes('image') || m.mediaType?.toLowerCase().includes('video')))
                                     .map((m) => ({
                                       id: m.id,
-                                      src: m.mediaUrl!,
+                                      src: `${BACKEND_URL}/public/company${user?.companyId}/${m.mediaUrl!}`,
                                       type: m.mediaType?.toLowerCase().includes('video') ? 'video' : 'image',
                                     })) || []
                                   }
@@ -2886,6 +3246,9 @@ export default function Tickets() {
             ticketChannel={selectedTicket.channel === 'tiktok' ? 'tiktok' : selectedTicket.isGroup ? 'group' : (selectedTicket.channel || 'whatsapp')}
             droppedFiles={dragDropFiles}
             contactId={selectedTicket.contact?.id}
+            contactName={selectedTicket.contact?.name}
+            contactNumber={selectedTicket.contact?.number}
+            whatsappId={selectedTicket.whatsappId}
             replyingTo={replyingTo || undefined}
             onCancelReply={() => setReplyingTo(null)}
             onSendMessage={(msg) => {

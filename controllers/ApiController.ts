@@ -384,7 +384,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     console.log(`📤 [API-META] Enviando mensaje via META Cloud API`);
 
     // Obtener Phone Number ID y Access Token
-    const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
+    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
     const accessToken = whatsapp.tokenMeta;
 
     if (!accessToken || !phoneNumberId) {
@@ -1524,7 +1524,8 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
   }
 
   // Obtener credenciales META
-  const phoneNumberId = sendWhatsapp.facebookPageUserId || sendWhatsapp.number;
+  // Prioridad: phoneNumberId (Meta Phone Number ID real) > facebookPageUserId > number (fallback legacy)
+  const phoneNumberId = sendWhatsapp.phoneNumberId || sendWhatsapp.facebookPageUserId || sendWhatsapp.number;
   const accessToken = sendWhatsapp.tokenMeta;
 
   if (!accessToken || !phoneNumberId) {
@@ -1978,7 +1979,7 @@ export const retryFailedMessage = async (req: Request, res: Response): Promise<R
     }
 
     // Reenviar el mensaje según el endpoint
-    const phoneNumberId = whatsapp.facebookPageUserId || whatsapp.number;
+    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
     const accessToken = whatsapp.tokenMeta;
 
     if (!accessToken || !phoneNumberId) {

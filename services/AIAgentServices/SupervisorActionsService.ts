@@ -306,7 +306,23 @@ class SupervisorActionsService {
         farewell: "referrer",
         "gracias": "referrer",
         "cancel": "referrer",
-        "no_interesado": "referrer"
+        "no_interesado": "referrer",
+
+        // 🆕 Appointments / Citas
+        // Solicitud de agendamiento → cliente considerando (consideration)
+        appointment_request: "consideration",
+        "agendar": "consideration",
+        "cita": "consideration",
+
+        // Cita confirmada → lead caliente (hot-lead)
+        appointment_confirmed: "hot-lead",
+        "confirmar_cita": "hot-lead",
+
+        // Cita completada → post-sale (seguimiento)
+        appointment_completed: "post-sale",
+
+        // Cita cancelada → referrer (cerrado)
+        appointment_cancelled: "referrer"
       };
 
       // Si es un agente de soporte, no clasificamos etapa

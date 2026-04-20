@@ -67,6 +67,13 @@ export default {
     filename(req, file, cb) {
       const { typeArch } = req.body;
 
+      // Para flowbuilder: usar timestamp.ext para evitar colisiones (archivos no ligados a un fileId)
+      if (typeArch === "flowbuilder") {
+        const extFromName = path.extname(file.originalname);
+        const ext = extFromName || '.' + (file.mimetype.split('/')[1] || 'bin');
+        return cb(null, new Date().getTime() + ext);
+      }
+
       const fileName = typeArch && typeArch !== "announcements" ? file.originalname.replace('/', '-').replace(/ /g, "_") : new Date().getTime() + '_' + file.originalname.replace('/', '-').replace(/ /g, "_");
       return cb(null, fileName);
     }

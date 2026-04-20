@@ -7,8 +7,8 @@ import {
   PrimaryKey,
   AutoIncrement,
   ForeignKey,
-  BelongsTo
-,
+  BelongsTo,
+  Default,
   DataType
 } from "sequelize-typescript";
 import Campaign from "./Campaign";
@@ -52,6 +52,20 @@ class CampaignShipping extends Model<CampaignShipping> {
 
   @Column(DataType.DATE)
   deliveredAt?: Date;
+
+  // ───── Métricas de intentos y fallos ─────
+  @Default(0)
+  @Column(DataType.INTEGER)
+  attemptCount: number;
+
+  @Column(DataType.DATE)
+  failedAt?: Date;
+
+  @Column(DataType.TEXT)
+  errorMessage?: string;
+
+  @Column(DataType.STRING(255))
+  metaMessageId?: string;
 
   @CreatedAt
   createdAt: Date;

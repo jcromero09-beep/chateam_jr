@@ -31,5 +31,7 @@ export interface Message {
   isForwarded?: boolean
   isPrivate?: boolean
   messageStatus?: 'pending' | 'sent' | 'failed' | 'deleted'
+  /** true cuando mediaType === 'ciphertext' — mensaje aun no descifrado */
+  isCiphertext?: boolean
   contact?: MessageContact
 }

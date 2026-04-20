@@ -19,6 +19,7 @@ import logger from "../../utils/logger";
 import SentimentDetectionService, { SentimentResult } from "./SentimentDetectionService";
 import PreprocessingService, { ProcessedMessage } from "./PreprocessingService";
 import DynamicPromptBuilder, { ContactContext, CompanyContext } from "./DynamicPromptBuilder";
+import ResponseGatekeeperService from "./ResponseGatekeeperService";
 
 /**
  * Supervisor Service — Orquestador central del sistema Multi-Agente
@@ -61,6 +62,15 @@ export interface SupervisorResponse {
   creditsDeducted: number;
   sentiment?: string; // positive | neutral | negative | frustrated
   metadata: Record<string, unknown>;
+  /**
+   * 🆕 Si es true, el consumidor (wbotMessageListener) NO debe enviar
+   * el mensaje al cliente. Usado cuando el ResponseGatekeeperService
+   * decide 'ignore' (ej: el cliente solo dijo "gracias" y no amerita
+   * respuesta del bot).
+   */
+  skipSend?: boolean;
+  /** Decisión cruda del gatekeeper para auditoría */
+  gatekeeperDecision?: 'send' | 'rewrite' | 'escalate' | 'ignore';
 }
 
 // ─── SALUDOS Y DESPEDIDAS PERSONALIZADOS ────────────────────────────────
@@ -126,9 +136,8 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   });
 
   try {
-    // 🆕 0. Verificar si hay contexto de cita activo (esperando confirmación)
-    // Si el usuario responde "sí", "ok", "dale" sin keywords de cita,
-    // necesitamos delegar al AppointmentAgent directamente
+    // 🆕 0a. Verificar si hay contexto de cita activo (esperando confirmación
+    // en flujo de agendamiento inicial — el cliente está eligiendo un slot)
     if (ticketId && !timedOut) {
       const appointmentContext = await AppointmentContextStore.get(ticketId);
       if (appointmentContext?.step === 'awaiting_confirmation') {
@@ -139,6 +148,67 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
           message, companyId, ticketId, contactId,
           { intent: 'appointment_request', targetAgent: 'appointment', confidence: 1.0 } as ClassificationResult,
           startTime, request
+        );
+      }
+    }
+
+    // 🆕 0b. Ventana post-recordatorio: si hay cita scheduled pendiente para
+    // este contacto, clasificamos la respuesta semánticamente (confirm/
+    // reschedule/cancel/ambiguous). Si el clasificador resuelve, retornamos;
+    // si es ambiguous, continuamos al flujo normal para que Sales/Support
+    // con tools decidan (opción b).
+    if (ticketId && contactId && !timedOut) {
+      try {
+        const Appointment = require("../../models/Appointments/Appointment").default;
+        const pending = await Appointment.findOne({
+          where: { contactId, companyId, status: 'scheduled' },
+          order: [["startTime", "ASC"]]
+        });
+
+        if (pending) {
+          logger.info(
+            `[Supervisor] Cita scheduled pendiente (ID=${pending.id}) detectada — ` +
+            `clasificando respuesta semánticamente antes del flujo normal`
+          );
+
+          const apptResp = await AppointmentAgentService.processAppointmentRequest(
+            message,
+            { companyId, ticketId, contactId }
+          );
+
+          if (apptResp.action !== 'none') {
+            // Clasificador resolvió con confianza suficiente → cortamos aquí
+            const intentMap: Record<string, string> = {
+              confirm: 'appointment_confirmed',
+              reschedule: 'appointment_request',
+              cancel: 'appointment_cancelled',
+              create: 'appointment_request',
+              list: 'appointment_list'
+            };
+            return {
+              message: apptResp.message,
+              intent: intentMap[apptResp.action] || 'appointment_request',
+              agentUsed: 'appointment',
+              confidence: apptResp.confidence,
+              shouldEscalate: false,
+              totalLatencyMs: Date.now() - startTime,
+              totalTokens: { input: 0, output: 0 },
+              creditsDeducted: 0,
+              metadata: {
+                appointmentAction: apptResp.action,
+                appointmentId: apptResp.appointmentId,
+                appointmentDetails: apptResp.appointmentDetails
+              }
+            } as SupervisorResponse;
+          }
+
+          logger.info(
+            `[Supervisor] Intent ambiguo con cita pendiente — continuando a flujo normal (Sales/Support con tools)`
+          );
+        }
+      } catch (preClassifyErr: any) {
+        logger.warn(
+          `[Supervisor] Error en pre-clasificación de cita pendiente: ${preClassifyErr.message} — continuando flujo normal`
         );
       }
     }
@@ -154,12 +224,31 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
       });
       enrichment = await Promise.race([enrichPromise, timeoutPromise]);
 
+      // 🆕 Bug C fix: propagar entidades temporales resueltas como strings
+      // dentro de `entities` para que AppointmentAgent pueda leerlas sin
+      // cambiar el contrato de ClassificationResult.
+      const baseEntities = { ...(enrichment.entities || {}) };
+      if (enrichment.temporalEntities) {
+        if (enrichment.temporalEntities.originalText) {
+          baseEntities.temporal_text = enrichment.temporalEntities.originalText;
+        }
+        if (enrichment.temporalEntities.resolvedDate) {
+          baseEntities.temporal_date = enrichment.temporalEntities.resolvedDate;
+        }
+        if (enrichment.temporalEntities.resolvedTime) {
+          baseEntities.temporal_time = enrichment.temporalEntities.resolvedTime;
+        }
+        if (enrichment.temporalEntities.timezone) {
+          baseEntities.temporal_tz = enrichment.temporalEntities.timezone;
+        }
+      }
+
       // Mapear EnrichmentResult a ClassificationResult (compatibilidad)
       classification = {
         intent: enrichment.intent,
         confidence: enrichment.confidence,
         targetAgent: enrichment.targetAgent,
-        entities: enrichment.entities || {},
+        entities: baseEntities,
         urgency: enrichment.urgency || "medium",
         language: enrichment.language || "es",
         modelUsed: enrichment.modelUsed,
@@ -240,17 +329,35 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   }
 
   // 2c. Buscar QuickReplies relevantes (para enviar media si tienen imagen)
-  // Usa la query enriquecida para mejor matching (ej: "el de carro" → "GPS para auto")
+  // ⚠️ GATE: en el PRIMER mensaje del ticket NO buscamos QuickReplies.
+  // Razón: el cliente aún no ha especificado qué necesita (tipo de vehículo,
+  // modalidad, etc.) y enviar una imagen ahora viola el protocolo del KB
+  // ("pregunta primero, recomienda después"). Además, como no se envía, el
+  // historial de "QuickReply ya enviado" no se contamina y puede mandarse
+  // correctamente en el siguiente turno cuando haya contexto.
+  // "Primer turno" = el bot aún no ha respondido en este ticket.
+  // OJO: request.ticketHistory incluye el mensaje actual del cliente (ya guardado
+  // en BD antes de llegar aquí), por eso .length nunca es 0. Lo correcto es
+  // verificar que no haya ningún mensaje del bot (role='assistant').
+  const history = Array.isArray(request.ticketHistory) ? request.ticketHistory : [];
+  const botHasResponded = history.some(m => m.role === "assistant");
+  const isFirstTurn = !botHasResponded;
+
   const queryForQuickReply = enrichment?.enrichedQuery || message;
   let matchedQuickReplies: Array<{ id: number; shortcode: string; message: string; mediaPath?: string; mediaName?: string; similarity: number }> = [];
-  try {
-    const QuickReplySemanticService = require("./QuickReplySemanticService").default;
-    matchedQuickReplies = await QuickReplySemanticService.findRelevant(queryForQuickReply, companyId);
-    if (matchedQuickReplies.length > 0) {
-      logger.info(`[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => `${q.shortcode}(${q.similarity.toFixed(2)})`).join(', ')}`);
+
+  if (isFirstTurn) {
+    logger.info(`[Supervisor] Primer turno del ticket → búsqueda de QuickReplies OMITIDA (evita enviar catálogo sin contexto)`);
+  } else {
+    try {
+      const QuickReplySemanticService = require("./QuickReplySemanticService").default;
+      matchedQuickReplies = await QuickReplySemanticService.findRelevant(queryForQuickReply, companyId);
+      if (matchedQuickReplies.length > 0) {
+        logger.info(`[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => `${q.shortcode}(${q.similarity.toFixed(2)})`).join(', ')}`);
+      }
+    } catch (qrError: any) {
+      logger.warn(`[Supervisor] Error buscando QuickReplies: ${qrError.message}`);
     }
-  } catch (qrError: any) {
-    logger.warn(`[Supervisor] Error buscando QuickReplies: ${qrError.message}`);
   }
 
   // Enriquecer request con el contexto unificado + datos de enriquecimiento
@@ -270,7 +377,13 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
 
   switch (classification.targetAgent) {
     case 'rag':
-      logger.info(`[Supervisor] → RAGAgent: query="${message.substring(0, 80)}...", company=${companyId}`);
+      // 🆕 Log explícito: literal para LLM final, enriched para búsqueda de chunks
+      logger.info(
+        `[Supervisor] → RAGAgent: ` +
+        `literalMsg="${message.substring(0, 60)}..." (usado por LLM final), ` +
+        `enrichedQuery="${(enrichment?.enrichedQuery || message).substring(0, 60)}..." (usado para búsqueda), ` +
+        `company=${companyId}`
+      );
       agentResponse = await handleRAGAgent(
         message, companyId, ticketId, contactId, classification, startTime, enrichedRequest
       );
@@ -419,9 +532,100 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     logger.info(`[Supervisor] QuickReply omitido: /${bestQuickReply.shortcode} (bot está preguntando, espera respuesta del cliente)`);
   }
 
+  // 🆕 7. RESPONSE GATEKEEPER (capa de reflexión antes del envío)
+  // Evalúa el borrador generado por el agente y decide:
+  //   - send: enviar tal cual
+  //   - rewrite: reescribir con datos reales (pisa agentResponse.message)
+  //   - escalate: forzar escalamiento a humano
+  //   - ignore: no enviar nada (skipSend=true)
+  //
+  // 🆕 FIX ticket 1099: el gatekeeper AHORA corre incluso si shouldEscalate=true.
+  // Antes se saltaba y eso permitió que RAG alucinara "cita confirmada" +
+  // escalara, y el mensaje mentiroso se envió al cliente sin filtro. El
+  // AvailabilityGuard + guardrail anti-mentira detectan esas alucinaciones.
+  //
+  // Se salta SOLO si:
+  //   - message está vacío (agente no produjo respuesta)
+  //   - agentUsed es 'router' (saludos/despedidas personalizados — no evaluar)
+  const shouldRunGatekeeper =
+    agentResponse.message &&
+    agentResponse.message.trim().length > 0 &&
+    agentResponse.agentUsed !== 'router';
+
+  if (shouldRunGatekeeper) {
+    try {
+      const recentHistory = (ticketHistory || []).slice(-5).map(m => ({
+        role: (m.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: m.content
+      }));
+
+      const gatekeeperResult = await ResponseGatekeeperService.evaluate({
+        clientMessage: message,
+        draftResponse: agentResponse.message,
+        recentHistory,
+        agentUsed: agentResponse.agentUsed,
+        intent: agentResponse.intent,
+        toolsUsed: (agentResponse.metadata?.toolsUsed as string[]) || [],
+        companyId,
+        // 🆕 Propagar fecha/hora resueltas por el enriquecedor para que
+        // el AvailabilityGuard no tenga que re-extraerlas con LLM.
+        resolvedDate: classification?.entities?.temporal_date,
+        resolvedTime: classification?.entities?.temporal_time,
+        // 🆕 ticket/contact para que el Guard persista contexto awaiting_confirmation
+        ticketId,
+        contactId
+      });
+
+      agentResponse.gatekeeperDecision = gatekeeperResult.decision;
+      agentResponse.metadata.gatekeeperReasoning = gatekeeperResult.reasoning;
+
+      switch (gatekeeperResult.decision) {
+        case 'rewrite':
+          if (gatekeeperResult.rewritten) {
+            logger.info(
+              `[Supervisor] Gatekeeper → rewrite. Draft reemplazado. ` +
+              `Motivo: ${gatekeeperResult.reasoning}`
+            );
+            agentResponse.message = gatekeeperResult.rewritten;
+          }
+          break;
+
+        case 'escalate':
+          logger.info(
+            `[Supervisor] Gatekeeper → escalate. ` +
+            `Motivo: ${gatekeeperResult.reasoning}`
+          );
+          agentResponse.shouldEscalate = true;
+          agentResponse.escalationReason =
+            agentResponse.escalationReason || `Gatekeeper: ${gatekeeperResult.reasoning}`;
+          break;
+
+        case 'ignore':
+          logger.info(
+            `[Supervisor] Gatekeeper → ignore (no enviar). ` +
+            `Motivo: ${gatekeeperResult.reasoning}`
+          );
+          agentResponse.skipSend = true;
+          break;
+
+        case 'send':
+        default:
+          // Enviar el borrador original, no hacer nada
+          break;
+      }
+    } catch (gkErr: any) {
+      // Fallo del gatekeeper NUNCA bloquea el envío de la respuesta
+      logger.warn(
+        `[Supervisor] Gatekeeper falló, enviando borrador original: ${gkErr.message}`
+      );
+    }
+  }
+
   logger.info(
     `[Supervisor] Completado: intent=${agentResponse.intent}, agent=${agentResponse.agentUsed}, ` +
     `confidence=${agentResponse.confidence.toFixed(2)}, escalate=${agentResponse.shouldEscalate}, ` +
+    `skipSend=${agentResponse.skipSend || false}, ` +
+    `gatekeeper=${agentResponse.gatekeeperDecision || 'n/a'}, ` +
     `quickRepliesWithMedia=${matchedQuickReplies.filter(q => q.mediaPath).length}, ` +
     `latency=${agentResponse.totalLatencyMs}ms`
   );
@@ -462,15 +666,27 @@ async function handleRAGAgent(
       }
     );
 
+    // Propagar flags del RAGAgent (fallback LLM, handoff textual)
+    const shouldEscalate =
+      ragResult.shouldEscalate === true ||
+      ragResult.isFallback === true ||
+      ragResult.confidence < 0.2;
+
+    const escalationReason =
+      ragResult.escalationReason ||
+      (ragResult.isFallback
+        ? "Fallback por error LLM — escalar a humano"
+        : ragResult.confidence < 0.2
+          ? "Confianza muy baja en respuesta RAG"
+          : undefined);
+
     return {
       message: ragResult.answer,
       intent: classification.intent,
       agentUsed: 'rag',
       confidence: ragResult.confidence,
-      shouldEscalate: ragResult.confidence < 0.2,
-      escalationReason: ragResult.confidence < 0.2
-        ? 'Confianza muy baja en respuesta RAG'
-        : undefined,
+      shouldEscalate,
+      escalationReason,
       sources: ragResult.sources.map(s => ({
         title: s.title,
         relevance: s.relevance
@@ -481,7 +697,8 @@ async function handleRAGAgent(
       metadata: {
         classification,
         searchResults: ragResult.searchResults,
-        cacheHit: ragResult.cacheHit
+        cacheHit: ragResult.cacheHit,
+        isFallback: ragResult.isFallback === true
       }
     };
   } catch (error: any) {
@@ -606,7 +823,26 @@ async function handleAgentWithTools(
     // Agregar instrucciones de tools al system prompt
     systemPrompt += `\n\nTienes acceso a herramientas para ejecutar acciones reales (agendar citas, consultar disponibilidad, enviar emails, etc.). ` +
       `Usa las herramientas cuando el cliente lo solicite o cuando sea apropiado. ` +
-      `IMPORTANTE: Cuando uses una herramienta, espera el resultado antes de responder al cliente.`;
+      `IMPORTANTE: Cuando uses una herramienta, espera el resultado antes de responder al cliente.
+
+## Protocolo de citas (OBLIGATORIO)
+Los "servicios" son TIPOS OPERATIVOS de cita (instalación, capacitación, soporte, etc.), NO productos en catálogo. No los listes al cliente como menú.
+
+Cuando el cliente responda a un mensaje de confirmación de cita:
+1. Si responde afirmativo ("sí", "confirmo", "ok", "de acuerdo", "perfecto"):
+   → Llama primero get_my_appointments para localizar la cita pendiente.
+   → Luego llama confirm_appointment con ese appointmentId.
+   → Esto dispara automáticamente el segundo mensaje de recordatorio; no debes enviarlo tú.
+
+2. Si pide cambio de fecha/hora ("puedes cambiarla", "para el viernes", "mejor a otra hora"):
+   → Llama get_my_appointments para obtener el appointmentId.
+   → Llama check_availability con la nueva fecha tentativa.
+   → Luego llama reschedule_appointment con appointmentId + newDate + newTime.
+
+3. Si pide cancelar ("no puedo", "cancela", "ya no"):
+   → Llama get_my_appointments + cancel_appointment.
+
+PROHIBIDO: confirmar, reagendar o cancelar respondiendo texto sin invocar la tool correspondiente. El cambio de estado en BD es lo que dispara los mensajes automáticos — si solo respondes texto, la cita queda sin confirmar y el seguimiento no se ejecuta.`;
 
     // 2. Construir mensajes con historial
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -876,12 +1112,16 @@ async function handleAppointmentAgent(
   try {
     logger.info(`[handleAppointmentAgent] Iniciando con mensaje: "${message.substring(0, 50)}..."`);
 
+    // 🆕 Bug C fix: propagar entidades temporales resueltas por el enriquecedor
     const appointmentResponse = await AppointmentAgentService.processAppointmentRequest(
       message,
       {
         companyId,
         ticketId,
-        contactId
+        contactId,
+        resolvedDate: classification.entities?.temporal_date,
+        resolvedTime: classification.entities?.temporal_time,
+        resolvedTimezone: classification.entities?.temporal_tz
       }
     );
 

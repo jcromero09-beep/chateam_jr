@@ -58,6 +58,18 @@ const CreateCompanyService = async (
     throw new AppError(err.message);
   }
 
+  // Validar email duplicado antes de abrir la transacción
+  if (email) {
+    const existingUser = await User.findOne({ where: { email } });
+    if (existingUser) {
+      throw new AppError("ERR_EMAIL_ALREADY_REGISTERED", 409);
+    }
+    const existingCompany = await Company.findOne({ where: { email } });
+    if (existingCompany) {
+      throw new AppError("ERR_COMPANY_EMAIL_ALREADY_REGISTERED", 409);
+    }
+  }
+
   const t = await sequelize.transaction();
 
   try {

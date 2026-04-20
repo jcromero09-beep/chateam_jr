@@ -51,10 +51,58 @@ const ListTicketsServiceKanban = async ({
   withUnreadMessages,
   companyId
 }: Request): Promise<Response> => {
+  const user = await ShowUserService(userId, companyId);
+  const showTicketAllQueues = user.allHistoric === "enabled" || (user.allHistoric as unknown) === true;
+  const showTicketWithoutQueue = user.allTicket === "enabled" || user.allTicket === "enable" || (user.allTicket as unknown) === true;
+  const showAllUserChat = user.allUserChat === "enabled" || (user.allUserChat as unknown) === true;
+  const isPrivilegedUser = user.profile === "admin" || user.profile === "super";
+  const requestedQueueIds = Array.isArray(queueIds) ? queueIds : [];
+  const userQueueIds = user.queues.map(queue => queue.id);
+  const hasQueueFilter = requestedQueueIds.length > 0;
+  const restrictedQueueIds = hasQueueFilter
+    ? intersection(userQueueIds, requestedQueueIds)
+    : userQueueIds;
+
+  const getQueueVisibilityCondition = ({
+    includeWithoutQueue = showTicketWithoutQueue,
+    allowAllQueues = false
+  }: {
+    includeWithoutQueue?: boolean;
+    allowAllQueues?: boolean;
+  } = {}) => {
+    const effectiveQueueIds = allowAllQueues ? requestedQueueIds : restrictedQueueIds;
+
+    if (allowAllQueues && !hasQueueFilter) {
+      return includeWithoutQueue ? undefined : { [Op.ne]: null };
+    }
+
+    if (effectiveQueueIds.length === 0) {
+      return includeWithoutQueue ? { [Op.is]: null } : { [Op.in]: [-1] };
+    }
+
+    if (includeWithoutQueue) {
+      return {
+        [Op.or]: [
+          { [Op.in]: effectiveQueueIds },
+          { [Op.is]: null }
+        ]
+      };
+    }
+
+    return { [Op.in]: effectiveQueueIds };
+  };
+
   let whereCondition: Filterable["where"] = {
     [Op.or]: [{ userId }, { status: "pending" }],
-    queueId: { [Op.or]: [queueIds, null] }
+    companyId
   };
+  const baseQueueCondition = getQueueVisibilityCondition();
+  if (baseQueueCondition !== undefined) {
+    whereCondition = {
+      ...whereCondition,
+      queueId: baseQueueCondition
+    };
+  }
   let includeCondition: Includeable[];
 
   includeCondition = [
@@ -85,8 +133,18 @@ const ListTicketsServiceKanban = async ({
     },
   ];
 
-  if (showAll === "true") {
-    whereCondition = { queueId: { [Op.or]: [queueIds, null] } };
+  if (showAll === "true" && (isPrivilegedUser || showAllUserChat)) {
+    const showAllQueueCondition = getQueueVisibilityCondition({
+      includeWithoutQueue: showTicketWithoutQueue,
+      allowAllQueues: showTicketAllQueues
+    });
+    whereCondition = { companyId };
+    if (showAllQueueCondition !== undefined) {
+      whereCondition = {
+        ...whereCondition,
+        queueId: showAllQueueCondition
+      };
+    }
   }
 
   whereCondition = {
@@ -157,14 +215,21 @@ const ListTicketsServiceKanban = async ({
   }
 
   if (withUnreadMessages === "true") {
-    const user = await ShowUserService(userId, companyId);
-    const userQueueIds = user.queues.map(queue => queue.id);
+    const unreadQueueCondition = getQueueVisibilityCondition({
+      includeWithoutQueue: showTicketWithoutQueue,
+      allowAllQueues: false
+    });
 
     whereCondition = {
       [Op.or]: [{ userId }, { status: "pending" }],
-      queueId: { [Op.or]: [userQueueIds, null] },
       unreadMessages: { [Op.gt]: 0 }
     };
+    if (unreadQueueCondition !== undefined) {
+      whereCondition = {
+        ...whereCondition,
+        queueId: unreadQueueCondition
+      };
+    }
   }
 
   if (Array.isArray(tags) && tags.length > 0) {

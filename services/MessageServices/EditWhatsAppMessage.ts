@@ -1,14 +1,15 @@
 import { WASocket, WAMessage } from "@whiskeysockets/baileys";
 import * as Sentry from "@sentry/node";
+import axios from "axios";
 import AppError from "../../errors/AppError";
-import GetTicketWbot from "../../helpers/GetTicketWbot";
-import GetWbotMessage from "../../helpers/GetWbotMessage";
+import { getWbot } from "../../libs/wbot";
+import { sessionRegistry } from "../../libs/sessionRegistry";
+import logger from "../../utils/logger";
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import Contact from "../../models/Contact";
 import Whatsapp from "../../models/Whatsapp";
 import MetaMessageEditService from "../MetaServices/MetaMessageEditService";
-import formatBody from "../../helpers/Mustache";
 
 interface Request {
   messageId: string;
@@ -83,15 +84,34 @@ const EditWhatsAppMessage = async ({
     return { ticket, message };
   }
 
-  // ─── Baileys: try edit real ───
+  // ─── Baileys: edit real con soporte multi-nodo ───
   try {
-    const wbot = await GetTicketWbot(ticket);
     const msg = JSON.parse(message.dataJson);
+    const messageKey = msg.key;
+    const remoteJid = message.remoteJid;
+    const whatsappId = ticket.whatsappId;
 
-    await (wbot as WASocket).sendMessage(message.remoteJid, {
-      text: body,
-      edit: msg.key,
-    }, {});
+    // Determinar si la sesión está en este nodo o en otro
+    const nodeInfo = await sessionRegistry.lookup(whatsappId);
+    const isLocal = !nodeInfo || nodeInfo.nodeId === sessionRegistry.getNodeId();
+
+    if (isLocal) {
+      // Sesión local: ejecutar directamente
+      const wbot = getWbot(whatsappId);
+      await (wbot as WASocket).sendMessage(remoteJid, {
+        text: body,
+        edit: messageKey,
+      }, {});
+      logger.info(`[EditWhatsAppMessage] Edit local exitoso para mensaje ${messageId}`);
+    } else {
+      // Sesión remota: HTTP directo al endpoint dedicado del nodo correcto
+      await axios.post(
+        `http://127.0.0.1:${nodeInfo.port}/internal/edit-message`,
+        { whatsappId, remoteJid, messageKey, newBody: body },
+        { timeout: 15000, headers: { "Content-Type": "application/json" } }
+      );
+      logger.info(`[EditWhatsAppMessage] Edit remoto exitoso via ${nodeInfo.nodeId}:${nodeInfo.port} para mensaje ${messageId}`);
+    }
 
     await message.update({ body, isEdited: true });
     await ticket.update({ lastMessage: body });
@@ -101,7 +121,7 @@ const EditWhatsAppMessage = async ({
     return { ticket, message };
   } catch (err) {
     Sentry.captureException(err);
-    console.error(err);
+    logger.error(`[EditWhatsAppMessage] Error editando mensaje ${messageId}: ${err}`);
     throw new AppError("ERR_EDITING_WAPP_MSG");
   }
 };

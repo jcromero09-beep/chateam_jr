@@ -46,6 +46,7 @@
     "@paypal/checkout-server-sdk": "^1.0.3",
     "@sentry/node": "^10.19.0",
     "@socket.io/admin-ui": "^0.5.1",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@supabase/supabase-js": "^2.90.1",
     "@types/crypto-js": "^4.2.2",
     "@types/fluent-ffmpeg": "^2.1.27",

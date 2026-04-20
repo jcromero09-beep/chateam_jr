@@ -2,10 +2,12 @@ import AppError from "../../errors/AppError";
 import Chatbot from "../../models/Chatbot";
 import Queue from "../../models/Queue";
 import User from "../../models/User";
+import { Transaction } from "sequelize";
 
 const ShowQueueService = async (
   queueId: number | string,
-  companyId: number
+  companyId: number,
+  transaction?: Transaction
 ): Promise<Queue> => {
   const queue = await Queue.findOne({
     where: {
@@ -23,6 +25,7 @@ const ShowQueueService = async (
       ]
     }
   ],
+    transaction,
     order: [
       [{ model: Chatbot, as: "chatbots" }, "id", "asc"],
       ["id", "ASC"]

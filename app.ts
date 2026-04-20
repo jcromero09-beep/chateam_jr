@@ -103,18 +103,43 @@ if (process.env.NODE_ENV === 'production') {
 app.use(routes);
 
 // Global error handler
-app.use(async (err: Error, req: Request, res: Response, _: NextFunction) => {
-  if (err instanceof AppError) {
+app.use(async (err: any, req: Request, res: Response, _: NextFunction) => {
+  // Manejo específico: constraint UNIQUE en Sequelize → 409
+  if (err?.name === "SequelizeUniqueConstraintError") {
+    const fields = err.fields ? Object.keys(err.fields).join(", ") : "campo único";
+    logger.warn(`UniqueConstraint violation on ${fields}`);
+    return res.status(409).json({
+      error: `ERR_DUPLICATE_${fields.toUpperCase()}`,
+      message: `El valor ya existe: ${fields}`,
+      fields: err.fields || {}
+    });
+  }
+
+  // Errores de validación Sequelize → 400
+  if (err?.name === "SequelizeValidationError") {
+    logger.warn(err);
+    return res.status(400).json({
+      error: "ERR_VALIDATION",
+      message: err.message,
+      errors: err.errors?.map((e: any) => ({ field: e.path, message: e.message }))
+    });
+  }
+
+  if (err instanceof AppError || err?.name === "AppError") {
     logger.warn(err);
     // Incluir detalles de Meta si existen
     const response: any = {
       error: err.message,
       message: err.message
     };
-    if (err.metaError) {
-      response.metaError = err.metaError;
+    if ((err as any).metaError) {
+      response.metaError = (err as any).metaError;
     }
-    return res.status(err.statusCode).json(response);
+    // Blindaje: statusCode debe ser un entero válido (100-599)
+    const raw = (err as any).statusCode;
+    const status =
+      Number.isInteger(raw) && raw >= 100 && raw <= 599 ? raw : 500;
+    return res.status(status).json(response);
   }
 
   logger.error(err);

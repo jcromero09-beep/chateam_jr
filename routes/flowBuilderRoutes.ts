@@ -1,7 +1,7 @@
 import express from "express";
 import isAuth from "../middleware/isAuth";
 import multer from "multer";
-import uploadConfig from "../config/uploadExt";
+import uploadConfig from "../config/upload";
 
 import * as FlowBuilderController from "../controllers/FlowBuilderController";
 

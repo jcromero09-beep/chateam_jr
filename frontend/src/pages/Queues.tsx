@@ -43,6 +43,50 @@ interface Queue {
   createdAt: string
 }
 
+interface QueueApiError {
+  response?: {
+    data?: {
+      message?: string
+      error?: string
+      errors?: Array<{ message?: string } | string>
+    }
+  }
+  message?: string
+}
+
+const getQueueErrorMessage = (error: unknown, fallback: string): string => {
+  const apiError = error as QueueApiError
+  const responseData = apiError?.response?.data
+
+  if (typeof responseData?.message === 'string' && responseData.message.trim()) {
+    return responseData.message
+  }
+
+  if (typeof responseData?.error === 'string' && responseData.error.trim()) {
+    return responseData.error
+  }
+
+  const firstNestedError = responseData?.errors?.[0]
+  if (typeof firstNestedError === 'string' && firstNestedError.trim()) {
+    return firstNestedError
+  }
+
+  if (
+    firstNestedError &&
+    typeof firstNestedError === 'object' &&
+    typeof firstNestedError.message === 'string' &&
+    firstNestedError.message.trim()
+  ) {
+    return firstNestedError.message
+  }
+
+  if (typeof apiError?.message === 'string' && apiError.message.trim()) {
+    return apiError.message
+  }
+
+  return fallback
+}
+
 export default function Queues() {
   const [queues, setQueues] = useState<Queue[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,35 +113,8 @@ export default function Queues() {
       setQueues(response.data.queues || response.data)
     } catch (error) {
       console.error('Error fetching queues:', error)
-      setQueues([
-        {
-          id: 1,
-          name: 'Soporte Técnico',
-          color: '#3b82f6',
-          greetingMessage: 'Bienvenido al soporte técnico',
-          isActive: true,
-          orderQueue: 1,
-          createdAt: '2025-01-01T00:00:00',
-        },
-        {
-          id: 2,
-          name: 'Ventas',
-          color: '#10b981',
-          greetingMessage: 'Bienvenido al departamento de ventas',
-          isActive: true,
-          orderQueue: 2,
-          createdAt: '2025-01-02T00:00:00',
-        },
-        {
-          id: 3,
-          name: 'Facturación',
-          color: '#f59e0b',
-          greetingMessage: 'Bienvenido a facturación',
-          isActive: false,
-          orderQueue: 3,
-          createdAt: '2025-01-03T00:00:00',
-        },
-      ])
+      setQueues([])
+      toast.error(getQueueErrorMessage(error, 'Error al cargar las colas'))
     } finally {
       setLoading(false)
     }
@@ -106,13 +123,12 @@ export default function Queues() {
   const handleCreate = async () => {
     try {
       await api.post('/queue', formData)
-      fetchQueues()
+      await fetchQueues()
       setOpenModal(false)
       resetForm()
     } catch (error: any) {
       console.error('Error creating queue:', error)
-      const msg = error.response?.data?.message || error.response?.data?.error || 'Error al crear la cola'
-      toast.error(msg)
+      toast.error(getQueueErrorMessage(error, 'Error al crear la cola'))
     }
   }
 
@@ -120,13 +136,12 @@ export default function Queues() {
     if (!selectedQueue) return
     try {
       await api.put(`/queue/${selectedQueue.id}`, formData)
-      fetchQueues()
+      await fetchQueues()
       setOpenModal(false)
       resetForm()
     } catch (error: any) {
       console.error('Error updating queue:', error)
-      const msg = error.response?.data?.message || error.response?.data?.error || 'Error al actualizar la cola'
-      toast.error(msg)
+      toast.error(getQueueErrorMessage(error, 'Error al actualizar la cola'))
     }
   }
 
@@ -134,11 +149,10 @@ export default function Queues() {
     if (confirm('¿Estás seguro de eliminar esta cola?')) {
       try {
         await api.delete(`/queue/${queueId}`)
-        fetchQueues()
+        await fetchQueues()
       } catch (error: any) {
         console.error('Error deleting queue:', error)
-        const msg = error.response?.data?.message || error.response?.data?.error || 'Error al eliminar la cola'
-        toast.error(msg)
+        toast.error(getQueueErrorMessage(error, 'Error al eliminar la cola'))
       }
     }
   }
@@ -395,7 +409,10 @@ export default function Queues() {
                   type="number"
                   value={formData.orderQueue}
                   onChange={(e) =>
-                    setFormData({ ...formData, orderQueue: parseInt(e.target.value) })
+                    setFormData({
+                      ...formData,
+                      orderQueue: e.target.value === '' ? 0 : Number(e.target.value),
+                    })
                   }
                 />
               </FormControl>

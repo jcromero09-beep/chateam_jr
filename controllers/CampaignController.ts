@@ -15,7 +15,6 @@ import FindService from "../services/CampaignService/FindService";
 import Campaign from "../models/Campaign";
 
 import ContactTag from "../models/ContactTag";
-import Ticket from "../models/Ticket";
 import Contact from "../models/Contact";
 import ContactList from "../models/ContactList";
 import ContactListItem from "../models/ContactListItem";
@@ -24,6 +23,7 @@ import AppError from "../errors/AppError";
 import { CancelService } from "../services/CampaignService/CancelService";
 import { RestartService } from "../services/CampaignService/RestartService";
 import { add } from "../queues";
+import logger from "../utils/logger";
 
 type IndexQuery = {
   searchParam: string;
@@ -33,29 +33,43 @@ type IndexQuery = {
 
 type StoreData = {
   name: string;
-  status: string;
-  confirmation: boolean;
-  scheduledAt: string;
-  companyId: number;
-  contactListId: number;
-  tagListId: number | string;
-  userId: number | string;
-  queueId: number | string;
-  statusTicket: string;
-  openTicket: string;
+  status?: string;
+  confirmation?: boolean;
+  scheduledAt?: string | null;
+  companyId?: number;
+  contactListId?: number | null;
+  tagListId?: number | string | null;
+  whatsappId?: number | null;
+  userId?: number | string | null;
+  queueId?: number | string | null;
+  statusTicket?: string;
+  openTicket?: string;
+  message1?: string;
+  message2?: string;
+  message3?: string;
+  message4?: string;
+  message5?: string;
+  confirmationMessage1?: string;
+  confirmationMessage2?: string;
+  confirmationMessage3?: string;
+  confirmationMessage4?: string;
+  confirmationMessage5?: string;
   // ========================================
-  // CAMPOS NUEVOS PARA PLANTILLAS META
+  // CAMPOS PARA PLANTILLAS META
   // ========================================
-  useTemplate: boolean;
-  whastsAppTemplateId: number | null;
-  templateParams: Record<string, string>;
+  useTemplate?: boolean;
+  whastsAppTemplateId?: number | null;
+  templateParams?: Record<string, string>;
 };
 
 type FindParams = {
   companyId: string;
 };
 
-export const index = async (req: Request, res: Response): Promise<Response> => {
+export const index = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
   const { searchParam, pageNumber } = req.query as IndexQuery;
   const { companyId } = req.user;
 
@@ -68,7 +82,10 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   return res.json({ records, count, hasMore });
 };
 
-export const store = async (req: Request, res: Response): Promise<Response> => {
+export const store = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
   const { companyId } = req.user;
   const data = req.body as StoreData;
 
@@ -82,106 +99,136 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     throw new AppError(err.message);
   }
 
-  if (typeof data.tagListId === 'number') {
+  // Si viene tagListId como número, genera ContactList dinámicamente
+  if (typeof data.tagListId === "number") {
     const tagId = data.tagListId;
     const campanhaNome = data.name;
 
-    async function createContactListFromTag(tagId) {
+    const createContactListFromTag = async (tagIdParam: number): Promise<number> => {
       const currentDate = new Date();
       const formattedDate = currentDate.toISOString();
 
-      try {
-        const contactTags = await ContactTag.findAll({ where: { tagId } });
-        const contactIds = contactTags.map((contactTag) => contactTag.contactId);
+      const contactTags = await ContactTag.findAll({ where: { tagId: tagIdParam } });
+      const contactIds = contactTags.map(ct => ct.contactId);
 
-        const contacts = await Contact.findAll({ where: { id: contactIds } });
+      const contacts = await Contact.findAll({ where: { id: contactIds } });
 
-        const randomName = `${campanhaNome} | TAG: ${tagId} - ${formattedDate}`;
-        const contactList = await ContactList.create({ name: randomName, companyId: companyId });
+      const randomName = `${campanhaNome} | TAG: ${tagIdParam} - ${formattedDate}`;
+      const contactList = await ContactList.create({
+        name: randomName,
+        companyId
+      } as any);
 
-        const { id: contactListId } = contactList;
+      const { id: contactListId } = contactList;
 
-        const contactListItems = contacts.map((contact) => ({
-          name: contact.name,
-          number: contact.number,
-          email: contact.email,
-          contactListId,
-          companyId,
-          isWhatsappValid: true,
-          isGroup: contact.isGroup
-        }));
+      const contactListItems = contacts.map(contact => ({
+        name: contact.name,
+        number: contact.number,
+        email: contact.email,
+        contactListId,
+        companyId,
+        isWhatsappValid: true,
+        isGroup: contact.isGroup
+      }));
 
-        await ContactListItem.bulkCreate(contactListItems);
+      await ContactListItem.bulkCreate(contactListItems as any);
 
-        return contactListId;
-      } catch (error) {
-        console.error('Error creating contact list:', error);
-        throw error;
-      }
-    }
+      return contactListId;
+    };
 
     try {
       const contactListId = await createContactListFromTag(tagId);
-      
+
       const record = await CreateService({
         ...data,
         companyId,
-        contactListId: contactListId,
+        contactListId
       });
 
       const io = getIO();
-      io.of(String(companyId))
-        .emit(`company-${companyId}-campaign`, {
-          action: "create",
-          record
-        });
-
-      // ✅ NUEVA LÓGICA: Solo guardar en BD, el worker se encarga del resto
-      if (record.status === "EM_ANDAMENTO") {
-        console.log(`🗃️ [BACKEND] Campaña EM_ANDAMENTO ID=${record.id} guardada en BD - Worker la procesará automáticamente`);
-      } else if (record.status === "PROGRAMADA") {
-        console.log(`📅 [BACKEND] Campaña PROGRAMADA ID=${record.id} para ${record.scheduledAt} - Worker la procesará cuando llegue la hora`);
-      } else {
-        console.log(`💾 [BACKEND] Campaña ID=${record.id} guardada con status: ${record.status}`);
-      }
-
-      return res.status(200).json(record);
-      
-    } catch (error) {
-      console.error('Error:', error);
-      return res.status(500).json({ error: 'Error creating contact list' });
-    }
-
-  } else {
-    // SAI DO CHECK DE TAG
-    const record = await CreateService({
-      ...data,
-      companyId
-    });
-
-    const io = getIO();
-    io.of(String(companyId))
-      .emit(`company-${companyId}-campaign`, {
+      io.of(String(companyId)).emit(`company-${companyId}-campaign`, {
         action: "create",
         record
       });
 
-    // ✅ NUEVA LÓGICA: Solo guardar en BD, el worker se encarga del resto
-    if (record.status === "EM_ANDAMENTO") {
-      console.log(`🗃️ [BACKEND] Campaña EM_ANDAMENTO ID=${record.id} guardada en BD - Worker la procesará automáticamente`);
-    } else if (record.status === "PROGRAMADA") {
-      console.log(`📅 [BACKEND] Campaña PROGRAMADA ID=${record.id} para ${record.scheduledAt} - Worker la procesará cuando llegue la hora`);
-    } else {
-      console.log(`💾 [BACKEND] Campaña ID=${record.id} guardada con status: ${record.status}`);
+      if (record.status === "EM_ANDAMENTO") {
+        logger.info(
+          { campaignId: record.id, companyId },
+          "[CampaignStore] EM_ANDAMENTO guardada; worker la procesará"
+        );
+      } else if (record.status === "PROGRAMADA") {
+        logger.info(
+          {
+            campaignId: record.id,
+            companyId,
+            scheduledAt: record.scheduledAt
+          },
+          "[CampaignStore] PROGRAMADA guardada; worker la procesará en tiempo"
+        );
+      } else {
+        logger.info(
+          { campaignId: record.id, companyId, status: record.status },
+          "[CampaignStore] Campaña guardada"
+        );
+      }
+
+      return res.status(200).json(record);
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
+      logger.error(
+        { err: err?.message, companyId },
+        "[CampaignStore] Error creando campaña desde tagListId"
+      );
+      throw new AppError(
+        err?.message || "Error creando campaña desde etiqueta",
+        500
+      );
     }
-
-    return res.status(200).json(record);
   }
-};
-export const show = async (req: Request, res: Response): Promise<Response> => {
-  const { id } = req.params;
 
-  const record = await ShowService(id);
+  const record = await CreateService({
+    ...data,
+    companyId
+  });
+
+  const io = getIO();
+  io.of(String(companyId)).emit(`company-${companyId}-campaign`, {
+    action: "create",
+    record
+  });
+
+  if (record.status === "EM_ANDAMENTO") {
+    logger.info(
+      { campaignId: record.id, companyId },
+      "[CampaignStore] EM_ANDAMENTO guardada; worker la procesará"
+    );
+  } else if (record.status === "PROGRAMADA") {
+    logger.info(
+      {
+        campaignId: record.id,
+        companyId,
+        scheduledAt: record.scheduledAt
+      },
+      "[CampaignStore] PROGRAMADA guardada; worker la procesará en tiempo"
+    );
+  } else {
+    logger.info(
+      { campaignId: record.id, companyId, status: record.status },
+      "[CampaignStore] Campaña guardada"
+    );
+  }
+
+  return res.status(200).json(record);
+};
+
+export const show = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { id } = req.params;
+  const { companyId } = req.user;
+
+  const record = await ShowService(id, companyId);
 
   return res.status(200).json(record);
 };
@@ -191,40 +238,44 @@ export const update = async (
   res: Response
 ): Promise<Response> => {
   const data = req.body as StoreData;
-
   const { companyId } = req.user;
-
-  const schema = Yup.object().shape({
-    name: Yup.string().required()
-  });
-
-  try {
-    await schema.validate(data);
-  } catch (err: any) {
-    throw new AppError(err.message);
-  }
-
   const { id } = req.params;
 
+  // Validación mínima de nombre si viene (el service refuerza mínimos)
+  if (typeof data.name === "string") {
+    const schema = Yup.object().shape({
+      name: Yup.string().min(3)
+    });
+    try {
+      await schema.validate({ name: data.name });
+    } catch (err: any) {
+      throw new AppError(err.message);
+    }
+  }
+
   const record = await UpdateService({
-    ...data,
-    id
+    id,
+    data,
+    companyId
   });
 
   const io = getIO();
-  io.of(String(companyId))
-    .emit(`company-${companyId}-campaign`, {
-      action: "update",
-      record
-    });
+  io.of(String(companyId)).emit(`company-${companyId}-campaign`, {
+    action: "update",
+    record
+  });
 
-  // Se a campanha for atualizada para "EM_ANDAMENTO", adiciona na fila do worker
   if (record.status === "EM_ANDAMENTO") {
-    console.log(`📤 [BACKEND] UPDATE - Campaña con status EM_ANDAMENTO - enviando al WORKER`);
+    logger.info(
+      { campaignId: record.id, companyId },
+      "[CampaignUpdate] EM_ANDAMENTO: encolando en worker"
+    );
     add("CampaignQueue", { id: record.id, companyId });
-    console.log(`✅ [BACKEND] UPDATE - Campaña ID=${record.id} enviada exitosamente al WORKER`);
   } else {
-    console.log(`⏸️ [BACKEND] UPDATE - Campaña ID=${record.id} actualizada pero NO enviada (status: ${record.status})`);
+    logger.info(
+      { campaignId: record.id, companyId, status: record.status },
+      "[CampaignUpdate] Actualizada sin encolar"
+    );
   }
 
   return res.status(200).json(record);
@@ -247,13 +298,14 @@ export const restart = async (
 ): Promise<Response> => {
   const { id } = req.params;
   const { companyId } = req.user;
- 
-  const campaign = await RestartService(+id);
 
-  // Adiciona a campanha reiniciada na fila do worker
-  console.log(`🔄 [BACKEND] RESTART - Enviando campaña reiniciada al WORKER`);
-  add("CampaignQueue", { id: id, companyId });
-  console.log(`✅ [BACKEND] RESTART - Campaña ID=${id} enviada exitosamente al WORKER`);
+  await RestartService(+id);
+
+  logger.info(
+    { campaignId: id, companyId },
+    "[CampaignRestart] Reiniciando y encolando en worker"
+  );
+  add("CampaignQueue", { id, companyId });
 
   return res.status(204).json({ message: "Reinício dos disparos" });
 };
@@ -265,16 +317,15 @@ export const remove = async (
   const { id } = req.params;
   const { companyId } = req.user;
 
-  await DeleteService(id);
+  await DeleteService(id, companyId);
 
   const io = getIO();
-  io.of(String(companyId))
-    .emit(`company-${companyId}-campaign`, {
-      action: "delete",
-      id
-    });
+  io.of(String(companyId)).emit(`company-${companyId}-campaign`, {
+    action: "delete",
+    id
+  });
 
-  return res.status(200).json({ message: "Campaign deleted" });
+  return res.status(200).json({ message: "Campaña eliminada" });
 };
 
 export const findList = async (
@@ -297,11 +348,15 @@ export const mediaUpload = async (
 
   try {
     const campaign = await Campaign.findByPk(id);
+    if (!campaign) {
+      throw new AppError("ERR_NO_CAMPAIGN_FOUND", 404);
+    }
     campaign.mediaPath = file.filename;
     campaign.mediaName = file.originalname;
     await campaign.save();
     return res.send({ mensagem: "Mensagem enviada" });
   } catch (err: any) {
+    if (err instanceof AppError) throw err;
     throw new AppError(err.message);
   }
 };
@@ -315,7 +370,14 @@ export const deleteMedia = async (
 
   try {
     const campaign = await Campaign.findByPk(id);
-    const filePath = path.resolve("public", `company${companyId}`, campaign.mediaPath);
+    if (!campaign) {
+      throw new AppError("ERR_NO_CAMPAIGN_FOUND", 404);
+    }
+    const filePath = path.resolve(
+      "public",
+      `company${companyId}`,
+      campaign.mediaPath
+    );
     const fileExists = fs.existsSync(filePath);
     if (fileExists) {
       fs.unlinkSync(filePath);
@@ -326,6 +388,7 @@ export const deleteMedia = async (
     await campaign.save();
     return res.send({ mensagem: "Arquivo excluído" });
   } catch (err: any) {
+    if (err instanceof AppError) throw err;
     throw new AppError(err.message);
   }
 };

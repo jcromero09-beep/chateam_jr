@@ -3,6 +3,7 @@ import Campaign from "../../models/Campaign";
 import { isEmpty } from "lodash";
 import ContactList from "../../models/ContactList";
 import Whatsapp from "../../models/Whatsapp";
+import WhatsAppTemplate from "../../models/WhatsAppTemplate";
 
 interface Request {
   companyId: number | string;
@@ -47,11 +48,23 @@ const ListService = async ({
     where: whereCondition,
     limit,
     offset,
-    order: [["status", "ASC"], ["scheduledAt", "DESC"]],
+    order: [
+      ["status", "ASC"],
+      ["scheduledAt", "DESC"]
+    ],
     include: [
-      { model: ContactList },
-      { model: Whatsapp, attributes: ["id", "name"] }
-    ]
+      { model: ContactList, attributes: ["id", "name"] },
+      {
+        model: Whatsapp,
+        attributes: ["id", "name", "channel", "phoneNumberId"]
+      },
+      {
+        model: WhatsAppTemplate,
+        as: "whastsAppTemplate",
+        attributes: ["id", "name", "status", "category", "language"]
+      }
+    ],
+    distinct: true
   });
 
   const hasMore = count > offset + records.length;

@@ -248,28 +248,29 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
 
     logInfo(`📤 [SCHEDULED] Enviando job al backend principal para contacto: ${schedule.contact.name}`);
 
-    // Crear schedule data similar al original para compatibilidad
-    const scheduleData = {
-      id: schedule.id,
-      body: processedMessage,
-      contact: schedule.contact,
-      user: schedule.user,
-      whatsappId: schedule.whatsappId,
-      companyId: schedule.companyId,
-      mediaPath: schedule.mediaPath,
-      mediaName: schedule.mediaName,
-      openTicket: schedule.openTicket,
-      statusTicket: schedule.statusTicket,
-      ticketUserId: schedule.ticketUserId,
-      queueId: schedule.queueId,
-      contadorEnvio: schedule.contadorEnvio || 0,
-      assinar: schedule.assinar
-    };
-
     // PRIMERO enviar el mensaje
     logInfo(`📤 [SCHEDULED] Enviando mensaje al backend...`);
     await add("SendScheduledMessages",
-      { schedule: scheduleData },
+      {
+        whatsappId: schedule.whatsappId,
+        data: {
+          body: processedMessage,
+          number: schedule.contact.number,
+          mediaPath: schedule.mediaPath,
+          mediaName: schedule.mediaName,
+          companyId: schedule.companyId
+        },
+        meta: {
+          scheduleId: schedule.id,
+          ticketId: schedule.ticketId,
+          openTicket: schedule.openTicket,
+          statusTicket: schedule.statusTicket,
+          ticketUserId: schedule.ticketUserId,
+          queueId: schedule.queueId,
+          contadorEnvio: schedule.contadorEnvio || 0,
+          assinar: schedule.assinar
+        }
+      },
       {
         priority: 1,
         removeOnComplete: { age: 60 * 60, count: 100 },

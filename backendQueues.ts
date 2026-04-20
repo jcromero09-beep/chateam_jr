@@ -36,7 +36,7 @@ export const messageQueue = REDIS_ENABLED
 
 // Cola de mensajes programados
 export const sendScheduledMessages = REDIS_ENABLED
-  ? new Bull("SendSacheduledMessages", REDIS_URI_CONNECTION)
+  ? new Bull("SendScheduledMessages", REDIS_URI_CONNECTION)
   : null as any;
 
 // Cola de notificaciones (socket emit)
@@ -148,6 +148,10 @@ export function startBackendQueueProcessors(): void {
   messageQueue.process("SendMessage", handleSendMessage);
   logger.info("✅ [BACKEND] MessageQueue processor iniciado");
 
+  // Procesar cola de mensajes programados
+  sendScheduledMessages.process("SendMessage", handleSendMessage);
+  logger.info("✅ [BACKEND] SendScheduledMessages processor iniciado");
+
   // Procesar cola de notificaciones
   notificationQueue.process("Notification", handleNotification);
   logger.info("✅ [BACKEND] NotificationQueue processor iniciado");
@@ -159,6 +163,14 @@ export function startBackendQueueProcessors(): void {
 
   messageQueue.on("completed", (job) => {
     logger.info(`✅ [BACKEND] MessageQueue job completed: ${job.id}`);
+  });
+
+  sendScheduledMessages.on("failed", (job, err) => {
+    logger.error(`❌ [BACKEND] SendScheduledMessages job failed: ${err.message}`);
+  });
+
+  sendScheduledMessages.on("completed", (job) => {
+    logger.info(`✅ [BACKEND] SendScheduledMessages job completed: ${job.id}`);
   });
 
   notificationQueue.on("failed", (job, err) => {

@@ -1,6 +1,10 @@
 import { proto, WASocket } from "@whiskeysockets/baileys";
+import axios from "axios";
 import AppError from "../../errors/AppError";
 import GetWbotMessage from "../../helpers/GetWbotMessage";
+import { getWbot } from "../../libs/wbot";
+import { sessionRegistry } from "../../libs/sessionRegistry";
+import logger from "../../utils/logger";
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import Contact from "../../models/Contact";
@@ -69,21 +73,42 @@ const DeleteWhatsAppMessage = async (
     return message as DeleteWhatsAppMessageResult;
   }
 
-  // ─── Baileys: try delete real ───
+  // ─── Baileys: delete real con soporte multi-nodo ───
   if (!message.isPrivate) {
     try {
-      const messageToDelete = await GetWbotMessage(ticket, messageId);
-      const menssageDelete = messageToDelete as Message;
-      const jsonStringToParse = JSON.parse(menssageDelete.dataJson);
+      const jsonStringToParse = JSON.parse(message.dataJson);
+      const messageKey = jsonStringToParse.key;
+      const remoteJid = message.remoteJid;
+      const whatsappId = ticket.whatsappId;
 
-      // ALTERAÇÃO PARA BAILEYS 5.0
-      // El delete real esta comentado, se marca en BD
-      // await (wbot as WASocket).sendMessage(menssageDelete.remoteJid, {
-      //   delete: jsonStringToParse.key
-      // })
+      // Determinar si la sesión está en este nodo o en otro
+      const nodeInfo = await sessionRegistry.lookup(whatsappId);
+      const isLocal = !nodeInfo || nodeInfo.nodeId === sessionRegistry.getNodeId();
 
+      if (isLocal) {
+        // Sesión local: ejecutar directamente
+        try {
+          const wbot = getWbot(whatsappId);
+          await (wbot as WASocket).sendMessage(remoteJid, { delete: messageKey });
+          logger.info(`[DeleteWhatsAppMessage] Delete local exitoso para mensaje ${messageId}`);
+        } catch (localErr: any) {
+          logger.warn(`[DeleteWhatsAppMessage] Delete local falló: ${localErr.message}`);
+        }
+      } else {
+        // Sesión remota: HTTP directo al endpoint dedicado del nodo correcto
+        try {
+          await axios.post(
+            `http://127.0.0.1:${nodeInfo.port}/internal/delete-message`,
+            { whatsappId, remoteJid, messageKey },
+            { timeout: 15000, headers: { "Content-Type": "application/json" } }
+          );
+          logger.info(`[DeleteWhatsAppMessage] Delete remoto exitoso via ${nodeInfo.nodeId}:${nodeInfo.port} para mensaje ${messageId}`);
+        } catch (remoteErr: any) {
+          logger.warn(`[DeleteWhatsAppMessage] Delete remoto falló: ${remoteErr.message}`);
+        }
+      }
     } catch (err) {
-      console.log(err);
+      logger.warn(`[DeleteWhatsAppMessage] Error parseando dataJson o registry: ${err}`);
       // No lanzar error si falla el delete real — marcar en BD de todas formas
     }
 

@@ -68,12 +68,15 @@ class AvailabilityService {
       });
 
       // Get existing appointments in the date range
+      // 🆕 Bug B1 fix: solo estados que realmente ocupan el slot.
+      // Antes Op.notIn incluía 'completed', 'no_show' y null como "ocupando",
+      // lo cual generaba falsos positivos de "no disponibilidad".
       const appointmentWhere: any = {
         companyId,
         serviceId,
         startTime: { [Op.gte]: startDate },
         endTime: { [Op.lte]: endDate },
-        status: { [Op.notIn]: ['cancelled', 'rescheduled'] }
+        status: { [Op.in]: ['scheduled', 'confirmed'] }
       };
 
       if (userId) {
@@ -481,7 +484,8 @@ class AvailabilityService {
         companyId,
         startTime: { [Op.gte]: startOfDay },
         endTime: { [Op.lte]: endOfDay },
-        status: { [Op.notIn]: ['cancelled'] }
+        // 🆕 Bug B1 fix: solo citas activas ocupan slot
+        status: { [Op.in]: ['scheduled', 'confirmed'] }
       };
 
       if (serviceId) {

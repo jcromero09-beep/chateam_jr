@@ -6,8 +6,6 @@ import CalendarSyncService from '../services/AppointmentServices/CalendarSyncSer
 import ReminderService from '../services/AppointmentServices/ReminderService';
 import AISchedulingService from '../services/AppointmentServices/AISchedulingService';
 import logger, { logError, logInfo, logWarn } from '../utils/logger';
-import ReminderTemplate from '../models/Appointments/ReminderTemplate';
-import { add } from '../queues';
 
 // ============ APPOINTMENT SERVICES ============
 
@@ -282,42 +280,8 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
       }
     }
 
-    // Encolar recordatorio si la cita tiene plantilla asignada
     if (appointment.reminderTemplateId) {
-      logInfo(`📅 [CREATE-BOOKING] Cita tiene plantilla de recordatorio ID=${appointment.reminderTemplateId}`);
-      try {
-        const template = await ReminderTemplate.findByPk(appointment.reminderTemplateId);
-
-        if (template && template.isActive) {
-          // Enviar mensaje de confirmación inmediatamente (con pequeño delay para procesamiento)
-          // El mensaje de recordatorio se programará después de que el usuario confirme manualmente
-          const delay = 60000; // 1 minuto de delay
-
-          logInfo(`📅 [CREATE-BOOKING] Plantilla activa. Programando mensaje de confirmación...`);
-          logInfo(`📅 [CREATE-BOOKING] - Plantilla: ${template.name}`);
-          logInfo(`📅 [CREATE-BOOKING] - Timing para recordatorio: ${template.timing} horas antes`);
-          logInfo(`📅 [CREATE-BOOKING] - Delay mensaje confirmación: ${delay}ms`);
-
-          // Encolar el job con delay mínimo para que el worker lo procese inmediatamente
-          await add("AppointmentReminder", {
-            appointmentId: appointment.id,
-            companyId: appointment.companyId,
-            type: 'confirm' // Primer mensaje: solicitar confirmación
-          }, {
-            delay: delay,
-            removeOnComplete: { age: 60 * 60, count: 100 },
-            removeOnFail: { age: 60 * 60, count: 50 }
-          });
-
-          logInfo(`✅ [CREATE-BOOKING] Mensaje de confirmación encolado. Se enviará en ${delay / 1000}s`);
-          logInfo(`📅 [CREATE-BOOKING] NOTA: El recordatorio se programará cuando la cita sea confirmada manualmente`);
-        } else {
-          logWarn(`⚠️ [CREATE-BOOKING] Plantilla no encontrada o inactiva. ID=${appointment.reminderTemplateId}`);
-        }
-      } catch (reminderError: any) {
-        logError(`❌ [CREATE-BOOKING] Error encolando mensaje de confirmación: ${reminderError?.message || reminderError}`);
-        // No fallar la creación de la cita si el recordatorio falla
-      }
+      logInfo(`📅 [CREATE-BOOKING] Cita creada con plantilla de recordatorio ID=${appointment.reminderTemplateId}`);
     } else {
       logInfo(`📅 [CREATE-BOOKING] Cita sin plantilla de recordatorio asignada`);
     }
@@ -483,6 +447,17 @@ export const updateAppointment = async (req: Request, res: Response): Promise<Re
       companyId,
       ...req.body
     });
+
+    // Sync cambios a Google Calendar (si la cita tiene googleCalendarEventId hace update,
+    // si no, lo crea; la lógica la maneja syncToGoogleCalendar internamente).
+    if (appointment?.userId) {
+      try {
+        await CalendarSyncService.syncToGoogleCalendar(appointment, appointment.userId, companyId);
+        await CalendarSyncService.syncToOutlookCalendar(appointment, appointment.userId);
+      } catch (syncError) {
+        logWarn('Calendar sync failed on update', { error: syncError, appointmentId: appointment.id });
+      }
+    }
 
     return res.json(appointment);
   } catch (error: any) {
@@ -788,10 +763,14 @@ export const getTemplates = async (req: Request, res: Response): Promise<Respons
 export const createTemplate = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { companyId } = req.user as any;
-    const { name, channel, subject, message, timing, isActive } = req.body;
+    const { name, channel, subject, message, messageConfirm, messageReminder, timing, isActive } = req.body;
 
-    if (!name || !channel || !message || timing === undefined) {
-      return res.status(400).json({ error: 'name, channel, message and timing are required' });
+    // Retrocompatibilidad: aceptar `message` (legacy) o `messageConfirm`/`messageReminder` (nuevo UI)
+    const finalMessageConfirm = messageConfirm || message;
+    const finalMessageReminder = messageReminder || message;
+
+    if (!name || !channel || !finalMessageConfirm || !finalMessageReminder || timing === undefined) {
+      return res.status(400).json({ error: 'name, channel, messageConfirm, messageReminder and timing are required' });
     }
 
     const template = await ReminderService.createTemplate({
@@ -799,8 +778,8 @@ export const createTemplate = async (req: Request, res: Response): Promise<Respo
       name,
       channel,
       subject,
-      messageConfirm: message,
-      messageReminder: message,
+      messageConfirm: finalMessageConfirm,
+      messageReminder: finalMessageReminder,
       timing,
       isActive
     });

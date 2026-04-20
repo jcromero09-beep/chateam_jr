@@ -47,11 +47,11 @@ class Ticket extends Model<Ticket> {
   @Column(DataType.BOOLEAN)
   flowWebhook: boolean;
 
-  @Column(DataType.INTEGER)
-  lastFlowId: number;
+  @Column(DataType.STRING)
+  lastFlowId: string;
 
-  @Column(DataType.INTEGER)
-  hashFlowId: number;
+  @Column(DataType.STRING)
+  hashFlowId: string;
 
   @Column(DataType.STRING)
   flowStopped: string;

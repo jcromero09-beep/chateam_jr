@@ -18,6 +18,7 @@ import CircularProgress from "@material-ui/core/CircularProgress";
 import Compressor from "compressorjs";
 
 import api from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
 import toastError from "../../errors/toastError";
 import {
   FormControl,
@@ -217,6 +218,9 @@ const FlowBuilderSingleBlockModal = ({
 }) => {
   const classes = useStyles();
   const isMounted = useRef(true);
+  const { user } = useAuth();
+  const companyId = user?.companyId;
+  const MEDIA_BASE = `${import.meta.env.VITE_API_URL}/public/company${companyId}/flowbuilder`;
 
   const [activeModal, setActiveModal] = useState(false);
 
@@ -817,7 +821,7 @@ const FlowBuilderSingleBlockModal = ({
           <img
             src={
               valueDefault.length > 0
-                ? process.env.REACT_APP_BACKEND_URL + "/public/" + valueDefault
+                ? MEDIA_BASE + "/" + valueDefault
                 : ""
             }
             className={`img${number}`}
@@ -855,7 +859,7 @@ const FlowBuilderSingleBlockModal = ({
         <Stack direction={"row"} justifyContent={"center"}>
           {valueDefault.length > 0 ? (
             <a
-              href={`${process.env.REACT_APP_BACKEND_URL}/public/${valueDefault}`}
+              href={`${MEDIA_BASE}/${valueDefault}`}
               target="_blank"
               rel="noopener noreferrer"
               className={`pdf${number}`}
@@ -914,7 +918,7 @@ const FlowBuilderSingleBlockModal = ({
             <audio controls="controls">
               <source
                 src={
-                  process.env.REACT_APP_BACKEND_URL + "/public/" + valueDefault
+                  MEDIA_BASE + "/" + valueDefault
                 }
                 type="audio/mp3"
               />
@@ -971,7 +975,7 @@ const FlowBuilderSingleBlockModal = ({
             <video controls="controls" style={{ width: "200px" }}>
               <source
                 src={
-                  process.env.REACT_APP_BACKEND_URL + "/public/" + valueDefault
+                  MEDIA_BASE + "/" + valueDefault
                 }
                 type="video/mp4"
               />
@@ -1265,6 +1269,7 @@ const FlowBuilderSingleBlockModal = ({
     if (open === "edit") {
       setLoading(true);
       const formData = new FormData();
+      formData.append("typeArch", "flowbuilder");
 
       try {
         // Process all media files and wait for compression
@@ -1313,12 +1318,13 @@ const FlowBuilderSingleBlockModal = ({
         ) {
           try {
             const mountData = {
+              type: "content",
               seq: elementsSeq,
               elements: handleElements(null),
             };
             onUpdate({
               ...data,
-              data: mountData,
+              data: { ...data.data, ...mountData },
             });
             toast.success("¡Contenido añadido correctamente!");
             handleClose();
@@ -1344,12 +1350,13 @@ const FlowBuilderSingleBlockModal = ({
         });
 
         const mountData = {
+          type: "content",
           seq: elementsSeq,
           elements: handleElements(res.data),
         };
         onUpdate({
           ...data,
-          data: mountData,
+          data: { ...data.data, ...mountData },
         });
         toast.success("¡Contenido añadido correctamente!");
         await handleClose();
@@ -1362,6 +1369,7 @@ const FlowBuilderSingleBlockModal = ({
     } else if (open === "create") {
       setLoading(true);
       const formData = new FormData();
+      formData.append("typeArch", "flowbuilder");
 
       try {
         // Process all media files and wait for compression
@@ -1406,6 +1414,7 @@ const FlowBuilderSingleBlockModal = ({
         if (numberAudio === 0 && numberVideo === 0 && numberImg === 0 && numberPdf === 0) {
           try {
             const mountData = {
+              type: "content",
               seq: elementsSeq,
               elements: handleElements(null),
             };
@@ -1435,6 +1444,7 @@ const FlowBuilderSingleBlockModal = ({
         });
 
         const mountData = {
+          type: "content",
           seq: elementsSeq,
           elements: handleElements(res.data),
         };

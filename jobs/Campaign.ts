@@ -1,6 +1,7 @@
 import { Job } from "bull";
 import logger, { logError, logInfo, logWarn, logDebug } from "../utils/logger";
 import Campaign from "../models/Campaign";
+import CampaignShipping from "../models/CampaignShipping";
 import ContactList from "../models/ContactList";
 import ContactListItem from "../models/ContactListItem";
 import CampaignSetting from "../models/CampaignSetting";
@@ -151,7 +152,7 @@ async function getCampaign(id) {
       {
         model: WhatsAppTemplate,
         as: "whastsAppTemplate",
-        attributes: ["id", "name", "language", "variablesCount", "bodyContent"]
+        attributes: ["id", "name", "language", "variablesCount", "bodyContent", "status"]
       }
     ]
   });
@@ -200,6 +201,44 @@ export default async (job: Job): Promise<void> => {
     throw new Error(`CompanyId es undefined para campaña ID=${id}`);
   }
 
+  // ──────────────────────────────────────────────────────────────
+  // GUARD 1: la campaña debe existir y no estar cancelada/finalizada
+  // ──────────────────────────────────────────────────────────────
+  const freshCampaign = await Campaign.findByPk(id);
+  if (!freshCampaign) {
+    logWarn(`⚠️ [WORKER] Campaña ID=${id} no existe — ignorando job`);
+    return;
+  }
+  if (freshCampaign.status === "CANCELADA" || freshCampaign.status === "FINALIZADA") {
+    logInfo(
+      `🚫 [WORKER] Campaña ID=${id} ya está en status=${freshCampaign.status} — ignorando job`
+    );
+    return;
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // GUARD 2: si usa plantilla Meta, validar APPROVED + conexión Meta
+  // ──────────────────────────────────────────────────────────────
+  if (freshCampaign.useTemplate && freshCampaign.whastsAppTemplateId) {
+    const tpl = await WhatsAppTemplate.findByPk(freshCampaign.whastsAppTemplateId);
+    if (!tpl || tpl.status !== "APPROVED") {
+      await freshCampaign.update({ status: "FINALIZADA", completedAt: moment().toDate() });
+      logError(
+        `❌ [WORKER] Plantilla ID=${freshCampaign.whastsAppTemplateId} no APPROVED (status=${tpl?.status}) — campaña ID=${id} marcada FINALIZADA sin enviar`
+      );
+      return;
+    }
+
+    const wpp = await Whatsapp.findByPk(freshCampaign.whatsappId);
+    if (!wpp || wpp.channel !== "meta" || !wpp.phoneNumberId || !wpp.tokenMeta) {
+      await freshCampaign.update({ status: "FINALIZADA", completedAt: moment().toDate() });
+      logError(
+        `❌ [WORKER] Conexión Meta inválida para campaña ID=${id} (whatsappId=${freshCampaign.whatsappId}) — marcada FINALIZADA sin enviar`
+      );
+      return;
+    }
+  }
+
   try {
     // Verificar si estamos en horario permitido antes de procesar
     const isTimeAllowed = await checkTime(companyId);
@@ -214,11 +253,11 @@ export default async (job: Job): Promise<void> => {
       throw error;
     }
 
-    // Obtener la campaña
+    // Obtener la campaña (con includes de contactos y plantilla)
     const campaign = await getCampaign(id);
 
     if (!campaign) {
-      logWarn(`❌ [WORKER] Campaña ID=${id} no encontrada`);
+      logWarn(`❌ [WORKER] Campaña ID=${id} no encontrada (include)`);
       return;
     }
 
@@ -229,8 +268,10 @@ export default async (job: Job): Promise<void> => {
       logInfo(`✅ [WORKER] Campaign ID=${id} encontrada para empresa ${companyId}`);
     }
 
-    // Marcar la campaña como "EM_ANDAMENTO"
-    await campaign.update({ status: "EM_ANDAMENTO" });
+    // Marcar la campaña como "EM_ANDAMENTO" (si aún no lo está)
+    if (campaign.status !== "EM_ANDAMENTO") {
+      await campaign.update({ status: "EM_ANDAMENTO" });
+    }
 
     // Obtener configuraciones específicas de la empresa
     const settings = await getSettings(companyId);
@@ -244,6 +285,17 @@ export default async (job: Job): Promise<void> => {
       for (let index = 0; index < contacts.length; index++) {
         const contact = contacts[index];
         try {
+          // ──────────────────────────────────────────────
+          // Re-check status (cancelación en caliente)
+          // ──────────────────────────────────────────────
+          const check = await Campaign.findByPk(id, { attributes: ["status"] });
+          if (!check || check.status === "CANCELADA") {
+            logInfo(
+              `🚫 [WORKER] Campaña ID=${id} fue cancelada durante el procesamiento — abortando loop`
+            );
+            break;
+          }
+
           // Verificar nuevamente el horario para cada contacto
           const isTimeStillAllowed = await checkTime(companyId);
           const isWeekStillAllowed = !(await checkerWeek(companyId));
@@ -265,6 +317,19 @@ export default async (job: Job): Promise<void> => {
             }
           }
 
+          // ──────────────────────────────────────────────
+          // CampaignShipping: crear/actualizar antes del envío
+          // ──────────────────────────────────────────────
+          const [shipping] = await CampaignShipping.findOrCreate({
+            where: { campaignId: campaign.id, contactId: contact.id },
+            defaults: {
+              number: contact.number,
+              message: "",
+              attemptCount: 0
+            } as any
+          });
+          await shipping.update({ attemptCount: (shipping.attemptCount || 0) + 1 });
+
           // =====================================================
           // LOGICA: PLANTILLA META vs MENSAJE LIBRE BAILEYS
           // =====================================================
@@ -284,13 +349,23 @@ export default async (job: Job): Promise<void> => {
             const template = campaign.whastsAppTemplate;
 
             if (!template) {
-              logError(`[WORKER] ❌ Plantilla no encontrada: ${campaign.whastsAppTemplateId}`);
-              throw new Error(`Plantilla no encontrada: ${campaign.whastsAppTemplateId}`);
+              const errMsg = `Plantilla no encontrada: ${campaign.whastsAppTemplateId}`;
+              logError(`[WORKER] ❌ ${errMsg}`);
+              await shipping.update({
+                failedAt: new Date(),
+                errorMessage: errMsg.slice(0, 500)
+              });
+              continue;
             }
 
             // Verificar que la conexión sea Meta
-            if (whatsapp.channel !== 'meta') {
-              logWarn(`[WORKER] ⚠️ La conexión ${whatsapp.id} no es Meta (channel: ${whatsapp.channel}), saltando envío por plantilla`);
+            if (!whatsapp || whatsapp.channel !== "meta") {
+              const errMsg = `Conexión ${campaign.whatsappId} no es Meta`;
+              logWarn(`[WORKER] ⚠️ ${errMsg}, saltando envío por plantilla`);
+              await shipping.update({
+                failedAt: new Date(),
+                errorMessage: errMsg.slice(0, 500)
+              });
               continue;
             }
 
@@ -305,16 +380,25 @@ export default async (job: Job): Promise<void> => {
                 whatsapp.phoneNumberId,
                 whatsapp.tokenMeta,
                 params,
-                template.language || 'es'
+                template.language || "es"
               );
 
               logInfo(`[WORKER] ✅ [META-TEMPLATE] Enviado a ${contact.number}, messageId: ${result.messagingMessageId}`);
 
-              // Guardar en CampaignShipping el mensaje enviado
-              // (esto ya se hace en otro lugar del flujo)
+              await shipping.update({
+                deliveredAt: new Date(),
+                metaMessageId: result.messagingMessageId,
+                message: template.name
+              });
 
             } catch (templateError: any) {
               logError(`[WORKER] ❌ [META-TEMPLATE] Error enviando a ${contact.number}: ${templateError.message}`);
+              await shipping.update({
+                failedAt: new Date(),
+                errorMessage: (templateError?.message || "Error Meta").slice(0, 500)
+              });
+              // Continuar con el siguiente contacto — no relanzar
+              continue;
             }
 
           } else {
@@ -351,11 +435,26 @@ export default async (job: Job): Promise<void> => {
               logInfo(`[WORKER] 📋 Job Data: ${JSON.stringify(jobData)}`);
               logInfo(`[WORKER] ⚙️ Job Options: ${JSON.stringify(jobOptions)}`);
 
-              await add("SendMessage", jobData, jobOptions);
+              try {
+                const jobSent = await add("SendMessage", jobData, jobOptions);
+                // Persistir jobId para permitir cancelación (CleanupCampaignJobsService)
+                await shipping.update({
+                  jobId: jobSent?.id ? String(jobSent.id) : null,
+                  message
+                });
 
-              const scheduledTime = moment().add(contactDelay, 'milliseconds').format('HH:mm:ss');
-              logInfo(`[WORKER] 📤 Job enviado al backend para ${contact.name} programado para ${scheduledTime} (delay: ${delayMinutes}min)`);
-              logInfo(`[WORKER] ✅ Job #${index + 1}/${contacts.length} procesado exitosamente`);
+                const scheduledTime = moment().add(contactDelay, "milliseconds").format("HH:mm:ss");
+                logInfo(`[WORKER] 📤 Job enviado al backend para ${contact.name} programado para ${scheduledTime} (delay: ${delayMinutes}min) — jobId=${jobSent?.id}`);
+                logInfo(`[WORKER] ✅ Job #${index + 1}/${contacts.length} procesado exitosamente`);
+              } catch (sendError: any) {
+                logError(`[WORKER] ❌ Error encolando SendMessage para ${contact.number}: ${sendError.message}`);
+                await shipping.update({
+                  failedAt: new Date(),
+                  errorMessage: (sendError?.message || "Error encolando").slice(0, 500),
+                  message
+                });
+                continue;
+              }
             }
           }
         } catch (error) {
@@ -363,10 +462,13 @@ export default async (job: Job): Promise<void> => {
         }
       }
 
-      // Marcar campaña como finalizada
-      await campaign.update({ status: "FINALIZADA", completedAt: moment() });
-      
-     
+      // Marcar campaña como finalizada SOLO si no fue cancelada en el ínterin
+      const finalCheck = await Campaign.findByPk(id, { attributes: ["status"] });
+      if (finalCheck && finalCheck.status !== "CANCELADA") {
+        await campaign.update({ status: "FINALIZADA", completedAt: moment().toDate() });
+      } else {
+        logInfo(`[WORKER] 🚫 Campaña ID=${id} quedó como CANCELADA — no se marca FINALIZADA`);
+      }
     }
 
     logInfo(`[WORKER] ✅ Campaña ID=${id} procesada exitosamente - ${contacts?.length || 0} jobs enviados al backend principal`);
