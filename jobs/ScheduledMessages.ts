@@ -9,11 +9,33 @@ import CampaignSetting from "../models/CampaignSetting";
 import { getIO } from "../libs/socket";
 import moment from "moment";
 import { isEmpty, isNil } from "lodash";
-import { add } from "../queues";
+import cacheLayer from "../libs/cache";
+import { add, enqueueScheduledMessageOccurrence } from "../queues";
 
 interface ScheduledMessageData {
   id: number;
   companyId: number;
+  expectedSendAt?: string;
+  expectedContadorEnvio?: number;
+}
+
+const OCCURRENCE_LOCK_TTL_SECONDS = 10 * 60;
+
+function normalizeExpectedOccurrence(schedule: Schedule, jobData: ScheduledMessageData) {
+  return {
+    expectedSendAt: moment(jobData.expectedSendAt || schedule.sendAt).toISOString(),
+    expectedContadorEnvio: Number(
+      jobData.expectedContadorEnvio ?? schedule.contadorEnvio ?? 0
+    )
+  };
+}
+
+function getOccurrenceLockKey(
+  scheduleId: number,
+  expectedSendAt: string,
+  expectedContadorEnvio: number
+) {
+  return `schedules:occurrence-lock:${scheduleId}:${moment(expectedSendAt).valueOf()}:${expectedContadorEnvio}`;
 }
 
 // Función para procesar variables en el mensaje
@@ -176,6 +198,10 @@ async function getSchedule(id: number) {
 export default async function handle(job: Job<ScheduledMessageData>): Promise<void> {
   const { id, companyId } = job.data;
   logInfo(`📥 [SCHEDULED] Procesando mensaje programado ID=${id} para empresa=${companyId}`);
+  let occurrenceLockKey: string | null = null;
+  let occurrenceLockAcquired = false;
+  let keepOccurrenceLock = false;
+  let deliveryQueued = false;
 
   if (!companyId) {
     logError(`❌ [SCHEDULED] CompanyId es undefined para mensaje ID=${id}`);
@@ -197,26 +223,51 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
       return;
     }
 
+    const occurrence = normalizeExpectedOccurrence(schedule, job.data);
+    const currentSendAtMs = moment(schedule.sendAt).valueOf();
+    const expectedSendAtMs = moment(occurrence.expectedSendAt).valueOf();
+    const currentContadorEnvio = Number(schedule.contadorEnvio || 0);
+
+    if (
+      currentSendAtMs !== expectedSendAtMs ||
+      currentContadorEnvio !== occurrence.expectedContadorEnvio
+    ) {
+      logInfo(
+        `⏭️ [SCHEDULED] Job stale para ID=${id}. ` +
+        `Esperaba ${moment(occurrence.expectedSendAt).format("DD/MM/YYYY HH:mm:ss")} ` +
+        `(${occurrence.expectedContadorEnvio}), actual ${moment(schedule.sendAt).format("DD/MM/YYYY HH:mm:ss")} ` +
+        `(${currentContadorEnvio})`
+      );
+      return;
+    }
+
     // Verificar si la fecha de envío ya llegó (NO enviar antes de tiempo)
     const now = moment();
     const sendAt = moment(schedule.sendAt);
-    const diffMinutes = sendAt.diff(now, 'minutes');
+    const diffMs = sendAt.diff(now, 'milliseconds');
 
-    // Si faltan más de 1 minuto, NO enviar todavía
-    if (diffMinutes > 1) {
-      logInfo(`⏰ [SCHEDULED] Mensaje ID=${id} aún no es hora. Programado para: ${sendAt.format('DD/MM/YYYY HH:mm')}, faltan ${diffMinutes} minutos`);
+    if (diffMs > 0) {
+      const secondsRemaining = Math.ceil(diffMs / 1000);
+      logInfo(`⏰ [SCHEDULED] Mensaje ID=${id} aún no es hora. Programado para: ${sendAt.format('DD/MM/YYYY HH:mm:ss')}, faltan ${secondsRemaining}s`);
 
-      // Reagendar para el momento correcto
-      const delay = sendAt.diff(now, 'milliseconds');
-      if (delay > 0) {
-        await add("ScheduledMessages", { id, companyId }, { delay });
-        logInfo(`🔄 [SCHEDULED] Mensaje ID=${id} reagendado para ${sendAt.format('DD/MM HH:mm')} (delay: ${Math.round(delay/60000)}min)`);
+      if (!job.data.expectedSendAt) {
+        await enqueueScheduledMessageOccurrence(
+          {
+            id,
+            companyId,
+            sendAt: schedule.sendAt,
+            contadorEnvio: occurrence.expectedContadorEnvio
+          },
+          { delay: diffMs }
+        );
+        logInfo(`🔄 [SCHEDULED] Mensaje ID=${id} reagendado para ${sendAt.format('DD/MM HH:mm:ss')} (delay: ${secondsRemaining}s)`);
+      } else {
+        logWarn(`⚠️ [SCHEDULED] Job deduplicado ID=${id} despertó antes de tiempo; no se reencola para evitar duplicados`);
       }
       return;
     }
 
-    // Solo enviar si ya llegó la hora (diferencia <= 1 minuto)
-    logInfo(`⏰ [SCHEDULED] Mensaje ID=${id} es hora de enviar. Programado: ${sendAt.format('DD/MM/YYYY HH:mm')}, actual: ${now.format('DD/MM/YYYY HH:mm')}, diff: ${diffMinutes}min`)
+    logInfo(`⏰ [SCHEDULED] Mensaje ID=${id} es hora de enviar. Programado: ${sendAt.format('DD/MM/YYYY HH:mm:ss')}, actual: ${now.format('DD/MM/YYYY HH:mm:ss')}, diffMs: ${diffMs}`)
 
     // Solo verificar horarios si el tiempo está dentro del rango apropiado
     const isTimeAllowed = await checkTime(companyId);
@@ -241,6 +292,30 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
       throw error;
     }
 
+    const redis = cacheLayer.getRedisInstance();
+    occurrenceLockKey = getOccurrenceLockKey(
+      schedule.id,
+      occurrence.expectedSendAt,
+      occurrence.expectedContadorEnvio
+    );
+
+    const lockResult = await redis.set(
+      occurrenceLockKey,
+      String(job.id || `${schedule.id}`),
+      "EX",
+      OCCURRENCE_LOCK_TTL_SECONDS,
+      "NX"
+    );
+
+    if (lockResult !== "OK") {
+      logWarn(
+        `⏭️ [SCHEDULED] Ocurrencia ya tomada para ID=${id} ` +
+        `(${moment(occurrence.expectedSendAt).format("DD/MM/YYYY HH:mm:ss")} / ${occurrence.expectedContadorEnvio})`
+      );
+      return;
+    }
+
+    occurrenceLockAcquired = true;
     logInfo(`✅ [SCHEDULED] Mensaje ID=${id} listo para enviar`);
 
     // Procesar el mensaje con variables
@@ -262,6 +337,7 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
         },
         meta: {
           scheduleId: schedule.id,
+          expectedSendAt: occurrence.expectedSendAt,
           ticketId: schedule.ticketId,
           openTicket: schedule.openTicket,
           statusTicket: schedule.statusTicket,
@@ -277,9 +353,10 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
         removeOnFail: { age: 60 * 60, count: 50 }
       }
     );
+    deliveryQueued = true;
 
     // DESPUÉS del envío exitoso, incrementar contador y verificar recurrencia
-    const currentContador = schedule.contadorEnvio || 0;
+    const currentContador = occurrence.expectedContadorEnvio;
     const newContadorEnvio = currentContador + 1;
 
     logInfo(`📊 [SCHEDULED] Mensaje enviado exitosamente. Contador: ${currentContador} → ${newContadorEnvio}/${schedule.enviarQuantasVezes}`);
@@ -328,14 +405,26 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
 
     logInfo(`📡 [SCHEDULED] Evento Socket omitido - worker no tiene Socket IO`);
 
+    keepOccurrenceLock = true;
     logInfo(`✅ [SCHEDULED] Mensaje programado ID=${id} procesado exitosamente para ${schedule.contact.name}`);
 
   } catch (error) {
+    if (occurrenceLockAcquired && occurrenceLockKey && !keepOccurrenceLock && !deliveryQueued) {
+      try {
+        await cacheLayer.getRedisInstance().del(occurrenceLockKey);
+        logInfo(`🔓 [SCHEDULED] Lock liberado para reintento seguro ID=${id}`);
+      } catch (unlockError) {
+        logWarn(`⚠️ [SCHEDULED] No se pudo liberar lock ID=${id}: ${unlockError.message}`);
+      }
+    } else if (deliveryQueued && occurrenceLockKey) {
+      logWarn(`🔒 [SCHEDULED] Lock preservado para ID=${id} porque el envío ya quedó en cola backend`);
+    }
+
     logError(`❌ [SCHEDULED] Error procesando mensaje programado ID=${id}: ${error.message}`);
 
     // Solo marcar como error si es un error ANTES del envío del mensaje
     // Errores después del envío (como Socket IO) no deben afectar la recurrencia
-    if (!error.delay && !error.message.includes("Socket IO")) {
+    if (!deliveryQueued && !error.delay && !error.message.includes("Socket IO")) {
       try {
         const schedule = await Schedule.findByPk(id);
         if (schedule) {
@@ -348,6 +437,8 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
       } catch (updateError) {
         logError(`❌ [SCHEDULED] Error actualizando status de error: ${updateError.message}`);
       }
+    } else if (deliveryQueued) {
+      logWarn(`⚠️ [SCHEDULED] Error posterior al encolado backend para ID=${id}; no se marca ERRO para evitar duplicados`);
     } else {
       logWarn(`⚠️ [SCHEDULED] Error no crítico ID=${id} (no afecta recurrencia): ${error.message}`);
     }

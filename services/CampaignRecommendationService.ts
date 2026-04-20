@@ -8,6 +8,9 @@ import { MarketingCache } from "./MetaMarketingService/MarketingCache";
 import AIProviderConfig from "../models/AIProviderConfig";
 import CampaignMessage from "../models/CampaignMessage";
 import FacebookConversionEvent from "../models/FacebookConversionEvent";
+import CampaignAuditConversationService, {
+  CampaignConversationContext
+} from "./CampaignAuditConversationService";
 import crypto from "crypto";
 import logger from "../utils/logger";
 
@@ -26,6 +29,11 @@ interface GenerateRecommendationsResult {
   generated: number;
   tokensUsed: number;
   recommendations: CampaignRecommendation[];
+}
+
+interface GenerateRecommendationOptions {
+  selectedCampaignId?: string;
+  whatsappId?: number;
 }
 
 interface CampaignData {
@@ -63,10 +71,39 @@ interface ConversationStats {
   addToCartEvents: number;
 }
 
+interface TicketConversationSummary {
+  ticketId: number;
+  contactName: string;
+  intent: string;
+  funnelStage: "discovery" | "interested" | "pricing" | "objection" | "purchase" | "support" | "lost" | "unknown";
+  outcome: string;
+  blockers: string[];
+  sentiment: "positive" | "neutral" | "negative" | "mixed";
+  purchaseSignal: "high" | "medium" | "low" | "none";
+  agentPerformance: "good" | "mixed" | "poor" | "unknown";
+  summary: string;
+  recommendationHint: string;
+}
+
+interface RecommendationPayload {
+  campaignId: string;
+  campaignName: string;
+  type: "optimization" | "warning" | "opportunity" | "insight";
+  priority: "critical" | "high" | "medium" | "low";
+  category: "timing" | "content" | "segmentation" | "budget" | "channel";
+  title: string;
+  description: string;
+  impact: string;
+  effort: string;
+  potentialGain: string;
+  actionData?: any;
+}
+
 export class CampaignRecommendationService {
   private openai: OpenAI | null = null;
   private provider: any = null; // Store provider config
   private companyId: number = 1; // SuperAdmin company ID
+  private readonly conversationAuditService = new CampaignAuditConversationService();
 
   constructor() {
     // OpenAI client will be initialized lazily when needed
@@ -214,6 +251,109 @@ export class CampaignRecommendationService {
       balanceAfter: tokenStatus.remaining - tokensUsed,
       description: `Generacion de recomendaciones de campanas`
     });
+  }
+
+  private getCompletionModel(): string {
+    return this.provider?.settings?.defaultModel || "gpt-4o";
+  }
+
+  private supportsJsonMode(model: string): boolean {
+    const jsonModeModels = [
+      "gpt-4o",
+      "gpt-4o-mini",
+      "gpt-3.5-turbo-1106",
+      "gpt-4-turbo-preview",
+      "gpt-4-turbo"
+    ];
+
+    return jsonModeModels.some((candidate) => model.includes(candidate));
+  }
+
+  private async runJsonCompletion<T>(
+    systemPrompt: string,
+    userPrompt: string,
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      logLabel?: string;
+    }
+  ): Promise<{ data: T; tokensUsed: number; model: string }> {
+    await this.initializeOpenAI();
+
+    if (!this.openai) {
+      throw new AppError("No se pudo inicializar el cliente de OpenAI", 500);
+    }
+
+    const model = this.getCompletionModel();
+    const supportsJsonMode = this.supportsJsonMode(model);
+
+    logger.info({
+      model,
+      supportsJsonMode,
+      promptLength: userPrompt.length,
+      logLabel: options?.logLabel || "json_completion"
+    }, "[CampaignRecommendation] Calling OpenAI JSON completion");
+
+    const completion = await this.openai.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      ...(supportsJsonMode ? { response_format: { type: "json_object" } } : {}),
+      temperature: options?.temperature ?? 0.3,
+      max_tokens: options?.maxTokens ?? 4000
+    });
+
+    const content = completion.choices[0].message.content;
+    const tokensUsed = completion.usage?.total_tokens || 0;
+
+    try {
+      const data = JSON.parse(content || "{}") as T;
+
+      return {
+        data,
+        tokensUsed,
+        model
+      };
+    } catch (error: any) {
+      logger.error({
+        error: error.message,
+        rawContent: content?.substring(0, 500),
+        contentLength: content?.length,
+        logLabel: options?.logLabel || "json_completion"
+      }, "[CampaignRecommendation] Error parsing JSON completion");
+      throw new AppError("Error procesando respuesta JSON de IA", 500);
+    }
+  }
+
+  private async saveRecommendations(
+    companyId: number,
+    recommendations: RecommendationPayload[]
+  ): Promise<CampaignRecommendation[]> {
+    const savedRecommendations: CampaignRecommendation[] = [];
+
+    for (const rec of recommendations) {
+      const recommendation = await CampaignRecommendation.create({
+        companyId,
+        campaignId: rec.campaignId,
+        campaignName: rec.campaignName,
+        type: rec.type,
+        priority: rec.priority,
+        category: rec.category,
+        title: rec.title,
+        description: rec.description,
+        impact: rec.impact,
+        effort: rec.effort,
+        potentialGain: rec.potentialGain,
+        actionData: rec.actionData || null,
+        status: "active"
+      });
+
+      savedRecommendations.push(recommendation);
+    }
+
+    return savedRecommendations;
   }
 
   /**
@@ -367,6 +507,214 @@ export class CampaignRecommendationService {
     return stats;
   }
 
+  private async generateTicketSummaries(
+    campaign: CampaignData,
+    context: CampaignConversationContext
+  ): Promise<{ summaries: TicketConversationSummary[]; tokensUsed: number }> {
+    const batchSize = 4;
+    let tokensUsed = 0;
+    const summaries: TicketConversationSummary[] = [];
+
+    for (let index = 0; index < context.tickets.length; index += batchSize) {
+      const batch = context.tickets.slice(index, index + batchSize);
+      const userPrompt = `Analiza estos tickets atribuidos a una campaña de Meta Ads y resume cada conversación de forma operativa.
+
+Campaña:
+${JSON.stringify({
+  campaignId: campaign.id,
+  campaignName: campaign.name,
+  objective: campaign.objective
+}, null, 2)}
+
+Tickets:
+${JSON.stringify(batch, null, 2)}
+
+Responde SOLO con un JSON válido usando esta estructura:
+{
+  "summaries": [
+    {
+      "ticketId": 123,
+      "contactName": "Cliente",
+      "intent": "Motivo principal de la conversación",
+      "funnelStage": "discovery | interested | pricing | objection | purchase | support | lost | unknown",
+      "outcome": "Resultado real del ticket",
+      "blockers": ["máximo 3 bloqueos"],
+      "sentiment": "positive | neutral | negative | mixed",
+      "purchaseSignal": "high | medium | low | none",
+      "agentPerformance": "good | mixed | poor | unknown",
+      "summary": "Resumen corto y preciso de lo que entendiste del ticket",
+      "recommendationHint": "Sugerencia concreta para mejorar este tipo de conversación"
+    }
+  ]
+}
+
+Reglas:
+- No inventes datos que no estén en la conversación.
+- Usa "unknown" si no se puede concluir algo con seguridad.
+- "summary" debe ser breve y accionable.
+- Si detectas demora, falta de respuesta, objeciones repetidas o mala clasificación del lead, refléjalo en blockers o recommendationHint.`;
+
+      const result = await this.runJsonCompletion<{ summaries: TicketConversationSummary[] }>(
+        "Eres un analista senior de conversaciones de ventas y soporte por WhatsApp. Responde SOLO con JSON válido.",
+        userPrompt,
+        {
+          maxTokens: 2200,
+          logLabel: "ticket_summaries"
+        }
+      );
+
+      tokensUsed += result.tokensUsed;
+      summaries.push(...(result.data.summaries || []));
+    }
+
+    return {
+      summaries,
+      tokensUsed
+    };
+  }
+
+  private async generateConversationRecommendation(
+    campaign: CampaignData,
+    context: CampaignConversationContext,
+    ticketSummaries: TicketConversationSummary[]
+  ): Promise<{ recommendation: RecommendationPayload; tokensUsed: number }> {
+    const recommendationContext = {
+      campaign,
+      conversationCoverage: {
+        matchedAds: context.matchedAds,
+        matchedCampaignMessages: context.matchedCampaignMessages,
+        analyzedTickets: context.analyzedTickets,
+        omittedTickets: context.omittedTickets
+      },
+      ticketSummaries
+    };
+
+    const userPrompt = `Analiza una campaña de Meta Ads usando métricas y resúmenes de tickets atribuidos.
+
+Contexto:
+${JSON.stringify(recommendationContext, null, 2)}
+
+Genera UNA sola recomendación principal para esta campaña.
+
+Responde SOLO con un JSON válido usando esta estructura:
+{
+  "recommendation": {
+    "campaignId": "${campaign.id}",
+    "campaignName": "${campaign.name}",
+    "type": "optimization | warning | opportunity | insight",
+    "priority": "critical | high | medium | low",
+    "category": "timing | content | segmentation | budget | channel",
+    "title": "Titulo corto y accionable",
+    "description": "Explica el hallazgo principal usando los patrones observados en las conversaciones",
+    "impact": "Impacto esperado",
+    "effort": "bajo | medio | alto",
+    "potentialGain": "Ganancia potencial",
+    "actionData": {
+      "mainPattern": "patrón dominante",
+      "topBlockers": ["bloqueos principales"],
+      "nextSteps": ["pasos concretos"]
+    }
+  }
+}
+
+Reglas:
+- Usa los resúmenes de tickets como fuente principal para detectar el cuello de botella.
+- Si el problema está en la atención humana o en el cierre, prioriza category=channel o timing antes que budget.
+- Si detectas objeciones repetidas o desalineación del mensaje, considera content o segmentation.
+- Sé conservador si la muestra es pequeña.
+- No generes más de una recomendación.`;
+
+    const result = await this.runJsonCompletion<{ recommendation: RecommendationPayload }>(
+      "Eres un estratega senior de Meta Ads y operaciones de ventas por WhatsApp. Responde SOLO con JSON válido.",
+      userPrompt,
+      {
+        maxTokens: 2000,
+        logLabel: "campaign_conversation_recommendation"
+      }
+    );
+
+    return {
+      recommendation: result.data.recommendation,
+      tokensUsed: result.tokensUsed
+    };
+  }
+
+  private async generateSelectedCampaignRecommendation(
+    companyId: number,
+    campaign: CampaignData,
+    options?: GenerateRecommendationOptions & {
+      messageDateSince?: string;
+      messageDateUntil?: string;
+    }
+  ): Promise<{ recommendations: RecommendationPayload[]; tokensUsed: number }> {
+    const conversationContext = await this.conversationAuditService.buildCampaignContext({
+      companyId,
+      campaignId: campaign.id,
+      whatsappId: options?.whatsappId,
+      dateSince: options?.messageDateSince,
+      dateUntil: options?.messageDateUntil
+    });
+
+    if (conversationContext.analyzedTickets === 0) {
+      logger.warn({
+        campaignId: campaign.id,
+        campaignName: campaign.name
+      }, "[CampaignRecommendation] No hay tickets atribuidos para la campaña seleccionada, usando fallback por métricas");
+
+      const fallback = await this.callOpenAIForRecommendations([campaign]);
+
+      return {
+        recommendations: fallback.recommendations.map((recommendation) => ({
+          ...recommendation,
+          actionData: {
+            ...(recommendation.actionData || {}),
+            analysisMode: "performance_fallback",
+            conversationCoverage: {
+              analyzedTickets: 0,
+              matchedCampaignMessages: 0,
+              matchedAds: conversationContext.matchedAds
+            }
+          }
+        })),
+        tokensUsed: fallback.tokensUsed
+      };
+    }
+
+    const summaryResult = await this.generateTicketSummaries(campaign, conversationContext);
+    const recommendationResult = await this.generateConversationRecommendation(
+      campaign,
+      conversationContext,
+      summaryResult.summaries
+    );
+
+    return {
+      recommendations: [
+        {
+          ...recommendationResult.recommendation,
+          actionData: {
+            ...(recommendationResult.recommendation.actionData || {}),
+            analysisMode: "conversation_pipeline",
+            conversationCoverage: {
+              matchedAds: conversationContext.matchedAds,
+              matchedCampaignMessages: conversationContext.matchedCampaignMessages,
+              analyzedTickets: conversationContext.analyzedTickets,
+              omittedTickets: conversationContext.omittedTickets
+            },
+            sampleTickets: summaryResult.summaries.slice(0, 10).map((summary) => ({
+              ticketId: summary.ticketId,
+              contactName: summary.contactName,
+              funnelStage: summary.funnelStage,
+              outcome: summary.outcome,
+              blockers: summary.blockers,
+              recommendationHint: summary.recommendationHint
+            }))
+          }
+        }
+      ],
+      tokensUsed: summaryResult.tokensUsed + recommendationResult.tokensUsed
+    };
+  }
+
   /**
    * Genera recomendaciones usando OpenAI
    */
@@ -375,7 +723,8 @@ export class CampaignRecommendationService {
     period: string = "last_30_days",
     campaignsData?: any[],
     messageDateSince?: string,
-    messageDateUntil?: string
+    messageDateUntil?: string,
+    options: GenerateRecommendationOptions = {}
   ): Promise<GenerateRecommendationsResult> {
     // Verificar tokens disponibles
     const tokenStatus = await this.checkTokenLimit(companyId);
@@ -605,29 +954,31 @@ export class CampaignRecommendationService {
       }, '[CampaignRecommendation] Campaigns with zero spend detected');
     }
 
-    // Llamar a OpenAI para generar recomendaciones
-    const aiResponse = await this.callOpenAIForRecommendations(campaignDataForAI);
+    const aiResponse = options.selectedCampaignId
+      ? await this.generateSelectedCampaignRecommendation(companyId, (() => {
+          const selectedCampaign = campaignDataForAI.find(
+            (campaign) => campaign.id === String(options.selectedCampaignId)
+          );
 
-    // Guardar recomendaciones en la base de datos
-    const savedRecommendations: CampaignRecommendation[] = [];
-    for (const rec of aiResponse.recommendations) {
-      const recommendation = await CampaignRecommendation.create({
-        companyId,
-        campaignId: rec.campaignId,
-        campaignName: rec.campaignName,
-        type: rec.type,
-        priority: rec.priority,
-        category: rec.category,
-        title: rec.title,
-        description: rec.description,
-        impact: rec.impact,
-        effort: rec.effort,
-        potentialGain: rec.potentialGain,
-        actionData: rec.actionData || null,
-        status: "active"
-      });
-      savedRecommendations.push(recommendation);
-    }
+          if (!selectedCampaign) {
+            throw new AppError(
+              "La campaña seleccionada no se encontró dentro de las campañas cargadas para auditoría",
+              400
+            );
+          }
+
+          return selectedCampaign;
+        })(), {
+          ...options,
+          messageDateSince,
+          messageDateUntil
+        })
+      : await this.callOpenAIForRecommendations(campaignDataForAI);
+
+    const savedRecommendations = await this.saveRecommendations(
+      companyId,
+      aiResponse.recommendations as RecommendationPayload[]
+    );
 
     // Registrar consumo de tokens
     await this.recordTokenUsage(
@@ -648,7 +999,7 @@ export class CampaignRecommendationService {
    * Llama a OpenAI para generar recomendaciones
    */
   private async callOpenAIForRecommendations(campaigns: CampaignData[]): Promise<{
-    recommendations: any[];
+    recommendations: RecommendationPayload[];
     tokensUsed: number;
   }> {
     const prompt = `Eres un experto en Meta Ads y WhatsApp Business con 10+ anos de experiencia.
@@ -722,79 +1073,31 @@ Responde SOLO con un JSON valido con esta estructura:
   "recommendations": [ array de recomendaciones, una por campana ]
 }`;
 
-    // Inicializar OpenAI si no está inicializado
-    await this.initializeOpenAI();
-
-    if (!this.openai) {
-      throw new AppError("No se pudo inicializar el cliente de OpenAI", 500);
-    }
-
-    // Obtener modelo del provider o usar default que soporte JSON mode
-    const model = this.provider?.settings?.defaultModel || "gpt-4o";
-
-    // Modelos que soportan JSON mode
-    const jsonModeModels = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo-1106", "gpt-4-turbo-preview", "gpt-4-turbo"];
-    const supportsJsonMode = jsonModeModels.some(m => model.includes(m));
-
-    // 🔍 LOG: Request a OpenAI
-    logger.info({
-      model,
-      campaignCount: campaigns.length,
-      promptLength: prompt.length,
-      supportsJsonMode
-    }, '[CampaignRecommendation] Calling OpenAI API for recommendations');
-
-    const completion = await this.openai.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: "Eres un experto en publicidad digital y Meta Ads. Responde SOLO con JSON valido." },
-        { role: "user", content: prompt }
-      ],
-      ...(supportsJsonMode && { response_format: { type: "json_object" } }),
-      temperature: 0.3,
-      max_tokens: 4000
-    });
-
-    const content = completion.choices[0].message.content;
-    const tokensUsed = completion.usage?.total_tokens || 0;
-
-    // 🔍 LOG: Response de OpenAI
-    logger.info({
-      tokensUsed,
-      tokensPrompt: completion.usage?.prompt_tokens || 0,
-      tokensCompletion: completion.usage?.completion_tokens || 0,
-      model,
-      responseLength: content?.length || 0
-    }, '[CampaignRecommendation] OpenAI API response received');
-
-    try {
-      const parsed = JSON.parse(content || "{}");
-
-      // 🔍 LOG: Recomendaciones generadas
-      logger.info({
-        recommendationsGenerated: parsed.recommendations?.length || 0,
-        tokensUsed
-      }, '[CampaignRecommendation] AI recommendations parsed successfully');
-
-      // 🔍 LOG: Sample de recomendación
-      if (parsed.recommendations && parsed.recommendations.length > 0) {
-        logger.debug({
-          sampleRecommendation: parsed.recommendations[0]
-        }, '[CampaignRecommendation] Sample generated recommendation');
+    const result = await this.runJsonCompletion<{ recommendations: RecommendationPayload[] }>(
+      "Eres un experto en publicidad digital y Meta Ads. Responde SOLO con JSON valido.",
+      prompt,
+      {
+        maxTokens: 4000,
+        logLabel: "campaign_recommendations"
       }
+    );
 
-      return {
-        recommendations: parsed.recommendations || [],
-        tokensUsed
-      };
-    } catch (error: any) {
-      logger.error({
-        error: error.message,
-        rawContent: content?.substring(0, 500), // Primeros 500 caracteres
-        contentLength: content?.length
-      }, '[CampaignRecommendation] Error parsing OpenAI response');
-      throw new AppError("Error procesando respuesta de IA", 500);
+    logger.info({
+      recommendationsGenerated: result.data.recommendations?.length || 0,
+      tokensUsed: result.tokensUsed,
+      model: result.model
+    }, "[CampaignRecommendation] AI recommendations parsed successfully");
+
+    if (result.data.recommendations && result.data.recommendations.length > 0) {
+      logger.debug({
+        sampleRecommendation: result.data.recommendations[0]
+      }, "[CampaignRecommendation] Sample generated recommendation");
     }
+
+    return {
+      recommendations: result.data.recommendations || [],
+      tokensUsed: result.tokensUsed
+    };
   }
 
   /**

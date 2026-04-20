@@ -1087,10 +1087,12 @@ registerTool({
 
       // Encolar en BullMQ para envío
       try {
-        const { add } = require("../../queues");
-        await add("ScheduledMessages", {
+        const { enqueueScheduledMessageOccurrence } = require("../../queues");
+        await enqueueScheduledMessageOccurrence({
           id: schedule.id,
-          companyId: context.companyId
+          companyId: context.companyId,
+          sendAt: schedule.sendAt,
+          contadorEnvio: schedule.contadorEnvio || 0
         });
       } catch (queueErr: any) {
         logger.warn(`[Tool:schedule_followup] No se pudo encolar: ${queueErr.message}`);

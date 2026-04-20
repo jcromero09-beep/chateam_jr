@@ -696,12 +696,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
           icon: <FlowbuilderIcon />,
           module: 'flowbuilder',
           children: [
-            {
-              path: '/flowbuilder',
-              label: 'Editor',
-              icon: <FlowbuilderIcon />,
-              module: 'flowbuilder',
-            },
+            // {
+            //   path: '/flowbuilder',
+            //   label: 'Editor',
+            //   icon: <FlowbuilderIcon />,
+            //   module: 'flowbuilder',
+            // },
             {
               path: '/flowbuilder/conversation',
               label: 'Flujos',
@@ -716,13 +716,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
             },
           ],
         },
-        {
-          path: '/integrations',
-          label: 'Integraciones',
-          icon: <IntegrationsIcon />,
-          module: 'integrations',
-          planFeature: 'integrations',
-        },
+        // {
+        //   path: '/integrations',
+        //   label: 'Integraciones',
+        //   icon: <IntegrationsIcon />,
+        //   module: 'integrations',
+        //   planFeature: 'integrations',
+        // },
       ],
     },
     {

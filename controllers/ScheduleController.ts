@@ -11,7 +11,7 @@ import DeleteService from "../services/ScheduleServices/DeleteService";
 import Schedule from "../models/Schedule";
 import { logWarn } from "../utils/logger";
 
-import { add, removeScheduledMessageJobs } from "../queues";
+import { enqueueScheduledMessageOccurrence, removeScheduledMessageJobs } from "../queues";
 import path from "path";
 import fs from "fs";
 import { head } from "lodash";
@@ -81,7 +81,12 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
   // Adiciona o trabalho na fila para o worker processar
   try {
-    await add("ScheduledMessages", { id: schedule.id, companyId });
+    await enqueueScheduledMessageOccurrence({
+      id: schedule.id,
+      companyId,
+      sendAt: schedule.sendAt,
+      contadorEnvio: schedule.contadorEnvio || 0
+    });
   } catch (error: any) {
     logWarn("[ScheduleController] Schedule created but queue enqueue failed", {
       scheduleId: schedule.id,
@@ -125,7 +130,13 @@ export const update = async (
 
   // Adiciona o trabalho atualizado na fila para o worker processar
   try {
-    await add("ScheduledMessages", { id: schedule.id, companyId });
+    await removeScheduledMessageJobs(Number(schedule.id), companyId);
+    await enqueueScheduledMessageOccurrence({
+      id: schedule.id,
+      companyId,
+      sendAt: schedule.sendAt,
+      contadorEnvio: schedule.contadorEnvio || 0
+    });
   } catch (error: any) {
     logWarn("[ScheduleController] Schedule updated but queue enqueue failed", {
       scheduleId: schedule.id,
@@ -181,10 +192,17 @@ export const mediaUpload = async (
 
   try {
     const schedule = await Schedule.findByPk(id);
+    if (!schedule) {
+      throw new AppError("ERR_NO_SCHEDULE_FOUND", 404);
+    }
 
-    // Construir la URL completa del archivo
+    const relativeMediaPath = path
+      .relative(path.resolve("public"), file.path)
+      .split(path.sep)
+      .join("/");
+
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080';
-    const mediaUrl = `${backendUrl}/public/company${companyId}/${file.filename}`;
+    const mediaUrl = `${backendUrl}/public/${relativeMediaPath}`;
 
     schedule.mediaPath = mediaUrl;
     schedule.mediaName = file.originalname;
@@ -205,16 +223,26 @@ export const deleteMedia = async (
 
   try {
     const schedule = await Schedule.findByPk(id);
+    if (!schedule) {
+      throw new AppError("ERR_NO_SCHEDULE_FOUND", 404);
+    }
 
     if (schedule.mediaPath) {
-      // Extraer el filename de la URL completa
-      const urlParts = schedule.mediaPath.split('/');
-      const filename = urlParts[urlParts.length - 1];
-      const filePath = path.resolve("public", `company${companyId}`, filename);
+      let filePath: string | null = null;
 
-      const fileExists = fs.existsSync(filePath);
+      try {
+        const parsedUrl = new URL(schedule.mediaPath);
+        const relativePublicPath = decodeURIComponent(parsedUrl.pathname).replace(/^\/public\//, "");
+        filePath = path.resolve("public", relativePublicPath);
+      } catch (_error) {
+        const urlParts = schedule.mediaPath.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        filePath = path.resolve("public", `company${companyId}`, filename);
+      }
+
+      const fileExists = filePath ? fs.existsSync(filePath) : false;
       if (fileExists) {
-        fs.unlinkSync(filePath);
+        fs.unlinkSync(filePath!);
       }
     }
 

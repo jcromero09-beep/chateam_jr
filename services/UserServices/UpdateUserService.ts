@@ -4,6 +4,7 @@ import AppError from "../../errors/AppError";
 import ShowUserService from "./ShowUserService";
 import Company from "../../models/Company";
 import User from "../../models/User";
+import Queue from "../../models/Queue";
 
 interface UserData {
   email?: string;
@@ -53,8 +54,10 @@ const UpdateUserService = async ({
   const user = await ShowUserService(userId, companyId);
 
   const requestUser = await User.findByPk(requestUserId);
+  const hasCompanyId = Object.prototype.hasOwnProperty.call(userData, "companyId");
+  const hasQueueIds = Object.prototype.hasOwnProperty.call(userData, "queueIds");
 
-  if (requestUser.super === false && userData.companyId !== companyId) {
+  if (requestUser?.super === false && hasCompanyId && userData.companyId !== companyId) {
     throw new AppError("O usuário não pertence à esta empresa");
   }
 
@@ -63,7 +66,8 @@ const UpdateUserService = async ({
     allHistoric: Yup.string(),
     email: Yup.string().email(),
     profile: Yup.string(),
-    password: Yup.string()
+    password: Yup.string(),
+    queueIds: Yup.array().of(Yup.number().integer())
   });
 
   const oldUserEmail = user.email;
@@ -73,7 +77,7 @@ const UpdateUserService = async ({
     password,
     profile,
     name,
-    queueIds = [],
+    queueIds,
     startWork,
     endWork,
     farewellMessage,
@@ -93,9 +97,28 @@ const UpdateUserService = async ({
   } = userData;
 
   try {
-    await schema.validate({ email, password, profile, name });
+    await schema.validate({ email, password, profile, name, queueIds });
   } catch (err: any) {
     throw new AppError(err.message);
+  }
+
+  if (hasQueueIds) {
+    const normalizedQueueIds = Array.isArray(queueIds)
+      ? [...new Set(queueIds)]
+      : [];
+
+    if (normalizedQueueIds.length > 0) {
+      const queues = await Queue.findAll({
+        where: {
+          id: normalizedQueueIds,
+          companyId
+        }
+      });
+
+      if (queues.length !== normalizedQueueIds.length) {
+        throw new AppError("Uma ou mais filas não pertencem à esta empresa");
+      }
+    }
   }
 
   await user.update({
@@ -120,10 +143,10 @@ const UpdateUserService = async ({
     profileImage,
     allowConnections
   });
-// ✅ Solo actualiza las colas si vienen y tienen al menos un ID válido
-if (Array.isArray(queueIds) && queueIds.some(id => id != null)) {
-  await user.$set("queues", queueIds);
-}
+
+  if (hasQueueIds) {
+    await user.$set("queues", Array.isArray(queueIds) ? [...new Set(queueIds)] : []);
+  }
 
   await user.reload();
 

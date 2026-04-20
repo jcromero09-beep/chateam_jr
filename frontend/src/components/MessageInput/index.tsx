@@ -517,6 +517,7 @@ export default function MessageInput({
 
       if (scheduleFile) {
         const formData = new FormData()
+        formData.append('typeArch', 'schedule')
         formData.append('file', scheduleFile)
         await api.post(`/schedules/${data.id}/media-upload`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },

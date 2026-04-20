@@ -48,6 +48,7 @@ const ListUsersService = async ({
       "name",
       "id",
       "email",
+      "createdAt",
       "companyId",
       "profile",
       "online",

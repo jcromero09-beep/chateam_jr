@@ -299,6 +299,18 @@ export default function Users() {
     users: users.filter((u) => u.profile === 'user').length,
   }
 
+  const formatCreatedAt = (value?: string) => {
+    if (!value) return '-'
+
+    const parsedDate = new Date(value)
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return '-'
+    }
+
+    return parsedDate.toLocaleDateString('es-ES')
+  }
+
   return (
     <Container maxWidth="xl">
       <Stack spacing={3}>
@@ -454,7 +466,7 @@ export default function Users() {
                       </td>
                       <td>
                         <Typography level="body-xs">
-                          {new Date(user.createdAt).toLocaleDateString('es-ES')}
+                          {formatCreatedAt(user.createdAt)}
                         </Typography>
                       </td>
                       <td>

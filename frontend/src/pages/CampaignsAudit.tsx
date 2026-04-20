@@ -15,6 +15,7 @@ import {
   IconButton,
   Tooltip,
   LinearProgress,
+  CircularProgress,
   Alert,
   Badge,
   Modal,
@@ -45,7 +46,6 @@ import {
   Delete as DeleteIcon,
   Check as CheckIcon,
   Token as TokenIcon,
-  Error as ErrorIcon,
   FilterList as FilterListIcon,
   Close as CloseIcon,
   Search as SearchIcon,
@@ -96,9 +96,13 @@ interface FacebookCampaign {
   id: string
   name: string
   status: string
+  effective_status?: string
   objective: string
   daily_budget?: number
   lifetime_budget?: number
+  budget_remaining?: number
+  stop_time?: string
+  activeAds?: number
   created_time: string
   insights: {
     impressions: number
@@ -112,12 +116,56 @@ interface FacebookCampaign {
   }
 }
 
-interface AdsConnection {
-  id: number
-  name: string
-  facebookAdAccountId: string
-  facebookBusinessId?: string
-  channel: string
+type DeliveryState = 'ACTIVA' | 'NO_HAY_ANUNCIOS' | 'COMPLETADA' | 'DESACTIVADA' | 'PAUSADA'
+
+function classifyCampaignDelivery(campaign: FacebookCampaign): DeliveryState {
+  if (campaign.status === 'PAUSED') return 'DESACTIVADA'
+
+  if (campaign.effective_status === 'COMPLETED') return 'COMPLETADA'
+
+  if (campaign.effective_status === 'CAMPAIGN_PAUSED') {
+    const hasValidStopTime = campaign.stop_time && campaign.stop_time !== '0000-00-00' && campaign.stop_time !== ''
+    const stopTimePassed = hasValidStopTime && campaign.stop_time && new Date(campaign.stop_time) < new Date()
+    const budgetExhausted = campaign.budget_remaining !== undefined && Number(campaign.budget_remaining) <= 0
+
+    if (stopTimePassed || (budgetExhausted && campaign.daily_budget === undefined && campaign.lifetime_budget === undefined)) {
+      return 'COMPLETADA'
+    }
+
+    return 'PAUSADA'
+  }
+
+  const hasLifetimeBudget = campaign.lifetime_budget !== undefined && Number(campaign.lifetime_budget) > 0
+  const hasDailyBudget = campaign.daily_budget !== undefined && Number(campaign.daily_budget) > 0
+  const budgetRemaining = campaign.budget_remaining !== undefined ? Number(campaign.budget_remaining) : null
+
+  if (hasLifetimeBudget && !hasDailyBudget && budgetRemaining !== null && budgetRemaining <= 0) {
+    return 'COMPLETADA'
+  }
+
+  if (campaign.stop_time && campaign.stop_time !== '0000-00-00' && campaign.stop_time !== '') {
+    const stopDate = new Date(campaign.stop_time)
+    if (!isNaN(stopDate.getTime()) && stopDate < new Date()) {
+      if (!hasDailyBudget || (budgetRemaining !== null && budgetRemaining <= 0)) {
+        return 'COMPLETADA'
+      }
+    }
+  }
+
+  if (campaign.activeAds !== undefined && campaign.activeAds === 0) {
+    return 'NO_HAY_ANUNCIOS'
+  }
+
+  if (campaign.status === 'ACTIVE' && campaign.effective_status === 'ACTIVE') return 'ACTIVA'
+  if (campaign.status === 'ACTIVE') return 'ACTIVA'
+
+  if (campaign.effective_status === 'PAUSED' || campaign.effective_status === 'DELETED' || campaign.effective_status === 'ARCHIVED') {
+    return 'DESACTIVADA'
+  }
+
+  if (hasDailyBudget || hasLifetimeBudget) return 'ACTIVA'
+
+  return 'DESACTIVADA'
 }
 
 export default function CampaignsAudit() {
@@ -128,6 +176,7 @@ export default function CampaignsAudit() {
   const [campaignScores, setCampaignScores] = useState<CampaignScore[]>([])
   const [tokenStatus, setTokenStatus] = useState<TokenStatus | null>(null)
   const [runningAudit, setRunningAudit] = useState(false)
+  const [runningCampaignAudit, setRunningCampaignAudit] = useState(false)
 
   // New filter states - ACTIVE por defecto para solo mostrar campañas activas
   const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<string>('ACTIVE')
@@ -163,17 +212,16 @@ export default function CampaignsAudit() {
     return d.toISOString().split('T')[0]
   })
   const [messageDateUntil, setMessageDateUntil] = useState(() => new Date().toISOString().split('T')[0])
-  const [messageDateLabel, setMessageDateLabel] = useState('Últimos 30 días')
 
   // Estados para conexiones WhatsApp (Facebook)
-  const [adsConnections, setAdsConnections] = useState<AdsConnection[]>([])
   const [selectedConnection, setSelectedConnection] = useState<number | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'error'>('checking')
   const [debugMode, setDebugMode] = useState(false)
 
   // Estados para datos de campañas
-  const [campaignsData, setCampaignsData] = useState<FacebookCampaign[]>([])
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
+  const [activeCampaignOptions, setActiveCampaignOptions] = useState<FacebookCampaign[]>([])
+  const [loadingCampaignOptions, setLoadingCampaignOptions] = useState(false)
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('')
 
   // Modal states
   const [selectedRecommendation, setSelectedRecommendation] = useState<AIRecommendation | null>(null)
@@ -202,6 +250,20 @@ export default function CampaignsAudit() {
     statusFilter: []
   })
 
+  const selectedCampaign = activeCampaignOptions.find(campaign => String(campaign.id) === selectedCampaignId) || null
+  const isGeneratingRecommendations = runningAudit || runningCampaignAudit
+  const loadingTitle = runningCampaignAudit
+    ? 'Analizando conversaciones de la campaña'
+    : 'Generando recomendaciones'
+  const loadingDescription = runningCampaignAudit
+    ? selectedCampaign
+      ? `La IA está leyendo los tickets y mensajes vinculados a "${selectedCampaign.name}". Esto puede tardar un poco.`
+      : 'La IA está leyendo los tickets y mensajes vinculados a la campaña seleccionada. Esto puede tardar un poco.'
+    : 'La IA está procesando campañas activas y construyendo recomendaciones. Si hay muchas campañas, puede tardar unos momentos.'
+  const loadingChipLabel = runningCampaignAudit
+    ? 'Procesando ticket por ticket'
+    : 'Procesando campañas activas'
+
   // Funciones para obtener conexiones
   const fetchAdsConnections = async () => {
     try {
@@ -212,8 +274,6 @@ export default function CampaignsAudit() {
       const fbConnections = connections.filter(
         (conn: any) => conn.channel === 'facebook' && conn.facebookAdAccountId
       )
-
-      setAdsConnections(fbConnections)
 
       if (fbConnections.length === 1) {
         setSelectedConnection(fbConnections[0].id)
@@ -260,7 +320,13 @@ export default function CampaignsAudit() {
     if (connectionStatus === 'connected') {
       fetchAuditData()
     }
-  }, [period, filter, deliveryStatusFilter, dateRange.from, dateRange.to, connectionStatus])
+  }, [period, filter, deliveryStatusFilter, dateRange.from, dateRange.to, selectedCampaignId, connectionStatus])
+
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      fetchActiveCampaignOptions()
+    }
+  }, [connectionStatus, selectedConnection, debugMode, period])
 
   // Reset page when table filters change
   useEffect(() => {
@@ -288,6 +354,7 @@ export default function CampaignsAudit() {
       if (deliveryStatusFilter !== 'all') params.append('campaignStatus', deliveryStatusFilter)
       if (dateRange.from) params.append('dateFrom', dateRange.from)
       if (dateRange.to) params.append('dateTo', dateRange.to)
+      if (selectedCampaignId) params.append('campaignId', selectedCampaignId)
 
       // Fetch recommendations and token status
       const [recsResponse, scoresResponse] = await Promise.all([
@@ -297,7 +364,12 @@ export default function CampaignsAudit() {
 
       setRecommendations(recsResponse.data.recommendations || [])
       setTokenStatus(recsResponse.data.tokenStatus || null)
-      setCampaignScores(scoresResponse.data.scores || [])
+      const scores = scoresResponse.data.scores || []
+      setCampaignScores(
+        selectedCampaignId
+          ? scores.filter((score: CampaignScore) => score.campaignId === selectedCampaignId)
+          : scores
+      )
     } catch (error: any) {
       console.error('Error fetching audit data:', error)
       toast.error(error.response?.data?.error || 'Error cargando datos de auditoria')
@@ -312,7 +384,6 @@ export default function CampaignsAudit() {
       return []
     }
 
-    setLoadingCampaigns(true)
     try {
       const url = debugMode
         ? `/meta-marketing/dashboard?period=${period}`
@@ -321,7 +392,6 @@ export default function CampaignsAudit() {
       const response = await api.get(url)
 
       if (response.data.success) {
-        setCampaignsData(response.data.campaigns || [])
         return response.data.campaigns || []
       } else {
         toast.error(response.data.message || 'Error al cargar campañas')
@@ -331,8 +401,37 @@ export default function CampaignsAudit() {
       console.error('Error fetching campaigns data:', err)
       toast.error(err.response?.data?.message || 'Error al cargar datos de campañas')
       return []
+    }
+  }
+
+  const fetchActiveCampaignOptions = async () => {
+    if (!selectedConnection && !debugMode) {
+      setActiveCampaignOptions([])
+      setSelectedCampaignId('')
+      return
+    }
+
+    setLoadingCampaignOptions(true)
+    try {
+      const params: Record<string, string | number> = { period }
+      if (!debugMode && selectedConnection) {
+        params.whatsappId = selectedConnection
+      }
+
+      const response = await api.get('/meta-marketing/campaigns', { params })
+      const allCampaigns = response.data.campaigns || response.data || []
+      const activeCampaigns = allCampaigns.filter((campaign: FacebookCampaign) => classifyCampaignDelivery(campaign) === 'ACTIVA')
+
+      setActiveCampaignOptions(activeCampaigns)
+      setSelectedCampaignId(prev =>
+        activeCampaigns.some((campaign: FacebookCampaign) => String(campaign.id) === prev) ? prev : ''
+      )
+    } catch (error: any) {
+      console.error('Error fetching active campaign options:', error)
+      toast.error(error.response?.data?.message || 'Error cargando campañas activas')
+      setActiveCampaignOptions([])
     } finally {
-      setLoadingCampaigns(false)
+      setLoadingCampaignOptions(false)
     }
   }
 
@@ -345,7 +444,7 @@ export default function CampaignsAudit() {
     setRunningAudit(true)
     try {
       // Primero obtener datos frescos de campañas
-      let campaigns = await fetchCampaignsData()
+      const campaigns = await fetchCampaignsData()
 
       if (!campaigns || campaigns.length === 0) {
         toast.error('No hay datos de campañas disponibles para analizar')
@@ -499,6 +598,48 @@ export default function CampaignsAudit() {
     }
   }
 
+  const runSelectedCampaignAudit = async () => {
+    if (!selectedCampaignId) {
+      toast.error('Selecciona una campaña activa para analizar sus conversaciones')
+      return
+    }
+
+    if (tokenStatus && !tokenStatus.available) {
+      toast.error(`Limite de tokens alcanzado (${tokenStatus.used}/${tokenStatus.limit})`)
+      return
+    }
+
+    setRunningCampaignAudit(true)
+    try {
+      const campaigns = await fetchCampaignsData()
+      const selectedCampaignData = campaigns.find(campaign => String(campaign.id) === selectedCampaignId)
+
+      if (!selectedCampaignData) {
+        toast.error('No se pudo cargar la campaña seleccionada para auditoría')
+        return
+      }
+
+      const response = await api.post('/campaigns/audit/recommendations/generate', {
+        period,
+        campaigns: [selectedCampaignData],
+        campaignId: selectedCampaignId,
+        whatsappId: debugMode ? undefined : selectedConnection,
+        messageDateSince,
+        messageDateUntil
+      })
+
+      toast.success(
+        `Analisis conversacional completado para ${selectedCampaignData.name} (${response.data.generated} recomendacion, ${response.data.tokensUsed} tokens)`
+      )
+      await fetchAuditData()
+    } catch (error: any) {
+      console.error('Error running selected campaign audit:', error)
+      toast.error(error.response?.data?.error || 'Error generando la recomendación de la campaña seleccionada')
+    } finally {
+      setRunningCampaignAudit(false)
+    }
+  }
+
   const handleApplyRecommendation = async (rec: AIRecommendation) => {
     try {
       await api.post(`/campaigns/audit/recommendations/${rec.id}/apply`)
@@ -617,6 +758,7 @@ export default function CampaignsAudit() {
     try {
       const params = new URLSearchParams()
       if (filter !== 'all') params.append('status', filter)
+      if (selectedCampaignId) params.append('campaignId', selectedCampaignId)
 
       const response = await api.get(`/campaigns/audit/export?${params.toString()}`, {
         responseType: 'blob'
@@ -658,6 +800,7 @@ export default function CampaignsAudit() {
     if (impressionsThreshold !== null) count++
     if (objectiveFilter.length > 0) count++
     if (campaignNameSearch.trim() !== '') count++
+    if (selectedCampaignId) count++
     return count
   }
 
@@ -671,11 +814,11 @@ export default function CampaignsAudit() {
     setImpressionsThreshold(null)
     setObjectiveFilter([])
     setCampaignNameSearch('')
+    setSelectedCampaignId('')
     const d = new Date()
     d.setDate(d.getDate() - 29)
     setMessageDateSince(d.toISOString().split('T')[0])
     setMessageDateUntil(new Date().toISOString().split('T')[0])
-    setMessageDateLabel('Últimos 30 días')
   }
 
   return (
@@ -722,6 +865,20 @@ export default function CampaignsAudit() {
               <Option value="last_90_days">Últimos 90 días</Option>
             </Select>
 
+            <Select
+              value={selectedCampaignId || null}
+              onChange={(_, value) => setSelectedCampaignId((value as string) || '')}
+              size="sm"
+              placeholder={loadingCampaignOptions ? 'Cargando campañas...' : 'Campaña activa'}
+              sx={{ minWidth: 240, maxWidth: 340 }}
+            >
+              {activeCampaignOptions.map(campaign => (
+                <Option key={campaign.id} value={campaign.id}>
+                  {campaign.name}
+                </Option>
+              ))}
+            </Select>
+
             {/* Botón de Filtros */}
             <Badge badgeContent={getActiveFiltersCount()} color="primary" size="sm">
               <Button
@@ -744,7 +901,19 @@ export default function CampaignsAudit() {
               size="sm"
               disabled={tokenStatus ? !tokenStatus.available : false}
             >
-              Actualizar
+              Generar general
+            </Button>
+
+            <Button
+              startDecorator={<SmartToyIcon />}
+              onClick={runSelectedCampaignAudit}
+              loading={runningCampaignAudit}
+              color="success"
+              variant="solid"
+              size="sm"
+              disabled={!selectedCampaignId || (tokenStatus ? !tokenStatus.available : false)}
+            >
+              Analizar campaña
             </Button>
 
             <Tooltip title="Exportar reporte">
@@ -907,6 +1076,22 @@ export default function CampaignsAudit() {
                 }
               >
                 Nombre: "{campaignNameSearch}"
+              </Chip>
+            )}
+
+            {selectedCampaign && (
+              <Chip
+                size="sm"
+                variant="soft"
+                color="primary"
+                endDecorator={
+                  <CloseIcon
+                    sx={{ fontSize: 16, cursor: 'pointer' }}
+                    onClick={() => setSelectedCampaignId('')}
+                  />
+                }
+              >
+                Campaña: {selectedCampaign.name}
               </Chip>
             )}
 
@@ -1440,6 +1625,36 @@ export default function CampaignsAudit() {
           </CardContent>
         </Card>
       </Stack>
+
+      <Modal open={isGeneratingRecommendations}>
+        <ModalDialog
+          layout="center"
+          sx={{
+            minWidth: { xs: 'calc(100vw - 32px)', sm: 440 },
+            maxWidth: 520,
+            px: 3,
+            py: 4
+          }}
+        >
+          <Stack spacing={2.5} alignItems="center" sx={{ textAlign: 'center' }}>
+            <CircularProgress size="lg" />
+            <Box>
+              <Typography level="h4">{loadingTitle}</Typography>
+              <Typography level="body-sm" sx={{ mt: 1, color: 'text.tertiary' }}>
+                {loadingDescription}
+              </Typography>
+            </Box>
+            <LinearProgress sx={{ width: '100%' }} />
+            <Chip
+              size="sm"
+              variant="soft"
+              color={runningCampaignAudit ? 'success' : 'primary'}
+            >
+              {loadingChipLabel}
+            </Chip>
+          </Stack>
+        </ModalDialog>
+      </Modal>
 
       {/* Detail Modal */}
       <Modal open={detailModalOpen} onClose={() => setDetailModalOpen(false)}>

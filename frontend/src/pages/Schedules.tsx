@@ -319,6 +319,7 @@ export default function Schedules() {
 
     if (selectedFile) {
       const uploadData = new FormData()
+      uploadData.append('typeArch', 'schedule')
       uploadData.append('file', selectedFile)
       await api.post(`/schedules/${scheduleId}/media-upload`, uploadData, {
         headers: {

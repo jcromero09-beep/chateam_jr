@@ -3,13 +3,107 @@
  * Solo accesibles desde localhost (127.0.0.1)
  */
 import { Router, Request, Response } from "express";
+import axios from "axios";
+import fs from "fs";
+import path from "path";
 import { getWbot } from "../libs/wbot";
 import { StartWhatsAppSession } from "../services/WbotServices/StartWhatsAppSession";
 import Whatsapp from "../models/Whatsapp";
 import { sessionRegistry } from "../libs/sessionRegistry";
 import logger from "../utils/logger";
+import { getMessageOptions } from "../services/WbotServices/SendWhatsAppMedia";
 
 const internalRoutes = Router();
+
+const reviveSerializedBuffers = (value: any): any => {
+  if (Array.isArray(value)) {
+    return value.map(reviveSerializedBuffers);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (value.type === "Buffer" && Array.isArray(value.data)) {
+    return Buffer.from(value.data);
+  }
+
+  const revived: Record<string, any> = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    revived[key] = reviveSerializedBuffers(nestedValue);
+  }
+
+  return revived;
+};
+
+const resolveLocalMediaPath = (mediaPath?: string, companyId?: number): string | null => {
+  if (!mediaPath) {
+    return null;
+  }
+
+  const normalized = String(mediaPath).trim();
+  const candidates = new Set<string>();
+
+  if (fs.existsSync(normalized)) {
+    return normalized;
+  }
+
+  candidates.add(path.resolve(normalized));
+
+  if (/^https?:\/\//i.test(normalized)) {
+    try {
+      const parsedUrl = new URL(normalized);
+      const pathname = decodeURIComponent(parsedUrl.pathname);
+      const publicPrefix = "/public/";
+
+      if (pathname.includes(publicPrefix)) {
+        const relativePublicPath = pathname.split(publicPrefix)[1];
+        if (relativePublicPath) {
+          candidates.add(path.resolve("public", relativePublicPath));
+        }
+      }
+
+      if (companyId) {
+        candidates.add(path.resolve("public", `company${companyId}`, path.basename(pathname)));
+      }
+    } catch (_error) {
+      // noop
+    }
+  }
+
+  if (companyId) {
+    candidates.add(path.resolve("public", `company${companyId}`, path.basename(normalized)));
+  }
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+};
+
+const downloadRemoteMediaToTemp = async (
+  mediaUrl: string,
+  mediaName?: string
+): Promise<string> => {
+  const parsedUrl = new URL(mediaUrl);
+  const fileNameFromUrl = path.basename(parsedUrl.pathname) || "attachment.bin";
+  const baseFileName = mediaName || fileNameFromUrl;
+  const tempFilePath = path.join(
+    "/tmp",
+    `internal-media-${Date.now()}-${baseFileName.replace(/\s+/g, "_")}`
+  );
+
+  const response = await axios.get<ArrayBuffer>(mediaUrl, {
+    responseType: "arraybuffer",
+    timeout: 30000
+  });
+
+  fs.writeFileSync(tempFilePath, Buffer.from(response.data));
+  return tempFilePath;
+};
 
 // Middleware: solo permitir requests desde localhost
 internalRoutes.use((req: Request, res: Response, next) => {
@@ -26,11 +120,66 @@ internalRoutes.post("/internal/send", async (req: Request, res: Response) => {
   try {
     const { whatsappId, to, message, options } = req.body;
     const wbot = getWbot(whatsappId);
-    const result = await wbot.sendMessage(to, message, options || {});
+    const hydratedMessage = reviveSerializedBuffers(message);
+    const hydratedOptions = reviveSerializedBuffers(options || {});
+    const result = await wbot.sendMessage(to, hydratedMessage, hydratedOptions);
     return res.json({ success: true, result });
   } catch (error: any) {
     logger.error(`[Internal] Send error: ${error.message}`);
     return res.status(500).json({ error: error.message });
+  }
+});
+
+internalRoutes.post("/internal/send-media", async (req: Request, res: Response) => {
+  let tempMediaPath: string | null = null;
+
+  try {
+    const { whatsappId, to, mediaPath, mediaName, body, companyId, options } = req.body;
+
+    if (!whatsappId || !to || !mediaPath) {
+      return res.status(400).json({
+        error: "whatsappId, to y mediaPath son requeridos"
+      });
+    }
+
+    const wbot = getWbot(whatsappId);
+
+    let resolvedMediaPath = resolveLocalMediaPath(mediaPath, companyId);
+
+    if (!resolvedMediaPath && /^https?:\/\//i.test(String(mediaPath))) {
+      tempMediaPath = await downloadRemoteMediaToTemp(String(mediaPath), mediaName);
+      resolvedMediaPath = tempMediaPath;
+    }
+
+    if (!resolvedMediaPath) {
+      return res.status(404).json({
+        error: `Archivo adjunto no encontrado: ${mediaPath}`
+      });
+    }
+
+    const messageOptions = await getMessageOptions(
+      mediaName || path.basename(resolvedMediaPath),
+      resolvedMediaPath,
+      companyId ? String(companyId) : undefined,
+      body || " "
+    );
+
+    if (!messageOptions) {
+      return res.status(500).json({
+        error: "No fue posible generar el payload del adjunto"
+      });
+    }
+
+    const hydratedOptions = reviveSerializedBuffers(options || {});
+    const result = await wbot.sendMessage(to, messageOptions as any, hydratedOptions);
+    return res.json({ success: true, result });
+  } catch (error: any) {
+    logger.error(`[Internal] Send media error: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  } finally {
+    if (tempMediaPath && fs.existsSync(tempMediaPath)) {
+      fs.unlinkSync(tempMediaPath);
+    }
   }
 });
 
@@ -165,7 +314,8 @@ internalRoutes.post("/internal/wbot-call", async (req: Request, res: Response) =
       return res.status(400).json({ error: `Método ${method} no encontrado en wbot` });
     }
 
-    const result = await wbot[method](...(args || []));
+    const hydratedArgs = reviveSerializedBuffers(args || []);
+    const result = await wbot[method](...hydratedArgs);
 
     logger.info(`[INTERNAL-WBOT] ✅ Método ${method} ejecutado exitosamente`);
 

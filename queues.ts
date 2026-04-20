@@ -432,6 +432,82 @@ export const parseToMilliseconds = (seconds: number): number => {
   return seconds * 1000;
 };
 
+interface ScheduledMessageOccurrenceInput {
+  id: number;
+  companyId: number;
+  sendAt: Date | string;
+  contadorEnvio?: number | null;
+}
+
+export interface ScheduledMessageOccurrenceJobData {
+  id: number;
+  companyId: number;
+  expectedSendAt: string;
+  expectedContadorEnvio: number;
+}
+
+interface ScheduledDeliveryMetaInput {
+  scheduleId?: number;
+  expectedSendAt?: string | Date;
+  contadorEnvio?: number | null;
+}
+
+function normalizeScheduledMessageOccurrence(
+  input: ScheduledMessageOccurrenceInput
+): ScheduledMessageOccurrenceJobData {
+  return {
+    id: input.id,
+    companyId: input.companyId,
+    expectedSendAt: moment(input.sendAt).toISOString(),
+    expectedContadorEnvio: Number(input.contadorEnvio || 0)
+  };
+}
+
+export function buildScheduledMessageOccurrenceJobId(
+  input: ScheduledMessageOccurrenceInput
+): string {
+  const normalized = normalizeScheduledMessageOccurrence(input);
+  const occurrenceTs = moment(normalized.expectedSendAt).valueOf();
+  return `schedule:${normalized.id}:occurrence:${occurrenceTs}:${normalized.expectedContadorEnvio}`;
+}
+
+function buildScheduledDeliveryJobId(meta?: ScheduledDeliveryMetaInput): string | null {
+  if (!meta?.scheduleId) {
+    return null;
+  }
+
+  const expectedSendAt = meta.expectedSendAt
+    ? moment(meta.expectedSendAt).valueOf()
+    : "na";
+  const contadorEnvio = Number(meta.contadorEnvio || 0);
+
+  return `schedule-delivery:${meta.scheduleId}:${expectedSendAt}:${contadorEnvio}`;
+}
+
+export async function enqueueScheduledMessageOccurrence(
+  input: ScheduledMessageOccurrenceInput,
+  options?: Bull.JobOptions
+): Promise<Bull.Job<any>> {
+  if (!REDIS_ENABLED || !scheduledMessagesQueue) {
+    throw new Error("ScheduledMessages queue is not available");
+  }
+
+  const normalized = normalizeScheduledMessageOccurrence(input);
+  const computedDelay =
+    typeof options?.delay === "number"
+      ? Math.max(options.delay, 0)
+      : Math.max(moment(normalized.expectedSendAt).diff(moment(), "milliseconds"), 0);
+
+  return scheduledMessagesQueue.add(
+    normalized,
+    getJobOptions("ScheduledMessages", {
+      ...options,
+      delay: computedDelay,
+      jobId: options?.jobId || buildScheduledMessageOccurrenceJobId(input)
+    })
+  );
+}
+
 /**
  * Generate random value within a range
  */
@@ -500,7 +576,17 @@ export const add = (name: string, data: any, options?: any): Promise<Bull.Job<an
     if (DEBUG_SCHEDULER) {
       logger.info(`[WORKER] 🗓️ SendScheduledMessages → Backend | Data: ${JSON.stringify(data)}`);
     }
-    return sendScheduledMessagesQueue.add("SendMessage", data, getJobOptions("SendScheduledMessages", options));
+    const scheduledDeliveryJobId =
+      options?.jobId || buildScheduledDeliveryJobId(data?.meta);
+
+    return sendScheduledMessagesQueue.add(
+      "SendMessage",
+      data,
+      getJobOptions("SendScheduledMessages", {
+        ...options,
+        ...(scheduledDeliveryJobId ? { jobId: scheduledDeliveryJobId } : {})
+      })
+    );
   }
 
   // Para notificaciones, usar la cola del backend principal
@@ -896,8 +982,8 @@ const checkTime = async (companyId: number) => {
 // Scheduler para mensajes programados
 let isScheduledMessagesRunning = false;
 
-// Set para trackear schedules ya encolados y evitar mensajes duplicados
-const enqueuedScheduleIds = new Set<number>();
+// Set para trackear ocurrencias ya encoladas y evitar mensajes duplicados
+const enqueuedScheduleOccurrences = new Set<string>();
 
 async function scheduledMessagesScheduler() {
   if (isScheduledMessagesRunning) {
@@ -962,10 +1048,17 @@ async function scheduledMessagesScheduler() {
 
       for (const schedule of scheduledMessages) {
         try {
-          // Verificar si ya fue encolado para evitar mensajes duplicados
-          if (enqueuedScheduleIds.has(schedule.id)) {
+          const occurrenceJobId = buildScheduledMessageOccurrenceJobId({
+            id: schedule.id,
+            companyId: schedule.companyId,
+            sendAt: schedule.sendAt,
+            contadorEnvio: schedule.contadorEnvio || 0
+          });
+
+          // Verificar si ya fue encolada esta ocurrencia para evitar mensajes duplicados
+          if (enqueuedScheduleOccurrences.has(occurrenceJobId)) {
             if (DEBUG_SCHEDULER) {
-              console.log(`⏭️ [SCHEDULED-SCHEDULER] Schedule ID=${schedule.id} ya encolado, saltando...`);
+              console.log(`⏭️ [SCHEDULED-SCHEDULER] Ocurrencia ${occurrenceJobId} ya encolada, saltando...`);
             }
             continue;
           }
@@ -984,9 +1077,11 @@ async function scheduledMessagesScheduler() {
           }
 
           // Agregar a la cola CON DELAY hasta el momento exacto
-          await add("ScheduledMessages", {
+          await enqueueScheduledMessageOccurrence({
             id: schedule.id,
-            companyId: schedule.companyId
+            companyId: schedule.companyId,
+            sendAt: schedule.sendAt,
+            contadorEnvio: schedule.contadorEnvio || 0
           }, {
             delay: finalDelay,
             priority: 1,
@@ -995,10 +1090,10 @@ async function scheduledMessagesScheduler() {
           });
 
           // Marcar como encolado (limpiar después de 5 minutos)
-          enqueuedScheduleIds.add(schedule.id);
-          setTimeout(() => enqueuedScheduleIds.delete(schedule.id), 5 * 60 * 1000);
+          enqueuedScheduleOccurrences.add(occurrenceJobId);
+          setTimeout(() => enqueuedScheduleOccurrences.delete(occurrenceJobId), 5 * 60 * 1000);
 
-          console.log(`✅ [SCHEDULED-SCHEDULER] Mensaje programado ID=${schedule.id} enviado a cola`);
+          console.log(`✅ [SCHEDULED-SCHEDULER] Mensaje programado ID=${schedule.id} enviado a cola (${occurrenceJobId})`);
         } catch (error) {
           console.error(`❌ [SCHEDULED-SCHEDULER] Error procesando mensaje programado ID=${schedule.id}: ${error.message}`);
         }

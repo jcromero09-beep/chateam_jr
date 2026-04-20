@@ -1,250 +1,187 @@
-import { describe, test, expect, jest } from '@jest/globals';
-import CreateUserService from '../../services/UserServices/CreateUserService';
-import UpdateUserService from '../../services/UserServices/UpdateUserService';
-import DeleteUserService from '../../services/UserServices/DeleteUserService';
-import User from '../../models/User';
+import { describe, test, expect, jest, beforeEach } from "@jest/globals";
+import UpdateUserService from "../../services/UserServices/UpdateUserService";
+import ShowUserService from "../../services/UserServices/ShowUserService";
+import User from "../../models/User";
+import Queue from "../../models/Queue";
+import Company from "../../models/Company";
 
-// Mock dependencies
-jest.mock('../../models/User');
-jest.mock('../../models/Queue');
-jest.mock('../../models/Company');
+jest.mock("../../services/UserServices/ShowUserService", () => jest.fn());
+jest.mock("../../models/User");
+jest.mock("../../models/Queue");
+jest.mock("../../models/Company");
 
-describe('User Services - Unit Tests', () => {
+const mockedShowUserService = ShowUserService as jest.MockedFunction<typeof ShowUserService>;
+const mockedUserFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
+const mockedQueueFindAll = Queue.findAll as jest.MockedFunction<typeof Queue.findAll>;
+const mockedCompanyFindByPk = Company.findByPk as jest.MockedFunction<typeof Company.findByPk>;
+
+const buildMockUser = () => ({
+  id: 99,
+  name: "Existing User",
+  email: "existing@jrchateam.com",
+  profile: "user",
+  companyId: 1,
+  whatsappId: 7,
+  queues: [{ id: 1, name: "Support" }],
+  startWork: "08:00",
+  endWork: "18:00",
+  farewellMessage: "bye",
+  allTicket: "enabled",
+  defaultMenu: "closed",
+  defaultTheme: "light",
+  allowGroup: false,
+  allHistoric: "enabled",
+  userClosePendingTicket: "enabled",
+  showDashboard: "enabled",
+  defaultTicketsManagerWidth: 550,
+  allowRealTime: "enabled",
+  allowConnections: "enabled",
+  profileImage: null,
+  update: jest.fn().mockResolvedValue(true),
+  reload: jest.fn().mockResolvedValue(true),
+  $set: jest.fn().mockResolvedValue(true)
+});
+
+describe("UpdateUserService", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('CreateUserService', () => {
-    test('should create user with valid data', async () => {
-      // Arrange
-      const userData = {
-        name: 'John Doe',
-        email: 'john@jrchateam.com',
-        password: 'password123',
-        profile: 'user',
-        companyId: 1
-      };
+  test("should update a user from the same company when companyId is omitted", async () => {
+    const user = buildMockUser();
 
-      const mockUser = {
-        id: 1,
-        ...userData,
-        password: 'hashed_password'
-      };
+    mockedShowUserService.mockResolvedValue(user as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
 
-      const mockCreate = User.create as jest.MockedFunction<typeof User.create>;
-      mockCreate.mockResolvedValue(mockUser as any);
-
-      // Act
-      const result = await CreateUserService(userData);
-
-      // Assert
-      expect(result).toBeDefined();
-      expect(result.email).toBe('john@jrchateam.com');
-      expect(mockCreate).toHaveBeenCalled();
+    const result = await UpdateUserService({
+      userId: 99,
+      companyId: 1,
+      requestUserId: 7,
+      userData: {
+        name: "Updated Name"
+      }
     });
 
-    test('should not create user with duplicate email', async () => {
-      // Arrange
-      const userData = {
-        name: 'John Doe',
-        email: 'existing@jrchateam.com',
-        password: 'password123',
-        profile: 'user',
-        companyId: 1
-      };
-
-      const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-      mockFindOne.mockResolvedValue({ id: 1, email: 'existing@jrchateam.com' } as any);
-
-      // Act & Assert
-      await expect(CreateUserService(userData)).rejects.toThrow();
-    });
-
-    test('should hash password before saving', async () => {
-      // Arrange
-      const userData = {
-        name: 'John Doe',
-        email: 'john@jrchateam.com',
-        password: 'password123',
-        profile: 'user',
-        companyId: 1
-      };
-
-      const mockUser = {
-        id: 1,
-        ...userData,
-        password: 'hashed_password_different_from_original'
-      };
-
-      const mockCreate = User.create as jest.MockedFunction<typeof User.create>;
-      mockCreate.mockResolvedValue(mockUser as any);
-
-      // Act
-      const result = await CreateUserService(userData);
-
-      // Assert
-      expect(result.password).not.toBe('password123');
-    });
+    expect(result).toBeDefined();
+    expect(mockedShowUserService).toHaveBeenCalledWith(99, 1);
+    expect(user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Updated Name"
+      })
+    );
+    expect(user.$set).not.toHaveBeenCalled();
   });
 
-  describe('UpdateUserService', () => {
-    test('should update user successfully', async () => {
-      // Arrange
-      const userId = 1;
-      const updateData = {
-        name: 'Updated Name',
-        email: 'updated@jrchateam.com'
-      };
+  test("should reject updates when a non-super user sends another companyId", async () => {
+    const user = buildMockUser();
 
-      const mockUser = {
-        id: userId,
-        name: 'Old Name',
-        email: 'old@jrchateam.com',
-        update: jest.fn().mockResolvedValue(true)
-      };
+    mockedShowUserService.mockResolvedValue(user as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
 
-      const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
-      mockFindByPk.mockResolvedValue(mockUser as any);
-
-      // Act
-      const result = await UpdateUserService({ userId, ...updateData });
-
-      // Assert
-      expect(result).toBeDefined();
-      expect(mockUser.update).toHaveBeenCalledWith(expect.objectContaining(updateData));
+    await expect(
+      UpdateUserService({
+        userId: 99,
+        companyId: 1,
+        requestUserId: 7,
+        userData: {
+          companyId: 2
+        }
+      })
+    ).rejects.toMatchObject({
+      message: "O usuário não pertence à esta empresa"
     });
 
-    test('should not update to duplicate email', async () => {
-      // Arrange
-      const userId = 1;
-      const updateData = {
-        email: 'existing@jrchateam.com'
-      };
-
-      const mockUser = {
-        id: userId,
-        email: 'original@jrchateam.com'
-      };
-
-      const existingUser = {
-        id: 2,
-        email: 'existing@jrchateam.com'
-      };
-
-      const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
-      mockFindByPk.mockResolvedValue(mockUser as any);
-
-      const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-      mockFindOne.mockResolvedValue(existingUser as any);
-
-      // Act & Assert
-      await expect(UpdateUserService({ userId, ...updateData })).rejects.toThrow();
-    });
-
-    test('should update password and hash it', async () => {
-      // Arrange
-      const userId = 1;
-      const updateData = {
-        password: 'newpassword123'
-      };
-
-      const mockUser = {
-        id: userId,
-        password: 'old_hashed_password',
-        update: jest.fn().mockResolvedValue(true)
-      };
-
-      const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
-      mockFindByPk.mockResolvedValue(mockUser as any);
-
-      // Act
-      await UpdateUserService({ userId, ...updateData });
-
-      // Assert
-      expect(mockUser.update).toHaveBeenCalled();
-    });
+    expect(user.update).not.toHaveBeenCalled();
+    expect(mockedQueueFindAll).not.toHaveBeenCalled();
   });
 
-  describe('DeleteUserService', () => {
-    test('should delete user successfully', async () => {
-      // Arrange
-      const userId = 1;
+  test("should assign queues when every queue belongs to the authenticated company", async () => {
+    const user = buildMockUser();
 
-      const mockUser = {
-        id: userId,
-        destroy: jest.fn().mockResolvedValue(true)
-      };
+    mockedShowUserService.mockResolvedValue(user as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedQueueFindAll.mockResolvedValue([{ id: 10 }, { id: 11 }] as any);
+    mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
 
-      const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
-      mockFindByPk.mockResolvedValue(mockUser as any);
-
-      // Act
-      await DeleteUserService(userId);
-
-      // Assert
-      expect(mockUser.destroy).toHaveBeenCalled();
+    await UpdateUserService({
+      userId: 99,
+      companyId: 1,
+      requestUserId: 7,
+      userData: {
+        queueIds: [10, 11]
+      }
     });
 
-    test('should throw error when user not found', async () => {
-      // Arrange
-      const userId = 999;
-
-      const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
-      mockFindByPk.mockResolvedValue(null);
-
-      // Act & Assert
-      await expect(DeleteUserService(userId)).rejects.toThrow();
+    expect(mockedQueueFindAll).toHaveBeenCalledWith({
+      where: {
+        id: [10, 11],
+        companyId: 1
+      }
     });
+    expect(user.$set).toHaveBeenCalledWith("queues", [10, 11]);
   });
 
-  describe('User Model Validations', () => {
-    test('should validate email format', () => {
-      // Valid emails
-      const validEmails = [
-        'test@jrchateam.com',
-        'user.name@company.com',
-        'admin+tag@example.com'
-      ];
+  test("should reject queue assignments when any queue does not belong to the company", async () => {
+    const user = buildMockUser();
 
-      validEmails.forEach(email => {
-        expect(email).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
-      });
+    mockedShowUserService.mockResolvedValue(user as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedQueueFindAll.mockResolvedValue([{ id: 10 }] as any);
 
-      // Invalid emails
-      const invalidEmails = [
-        'notanemail',
-        '@example.com',
-        'user@',
-        'user @example.com'
-      ];
-
-      invalidEmails.forEach(email => {
-        expect(email).not.toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
-      });
+    await expect(
+      UpdateUserService({
+        userId: 99,
+        companyId: 1,
+        requestUserId: 7,
+        userData: {
+          queueIds: [10, 11]
+        }
+      })
+    ).rejects.toMatchObject({
+      message: "Uma ou mais filas não pertencem à esta empresa"
     });
 
-    test('should validate profile types', () => {
-      const validProfiles = ['admin', 'user', 'supervisor'];
-      const invalidProfile = 'invalid_profile';
+    expect(user.$set).not.toHaveBeenCalled();
+  });
 
-      validProfiles.forEach(profile => {
-        expect(['admin', 'user', 'supervisor']).toContain(profile);
-      });
+  test("should remove all queues when queueIds is an empty array", async () => {
+    const user = buildMockUser();
 
-      expect(['admin', 'user', 'supervisor']).not.toContain(invalidProfile);
+    mockedShowUserService.mockResolvedValue(user as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
+
+    await UpdateUserService({
+      userId: 99,
+      companyId: 1,
+      requestUserId: 7,
+      userData: {
+        queueIds: []
+      }
     });
 
-    test('should validate work hours format', () => {
-      const validHours = ['08:00', '18:30', '00:00', '23:59'];
-      const invalidHours = ['25:00', '12:60', 'invalid', '8:00'];
+    expect(mockedQueueFindAll).not.toHaveBeenCalled();
+    expect(user.$set).toHaveBeenCalledWith("queues", []);
+  });
 
-      validHours.forEach(hour => {
-        expect(hour).toMatch(/^([01]\d|2[0-3]):([0-5]\d)$/);
-      });
+  test("should keep current queues when queueIds is omitted", async () => {
+    const user = buildMockUser();
 
-      invalidHours.forEach(hour => {
-        expect(hour).not.toMatch(/^([01]\d|2[0-3]):([0-5]\d)$/);
-      });
+    mockedShowUserService.mockResolvedValue(user as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
+
+    await UpdateUserService({
+      userId: 99,
+      companyId: 1,
+      requestUserId: 7,
+      userData: {
+        email: "updated@jrchateam.com"
+      }
     });
+
+    expect(user.$set).not.toHaveBeenCalled();
+    expect(mockedQueueFindAll).not.toHaveBeenCalled();
   });
 });

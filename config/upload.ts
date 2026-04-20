@@ -6,6 +6,28 @@ import { isEmpty, isNil } from "lodash";
 
 const publicFolder = path.resolve(__dirname, "..", "public");
 
+const inferArchiveTypeFromRequest = (req: any): string | null => {
+  const requestPath = String(req.originalUrl || req.path || "").toLowerCase();
+
+  if (requestPath.includes("/schedules/") && requestPath.includes("/media-upload")) {
+    return "schedule";
+  }
+
+  if (requestPath.includes("/campaigns/") && requestPath.includes("/media-upload")) {
+    return "campaign";
+  }
+
+  if (requestPath.includes("/quick-messages/") && requestPath.includes("/media-upload")) {
+    return "quickMessage";
+  }
+
+  if (requestPath.includes("/email-campaigns/") && requestPath.includes("/media-upload")) {
+    return "emailCampaign";
+  }
+
+  return null;
+};
+
 export default {
   directory: publicFolder,
   storage: multer.diskStorage({
@@ -37,9 +59,9 @@ export default {
         return cb(new Error('Company ID not found'), '');
       }
 
-      // typeArch llega undefined en destination porque multer no ha parseado el body todavía
-      // Usar valor por defecto si es undefined
-      const archiveType = typeArch || 'quickMessage';
+      // typeArch puede llegar undefined en destination si multer aún no parseó el body.
+      // Para esos casos inferimos el tipo desde la ruta antes de caer al fallback legacy.
+      const archiveType = typeArch || inferArchiveTypeFromRequest(req) || 'quickMessage';
 
       let folder;
 

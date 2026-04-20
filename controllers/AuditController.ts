@@ -508,7 +508,14 @@ export class AuditController {
   async generateRecommendations(req: Request, res: Response): Promise<Response> {
     try {
       const { companyId } = req.user;
-      const { period = "last_30_days", campaigns, messageDateSince, messageDateUntil } = req.body;
+      const {
+        period = "last_30_days",
+        campaigns,
+        messageDateSince,
+        messageDateUntil,
+        campaignId,
+        whatsappId
+      } = req.body;
 
       const recommendationService = new CampaignRecommendationService();
       const result = await recommendationService.generateRecommendations(
@@ -516,7 +523,11 @@ export class AuditController {
         period,
         campaigns,
         messageDateSince,
-        messageDateUntil
+        messageDateUntil,
+        {
+          selectedCampaignId: campaignId,
+          whatsappId: whatsappId ? Number(whatsappId) : undefined
+        }
       );
 
       return res.status(200).json(result);
