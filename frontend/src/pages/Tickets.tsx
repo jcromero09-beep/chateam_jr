@@ -82,6 +82,7 @@ import DateSeparator from '../components/Messages/DateSeparator'
 import TikTokCommentBubble from '../components/Messages/TikTokCommentBubble'
 import MessageContent from '../components/Messages/MessageContent'
 import ChannelBadge from '../components/Messages/ChannelBadge'
+import RoutingPolicySelector from '../components/Messages/RoutingPolicySelector'
 import ConversationSearchBar from '../components/Messages/ConversationSearchBar'
 import MediaLightbox from '../components/Messages/MediaLightbox'
 import ForwardSelectionBar from '../components/ForwardSelectionBar'
@@ -2844,6 +2845,14 @@ export default function Tickets() {
                         }
                         isDark={isDark}
                         compact
+                      />
+                    )}
+                    {/* FASE 5 Coexistencia — selector dinámico de routing saliente */}
+                    {selectedTicket.id && (selectedTicket.channel === 'whatsapp' || selectedTicket.channel === 'meta') && (
+                      <RoutingPolicySelector
+                        ticketId={selectedTicket.id}
+                        ticketChannel={selectedTicket.channel}
+                        isDark={isDark}
                       />
                     )}
                     {selectedTicket.queue && (

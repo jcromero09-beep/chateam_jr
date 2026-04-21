@@ -8,6 +8,8 @@
 import express from "express";
 import isAuth from "../middleware/isAuth";
 import * as CoexistenceDispatchController from "../controllers/CoexistenceDispatchController";
+// FASE 5 Coexistencia — policy por conversación
+import * as CoexistencePolicyController from "../controllers/CoexistencePolicyController";
 
 const coexistenceDispatchRoutes = express.Router();
 
@@ -21,6 +23,19 @@ coexistenceDispatchRoutes.post(
   "/coexistence/dispatch/:ticketId",
   isAuth,
   CoexistenceDispatchController.dispatchOne
+);
+
+// FASE 5 — política dinámica por ticket/conversación
+coexistenceDispatchRoutes.get(
+  "/coexistence/tickets/:ticketId/routing-policy",
+  isAuth,
+  CoexistencePolicyController.getRoutingPolicy
+);
+
+coexistenceDispatchRoutes.put(
+  "/coexistence/tickets/:ticketId/routing-policy",
+  isAuth,
+  CoexistencePolicyController.setRoutingPolicy
 );
 
 export default coexistenceDispatchRoutes;
