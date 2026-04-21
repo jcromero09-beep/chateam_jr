@@ -612,7 +612,7 @@ export default function CampaignsAudit() {
     setRunningCampaignAudit(true)
     try {
       const campaigns = await fetchCampaignsData()
-      const selectedCampaignData = campaigns.find(campaign => String(campaign.id) === selectedCampaignId)
+      const selectedCampaignData = campaigns.find((campaign: { id: number | string }) => String(campaign.id) === selectedCampaignId)
 
       if (!selectedCampaignData) {
         toast.error('No se pudo cargar la campaña seleccionada para auditoría')
