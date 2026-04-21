@@ -199,6 +199,9 @@ import whatsappMetaDashboardRoutes from "./whatsappMetaDashboardRoutes";
 import whatsappCoexistenceRoutes from "./whatsappCoexistenceRoutes";
 // console.log("🛣️ [47.5] ✅ whatsappCoexistenceRoutes OK");
 
+// FASE 4 Coexistencia — dispatch unificado + routing preview
+import coexistenceDispatchRoutes from "./coexistenceDispatchRoutes";
+
 // console.log("🛣️ [48] whatsappTemplateRoutes...");
 import whatsappTemplateRoutes from "./whatsappTemplateRoutes";
 // console.log("🛣️ [48] ✅ whatsappTemplateRoutes OK");
@@ -510,6 +513,8 @@ routes.use("/whatsapp-monitor", whatsappMonitorRoutes);
 routes.use("/whatsapp-meta", whatsappMetaDashboardRoutes);
 routes.use("/whatsapp", whatsappCoexistenceRoutes);        // Coexistencia + Migración
 routes.use("/webhook/meta", whatsappCoexistenceRoutes);     // Embedded Signup callback
+// FASE 4 Coexistencia — dispatch unificado + routing preview
+routes.use(coexistenceDispatchRoutes);
 routes.use("/whatsapp-templates", whatsappTemplateRoutes);
 
 // AI Configuration & OpenAI Management
