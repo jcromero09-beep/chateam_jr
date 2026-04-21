@@ -81,6 +81,7 @@ import { useMessageFormatting } from '../hooks/useMessageFormatting'
 import DateSeparator from '../components/Messages/DateSeparator'
 import TikTokCommentBubble from '../components/Messages/TikTokCommentBubble'
 import MessageContent from '../components/Messages/MessageContent'
+import ChannelBadge from '../components/Messages/ChannelBadge'
 import ConversationSearchBar from '../components/Messages/ConversationSearchBar'
 import MediaLightbox from '../components/Messages/MediaLightbox'
 import ForwardSelectionBar from '../components/ForwardSelectionBar'
@@ -2833,6 +2834,18 @@ export default function Tickets() {
                     <Typography level="body-xs" sx={{ color: 'text.tertiary', fontSize: '11px' }}>
                       {selectedTicket.status === 'open' ? 'Activo' : getStatusLabel(selectedTicket.status)}
                     </Typography>
+                    {/* FASE 1 Coexistencia — chip de canal actual del ticket */}
+                    {selectedTicket.channel && (
+                      <ChannelBadge
+                        provider={
+                          selectedTicket.channel === 'whatsapp'
+                            ? 'baileys'
+                            : (selectedTicket.channel as any)
+                        }
+                        isDark={isDark}
+                        compact
+                      />
+                    )}
                     {selectedTicket.queue && (
                       <>
                         <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>·</Typography>
@@ -3154,6 +3167,16 @@ export default function Tickets() {
                                 <Typography sx={{ fontSize: '11px', color: isOwn ? 'rgba(255,255,255,0.6)' : (isDark ? '#8A8D91' : 'rgba(5,5,5,0.45)'), userSelect: 'none' }}>
                                   {formatTime(msg.createdAt)}
                                 </Typography>
+                                {/* FASE 1 Coexistencia — badge de canal físico (Meta/Baileys/business_app).
+                                    Se renderiza sólo si el backend envía provider o sourceChannel. */}
+                                {!isMessageDeleted && (
+                                  <ChannelBadge
+                                    provider={(msg as any).provider}
+                                    sourceChannel={(msg as any).sourceChannel}
+                                    isDark={isDark}
+                                    compact
+                                  />
+                                )}
                                 {isOwn && msg.ack !== undefined && !isMessageDeleted && (
                                   <Typography sx={{ fontSize: '11px', color: msg.ack >= 3 ? '#5BC2D2' : (isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.35)') }}>
                                     {msg.ack === 0 ? '🕐' : msg.ack >= 2 ? '✓✓' : '✓'}

@@ -35,6 +35,13 @@ import ListMessagesServiceAll from "../services/MessageServices/ListMessagesServ
 import { sendTextDynamic as metaSendTextDynamic } from "../services/MetaServices/metaSendService";
 // Logger específico para messages
 //import messageLogger from "../utils/messageLogger";
+
+// FASE 1 Coexistencia — trazabilidad estructurada de outbound manual
+import {
+  logOutbound as coexLogOutbound,
+  logCoexError as coexLogError
+} from "../utils/coexistenceLogger";
+import { updateTraceContext } from "../utils/traceContext";
 import ShowContactService from "../services/ContactServices/ShowContactService";
 import FindOrCreateTicketService from "../services/TicketServices/FindOrCreateTicketService";
 
@@ -563,6 +570,29 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
         const { companyId } = req.user;
 
         const ticket = await ShowTicketService(ticketId, companyId);
+
+        // FASE 1 Coexistencia — propagar ticketId al trace context
+        updateTraceContext({ companyId, ticketId: ticket.id });
+
+        // FASE 1 Coexistencia — log estructurado de inicio de outbound manual.
+        // Provider se infiere desde ticket.channel (legacy) hasta FASE 4 donde
+        // se integrará con OutboundRoutingService.
+        const inferredProvider =
+          ticket?.channel === "whatsapp"
+            ? "baileys"
+            : ticket?.channel === "meta"
+            ? "meta"
+            : (ticket?.channel as any) || "unknown";
+        coexLogOutbound({
+          provider: inferredProvider,
+          companyId,
+          ticketId: ticket.id,
+          requestedBy: "agent",
+          requestedMode: "legacy",
+          chosenProvider: inferredProvider,
+          outcome: "queued",
+          reason: "MessageController.store.begin"
+        });
 
         // messageLogger.info('Ticket encontrado', {
         //     requestId,

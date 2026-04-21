@@ -33,6 +33,16 @@ import { Mutex } from "async-mutex";
 import { getIO } from "../../libs/socket";
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import logger, { logError, logInfo, logWarn, logDebug } from "../../utils/logger";
+// FASE 1 Coexistencia — trazabilidad estructurada
+import {
+  runWithTrace,
+  generateTraceId,
+  updateTraceContext
+} from "../../utils/traceContext";
+import {
+  logInbound as coexLogInbound,
+  logCoexError as coexLogError
+} from "../../utils/coexistenceLogger";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
@@ -4459,6 +4469,16 @@ const handleMessage = async (
     }
   }
 
+  // FASE 1 Coexistencia — envolver en trace context para correlacionar logs
+  const traceId = generateTraceId("bai-in");
+  return runWithTrace(
+    {
+      traceId,
+      origin: "baileys",
+      provider: "baileys",
+      companyId
+    },
+    async () => {
   try {
     let msgContact: IMe;
     let groupContact: Contact | undefined;
@@ -4635,6 +4655,19 @@ const handleMessage = async (
         settings
       );
       return result;
+    });
+
+    // FASE 1 Coexistencia — log estructurado de inbound Baileys
+    updateTraceContext({ ticketId: ticket.id });
+    coexLogInbound({
+      provider: "baileys",
+      companyId,
+      ticketId: ticket.id,
+      wid: msg.key.id || null,
+      remoteJid: msg.key.remoteJid || null,
+      fromMe: !!msg.key.fromMe,
+      sourceChannel: "baileys",
+      outcome: "accepted"
     });
 
     // console.log("✅ Ticket obtido:", {
@@ -5557,7 +5590,15 @@ const handleMessage = async (
     Sentry.captureException(err);
     // console.log(err);
     logError(`Error handling whatsapp message: Err: ${err}`);
+    coexLogError({
+      provider: "baileys",
+      companyId,
+      stage: "handleMessage",
+      err: { message: (err as any)?.message, name: (err as any)?.name }
+    });
   }
+    }
+  ); // cierre runWithTrace — FASE 1 Coexistencia
 };
 const handleMsgAck = async (
   msg: WAMessage,

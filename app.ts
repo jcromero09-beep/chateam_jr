@@ -33,6 +33,7 @@ import logger from "./utils/logger";
 // console.log("📦 [14/15] logger loaded");
 import { httpLogger, logStartup } from "./config/logger";
 // console.log("📦 [15/15] config/logger loaded");
+import traceIdMiddleware from "./middleware/traceIdMiddleware";
 
 // ⚠️ CARGAR VARIABLES DE ENTORNO ANTES DE IMPORTAR RUTAS (auth.ts las requiere)
 dotenvConfig();
@@ -93,6 +94,11 @@ app.use(
   "/public",
   express.static(uploadConfig.directory)
 );
+
+// FASE 1 Coexistencia — traceId por petición HTTP (X-Trace-Id)
+// Se monta DESPUÉS de body parser para asegurar headers ya parseados,
+// ANTES de rutas para que todo el stack vea el traceId.
+app.use(traceIdMiddleware);
 
 // HTTP logging (only in production)
 if (process.env.NODE_ENV === 'production') {

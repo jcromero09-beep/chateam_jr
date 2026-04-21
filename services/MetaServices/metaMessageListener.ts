@@ -54,6 +54,17 @@ import { handleSmbMessageEchoes } from "./metaSmbMessageEchoesService";
 import { handleSmbAppStateSync } from "./metaSmbAppStateSyncService";
 import { sendButtonResponseWebhook } from "./sendButtonResponseWebhook";
 
+// FASE 1 Coexistencia — trazabilidad estructurada
+import {
+  runWithTrace,
+  generateTraceId,
+  updateTraceContext
+} from "../../utils/traceContext";
+import {
+  logInbound as coexLogInbound,
+  logCoexError as coexLogError
+} from "../../utils/coexistenceLogger";
+
 // ===== Helpers de Meta =====//
 
 const getTextFromMetaMessage = (message: any): string => {
@@ -695,8 +706,13 @@ const verifyQueue = async (
 // ====== Handle principal (como tu handleMessage de FB, pero Meta) ======
 
 export const handleMetaWebhookMessage = async (body: any) => {
+  // FASE 1 Coexistencia: envolvemos TODO el handler en un contexto de trace
+  // para que cualquier servicio llamado dentro (CreateMessage, FindOrCreate
+  // Ticket, etc.) pueda correlacionar logs por traceId.
+  const traceId = generateTraceId("meta-in");
+  return runWithTrace({ traceId, origin: "meta-webhook", provider: "meta" }, async () => {
   const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-  logInfo(`[META] bodyyy meta: ${bodyStr.substring(0, 200)}`)
+  logInfo(`[META] [trace=${traceId}] bodyyy meta: ${bodyStr.substring(0, 200)}`)
   try {
 
     if (body?.object !== "whatsapp_business_account") {
@@ -979,6 +995,20 @@ export const handleMetaWebhookMessage = async (body: any) => {
               settings
             );
             logInfo(`[META] ✅ Paso 3/4: ticketId=${ticket.id}, status=${ticket.status}, isBot=${ticket.isBot}`);
+
+            // FASE 1 Coexistencia — log estructurado de inbound Meta
+            updateTraceContext({ companyId, ticketId: ticket.id });
+            coexLogInbound({
+              provider: "meta",
+              companyId,
+              ticketId: ticket.id,
+              wid: message?.id || null,
+              remoteJid: (contact as any)?.remoteJid || null,
+              phoneNumberId,
+              fromMe: false,
+              sourceChannel: "cloud_api",
+              outcome: "accepted"
+            });
 
             // 4) Guardar mensaje (texto o media)
             logInfo(`[META] 🔍 Paso 4/4: Guardar mensaje (tipo=${message?.type})...`);
@@ -1292,7 +1322,13 @@ if (
     
   } catch (err) {
     logError(`❌ Error en handleMetaWebhookMessage:`, err);
+    coexLogError({
+      provider: "meta",
+      stage: "handleMetaWebhookMessage",
+      err: { message: (err as any)?.message, name: (err as any)?.name }
+    });
   }
+  }); // cierre runWithTrace — FASE 1 Coexistencia
 };
 // export const   handleMetaWebhookMessage = async (
 //   value: any,          // entry[0].changes[0].value

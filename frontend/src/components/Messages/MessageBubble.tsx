@@ -1,10 +1,20 @@
 /**
  * Component: MessageBubble
  * Renderiza una burbuja individual de mensaje con estilos de Facebook/Messenger
+ *
+ * FASE 1 Coexistencia: se integra ChannelBadge para mostrar el
+ * proveedor/sourceChannel real del mensaje (Meta, Baileys, etc.).
+ * Si el backend no envía esos campos, el badge no se renderiza
+ * (fallback silencioso — no rompe UI existente).
  */
 
 import { Box, Typography, Stack } from '@mui/joy'
 import { facebookDesignTokens } from '../../themes/facebookTheme'
+import ChannelBadge from './ChannelBadge'
+import type {
+  MessageProvider,
+  MessageSourceChannel
+} from '../../types/Message'
 
 interface Message {
   id: number
@@ -19,6 +29,10 @@ interface Message {
   dataJson?: string
   messageStatus?: 'pending' | 'sent' | 'failed' | 'deleted'
   sendAttempts?: number
+  /** FASE 1 Coexistencia */
+  provider?: MessageProvider
+  /** FASE 1 Coexistencia */
+  sourceChannel?: MessageSourceChannel
 }
 
 interface MessageBubbleProps {
@@ -81,6 +95,15 @@ export default function MessageBubble({ message, isDark, formatTime }: MessageBu
           >
             {formatTime(message.createdAt)}
           </Typography>
+          {/* FASE 1 Coexistencia — badge de canal físico (Meta / Baileys / business_app / history_import).
+              Silencioso si no hay data: no rompe mensajes antiguos. */}
+          <ChannelBadge
+            provider={message.provider}
+            sourceChannel={message.sourceChannel}
+            isDark={isDark}
+            compact
+          />
+
           {isOwn && message.ack !== undefined && (
             <Typography
               sx={{

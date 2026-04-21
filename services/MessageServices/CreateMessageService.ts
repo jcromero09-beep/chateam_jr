@@ -10,6 +10,11 @@ import Whatsapp from "../../models/Whatsapp";
 import AIAgentLog from "../../models/AIAgentLog";
 import { add as addJob } from "../../queues";
 import logger from "../../utils/logger";
+import {
+  logDedupe as coexLogDedupe,
+  logCoexError
+} from "../../utils/coexistenceLogger";
+import { updateTraceContext } from "../../utils/traceContext";
 
 export interface MessageData {
   wid: string;
@@ -29,7 +34,78 @@ export interface MessageData {
   isForwarded?: boolean;
   sourceChannel?: string;
   dataJson?: string;
+  /**
+   * FASE 1 Coexistencia — proveedor físico real del mensaje.
+   * Si no se provee, se infiere desde Ticket.whatsapp.channel/provider.
+   * Valores: 'meta' | 'baileys' | 'telegram' | 'facebook' | 'instagram' | 'tiktok' | 'webchat'
+   */
+  provider?: string;
+  /**
+   * FASE 1 Coexistencia — id del mensaje en el proveedor externo.
+   * Para Meta: wamid. Para Baileys: msg.key.id. Para Telegram: msg.message_id.
+   * Usado para reconciliación de acks y dedupe cross-provider.
+   */
+  externalId?: string;
 }
+
+/**
+ * FASE 1 Coexistencia — Infiere provider y sourceChannel desde el Whatsapp
+ * asociado al Ticket cuando el caller no los especifica. Esto rellena
+ * columnas que hasta ahora quedaban 100% NULL en producción (6063/6217
+ * filas sin sourceChannel; 6217/6217 sin provider según auditoría psql).
+ */
+const inferProviderMetadata = async (
+  messageData: MessageData
+): Promise<{ provider?: string; sourceChannel?: string }> => {
+  if (messageData.provider && messageData.sourceChannel) {
+    return {
+      provider: messageData.provider,
+      sourceChannel: messageData.sourceChannel
+    };
+  }
+  try {
+    const ticket = await Ticket.findByPk(messageData.ticketId, {
+      attributes: ["id", "whatsappId", "channel"],
+      include: [
+        {
+          model: Whatsapp,
+          attributes: ["id", "channel", "provider"]
+        }
+      ]
+    });
+    if (!ticket) return {};
+
+    const waChannel = (ticket as any)?.whatsapp?.channel;
+    const waProvider = (ticket as any)?.whatsapp?.provider;
+    let provider = messageData.provider;
+    let sourceChannel = messageData.sourceChannel;
+
+    if (!provider) {
+      // Heurística: Meta cuando canal="meta"; Baileys cuando canal="whatsapp"
+      if (waChannel === "meta") provider = "meta";
+      else if (waChannel === "whatsapp") provider = "baileys";
+      else if (waChannel === "telegram") provider = "telegram";
+      else if (waChannel === "facebook") provider = "facebook";
+      else if (waChannel === "instagram") provider = "instagram";
+      else if (waChannel === "tiktok") provider = "tiktok";
+      else if (waChannel === "webchat") provider = "webchat";
+    }
+
+    if (!sourceChannel) {
+      // Para canales WhatsApp: distinguir cloud_api (Meta) vs baileys
+      if (provider === "meta") sourceChannel = "cloud_api";
+      else if (provider === "baileys") sourceChannel = "baileys";
+      // Otros canales: no se usa sourceChannel (columna específica de WA coex)
+    }
+
+    return { provider, sourceChannel };
+  } catch (err: any) {
+    logger.warn(
+      `[CreateMessage] Error infiriendo provider/sourceChannel para ticket=${messageData.ticketId}: ${err?.message}`
+    );
+    return {};
+  }
+};
 interface Request {
   messageData: MessageData;
   companyId: number;
@@ -86,13 +162,45 @@ const CreateMessageService = async ({
     }
   ];
 
+  // FASE 1 Coexistencia — Inferir provider/sourceChannel si no vinieron
+  const inferred = await inferProviderMetadata(messageData);
+  const enrichedData: any = {
+    ...messageData,
+    companyId,
+    ...(messageData.provider === undefined && inferred.provider
+      ? { provider: inferred.provider }
+      : {}),
+    ...(messageData.sourceChannel === undefined && inferred.sourceChannel
+      ? { sourceChannel: inferred.sourceChannel }
+      : {}),
+    // externalId coincide con wid para Meta/Baileys (mismo identificador del proveedor)
+    ...(messageData.externalId === undefined && messageData.wid &&
+    !messageData.wid.startsWith("PENDING_") &&
+    !messageData.wid.startsWith("PVT")
+      ? { externalId: messageData.wid }
+      : {})
+  };
+
+  // Propagar al trace context ticketId para correlacionar subsiguientes logs
+  if (messageData.ticketId) {
+    updateTraceContext({ ticketId: messageData.ticketId });
+  }
+
   // Buscar mensaje existente por wid+companyId para evitar duplicados
   const existingMessage = await Message.findOne({
     where: { wid: messageData.wid, companyId }
   });
 
   if (existingMessage) {
-    // console.log("  🔄 Mensaje ya existe (id:", existingMessage.id, ") - actualizando ack/read...");
+    // Dedupe por wid — log estructurado para observabilidad FASE 1
+    coexLogDedupe({
+      provider: (enrichedData.provider as any) || "unknown",
+      companyId,
+      ticketId: messageData.ticketId,
+      wid: messageData.wid,
+      reason: "message_wid_already_exists",
+      dropped: false // no se descarta, se actualiza ack/read si corresponde
+    });
     // Solo actualizar campos que pueden cambiar (ack, read, messageStatus)
     const updateFields: any = {};
     if (messageData.ack !== undefined && messageData.ack > existingMessage.ack) {
@@ -106,12 +214,46 @@ const CreateMessageService = async ({
       updateFields.messageStatus = 'sent';
       updateFields.sentAt = new Date();
     }
+    // Backfill: si el mensaje existente no tiene provider/sourceChannel y ahora los inferimos, los escribimos
+    if (!existingMessage.get("provider") && enrichedData.provider) {
+      updateFields.provider = enrichedData.provider;
+    }
+    if (!existingMessage.get("sourceChannel") && enrichedData.sourceChannel) {
+      updateFields.sourceChannel = enrichedData.sourceChannel;
+    }
+    if (!existingMessage.get("externalId") && enrichedData.externalId) {
+      updateFields.externalId = enrichedData.externalId;
+    }
     if (Object.keys(updateFields).length > 0) {
       await existingMessage.update(updateFields);
     }
   } else {
     // console.log("  💾 Creando mensaje nuevo en BD...");
-    await Message.create({ ...messageData, companyId } as any);
+    try {
+      await Message.create(enrichedData);
+    } catch (err: any) {
+      // Si otra transacción creó el mensaje concurrentemente (UNIQUE constraint
+      // en idx_messages_wid_companyid_unique) → tratamos como duplicado.
+      if (err?.name === "SequelizeUniqueConstraintError") {
+        coexLogDedupe({
+          provider: (enrichedData.provider as any) || "unknown",
+          companyId,
+          ticketId: messageData.ticketId,
+          wid: messageData.wid,
+          reason: "unique_constraint_race",
+          dropped: true
+        });
+      } else {
+        logCoexError({
+          provider: (enrichedData.provider as any) || "unknown",
+          companyId,
+          ticketId: messageData.ticketId,
+          stage: "CreateMessageService.create",
+          err: { message: err?.message, name: err?.name }
+        });
+        throw err;
+      }
+    }
   }
 
   // ✅ Hook: Detectar si un agente humano envía mensaje tras respuesta IA
