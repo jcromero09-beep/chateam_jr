@@ -71,6 +71,8 @@ import {
   acquireLock as coexAcquireLock,
   releaseLock as coexReleaseLock
 } from "../CoexistenceServices/DistributedLock";
+// FASE 3 Coexistencia — identidad unificada de conversación
+import ConversationResolverService from "../CoexistenceServices/ConversationResolverService";
 
 // ===== Helpers de Meta =====//
 
@@ -1029,6 +1031,40 @@ export const handleMetaWebhookMessage = async (body: any) => {
             const companyId = contact.companyId;
             logInfo(`[META] ✅ Paso 1/4 completo: contactId=${contact.id}, companyId=${companyId}`);
 
+            // FASE 3 Coexistencia — resolver conversación unificada + binding
+            let coexConversationId: string | null = null;
+            try {
+              const canonicalNumber = ConversationResolverService.normalizeNumber(
+                (contact as any).number || message?.from
+              );
+              if (canonicalNumber) {
+                const convRes = await ConversationResolverService.resolveOrCreate({
+                  companyId,
+                  canonicalNumber,
+                  contact
+                });
+                if (convRes?.conversation) {
+                  coexConversationId = convRes.conversation.id;
+                  updateTraceContext({ conversationId: coexConversationId });
+                  await ConversationResolverService.upsertBinding({
+                    conversationId: coexConversationId,
+                    companyId,
+                    contactId: (contact as any).id,
+                    whatsappId: (effectiveWhatsapp as any)?.id ?? null,
+                    provider: "meta",
+                    providerIdentifier: `${phoneNumberId}:${message?.from || canonicalNumber}`
+                  });
+                  await ConversationResolverService.recordInbound(
+                    coexConversationId,
+                    "meta"
+                  );
+                }
+              }
+            } catch (convErr: any) {
+              logError(`[META] ⚠️  Error resolviendo conversación: ${convErr?.message}`);
+              // Silencioso: no bloquear flujo legacy.
+            }
+
             // 2) Ajustes de la compañía
             logInfo(`[META] 🔍 Paso 2/4: CompaniesSettings...`);
             const settings = await CompaniesSettings.findOne({ where: { companyId } });
@@ -1057,12 +1093,25 @@ export const handleMetaWebhookMessage = async (body: any) => {
             );
             logInfo(`[META] ✅ Paso 3/4: ticketId=${ticket.id}, status=${ticket.status}, isBot=${ticket.isBot}`);
 
+            // FASE 3 Coexistencia — enlazar ticket con conversationId (si resuelto)
+            if (coexConversationId && !(ticket as any).conversationId) {
+              try {
+                await (ticket as any).update({
+                  conversationId: coexConversationId,
+                  inboundChannelHint: "meta"
+                });
+              } catch (linkErr: any) {
+                logError(`[META] ⚠️  No se pudo enlazar ticket ${ticket.id} con conversación: ${linkErr?.message}`);
+              }
+            }
+
             // FASE 1 Coexistencia — log estructurado de inbound Meta
-            updateTraceContext({ companyId, ticketId: ticket.id });
+            updateTraceContext({ companyId, ticketId: ticket.id, conversationId: coexConversationId || undefined });
             coexLogInbound({
               provider: "meta",
               companyId,
               ticketId: ticket.id,
+              conversationId: coexConversationId,
               wid: message?.id || null,
               remoteJid: (contact as any)?.remoteJid || null,
               phoneNumberId,

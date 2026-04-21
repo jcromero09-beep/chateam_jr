@@ -180,6 +180,9 @@ import IntegrationApiRequest from "../models/Integrations/IntegrationApiRequest"
 import AISupportCorrection from "../models/AISupportCorrection";
 // FASE 2 Coexistencia WhatsApp — ledger de eventos inbound para dedupe e idempotencia
 import InboundEventLedger from "../models/InboundEventLedger";
+// FASE 3 Coexistencia WhatsApp — identidad unificada
+import UnifiedConversation from "../models/UnifiedConversation";
+import ContactBinding from "../models/ContactBinding";
 
 // AI Platform Models (batch)
 import AIDocument from "../models/AIDocument";
@@ -393,6 +396,9 @@ const models = [
   AISupportCorrection,
   // FASE 2 Coexistencia WhatsApp
   InboundEventLedger,
+  // FASE 3 Coexistencia WhatsApp
+  UnifiedConversation,
+  ContactBinding,
 ];
 
 // console.log("🔄 Adding models to sequelize...");

@@ -45,6 +45,8 @@ import {
 } from "../../utils/coexistenceLogger";
 // FASE 2 Coexistencia — dedupe vía InboundEventLedger
 import InboundEventLedgerService from "../CoexistenceServices/InboundEventLedgerService";
+// FASE 3 Coexistencia — identidad unificada de conversación
+import ConversationResolverService from "../CoexistenceServices/ConversationResolverService";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
@@ -4694,12 +4696,58 @@ const handleMessage = async (
       return result;
     });
 
+    // FASE 3 Coexistencia — resolver conversación unificada + binding
+    let coexConversationId: string | null = null;
+    try {
+      const canonicalNumber = ConversationResolverService.normalizeNumber(
+        (contact as any).number || msg.key.remoteJid
+      );
+      if (canonicalNumber) {
+        const convRes = await ConversationResolverService.resolveOrCreate({
+          companyId,
+          canonicalNumber,
+          contact
+        });
+        if (convRes?.conversation) {
+          coexConversationId = convRes.conversation.id;
+          updateTraceContext({ conversationId: coexConversationId });
+          await ConversationResolverService.upsertBinding({
+            conversationId: coexConversationId,
+            companyId,
+            contactId: (contact as any).id,
+            whatsappId: (whatsapp as any)?.id ?? null,
+            provider: "baileys",
+            providerIdentifier: msg.key.remoteJid || canonicalNumber
+          });
+          await ConversationResolverService.recordInbound(
+            coexConversationId,
+            "baileys"
+          );
+          // Enlazar ticket con conversación si aún no lo está
+          if (!(ticket as any).conversationId) {
+            try {
+              await (ticket as any).update({
+                conversationId: coexConversationId,
+                inboundChannelHint: "baileys"
+              });
+            } catch (linkErr: any) {
+              logError(`[Baileys] ⚠️  No se pudo enlazar ticket ${ticket.id} con conversación: ${linkErr?.message}`);
+            }
+          }
+        }
+      }
+    } catch (convErr: any) {
+      logError(`[Baileys] ⚠️  Error resolviendo conversación: ${convErr?.message}`);
+      // Silencioso: no bloquear flujo legacy.
+    }
+
     // FASE 1 Coexistencia — log estructurado de inbound Baileys
     updateTraceContext({ ticketId: ticket.id });
     coexLogInbound({
       provider: "baileys",
       companyId,
       ticketId: ticket.id,
+      conversationId: coexConversationId,
       wid: msg.key.id || null,
       remoteJid: msg.key.remoteJid || null,
       fromMe: !!msg.key.fromMe,
