@@ -64,6 +64,13 @@ import {
   logInbound as coexLogInbound,
   logCoexError as coexLogError
 } from "../../utils/coexistenceLogger";
+// FASE 2 Coexistencia — dedupe vía InboundEventLedger
+import InboundEventLedgerService from "../CoexistenceServices/InboundEventLedgerService";
+// FASE 2 Coexistencia — mutex distribuido Redis (evita race Meta)
+import {
+  acquireLock as coexAcquireLock,
+  releaseLock as coexReleaseLock
+} from "../CoexistenceServices/DistributedLock";
 
 // ===== Helpers de Meta =====//
 
@@ -959,6 +966,60 @@ export const handleMetaWebhookMessage = async (body: any) => {
         logInfo(`[META] 🔍 Procesando ${messages.length} mensaje(s)`);
         // Procesar cada mensaje
         for (const message of messages) {
+          // ═══ FASE 2 Coexistencia — DEDUPE PRE-PROCESAMIENTO ═══
+          // Resolver companyId temprano a través de effectiveWhatsapp.
+          const earlyCompanyId = (effectiveWhatsapp as any)?.companyId;
+          let ledgerEntryId: number | null = null;
+          if (earlyCompanyId && message?.id) {
+            const ledger = await InboundEventLedgerService.registerOrDrop({
+              companyId: earlyCompanyId,
+              provider: "meta",
+              eventKey: message.id,
+              providerMessageId: message.id,
+              payload: message
+            });
+            if (!ledger.accepted) {
+              // Evento ya procesado (o siendo procesado) — skip side effects.
+              logInfo(
+                `[META] ⏭️  Mensaje ${message.id} descartado por dedupe (reason=${ledger.reason})`
+              );
+              coexLogInbound({
+                provider: "meta",
+                companyId: earlyCompanyId,
+                wid: message.id,
+                phoneNumberId,
+                fromMe: false,
+                sourceChannel: "cloud_api",
+                outcome:
+                  ledger.reason === "duplicate" ? "duplicate" : "dropped",
+                reason: `ledger.${ledger.reason}`
+              });
+              continue;
+            }
+            ledgerEntryId = ledger.id;
+          }
+          // ═══ FASE 2 Coexistencia — MUTEX DISTRIBUIDO (multi-nodo) ═══
+          // Evita que dos nodos PM2 creen tickets duplicados para el mismo
+          // (companyId, wa_id) — ataca race condition P03 del diagnóstico.
+          // Se adquiere AQUÍ (por mensaje) y se libera en finally.
+          // TTL 8s cubre el tiempo máximo típico de FindOrCreateTicket +
+          // CreateMessage + verifyQueue + IA.
+          const metaFromNumber = message?.from || null;
+          const metaLockKey = `coex:lock:meta:inbound:${earlyCompanyId || 0}:${phoneNumberId}:${metaFromNumber || "unknown"}`;
+          const metaLock = earlyCompanyId && metaFromNumber
+            ? await coexAcquireLock(metaLockKey, 8000, 3, 50)
+            : null;
+          if (metaLock && !metaLock.acquired) {
+            // Otro worker está procesando. Dado que el ledger YA reservó
+            // el eventKey (INSERT OK arriba), aquí tenemos contención rara:
+            // generalmente el caso es que llegaron dos mensajes del mismo
+            // contacto en ms distintos — dejamos que proceda el segundo
+            // con lock=false (sin mutex) confiando en el UNIQUE del wid.
+            logInfo(
+              `[META] ⚠️  Lock contention para ${metaLockKey} — procesando sin mutex (ledger ya reservado)`
+            );
+          }
+          // ════════════════════════════════════════════════════════
           try {
             logInfo(`[META] 🔄 Procesando mensaje: ${JSON.stringify(message).substring(0, 300)}`);
             const fromMe = false; // inbound
@@ -1315,7 +1376,19 @@ if (
 
           } catch (perMsgErr) {
             logError(`❌ Error procesando mensaje META:`, perMsgErr);
+            // FASE 2 Coexistencia — marcar ledger como error
+            await InboundEventLedgerService.markError(
+              ledgerEntryId,
+              perMsgErr
+            );
+            // FASE 2 Coexistencia — liberar mutex distribuido
+            if (metaLock?.acquired) await coexReleaseLock(metaLock);
+            continue;
           }
+          // FASE 2 Coexistencia — marcar ledger como procesado
+          await InboundEventLedgerService.markProcessed(ledgerEntryId);
+          // FASE 2 Coexistencia — liberar mutex distribuido
+          if (metaLock?.acquired) await coexReleaseLock(metaLock);
         }
       }
     }

@@ -77,12 +77,18 @@ app.use(
 // Body parsing middleware
 app.use(cookieParser());
 
-// Capturar raw body para validación HMAC de webhook Stripe
-// stripe.webhooks.constructEvent() requiere el body sin parsear (Buffer)
+// Capturar raw body para validación HMAC de:
+//   - Stripe webhook (stripe.webhooks.constructEvent requiere Buffer)
+//   - Meta Cloud API webhook (X-Hub-Signature-256 HMAC-SHA256, FASE 2)
 app.use(bodyParser.json({
   limit: '50mb',
   verify: (req: any, _res, buf) => {
-    if (req.originalUrl && req.originalUrl.includes('/stripewebhook')) {
+    const url = req.originalUrl || "";
+    if (
+      url.includes('/stripewebhook') ||
+      url.includes('/webhooks/meta') ||
+      url.includes('/webhooks/metaws')
+    ) {
       req.rawBody = buf;
     }
   }

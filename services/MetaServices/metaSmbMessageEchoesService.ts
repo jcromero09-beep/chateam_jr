@@ -14,6 +14,11 @@ import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketServi
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import CompaniesSettings from "../../models/CompaniesSettings";
 import { getIO } from "../../libs/socket";
+// FASE 2 Coexistencia — dedupe e idempotencia
+import InboundEventLedgerService from "../CoexistenceServices/InboundEventLedgerService";
+import {
+  logInbound as coexLogInbound
+} from "../../utils/coexistenceLogger";
 
 /**
  * Procesa el webhook smb_message_echoes de Meta Coexistencia
@@ -67,17 +72,64 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
     }
 
     for (const echo of messageEchoes) {
+      // ═══ FASE 2 Coexistencia — DEDUPE PRE-PROCESAMIENTO ═══
+      const echoMessageId = echo?.id as string | undefined;
+      let ledgerEntryId: number | null = null;
+      if (echoMessageId) {
+        // EventKey distinto del 'meta:wamid' normal, para permitir que
+        // messages y smb_message_echoes coexistan como eventos diferentes
+        // cuando aplique, pero manteniendo idempotencia dentro del mismo
+        // tipo. Si YA procesamos el inbound normal con mismo wamid, también
+        // debemos descartar el echo (es el mismo mensaje del negocio).
+        //
+        // Estrategia:
+        //  - Primero intentar insertar 'meta_echo:wamid' → dedupe entre echoes.
+        //  - Si hay un 'meta:wamid' ya procesado (por error: Meta no debería
+        //    enviar ambos, pero por seguridad), lo detectaremos via
+        //    Message.findOne posterior, que también existe.
+        const ledger = await InboundEventLedgerService.registerOrDrop({
+          companyId,
+          provider: "meta_echo",
+          eventKey: echoMessageId,
+          providerMessageId: echoMessageId,
+          payload: echo
+        });
+        if (!ledger.accepted) {
+          console.log(
+            `[SmbEchoes] ⏭️  Dedup (ledger): echo ${echoMessageId} ya procesado (reason=${ledger.reason})`
+          );
+          coexLogInbound({
+            provider: "meta",
+            companyId,
+            wid: echoMessageId,
+            phoneNumberId,
+            fromMe: true,
+            sourceChannel: "business_app",
+            outcome: ledger.reason === "duplicate" ? "duplicate" : "echo_detected",
+            reason: `ledger.${ledger.reason}`
+          });
+          continue;
+        }
+        ledgerEntryId = ledger.id;
+      }
+      // ════════════════════════════════════════════════════════
       try {
         const messageId = echo.id; // wamid.UNIQUE_ID
         const toNumber = echo.to; // Número del cliente (destino)
         const timestamp = echo.timestamp;
         const messageType = echo.type;
 
-        // ===== Deduplicación por wid =====
+        // ===== Deduplicación por wid (defensa en profundidad) =====
         if (messageId) {
           const existing = await Message.findOne({ where: { wid: messageId } });
           if (existing) {
-            console.log(`[SmbEchoes] Dedup: mensaje ${messageId} ya existe, omitiendo`);
+            console.log(`[SmbEchoes] Dedup Message: mensaje ${messageId} ya existe, omitiendo`);
+            // Marcar ledger como 'dropped' — no es nuevo realmente
+            await InboundEventLedgerService.markDropped(
+              ledgerEntryId,
+              "already_persisted_as_inbound",
+              { provider: "meta_echo", companyId, wid: messageId }
+            );
             continue;
           }
         }
@@ -174,8 +226,15 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
           `[SmbEchoes] ✅ Eco procesado: ${messageId} → ticket #${ticket.id} (${body.substring(0, 50)})`
         );
 
+        // FASE 2 Coexistencia — marcar ledger como procesado con ticketId
+        await InboundEventLedgerService.markProcessed(ledgerEntryId, {
+          ticketId: ticket.id
+        });
+
       } catch (echoErr) {
         console.error("[SmbEchoes] ❌ Error procesando echo individual:", echoErr);
+        // FASE 2 Coexistencia — marcar ledger como error
+        await InboundEventLedgerService.markError(ledgerEntryId, echoErr);
       }
     }
 

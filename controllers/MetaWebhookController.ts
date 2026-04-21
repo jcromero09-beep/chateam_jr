@@ -5,6 +5,12 @@ import Whatsapp from "../models/Whatsapp";
 import HandleTemplateStatusWebhookService, {
   isTemplateStatusWebhook
 } from "../services/WhatsAppTemplateServices/HandleTemplateStatusWebhookService";
+// FASE 2 Coexistencia — validación HMAC X-Hub-Signature-256
+import {
+  shouldAcceptWebhook as verifyMetaSignature,
+  getSignatureMode
+} from "../services/CoexistenceServices/MetaSignatureValidator";
+import { getTraceId } from "../utils/traceContext";
 
 /** GET /webhooks/meta - Verificación dinâmica */
 export const verifyMetaWebhook = async (req: Request, res: Response) => {
@@ -41,6 +47,26 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
 
 /** POST /webhooks/meta - Eventos */
 export const receiveMetaWebhook = async (req: Request, res: Response) => {
+  // ═══ FASE 2 Coexistencia — Validación HMAC X-Hub-Signature-256 ═══
+  // Modo por defecto: 'warn' (loguea pero acepta). Migrar a 'enforce'
+  // vía env META_SIGNATURE_MODE=enforce cuando se confirme que todas
+  // las firmas entrantes son válidas.
+  const traceId = getTraceId();
+  const sigHeader =
+    req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"];
+  const sigCheck = verifyMetaSignature((req as any).rawBody, sigHeader, traceId);
+  if (!sigCheck.accept) {
+    // Modo enforce + firma inválida → 403
+    console.warn(
+      `[META WEBHOOK] ❌ Firma HMAC inválida (mode=${getSignatureMode()}, reason=${sigCheck.result.reason}) — rechazando`
+    );
+    return res.status(403).json({
+      error: "invalid_signature",
+      reason: sigCheck.result.reason
+    });
+  }
+  // ══════════════════════════════════════════════════════════════════
+
   // Responde rápido a Meta
   res.sendStatus(200);
 
@@ -51,7 +77,7 @@ export const receiveMetaWebhook = async (req: Request, res: Response) => {
   const bodyStr = JSON.stringify(req.body);
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`📨 [META WEBHOOK] ${ts}`);
-  console.log(`   IP: ${ip}  |  UA: ${userAgent}`);
+  console.log(`   IP: ${ip}  |  UA: ${userAgent}  |  Sig: ${sigCheck.result.reason}`);
   console.log(`   Body (${bodyStr.length} bytes): ${bodyStr.substring(0, 500)}`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   // ─────────────────────────────────────────────────────────────────

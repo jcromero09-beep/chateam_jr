@@ -43,6 +43,8 @@ import {
   logInbound as coexLogInbound,
   logCoexError as coexLogError
 } from "../../utils/coexistenceLogger";
+// FASE 2 Coexistencia — dedupe vía InboundEventLedger
+import InboundEventLedgerService from "../CoexistenceServices/InboundEventLedgerService";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
@@ -4639,6 +4641,41 @@ const handleMessage = async (
     //   isGroup: !!groupContact
     // });
 
+    // ═══ FASE 2 Coexistencia — DEDUPE PRE-PROCESAMIENTO ═══
+    // Si llega el mismo msg.key.id dos veces (reconnect de Baileys,
+    // history sync, concurrencia entre nodos PM2), el UNIQUE index
+    // en InboundEventLedger garantiza procesarlo UNA sola vez.
+    // Distinguimos inbound del cliente (baileys) vs eco del staff (baileys_fromme).
+    let baileysLedgerEntryId: number | null = null;
+    if (msg.key.id && companyId) {
+      const providerKey: "baileys" | "baileys_fromme" = msg.key.fromMe
+        ? "baileys_fromme"
+        : "baileys";
+      const ledger = await InboundEventLedgerService.registerOrDrop({
+        companyId,
+        provider: providerKey,
+        eventKey: msg.key.id,
+        providerMessageId: msg.key.id,
+        payload: { id: msg.key.id, remoteJid: msg.key.remoteJid, fromMe: msg.key.fromMe }
+      });
+      if (!ledger.accepted) {
+        // Duplicado — salir sin disparar side effects (contact, ticket, chatbot, IA).
+        coexLogInbound({
+          provider: "baileys",
+          companyId,
+          wid: msg.key.id,
+          remoteJid: msg.key.remoteJid || null,
+          fromMe: !!msg.key.fromMe,
+          sourceChannel: "baileys",
+          outcome: ledger.reason === "duplicate" ? "duplicate" : "dropped",
+          reason: `ledger.${ledger.reason}`
+        });
+        return;
+      }
+      baileysLedgerEntryId = ledger.id;
+    }
+    // ════════════════════════════════════════════════════════
+
     const mutex = new Mutex();
     const ticket = await mutex.runExclusive(async () => {
       const result = await FindOrCreateTicketService(
@@ -4668,6 +4705,10 @@ const handleMessage = async (
       fromMe: !!msg.key.fromMe,
       sourceChannel: "baileys",
       outcome: "accepted"
+    });
+    // FASE 2 Coexistencia — enlazar ledger con ticket
+    await InboundEventLedgerService.markProcessed(baileysLedgerEntryId, {
+      ticketId: ticket.id
     });
 
     // console.log("✅ Ticket obtido:", {
