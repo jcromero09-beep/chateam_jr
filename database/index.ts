@@ -183,6 +183,8 @@ import InboundEventLedger from "../models/InboundEventLedger";
 // FASE 3 Coexistencia WhatsApp — identidad unificada
 import UnifiedConversation from "../models/UnifiedConversation";
 import ContactBinding from "../models/ContactBinding";
+// FASE 6 Coexistencia WhatsApp — auditoría de dispatches salientes
+import OutboundDispatch from "../models/OutboundDispatch";
 
 // AI Platform Models (batch)
 import AIDocument from "../models/AIDocument";
@@ -399,6 +401,8 @@ const models = [
   // FASE 3 Coexistencia WhatsApp
   UnifiedConversation,
   ContactBinding,
+  // FASE 6 Coexistencia WhatsApp
+  OutboundDispatch,
 ];
 
 // console.log("🔄 Adding models to sequelize...");

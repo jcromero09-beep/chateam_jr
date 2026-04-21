@@ -17,7 +17,9 @@
  */
 import Ticket from "../../models/Ticket";
 import Contact from "../../models/Contact";
+import OutboundDispatch from "../../models/OutboundDispatch";
 import logger from "../../utils/logger";
+import { getTraceId } from "../../utils/traceContext";
 import {
   logOutbound,
   logFallback,
@@ -52,6 +54,8 @@ export interface DispatchOutput {
   ok: boolean;
   decision: RoutingDecision;
   result: DispatchResult;
+  /** id de OutboundDispatch persistido (FASE 6) — útil para reconciliación de ack */
+  dispatchId?: string | null;
 }
 
 /**
@@ -132,7 +136,39 @@ export const dispatch = async (
     });
   }
 
-  // 2) Adapter.send
+  // 2) Persistir dispatch ANTES del envío (FASE 6)
+  // Esto nos permite reconciliar incluso si el proceso crashea antes
+  // de registrar el resultado final.
+  const traceId = getTraceId() || null;
+  const bodyPreview = input.body ? input.body.substring(0, 200) : null;
+  let dispatchRow: OutboundDispatch | null = null;
+  try {
+    dispatchRow = await OutboundDispatch.create({
+      companyId,
+      conversationId: (ticket as any).conversationId || null,
+      ticketId: (ticket as any).id,
+      whatsappId: decision.whatsappId,
+      provider: decision.provider,
+      requestedMode: decision.requestedMode,
+      requestedBy,
+      fallbackApplied: decision.fallbackApplied,
+      fallbackFromProvider: decision.fallbackApplied
+        ? decision.requestedProvider ?? null
+        : null,
+      bodyPreview,
+      status: "queued",
+      attemptCount: 1,
+      traceId,
+      requestedAt: new Date()
+    } as any);
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message, ticketId: (ticket as any).id },
+      "[OutboundDispatchService] could not persist dispatch row (continuing)"
+    );
+  }
+
+  // 3) Adapter.send
   const adapter = getAdapter(decision.provider);
   const startedAt = Date.now();
   const result = await adapter.send({
@@ -144,7 +180,29 @@ export const dispatch = async (
   });
   const durationMs = Date.now() - startedAt;
 
-  // 3) Log de resultado
+  // 4) Actualizar dispatch row con resultado
+  if (dispatchRow) {
+    try {
+      await dispatchRow.update({
+        providerMessageId: result.providerMessageId,
+        status: result.ok
+          ? decision.fallbackApplied
+            ? "fallback"
+            : "dispatched"
+          : "failed",
+        lastError: result.error?.message || null,
+        durationMs,
+        dispatchedAt: result.ok ? new Date() : null
+      } as any);
+    } catch (err: any) {
+      logger.warn(
+        { err: err?.message, dispatchId: (dispatchRow as any).id },
+        "[OutboundDispatchService] could not update dispatch row"
+      );
+    }
+  }
+
+  // 5) Log de resultado
   logOutbound({
     provider: decision.provider,
     companyId,
@@ -163,7 +221,7 @@ export const dispatch = async (
     reason: result.ok ? decision.reason : `dispatch_error:${result.error?.message}`
   });
 
-  // 4) Actualizar conversación (si aplica)
+  // 6) Actualizar conversación (si aplica)
   const conversationId = (ticket as any).conversationId;
   if (conversationId && result.ok) {
     await ConversationResolverService.recordOutbound(
@@ -175,8 +233,9 @@ export const dispatch = async (
   return {
     ok: result.ok,
     decision,
-    result
-  };
+    result,
+    dispatchId: dispatchRow ? (dispatchRow as any).id : null
+  } as DispatchOutput;
 };
 
 export default { dispatch, isUnifiedDispatchEnabled };

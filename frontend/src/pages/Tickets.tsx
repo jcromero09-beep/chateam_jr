@@ -83,6 +83,7 @@ import TikTokCommentBubble from '../components/Messages/TikTokCommentBubble'
 import MessageContent from '../components/Messages/MessageContent'
 import ChannelBadge from '../components/Messages/ChannelBadge'
 import RoutingPolicySelector from '../components/Messages/RoutingPolicySelector'
+import DispatchTimeline from '../components/Messages/DispatchTimeline'
 import ConversationSearchBar from '../components/Messages/ConversationSearchBar'
 import MediaLightbox from '../components/Messages/MediaLightbox'
 import ForwardSelectionBar from '../components/ForwardSelectionBar'
@@ -2994,6 +2995,17 @@ export default function Tickets() {
               onSearchTermChange={setConversationSearchTerm}
               isDark={isDark}
             />
+          )}
+
+          {/* FASE 6 Coexistencia — Timeline de dispatches salientes (colapsado por default) */}
+          {selectedTicket.id && (selectedTicket.channel === 'whatsapp' || selectedTicket.channel === 'meta') && (
+            <Box sx={{ px: 2, pt: 1 }}>
+              <DispatchTimeline
+                ticketId={selectedTicket.id}
+                ticketChannel={selectedTicket.channel}
+                isDark={isDark}
+              />
+            </Box>
           )}
 
           {/* Messages */}

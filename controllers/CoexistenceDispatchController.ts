@@ -17,6 +17,7 @@ import { Request, Response } from "express";
 import ShowTicketService from "../services/TicketServices/ShowTicketService";
 import OutboundRoutingService from "../services/CoexistenceServices/OutboundRoutingService";
 import OutboundDispatchService from "../services/CoexistenceServices/OutboundDispatchService";
+import OutboundDispatch from "../models/OutboundDispatch";
 import AppError from "../errors/AppError";
 
 export const routingPreview = async (
@@ -113,4 +114,56 @@ export const dispatchOne = async (
   }
 };
 
-export default { routingPreview, dispatchOne };
+/**
+ * FASE 6: listado de dispatches por ticket (timeline UI).
+ */
+export const listDispatches = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { ticketId } = req.params;
+    const { companyId } = (req as any).user;
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+
+    const rows = await OutboundDispatch.findAll({
+      where: { ticketId: parseInt(ticketId, 10), companyId },
+      order: [["requestedAt", "DESC"]],
+      limit
+    });
+
+    return res.status(200).json({
+      ticketId: parseInt(ticketId, 10),
+      count: rows.length,
+      dispatches: rows.map((r: any) => ({
+        id: r.id,
+        provider: r.provider,
+        requestedMode: r.requestedMode,
+        requestedBy: r.requestedBy,
+        fallbackApplied: r.fallbackApplied,
+        fallbackFromProvider: r.fallbackFromProvider,
+        providerMessageId: r.providerMessageId,
+        bodyPreview: r.bodyPreview,
+        status: r.status,
+        attemptCount: r.attemptCount,
+        lastError: r.lastError,
+        traceId: r.traceId,
+        durationMs: r.durationMs,
+        requestedAt: r.requestedAt,
+        dispatchedAt: r.dispatchedAt,
+        ackedAt: r.ackedAt,
+        ackLevel: r.ackLevel,
+        whatsappId: r.whatsappId
+      }))
+    });
+  } catch (err: any) {
+    if (err instanceof AppError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return res
+      .status(500)
+      .json({ error: "list_dispatches_failed", detail: err?.message });
+  }
+};
+
+export default { routingPreview, dispatchOne, listDispatches };

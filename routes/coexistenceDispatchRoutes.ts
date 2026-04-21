@@ -38,4 +38,11 @@ coexistenceDispatchRoutes.put(
   CoexistencePolicyController.setRoutingPolicy
 );
 
+// FASE 6 — listado de dispatches del ticket (timeline UI)
+coexistenceDispatchRoutes.get(
+  "/coexistence/tickets/:ticketId/dispatches",
+  isAuth,
+  CoexistenceDispatchController.listDispatches
+);
+
 export default coexistenceDispatchRoutes;
