@@ -111,6 +111,52 @@ const replaceVariables = (content: string, params: string[]): string => {
   });
 };
 
+/**
+ * Construye el texto legible de una plantilla (header TEXT + body + footer) con
+ * las variables {{n}} ya sustituidas por `params`. Se usa como `body` del Message
+ * para que en la conversación y en la lista de chats se vea el contenido real de
+ * la plantilla en vez del placeholder `[Plantilla: <nombre>]`.
+ *
+ * Usa la MISMA sustitución posicional que el envío a Meta (replaceVariables), por
+ * lo que el texto guardado coincide con lo realmente enviado. El header solo se
+ * incluye cuando es de tipo TEXT (para IMAGE/VIDEO/DOCUMENT, headerContent es una
+ * URL/handle y no debe mostrarse como texto). Si no hay bodyContent, cae al
+ * placeholder previo para no romper compatibilidad.
+ */
+export function renderTemplateBody(
+  template: {
+    name?: string;
+    bodyContent?: string | null;
+    headerType?: string | null;
+    headerContent?: string | null;
+    footerContent?: string | null;
+  },
+  params: string[] = []
+): string {
+  const safeParams = Array.isArray(params)
+    ? params.map((p) => (p == null ? "" : String(p)))
+    : [];
+
+  const body = template?.bodyContent
+    ? replaceVariables(template.bodyContent, safeParams)
+    : "";
+
+  if (!body) {
+    return `[Plantilla: ${template?.name || ""}]`;
+  }
+
+  const parts: string[] = [];
+  if (template?.headerType === "TEXT" && template.headerContent) {
+    parts.push(replaceVariables(template.headerContent, safeParams));
+  }
+  parts.push(body);
+  if (template?.footerContent) {
+    parts.push(template.footerContent);
+  }
+
+  return parts.join("\n").trim();
+}
+
 // Versiones dinámicas
 export async function sendTemplateDynamic(
   to: string,
