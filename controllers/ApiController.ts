@@ -1,9 +1,20 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import { Request, Response } from "express";
 import * as Yup from "yup";
 import { Op } from "sequelize";
 import fs from "fs";
 import AppError from "../errors/AppError";
 import GetDefaultWhatsApp from "../helpers/GetDefaultWhatsApp";
+import GetWhatsappWbot from "../helpers/GetWhatsappWbot";
 import SetTicketMessagesAsRead from "../helpers/SetTicketMessagesAsRead";
 import Message from "../models/Message";
 import Whatsapp from "../models/Whatsapp";
@@ -23,7 +34,8 @@ import { useDate } from "../utils/useDate";
 import moment from "moment";
 import CompaniesSettings from "../models/CompaniesSettings";
 import ShowUserService from "../services/UserServices/ShowUserService";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import { verifyMediaMessage, verifyMessage } from "../services/WbotServices/wbotMessageListener";
 import ShowQueueService from "../services/QueueService/ShowQueueService";
 import path from "path";
@@ -37,7 +49,7 @@ import FindOrCreateATicketTrakingService from "../services/TicketServices/FindOr
 import { Mutex } from "async-mutex";
 
 // Servicios de META (WhatsApp Cloud API)
-import { sendTextDynamic, sendTemplateDynamic } from "../services/MetaServices/metaSendService";
+import { sendTextDynamic, sendTemplateDynamic, renderTemplateBody } from "../services/MetaServices/metaSendService";
 import WhatsAppTemplate from "../models/WhatsAppTemplate";
 
 type WhatsappData = {
@@ -108,10 +120,13 @@ const createContact = async (
     if (whatsappId === undefined) {
       whatsapp = await GetDefaultWhatsApp(whatsappId, companyId);
     } else {
-      whatsapp = await Whatsapp.findByPk(whatsappId);
+      // Multi-tenant: SIEMPRE filtrar por companyId — evita fuga cross-tenant de tokenMeta/credenciales
+      whatsapp = await Whatsapp.findOne({
+        where: { id: whatsappId, companyId }
+      });
 
       if (whatsapp === null) {
-        throw new AppError(`whatsapp #${whatsappId} not found`);
+        throw new AppError(`whatsapp #${whatsappId} not found`, 404);
       }
     }
 
@@ -508,7 +523,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   // ========== CONEXIÓN BAILEYS (QR Code / WhatsApp Web) ==========
   let wbot;
   try {
-    wbot = await getWbot(whatsapp.id);
+    wbot = await GetWhatsappWbot(whatsapp);
   } catch (err: any) {
     await registerApiUsageWithStatus(companyId, false);
     return res.status(503).json({ status: "ERROR", error: "WhatsApp no está conectado" });
@@ -620,7 +635,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
         // //console.log(medias)
         await Promise.all(
           medias.map(async (media: Express.Multer.File) => {
-            const publicFolder = path.resolve(__dirname, "..", "..", "public");
+            const publicFolder = path.resolve(currentDir, "..", "..", "public");
             const filePath = path.join(publicFolder, `company${companyId}`, media.filename);
 
             const options = await getMessageOptions(media.filename, filePath, companyId.toString(), `\u200e ${bodyMessage}`);
@@ -655,9 +670,9 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
       try {
         await Promise.all(
           medias.map(async (media: Express.Multer.File) => {
-            sentMessage = await SendWhatsAppMedia({ body: `\u200e ${bodyMessage}`, media, ticket: contactAndTicket, isForwarded: false });
+            sentMessage = await SendWhatsAppMedia({ body: `\u200e ${bodyMessage}`, media, ticket: contactAndTicket, isForwarded: false, wbot });
 
-            const publicFolder = path.resolve(__dirname, "..", "..", "public");
+            const publicFolder = path.resolve(currentDir, "..", "..", "public");
             const filePath = path.join(publicFolder, `company${companyId}`, media.filename);
             const fileExists = fs.existsSync(filePath);
 
@@ -671,7 +686,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
         throw new AppError("Error al enviar medios API: " + error.message);
       }
     } else {
-      sentMessage = await SendWhatsAppMessageAPI({ body: `\u200e ${bodyMessage}`, whatsappId: whatsapp.id, contact: contactAndTicket.contact, quotedMsg, msdelay });
+      sentMessage = await SendWhatsAppMessageAPI({ body: `\u200e ${bodyMessage}`, whatsappId: whatsapp.id, contact: contactAndTicket.contact, quotedMsg, msdelay, wbot });
 
       await verifyMessage(sentMessage, contactAndTicket, contactAndTicket.contact)
     }
@@ -1513,7 +1528,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
 
   // Obtener la conexión WhatsApp para enviar
   // Prioridad: 1) Conexión asociada al template, 2) Conexión del token
-  let sendWhatsapp = template.whatsapp || whatsapp;
+  const sendWhatsapp = template.whatsapp || whatsapp;
 
   // Verificar que sea conexión META
   if (sendWhatsapp.provider !== "meta" && sendWhatsapp.channel !== "meta") {
@@ -1661,6 +1676,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     ticket = await Ticket.findOne({
       where: {
         contactId: contact.id,
+        whatsappId: sendWhatsapp.id,
         status: { [Op.in]: ["open", "pending"] },
         companyId
       }
@@ -1681,7 +1697,10 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     // Generar wid ÚNICO para evitar conflictos de SequelizeUniqueConstraintError
     // IMPORTANTE: El externalId puede repetirse entre diferentes contactos/números
     const pendingWid = `PENDING_${externalId || Date.now()}_${toNumber}_${Date.now().toString(36)}`;
-    const messageBody = `[Plantilla: ${template.name}]${params && params.length > 0 ? "\n📋 Parámetros: " + params.join(", ") : ""}`;
+    // Guardamos el texto real de la plantilla (variables {{n}} sustituidas) para
+    // que la conversación y el preview de la lista muestren el contenido, no el
+    // placeholder [Plantilla: <nombre>]. Los datos crudos siguen en dataJson.
+    const messageBody = renderTemplateBody(template, params);
     const messageDataJson = {
       templateId: template.id,
       templateName: template.name,
@@ -1710,6 +1729,17 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     });
 
     logInfo(`[API-TEMPLATE] ✅ Mensaje creado - messageId: ${message.id} | wid: ${pendingWid}`);
+
+    // Actualizar el preview del ticket con el texto real de la plantilla y subirlo
+    // al tope de la lista (bump de updatedAt: es un mensaje saliente real). Antes
+    // este flujo no tocaba Ticket.lastMessage, por lo que el preview persistido no
+    // reflejaba la plantilla enviada tras recargar.
+    try {
+      await ticket.update({ lastMessage: messageBody });
+    } catch (lastMsgErr) {
+      // No crítico: el mensaje ya está en BD.
+      logError(`[API-TEMPLATE] ⚠️ No se pudo actualizar lastMessage del ticket ${ticket.id}: ${lastMsgErr}`);
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // 🔗 REGISTRAR EN REDIS PARA COORDINACIÓN ENTRE NODOS
@@ -1787,22 +1817,100 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
       });
 
       logInfo(`[API-TEMPLATE] ✅ Mensaje marcado como failed en BD - messageId: ${message.id} | wid: ${pendingWid} | error: ${errorMessage}`);
+
+      try {
+        const errorData = metaError.response?.data?.error || metaError.response?.data || {};
+        await ApiFailedMessage.create({
+          companyId,
+          whatsappId: sendWhatsapp.id,
+          number: toNumber,
+          message: renderTemplateBody(template, params).substring(0, 1000),
+          error: errorMessage,
+          errorCode: errorData.code != null ? String(errorData.code) : (metaError.code ? String(metaError.code) : null),
+          errorSubcode: errorData.error_subcode != null ? String(errorData.error_subcode) : null,
+          fbtraceId: errorData.fbtrace_id || null,
+          status: "pending",
+          retryCount: 0,
+          ticketId: message.ticketId || null,
+          endpoint: "send-template",
+          metadata: {
+            source: "send_template_initial_request",
+            template_id: template.id,
+            template_name: template.name,
+            params: params || [],
+            template_params: params || [],
+            buttons: templateButtons || [],
+            pendingWid,
+            messageId: message.id,
+            metaStatus: metaError.response?.status || null
+          }
+        });
+        logInfo(`[API-TEMPLATE] ✅ ApiFailedMessage creado para retry - messageId=${message.id} number=${toNumber}`);
+      } catch (saveErr: any) {
+        logError(`[API-TEMPLATE] ❌ Error guardando ApiFailedMessage: ${saveErr?.message || saveErr}`);
+      }
     }
 
     // 4. Actualizar mensaje según resultado del envío
     if (sendSuccess && templateResponse?.messagingMessageId) {
-      // Éxito: actualizar wid al message_id real de Meta y marcar como sent
-      // IMPORTANTE: También guardar metaMessageId en dataJson para correlación de botones
-      await message.update({
-        wid: templateResponse.messagingMessageId,
-        ack: 2,
-        dataJson: JSON.stringify({
-          ...messageDataJson,
-          status: 'sent',
-          metaMessageId: templateResponse.messagingMessageId  // ← Para buscar por context.id de Meta
-        })
-      });
-      logInfo(`[API-TEMPLATE] ✅ Mensaje actualizado - wid: ${templateResponse.messagingMessageId} | metaMessageId guardado en dataJson | status: sent`);
+      // ════════════════════════════════════════════════════════════════════
+      // SEMÁNTICA CORREGIDA (2026-05-11):
+      // Recibir wamid de Meta NO significa que el mensaje fue entregado.
+      // Solo significa que Meta ACEPTÓ el request (accepted/queued).
+      // El estado real de entrega (delivered/read/failed) llega después
+      // por webhook de status.
+      //   - ack = 1  →  accepted (enviado a Meta, no entregado todavía)
+      //   - dataJson.status         = "accepted"
+      //   - dataJson.deliveryStatus = "pending"
+      //   - dataJson.metaMessageId  = wamid
+      // ════════════════════════════════════════════════════════════════════
+      const acceptedAtIso = new Date().toISOString();
+      const acceptedDataJson = {
+        ...messageDataJson,
+        status: 'accepted',              // accepted | sent | delivered | read | failed
+        deliveryStatus: 'pending',       // pending hasta recibir webhook status
+        metaMessageId: templateResponse.messagingMessageId, // ← para correlación
+        acceptedAt: acceptedAtIso
+      };
+
+      // Idempotencia ante UNIQUE (companyId, wid): si ya existe otro Message
+      // con ese wid, NO sobreescribir wid — solo actualizar dataJson/ack.
+      let widUpdate: any = { wid: templateResponse.messagingMessageId };
+      try {
+        const widConflict = await Message.findOne({
+          where: {
+            wid: templateResponse.messagingMessageId,
+            companyId,
+            id: { [Op.ne]: message.id }
+          }
+        });
+        if (widConflict) {
+          logWarn(`[API-TEMPLATE] ⚠️ wamid=${templateResponse.messagingMessageId} ya existe en Message id=${widConflict.id}. No piso wid del nuevo Message ${message.id}.`);
+          widUpdate = {};
+        }
+      } catch (chkErr: any) {
+        logWarn(`[API-TEMPLATE] ⚠️ Error verificando conflicto wid: ${chkErr.message}`);
+        widUpdate = {};
+      }
+
+      try {
+        await message.update({
+          ...widUpdate,
+          ack: 1, // accepted (no delivered)
+          dataJson: JSON.stringify(acceptedDataJson)
+        });
+      } catch (updErr: any) {
+        if (updErr?.name === 'SequelizeUniqueConstraintError') {
+          logWarn(`[API-TEMPLATE] ⚠️ UniqueConstraintError al actualizar wid. Reintentando sin wid.`);
+          await message.update({
+            ack: 1,
+            dataJson: JSON.stringify(acceptedDataJson)
+          });
+        } else {
+          throw updErr;
+        }
+      }
+      logInfo(`[API-TEMPLATE] ✅ Mensaje aceptado por Meta - wid: ${templateResponse.messagingMessageId} | status: accepted | deliveryStatus: pending`);
 
       // Actualizar contador de uso de la plantilla
       await template.update({
@@ -1810,7 +1918,10 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
         lastUsedAt: new Date()
       });
 
-      // Registrar uso de API (solo en éxito)
+      // Registrar uso de API.
+      // IMPORTANTE: usedOnDay/usedText cuentan intentos; successCount NO se
+      // incrementa aquí: solo cuando Meta confirme delivered por webhook.
+      // Si Meta reporta failed, el listener incrementará failedCount.
       const { dateForPostgres } = useDate();
       const hoje = dateForPostgres();
       let apiUsage = await ApiUsages.findOne({ where: { dateUsed: hoje, companyId } });
@@ -1820,12 +1931,19 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
       await apiUsage.update({
         usedOnDay: (apiUsage.dataValues["usedOnDay"] || 0) + 1,
         usedText: (apiUsage.dataValues["usedText"] || 0) + 1,
-        successCount: (apiUsage.dataValues["successCount"] || 0) + 1,
         updatedAt: new Date()
       });
 
+      // Compatibilidad: clientes existentes esperan HTTP 200 + status "SUCCESS".
+      // Se conserva, pero se añaden campos explícitos que reflejan la verdad:
+      //   - delivery_status: pending (no entregado aún)
+      //   - meta_status: accepted (Meta aceptó el request)
+      //   - warning: explica que SUCCESS != delivered
       return res.status(200).json({
         status: "SUCCESS",
+        delivery_status: "pending",
+        meta_status: "accepted",
+        warning: "SUCCESS means accepted by Meta, not delivered. Delivery status will be updated asynchronously via webhook.",
         via: "meta_cloud_api",
         template: {
           id: template.id,
@@ -1835,7 +1953,8 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
         to: toNumber,
         params_sent: params,
         message_id: message.id,
-        meta_message_id: templateResponse.messagingMessageId
+        meta_message_id: templateResponse.messagingMessageId,
+        accepted_at: acceptedAtIso
       });
     }
 
@@ -1876,7 +1995,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
         companyId,
         whatsappId: sendWhatsapp.id,
         number: toNumber,
-        message: `[Plantilla: ${template.name}]`,
+        message: renderTemplateBody(template, params).substring(0, 1000),
         error: errorDetails.message || metaError.message,
         errorCode: errorDetails.code || null,
         errorSubcode: errorDetails.error_subcode || null,
@@ -1913,11 +2032,14 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
 export const listFailedMessages = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { companyId } = req.user as any;
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, endpoint, page = 1, limit = 20 } = req.query;
 
     const where: any = { companyId };
     if (status && status !== 'all') {
       where.status = status;
+    }
+    if (endpoint && endpoint !== 'all') {
+      where.endpoint = endpoint;
     }
 
     const offset = (Number(page) - 1) * Number(limit);
@@ -1959,7 +2081,7 @@ export const retryFailedMessage = async (req: Request, res: Response): Promise<R
     const { id } = req.params;
 
     const failedMessage = await ApiFailedMessage.findOne({
-      where: { id, companyId, status: 'pending' }
+      where: { id, companyId, status: { [Op.in]: ['pending', 'failed'] } }
     });
 
     if (!failedMessage) {
@@ -1969,8 +2091,10 @@ export const retryFailedMessage = async (req: Request, res: Response): Promise<R
       });
     }
 
-    // Obtener la conexión WhatsApp
-    const whatsapp = await Whatsapp.findByPk(failedMessage.whatsappId);
+    // Obtener la conexión WhatsApp — Multi-tenant: filtrar por companyId aunque failedMessage ya lo valida (defensa en profundidad)
+    const whatsapp = await Whatsapp.findOne({
+      where: { id: failedMessage.whatsappId, companyId }
+    });
     if (!whatsapp) {
       return res.status(400).json({
         success: false,
@@ -2002,8 +2126,8 @@ export const retryFailedMessage = async (req: Request, res: Response): Promise<R
         metadata.template_name,
         phoneNumberId,
         accessToken,
-        metadata.params || [],
-        'es',
+        metadata.params || metadata.template_params || [],
+        metadata.template_lang || metadata.language || 'es',
         metadata.buttons || []
       );
     } else {
