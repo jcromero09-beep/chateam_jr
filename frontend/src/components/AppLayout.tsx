@@ -1,26 +1,12 @@
-import { ReactNode, useState, useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  Box,
-  Sheet,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemContent,
-  Typography,
-  IconButton,
-  Avatar,
-  Chip,
-  useColorScheme,
-  Dropdown,
-  Menu,
-  MenuButton,
-  MenuItem,
-  Divider,
-  Tooltip,
-} from '@mui/joy'
+import { ReactNode, useState, useEffect, type MouseEvent as ReactMouseEvent } from 'react'
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom'
+// [Re-skin Tailwind v4] Del design system de Joy sólo se conserva `useColorScheme`
+// (fuente de verdad del modo claro/oscuro compartida con el resto de pantallas MUI).
+// Toda la capa visual del shell es ahora Tailwind + tokens del design system.
+import { useColorScheme } from '@mui/joy'
 import {
   Dashboard as DashboardIcon,
+  Close as CloseIcon,
   ConfirmationNumber as TicketIcon,
   Contacts as ContactsIcon,
   Campaign as CampaignIcon,
@@ -38,7 +24,6 @@ import {
   SmartToy as SmartToyIcon,
   Business as BusinessIcon,
   Receipt as ReceiptIcon,
-  Folder as FolderIcon,
   HelpOutline as HelpIcon,
   Feedback as FeedbackIcon,
   Assessment as ReportIcon,
@@ -95,7 +80,6 @@ import {
   SwapHoriz as MigrationIcon,
   Hub as CoexistenceIcon,
   VideoLibrary as VideoLibraryIcon,
-  Diversity3 as CreatorNetworkIcon,
   QueryStats as OptimizeIcon,
   AccountBox as IdentityIcon,
   PhoneAndroid as DeviceFarmIcon,
@@ -107,6 +91,8 @@ import {
   ManageAccounts as EmailProviderIcon,
   Engineering as SystemIcon,
   Savings as CreditPacksIcon,
+  // Sprint 1 (2026-05-20) — icono del panel de revisión de correcciones IA
+  VerifiedUser as CorrectionReviewIcon,
   AccountCircle as ProfileIcon,
   Notifications as NotificationsIcon,
   AccountCircle as _AccountCircleIcon,
@@ -115,10 +101,17 @@ import {
 } from '@mui/icons-material'
 import { useAuth } from '../hooks/useAuth'
 import { usePermissions } from '../hooks/usePermissions'
+import NotificationBell from './NotificationBell'
 import { usePlanFeatures, PlanFeature } from '../hooks/usePlanFeatures'
 import { Module } from '../utils/permissions'
 import socketService from '../services/socket'
 import api from '../services/api'
+import { exitCompany } from '../services/impersonation'
+// ── Design system (Tailwind v4) ───────────────────────────────────────────────
+import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Avatar } from '@/components/ui/avatar'
+import { CommandPalette, type Command } from './CommandPalette'
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -145,9 +138,19 @@ interface AppLayoutProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SIDEBAR_BG = '#1e293b'
-const SIDEBAR_WIDTH_EXPANDED = 260
-const SIDEBAR_WIDTH_COLLAPSED = 68
+// Paleta de marca ChatEAM — ahora vive en los tokens del design system
+// (`--brand-teal`, `--brand-cyan`, `--brand-coral` en src/tailwind.css). Aquí sólo
+// quedan las medidas del sidebar, que se reflejan en las clases `w-[260px]` /
+// `md:w-[68px]` del <nav> (Tailwind no admite clases dinámicas).
+const SIDEBAR_WIDTH_EXPANDED = 260 // px — sidebar expandido (y drawer móvil)
+const SIDEBAR_WIDTH_COLLAPSED = 68 // px — sidebar colapsado (sólo desktop)
+
+// [Sin preflight] tailwind.css se importa sin el reset de Tailwind para coexistir
+// con MUI Joy, así que <button>/<a> conservan los estilos por defecto del navegador.
+// Estas dos constantes los neutralizan allí donde reemplazamos componentes MUI.
+const BTN_RESET =
+  'm-0 cursor-pointer appearance-none border-0 bg-transparent p-0 text-left [font-family:inherit] [color:inherit]'
+const LINK_RESET = 'no-underline [color:inherit]'
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -157,21 +160,39 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { logout, user } = useAuth()
   const { canAccess } = usePermissions()
   const { hasFeature } = usePlanFeatures()
-  const { mode, setMode } = useColorScheme()
+  const { mode, systemMode, setMode } = useColorScheme()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const [chatUnreads, setChatUnreads] = useState(0)
+  const [tokenBalance, setTokenBalance] = useState<number | null>(null)
+  const [activeSubplan, setActiveSubplan] = useState<{
+    id: number
+    name: string
+    tokens: number
+    tokensConsumed: number
+    priceUsd: string | number
+  } | null>(null)
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('sidebarCollapsed') === 'true' } catch { return false }
   })
-
-  const sidebarWidth = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED
 
   const toggleSidebar = () => {
     const next = !collapsed
     setCollapsed(next)
     localStorage.setItem('sidebarCollapsed', String(next))
   }
+
+  // ─── Puente de tema Joy → Tailwind ──────────────────────────────────────────
+  // El design system activa su paleta oscura con la clase `.dark` en <html>
+  // (@custom-variant dark en tailwind.css), mientras que MUI Joy usa
+  // data-joy-color-scheme. Espejamos el modo de Joy para que ambas capas
+  // (shell Tailwind + pantallas MUI) cambien de tema a la vez.
+  useEffect(() => {
+    const resolved = mode === 'system' ? systemMode : mode
+    document.documentElement.classList.toggle('dark', resolved === 'dark')
+  }, [mode, systemMode])
 
   // ─── Chat Unreads Badge ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -188,6 +209,43 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const interval = setInterval(fetchUnreads, 30000)
     return () => clearInterval(interval)
   }, [user?.id])
+
+  // ─── Tokens IA: balance + subplan activo (Company.aiTokenBalance + activeAISubplan)
+  useEffect(() => {
+    if (!user?.companyId) return
+
+    const fetchTokens = async () => {
+      try {
+        const res = await api.get('/ai/subplan-purchase/token-info')
+        const balance = Number(res.data?.tokenBalance ?? 0)
+        setTokenBalance(Number.isFinite(balance) ? balance : 0)
+        setActiveSubplan(res.data?.activeSubplan || null)
+      } catch { /* silent — la app sigue funcionando sin chip visible */ }
+    }
+
+    fetchTokens()
+    // Refresca cada 60s para reflejar consumo casi en tiempo real
+    const interval = setInterval(fetchTokens, 60000)
+    return () => clearInterval(interval)
+  }, [user?.companyId])
+
+  // Refresca tokens al recibir un evento de pago concluido (renueva ciclo)
+  useEffect(() => {
+    if (!user?.companyId) return
+    const socket = socketService.getSocket()
+    if (!socket) return
+    const channel = `company-${user.companyId}-payment`
+    const handler = () => {
+      api.get('/ai/subplan-purchase/token-info')
+        .then(res => {
+          setTokenBalance(Number(res.data?.tokenBalance ?? 0))
+          setActiveSubplan(res.data?.activeSubplan || null)
+        })
+        .catch(() => {})
+    }
+    socket.on(channel, handler)
+    return () => { socket.off(channel, handler) }
+  }, [user?.companyId])
 
   useEffect(() => {
     if (!user?.companyId) return
@@ -240,25 +298,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'dashboard',
             },
             {
-              path: '/customer-origins',
-              label: 'Origen de Cliente',
-              icon: <SourceIcon />,
-              module: 'customer_origins',
-            },
-            {
-              path: '/customer-origins/reports',
-              label: 'Reportes de Origen',
+              path: '/kanban-lead-conversions',
+              label: 'Leads Kanban',
               icon: <ReportIcon />,
-              module: 'customer_origins_reports',
+              module: 'facebook_conversions',
             },
           ],
         },
-        {
-          path: '/analytics',
-          label: 'Analítica',
-          icon: <AnalyticsIcon />,
-          module: 'analytics',
-        },
+        // {
+        //   path: '/analytics',
+        //   label: 'Analítica',
+        //   icon: <AnalyticsIcon />,
+        //   module: 'analytics',
+        // },
       ],
     },
     {
@@ -292,25 +344,36 @@ export default function AppLayout({ children }: AppLayoutProps) {
           badge: chatUnreads > 0 ? chatUnreads : undefined,
         },
         {
-          path: '/kanban',
-          label: 'Funnel de Ventas',
-          icon: <KanbanIcon />,
-          module: 'kanban',
-          planFeature: 'kanban',
-        },
-        {
-          path: '/kanban-dashboard',
-          label: 'Dashboard Kanban',
-          icon: <ReportIcon />,
-          module: 'kanban',
-          planFeature: 'kanban',
+          path: '/webchat/chats',
+          label: 'Conversaciones Web',
+          icon: <ChatBubbleIcon />,
+          module: 'webchat_chats',
         },
         {
           path: '/schedules',
-          label: 'Agendas',
+          label: 'Mensajes Programados',
           icon: <CalendarIcon />,
           module: 'schedules',
           planFeature: 'schedules',
+        },
+
+      ],
+    },
+    {
+      key: 'clasificacion',
+      title: 'ORGANIZACIÓN',
+      items: [
+        {
+          path: '/customer-origins',
+          label: 'Origen de Clientes',
+          icon: <SourceIcon />,
+          module: 'customer_origins',
+        },
+        {
+          path: '/queues',
+          label: 'Colas',
+          icon: <QueueIcon />,
+          module: 'queues',
         },
         {
           path: '/tags',
@@ -318,6 +381,26 @@ export default function AppLayout({ children }: AppLayoutProps) {
           icon: <TagIcon />,
           module: 'tags',
         },
+        {
+          path: '/automation-rules',
+          label: 'Automatizaciones',
+          icon: <AIIcon />,
+          module: 'settings',
+        },
+        {
+          path: '/funnel',
+          label: 'Funnel de Ventas',
+          icon: <KanbanIcon />,
+          module: 'kanban',
+          planFeature: 'kanban',
+        },
+        // {
+        //   path: '/kanban-dashboard',
+        //   label: 'Dashboard Kanban',
+        //   icon: <ReportIcon />,
+        //   module: 'kanban',
+        //   planFeature: 'kanban',
+        // },
       ],
     },
     {
@@ -343,19 +426,54 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'coexistence',
             },
             {
-              path: '/migration',
-              label: 'Migrar a Meta',
-              icon: <MigrationIcon />,
-              module: 'migration',
+              path: '/whatsapp/templates',
+              label: 'Plantillas',
+              icon: <MessageIcon />,
+              module: 'whatsapp_templates',
+            },
+            // {
+            //   path: '/migration',
+            //   label: 'Migrar a Meta',
+            //   icon: <MigrationIcon />,
+            //   module: 'migration',
+            // },
+            // {
+            //   path: '/tiktok-connections',
+            //   label: 'TikTok Comments',
+            //   icon: <MusicNoteIcon />,
+            //   module: 'connections',
+            // },
+          ],
+        },
+        {
+          path: '/social-comments-group',
+          label: 'Comentarios FB/IG',
+          icon: <CommentsInboxIcon />,
+          module: 'social_comments' as Module,
+          children: [
+            {
+              path: '/social-comments',
+              label: 'Bandeja',
+              icon: <CommentsInboxIcon />,
+              module: 'social_comments' as Module,
             },
             {
-              path: '/tiktok-connections',
-              label: 'TikTok Comments',
-              icon: <MusicNoteIcon />,
-              module: 'connections',
+              path: '/moderation',
+              label: 'Moderación',
+              icon: <CommentsInboxIcon />,
+              module: 'social_comments' as Module,
+            },
+            {
+              path: '/social-comments/settings',
+              label: 'Configuracion',
+              icon: <SettingsIcon />,
+              module: 'social_comments' as Module,
             },
           ],
         },
+        /* Sección "WhatsApp API" OCULTA (2026-07-07, a pedido). "Plantillas" se movió
+           a Conexiones (arriba). Las rutas siguen activas en App.tsx; para reactivar
+           el menú, descomentar este bloque.
         {
           path: '/whatsapp',
           label: 'WhatsApp API',
@@ -376,6 +494,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             },
           ],
         },
+        */
         {
           path: '/webchat',
           label: 'WebChat',
@@ -388,6 +507,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
               icon: <SettingsIcon />,
               module: 'webchat_settings',
             },
+            /* "Conversaciones" movido a OPERATIVO como "Conversaciones Web".
+               "Analytics" e "Historial" ocultos (2026-07-07, a pedido). Las rutas
+               siguen activas en App.tsx; para reactivar en el menú, descomentar.
             {
               path: '/webchat/chats',
               label: 'Conversaciones',
@@ -406,6 +528,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
               icon: <HistoryIcon />,
               module: 'webchat_history',
             },
+            */
           ],
         },
       ],
@@ -441,18 +564,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
               icon: <SettingsIcon />,
               module: 'campaigns_settings',
             },
-            {
-              path: '/campaigns/ai',
-              label: 'IA de Campañas',
-              icon: <CampaignAIIcon />,
-              module: 'campaigns_ai',
-            },
-            {
-              path: '/campaigns/rules',
-              label: 'Reglas',
-              icon: <CampaignRulesIcon />,
-              module: 'campaigns_rules',
-            },
+            // {
+            //   path: '/campaigns/ai',
+            //   label: 'IA de Campañas',
+            //   icon: <CampaignAIIcon />,
+            //   module: 'campaigns_ai',
+            // },
+            // {
+            //   path: '/campaigns/rules',
+            //   label: 'Reglas',
+            //   icon: <CampaignRulesIcon />,
+            //   module: 'campaigns_rules',
+            // },
           ],
         },
         {
@@ -475,16 +598,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'ugc_campaigns',
             },
             {
-              path: '/ugc/creators',
-              label: 'Creators',
-              icon: <CreatorNetworkIcon />,
-              module: 'ugc_creators',
+              path: '/ugc/model-selector',
+              label: 'Elegir Modelos',
+              icon: <AIIcon />,
+              module: 'ugc_campaigns',
             },
             {
-              path: '/ugc/social-accounts',
-              label: 'Assets',
-              icon: <FolderIcon />,
-              module: 'ugc_social_accounts',
+              path: '/ugc/generate',
+              label: 'Cinema Studio',
+              icon: <AIIcon />,
+              module: 'ugc_video_studio',
             },
             {
               path: '/ugc/video-studio',
@@ -493,28 +616,25 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'ugc_video_studio',
             },
             {
-              path: '/ugc/analytics',
-              label: 'Analytics',
-              icon: <AnalyticsIcon />,
-              module: 'ugc_analytics',
-            },
-            {
               path: '/ugc/optimization',
               label: 'Optimización IA',
               icon: <OptimizeIcon />,
               module: 'ugc_optimization',
+              roles: ['super'],
             },
             {
               path: '/ugc/settings',
               label: 'Configuración',
               icon: <SettingsIcon />,
               module: 'ugc_settings',
+              roles: ['super'],
             },
             {
               path: '/ugc/social-posts',
               label: 'Posts Programados',
               icon: <CampaignIcon />,
               module: 'ugc_social_posts',
+              roles: ['super'],
             },
           ],
         },
@@ -638,7 +758,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     },
     {
       key: 'herramientas',
-      title: 'HERRAMIENTAS',
+      title: 'CITAS Y FLUJOS',
       items: [
         {
           path: '/appointments-group',
@@ -740,12 +860,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
               label: 'Dashboard',
               icon: <AffiliatesIcon />,
               module: 'affiliates' as Module,
+              roles: ['super'],
             },
             {
               path: '/affiliates/programs',
               label: 'Programas',
               icon: <AffiliatesIcon />,
               module: 'affiliate_programs' as Module,
+              roles: ['super'],
             },
             {
               path: '/affiliates/referrals',
@@ -754,28 +876,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'affiliate_referrals' as Module,
             },
             {
-              path: '/affiliates/wallet',
-              label: 'Billetera',
-              icon: <FinancialIcon />,
-              module: 'affiliate_wallet' as Module,
-            },
-            {
-              path: '/affiliates/withdrawals',
-              label: 'Retiros',
-              icon: <CreditCardIcon />,
-              module: 'affiliate_withdrawals' as Module,
-            },
-            {
               path: '/affiliates/links',
               label: 'Links',
               icon: <ConnectionsIcon />,
               module: 'affiliate_links' as Module,
             },
             {
-              path: '/affiliates/tiers',
-              label: 'Niveles MLM',
-              icon: <SchoolIcon />,
-              module: 'affiliate_tiers' as Module,
+              path: '/affiliates/wallet',
+              label: 'Recompensas',
+              icon: <FinancialIcon />,
+              module: 'affiliate_wallet' as Module,
             },
           ],
         },
@@ -799,6 +909,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'ai_platform',
             },
             {
+              path: '/stats/recommendations',
+              label: 'Recomendaciones',
+              icon: <DashboardIcon />,
+              module: 'ai_platform',
+            },
+            {
               path: '/ai/knowledge-base',
               label: 'Base de Conocimiento',
               icon: <SchoolIcon />,
@@ -810,18 +926,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
               icon: <SmartToyIcon />,
               module: 'ai_agents',
             },
-            {
-              path: '/ai/chatbot-builder',
-              label: 'Chatbot Builder',
-              icon: <ChatbotIcon />,
-              module: 'ai_chatbot_builder',
-            },
-            {
-              path: '/ai/scheduler',
-              label: 'Pipeline con Agentes IA',
-              icon: <DataIcon />,
-              module: 'ai_scheduler',
-            },
+            // {
+            //   path: '/ai/chatbot-builder',
+            //   label: 'Chatbot Builder',
+            //   icon: <ChatbotIcon />,
+            //   module: 'ai_chatbot_builder',
+            // },
+            // {
+            //   path: '/ai/scheduler',
+            //   label: 'Pipeline con Agentes IA',
+            //   icon: <DataIcon />,
+            //   module: 'ai_scheduler',
+            // },
           ],
         },
         {
@@ -837,30 +953,30 @@ export default function AppLayout({ children }: AppLayoutProps) {
               icon: <WriterIcon />,
               module: 'ai_writer',
             },
-            {
-              path: '/ai-image-generation',
-              label: 'Generar Imágenes',
-              icon: <ImageIcon />,
-              module: 'ai_image_generation',
-            },
-            {
-              path: '/ai-video-generation',
-              label: 'Generar Videos',
-              icon: <VideocamIcon />,
-              module: 'ai_video_generation',
-            },
-            {
-              path: '/ai/audio',
-              label: 'Audio IA',
-              icon: <AudioIcon />,
-              module: 'ai_audio',
-            },
-            {
-              path: '/ai/multimodal',
-              label: 'Multimodal',
-              icon: <MultimodalIcon />,
-              module: 'ai_multimodal',
-            },
+            // {
+            //   path: '/ai-image-generation',
+            //   label: 'Generar Imágenes',
+            //   icon: <ImageIcon />,
+            //   module: 'ai_image_generation',
+            // },
+            // {
+            //   path: '/ai-video-generation',
+            //   label: 'Generar Videos',
+            //   icon: <VideocamIcon />,
+            //   module: 'ai_video_generation',
+            // },
+            // {
+            //   path: '/ai/audio',
+            //   label: 'Audio IA',
+            //   icon: <AudioIcon />,
+            //   module: 'ai_audio',
+            // },
+            // {
+            //   path: '/ai/multimodal',
+            //   label: 'Multimodal',
+            //   icon: <MultimodalIcon />,
+            //   module: 'ai_multimodal',
+            // },
           ],
         },
         {
@@ -877,42 +993,42 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'openai_settings',
               roles: ['super'],
             },
-            {
-              path: '/ai/ab-testing',
-              label: 'A/B Testing',
-              icon: <ABTestingIcon />,
-              module: 'ai_ab_testing',
-            },
-            {
-              path: '/ai/observability',
-              label: 'Observabilidad',
-              icon: <ObservabilityIcon />,
-              module: 'ai_observability',
-            },
-            {
-              path: '/ai/fine-tuning',
-              label: 'Fine-tuning',
-              icon: <FineTuningIcon />,
-              module: 'ai_fine_tuning',
-            },
+            // {
+            //   path: '/ai/ab-testing',
+            //   label: 'A/B Testing',
+            //   icon: <ABTestingIcon />,
+            //   module: 'ai_ab_testing',
+            // },
+            // {
+            //   path: '/ai/observability',
+            //   label: 'Observabilidad',
+            //   icon: <ObservabilityIcon />,
+            //   module: 'ai_observability',
+            // },
+            // {
+            //   path: '/ai/fine-tuning',
+            //   label: 'Fine-tuning',
+            //   icon: <FineTuningIcon />,
+            //   module: 'ai_fine_tuning',
+            // },
             {
               path: '/ai/credits',
               label: 'Paquetes Créditos',
               icon: <CreditPacksIcon />,
               module: 'ai_credits',
             },
-            {
-              path: '/prompts',
-              label: 'Prompts',
-              icon: <PromptsIcon />,
-              module: 'prompts',
-            },
-            {
-              path: '/ai/heygen',
-              label: 'HeyGen Video',
-              icon: <HeyGenIcon />,
-              module: 'ai_heygen',
-            },
+            // {
+            //   path: '/prompts',
+            //   label: 'Prompts',
+            //   icon: <PromptsIcon />,
+            //   module: 'prompts',
+            // },
+            // {
+            //   path: '/ai/heygen',
+            //   label: 'HeyGen Video',
+            //   icon: <HeyGenIcon />,
+            //   module: 'ai_heygen',
+            // },
             {
               path: '/ai/subplans',
               label: 'Planes y Subscripciones',
@@ -926,11 +1042,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
               module: 'ai_affiliates',
             },
             {
-              path: '/ai-usage',
-              label: 'Mi Consumo IA',
-              icon: <CreditPacksIcon />,
-              module: 'openai_dashboard',
+              // Sprint 1 (2026-05-20) — Revisión humana de correcciones
+              path: '/ai/correction-review',
+              label: 'Revisión Correcciones',
+              icon: <CorrectionReviewIcon />,
+              module: 'ai_correction_review',
             },
+            // {
+            //   path: '/ai-usage',
+            //   label: 'Mi Consumo IA',
+            //   icon: <CreditPacksIcon />,
+            //   module: 'openai_dashboard',
+            // },
           ],
         },
         {
@@ -968,10 +1091,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
           module: 'users',
         },
         {
-          path: '/queues',
-          label: 'Colas',
-          icon: <QueueIcon />,
-          module: 'queues',
+          path: '/roles-management',
+          label: 'Roles y Usuarios',
+          icon: <UsersIcon />,
+          module: 'users',
         },
         // {
         //   path: '/queue-integrations',
@@ -996,12 +1119,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
           label: 'Permisos',
           icon: <PermissionsIcon />,
           module: 'permissions_manager',
+          roles: ['super'],
         },
       ],
     },
     {
       key: 'sistema',
-      title: 'SISTEMA',
+      title: 'PLATAFORMA',
       items: [
         {
           path: '/system-admin-group',
@@ -1022,6 +1146,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
               label: 'Empresas',
               icon: <CompaniesIcon />,
               module: 'companies',
+              roles: ['super'],
+            },
+            {
+              path: '/admin/ai-token-usage',
+              label: 'Consumo Tokens IA',
+              icon: <DataIcon />,
               roles: ['super'],
             },
             {
@@ -1071,9 +1201,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const filterItem = (item: MenuItemDef): MenuItemDef | null => {
     // Check roles
     if (item.roles) {
-      if (item.roles.includes('super') && !user?.super) return null
-      const otherRoles = item.roles.filter((r) => r !== 'super')
-      if (otherRoles.length > 0 && user?.profile && !otherRoles.includes(user.profile)) return null
+      const profile = user?.profile?.toLowerCase()
+      const allowedBySuper = item.roles.includes('super') && user?.super === true
+      const nonSuperRoles = item.roles.filter((role) => role !== 'super')
+      const allowedByProfile = profile ? nonSuperRoles.includes(profile) : false
+      if (!allowedBySuper && !allowedByProfile) return null
     }
     // Check module permission
     if (item.module && !canAccess(item.module)) return null
@@ -1092,12 +1224,26 @@ export default function AppLayout({ children }: AppLayoutProps) {
     return item
   }
 
-  const visibleSections: MenuSection[] = menuSections
+  const rawSections: MenuSection[] = menuSections
     .map((section) => ({
       ...section,
       items: section.items.map(filterItem).filter((i): i is MenuItemDef => i !== null),
     }))
     .filter((section) => section.items.length > 0)
+
+  // ─── Vista según rol/impersonación ──────────────────────────────────────────
+  // - Super (fuera de impersonación): menú COMPLETO (PLATAFORMA + operación).
+  //   Como es super, hasFeature() bypassa el plan y ve todas las secciones.
+  // - Super dentro de una empresa (impersonando): vista operativa limpia, sin
+  //   la sección PLATAFORMA (no se gestionan otras empresas desde adentro).
+  // - Resto de perfiles: su menú normal.
+  const isImpersonatingView = user?.impersonating === true
+  const visibleSections: MenuSection[] =
+    user?.super === true && !isImpersonatingView
+      ? rawSections
+      : isImpersonatingView
+        ? rawSections.filter((s) => s.title !== 'PLATAFORMA')
+        : rawSections
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1112,6 +1258,30 @@ export default function AppLayout({ children }: AppLayoutProps) {
     if (mobileOpen) setMobileOpen(false)
   }
 
+  // ─── Command palette (⌘K) — N2.3: válvula de escape sobre TODAS las rutas visibles ──────
+  const commands: Command[] = visibleSections.flatMap((section) =>
+    section.items.flatMap((item): Command[] => {
+      const self = item.path ? [{ label: item.label, path: item.path, section: section.title }] : []
+      const kids = (item.children || []).map((c) => ({
+        label: c.label,
+        path: c.path,
+        section: section.title,
+      }))
+      return [...self, ...kids]
+    }),
+  )
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const handleLogout = async () => {
     await logout()
     navigate('/login')
@@ -1119,445 +1289,531 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
-    return location.pathname.startsWith(path)
+    // Coincidencia exacta o por segmento completo (evita que /tagsKanban
+    // active /tags, o /campaigns-x active /campaigns).
+    return location.pathname === path || location.pathname.startsWith(path + '/')
   }
-
   // ─── Render Menu Item ────────────────────────────────────────────────────────
+  //
+  // El colapso es CSS-only (`md:` + `collapsed`) en vez de renderizado
+  // condicional: así el drawer móvil siempre muestra las etiquetas aunque el
+  // sidebar de desktop esté colapsado, y el ancho anima sin desmontar el árbol.
 
   const renderMenuItemDef = (item: MenuItemDef, depth = 0) => {
     const hasChildren = item.children && item.children.length > 0
     const isExpanded = expandedMenus.includes(item.path)
     const active = isActive(item.path) && !hasChildren
 
-    const button = (
-      <ListItemButton
-        selected={active}
-        onClick={() => {
-          if (hasChildren) {
-            if (collapsed) {
-              handleNavigate(item.children![0].path)
-            } else {
-              toggleMenu(item.path)
-            }
-          } else {
-            handleNavigate(item.path)
-          }
-        }}
-        sx={{
-          pl: collapsed ? 0 : depth > 0 ? 3.5 : 1.5,
-          pr: collapsed ? 0 : 1.5,
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          borderRadius: 'md',
-          minHeight: depth > 0 ? 36 : 40,
-          transition: 'all 0.18s ease',
-          color: active ? 'common.white' : 'rgba(255,255,255,0.7)',
-          '&:hover': {
-            bgcolor: 'rgba(255,255,255,0.08)',
-            color: 'common.white',
-            '& .menu-icon': { color: 'common.white' },
-          },
-          '&.Mui-selected': {
-            bgcolor: 'primary.500',
-            color: 'common.white',
-            '&:hover': { bgcolor: 'primary.600' },
-            '& .menu-icon': { color: 'common.white' },
-          },
-        }}
-      >
-        <Box
-          className="menu-icon"
-          sx={{
-            mr: collapsed ? 0 : 1.5,
-            display: 'flex',
-            alignItems: 'center',
-            fontSize: depth > 0 ? 18 : 20,
-            color: active ? 'common.white' : 'rgba(255,255,255,0.5)',
-            flexShrink: 0,
-          }}
-        >
-          {item.icon}
-        </Box>
-        {!collapsed && (
-          <>
-            <ListItemContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography
-                  level={depth > 0 ? 'body-xs' : 'body-sm'}
-                  sx={{ color: 'inherit', fontWeight: active ? 600 : 400 }}
-                >
-                  {item.label}
-                </Typography>
-                {item.badge !== undefined && (
-                  <Chip size="sm" color="danger" variant="solid">
-                    {item.badge}
-                  </Chip>
-                )}
-              </Box>
-            </ListItemContent>
-            {hasChildren && (
-              <Box
-                sx={{
-                  ml: 'auto',
-                  display: 'flex',
-                  color: 'rgba(255,255,255,0.4)',
-                  transition: 'transform 0.25s ease',
-                  transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                }}
-              >
-                <ExpandMoreIcon sx={{ fontSize: 18 }} />
-              </Box>
-            )}
-          </>
-        )}
-      </ListItemButton>
-    )
+    // Destino del enlace: para padres expandibles apunta al primer hijo
+    // (coherente con el modo colapsado), para hojas a su propia ruta.
+    const linkTo = hasChildren ? item.children![0].path : item.path
 
     return (
-      <Box key={item.path}>
-        <ListItem nested={hasChildren} sx={{ p: 0, mb: 0.25 }}>
-          {collapsed ? (
-            <Tooltip title={item.label} placement="right" arrow>
-              {button}
-            </Tooltip>
-          ) : (
-            button
+      <div key={item.path} className="mb-0.5">
+        <RouterLink
+          to={linkTo}
+          title={collapsed ? item.label : undefined}
+          aria-current={active ? 'page' : undefined}
+          aria-expanded={hasChildren && !collapsed ? isExpanded : undefined}
+          onClick={(e: ReactMouseEvent<HTMLAnchorElement>) => {
+            // Ctrl/Cmd/Shift → dejar que el navegador abra en una pestaña nueva
+            if (e.metaKey || e.ctrlKey || e.shiftKey) return
+            if (hasChildren && !collapsed) {
+              // Padre expandible: no navegar, sólo alternar el submenú
+              e.preventDefault()
+              toggleMenu(item.path)
+              return
+            }
+            // Navegación SPA la realiza RouterLink; sólo cerramos el menú en móvil
+            if (mobileOpen) setMobileOpen(false)
+          }}
+          className={cn(
+            LINK_RESET,
+            'group relative flex w-full items-center rounded-md transition-colors duration-150 outline-none',
+            'focus-visible:ring-2 focus-visible:ring-brand-cyan/60',
+            depth > 0
+              ? 'min-h-9 pr-3 pl-7 text-[clamp(0.75rem,0.72rem+0.12vw,0.8125rem)]'
+              : 'min-h-10 px-3 text-[clamp(0.8125rem,0.78rem+0.15vw,0.875rem)]',
+            collapsed && 'md:justify-center md:px-0',
+            active
+              ? "bg-white/10 font-semibold text-brand-cyan before:absolute before:top-1/2 before:left-0 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-brand-cyan before:content-['']"
+              : 'font-normal text-white/70 hover:bg-white/5 hover:text-white',
           )}
-        </ListItem>
-
-        {!collapsed && hasChildren && (
-          <Box
-            sx={{
-              maxHeight: isExpanded ? '800px' : '0px',
-              opacity: isExpanded ? 1 : 0,
-              overflow: 'hidden',
-              transition: 'max-height 0.3s ease-in-out, opacity 0.22s ease-in-out',
-            }}
+        >
+          {/* Icono (@mui/icons-material). `!` fuerza el tamaño sobre los estilos
+              sin capa de emotion, que de otro modo ganarían a las utilidades. */}
+          <span
+            className={cn(
+              'flex shrink-0 items-center transition-colors',
+              collapsed ? 'mr-3 md:mr-0' : 'mr-3',
+              depth > 0 ? '[&>svg]:text-[18px]!' : '[&>svg]:text-[20px]!',
+              active ? 'text-brand-cyan' : 'text-white/50 group-hover:text-white',
+            )}
           >
-            <List sx={{ p: 0, pl: 1 }}>
-              {item.children!.map((child) => renderMenuItemDef(child, depth + 1))}
-            </List>
-          </Box>
+            {item.icon}
+          </span>
+
+          <span
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-2',
+              collapsed && 'md:hidden',
+            )}
+          >
+            <span className="truncate">{item.label}</span>
+            {item.badge !== undefined && (
+              <span className="shrink-0 rounded-full bg-brand-coral px-1.5 py-0.5 text-[10px] leading-none font-bold text-white tabular-nums">
+                {item.badge}
+              </span>
+            )}
+          </span>
+
+          {hasChildren && (
+            <span
+              className={cn(
+                'ml-auto flex shrink-0 items-center text-white/40 transition-transform duration-200 [&>svg]:text-[18px]!',
+                isExpanded && 'rotate-180',
+                collapsed && 'md:hidden',
+              )}
+            >
+              <ExpandMoreIcon />
+            </span>
+          )}
+        </RouterLink>
+
+        {hasChildren && (
+          <div
+            className={cn(
+              'overflow-hidden pl-1 transition-[max-height,opacity] duration-300 ease-in-out',
+              isExpanded ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0',
+              collapsed && 'md:hidden',
+            )}
+          >
+            {item.children!.map((child) => renderMenuItemDef(child, depth + 1))}
+          </div>
         )}
-      </Box>
+      </div>
     )
   }
 
   // ─── Sidebar Content ─────────────────────────────────────────────────────────
 
   const sidebarContent = (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        bgcolor: SIDEBAR_BG,
-        overflow: 'hidden',
-      }}
-    >
+    <>
       {/* ── Header ── */}
-      <Box
-        sx={{
-          px: collapsed ? 1 : 2,
-          py: 2,
-          display: 'flex',
-          alignItems: 'center',
-          gap: collapsed ? 0 : 1.5,
-          justifyContent: collapsed ? 'center' : 'space-between',
-          flexShrink: 0,
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-        }}
-      >
-        {collapsed ? (
-          <Tooltip title="Expandir menú" placement="right" arrow>
-            <IconButton
-              size="sm"
-              variant="plain"
-              onClick={toggleSidebar}
-              sx={{ color: 'rgba(255,255,255,0.7)', '&:hover': { color: 'common.white', bgcolor: 'rgba(255,255,255,0.08)' } }}
-            >
-              <Box
-                component="img"
-                src="/logo.png"
-                alt="ChatEAM"
-                sx={{ width: 32, height: 32, borderRadius: '50%' }}
-              />
-            </IconButton>
-          </Tooltip>
-        ) : (
-          <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: 1 }}>
-              <Box
-                component="img"
-                src="/logo.png"
-                alt="ChatEAM"
-                sx={{ width: 38, height: 38, flexShrink: 0, borderRadius: '50%' }}
-              />
-              <Box sx={{ minWidth: 0 }}>
-                <Box
-                  component="img"
-                  src="/chateam-logo.png"
-                  alt="Chateam"
-                  sx={{ height: 18, display: 'block', filter: 'brightness(0) invert(1)', opacity: 0.9 }}
-                />
-                <Typography
-                  level="body-xs"
-                  noWrap
-                  sx={{ color: 'rgba(255,255,255,0.5)', lineHeight: 1.3 }}
-                >
-                  {user?.profile || 'Administrador'}
-                </Typography>
-              </Box>
-            </Box>
-            <Tooltip title="Colapsar menú" placement="bottom" arrow>
-              <IconButton
-                size="sm"
-                variant="plain"
-                onClick={toggleSidebar}
-                sx={{
-                  flexShrink: 0,
-                  color: 'rgba(255,255,255,0.5)',
-                  '&:hover': { color: 'common.white', bgcolor: 'rgba(255,255,255,0.08)' },
-                }}
-              >
-                <ChevronLeftIcon />
-              </IconButton>
-            </Tooltip>
-          </>
+      <div
+        className={cn(
+          'flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4',
+          collapsed && 'md:justify-center md:px-2',
         )}
-      </Box>
+      >
+        {/* Logo completo — siempre en móvil; en desktop se oculta al colapsar */}
+        <div className={cn('flex min-w-0 flex-1 items-center', collapsed && 'md:hidden')}>
+          <div className="flex w-full items-center justify-center rounded-md bg-white px-3 py-1.5 shadow-[0_1px_4px_rgba(0,0,0,0.18)]">
+            <img
+              src="/logo-chateam.svg"
+              alt="ChatEAM"
+              className="block h-[clamp(1.75rem,2.5vw,2.25rem)] w-full max-w-[180px] object-contain"
+            />
+          </div>
+        </div>
+
+        {/* Logo compacto = botón "expandir" (sólo desktop colapsado) */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label="Expandir menú"
+          aria-pressed={collapsed}
+          title="Expandir menú"
+          className={cn(
+            BTN_RESET,
+            'hidden size-9 items-center justify-center rounded-md transition-colors hover:bg-white/10',
+            'focus-visible:ring-2 focus-visible:ring-brand-cyan/60',
+            collapsed && 'md:flex',
+          )}
+        >
+          <img src="/logo.png" alt="ChatEAM" className="size-8 rounded-full" />
+        </button>
+
+        {/* Colapsar (sólo desktop expandido) */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label="Colapsar menú"
+          aria-pressed={collapsed}
+          title="Colapsar menú"
+          className={cn(
+            BTN_RESET,
+            'hidden size-8 shrink-0 items-center justify-center rounded-md bg-black/20 text-white/80 transition-colors hover:bg-black/35 hover:text-white md:flex',
+            'focus-visible:ring-2 focus-visible:ring-brand-cyan/60 [&>svg]:text-[18px]!',
+            collapsed && 'md:hidden',
+          )}
+        >
+          <ChevronLeftIcon />
+        </button>
+
+        {/* Cerrar drawer (sólo móvil) */}
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          aria-label="Cerrar menú"
+          className={cn(
+            BTN_RESET,
+            'flex size-8 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-white/10 hover:text-white md:hidden',
+            'focus-visible:ring-2 focus-visible:ring-brand-cyan/60 [&>svg]:text-[20px]!',
+          )}
+        >
+          <CloseIcon />
+        </button>
+      </div>
 
       {/* ── Menu Sections ── */}
-      <Box
-        sx={{
-          flexGrow: 1,
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          px: collapsed ? 0.5 : 1.5,
-          py: 1,
-          scrollbarWidth: 'none',
-          '&::-webkit-scrollbar': { display: 'none' },
-        }}
+      <div
+        className={cn(
+          'flex-1 overflow-x-hidden overflow-y-auto px-3 pt-1 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          collapsed && 'md:px-2',
+        )}
       >
         {visibleSections.map((section, sectionIdx) => (
-          <Box key={section.key}>
-            {/* Section header — hidden when collapsed */}
-            {!collapsed && (
-              <Typography
-                level="body-xs"
-                sx={{
-                  px: 1,
-                  pt: sectionIdx === 0 ? 0.5 : 1.5,
-                  pb: 0.5,
-                  color: 'rgba(255,255,255,0.35)',
-                  fontWeight: 700,
-                  letterSpacing: '0.06em',
-                  fontSize: '0.65rem',
-                }}
-              >
-                {section.title}
-              </Typography>
+          <div key={section.key} className="mt-4 mb-1 first:mt-1">
+            {/* Separador — sustituye al título cuando el sidebar está colapsado */}
+            {sectionIdx > 0 && (
+              <div
+                className={cn('hidden h-px bg-white/10', collapsed && 'md:my-2 md:block')}
+                aria-hidden
+              />
             )}
-            {collapsed && sectionIdx > 0 && (
-              <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.1)' }} />
-            )}
-            <List sx={{ p: 0, gap: 0 }}>
-              {section.items.map((item) => renderMenuItemDef(item))}
-            </List>
-          </Box>
+            <p
+              className={cn(
+                // [a11y] /35 daba contraste 2.43 sobre el teal (#005166) — WCAG AA pide 4.5.
+                'm-0 px-3 pb-1.5 text-[10px] font-bold tracking-[0.14em] text-white/70 uppercase',
+                collapsed && 'md:hidden',
+              )}
+            >
+              {section.title}
+            </p>
+            <div>{section.items.map((item) => renderMenuItemDef(item))}</div>
+          </div>
         ))}
-      </Box>
+      </div>
 
       {/* Footer eliminado — usuario ya visible en TopBar */}
-    </Box>
+    </>
   )
 
   // ─── Top Header Bar ──────────────────────────────────────────────────────────
 
+  const iconBtnClass = cn(
+    BTN_RESET,
+    'relative flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+    'focus-visible:ring-2 focus-visible:ring-ring',
+  )
+
   const topBar = (
-    <Box
-      component="header"
-      sx={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 900,
-        height: 64,
-        display: 'flex',
-        alignItems: 'center',
-        px: { xs: 2, md: 3 },
-        gap: 1,
-        bgcolor: 'background.surface',
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-        flexShrink: 0,
-      }}
-    >
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-[#D3F8F8] px-[clamp(0.75rem,2vw,1.5rem)] text-foreground dark:bg-card">
       {/* Hamburger — mobile only */}
-      <IconButton
-        variant="outlined"
-        color="neutral"
-        size="sm"
+      <button
+        type="button"
         onClick={() => setMobileOpen(!mobileOpen)}
-        sx={{ display: { xs: 'flex', md: 'none' } }}
+        aria-label="Abrir menú"
+        aria-expanded={mobileOpen}
+        className={cn(iconBtnClass, '[&>svg]:text-[22px]! md:hidden')}
       >
         <MenuIcon />
-      </IconButton>
+      </button>
 
       {/* Spacer */}
-      <Box sx={{ flex: 1 }} />
+      <div className="flex-1" />
+
+      {/* Plan contratado por la company */}
+      {user?.company?.plan?.name && (() => {
+        const plan = user.company.plan as any
+        const recurrence = (user.company as any).recurrence
+        const tooltipTitle = plan.amount
+          ? `$${Number(plan.amount).toFixed(2)}${recurrence ? ` (${recurrence})` : ''}`
+          : user.company.plan.name
+        return (
+          <Badge
+            variant="primary"
+            title={tooltipTitle}
+            className="hidden h-8 max-w-[220px] gap-1.5 px-3 font-semibold md:inline-flex"
+          >
+            <span className="text-foreground/90">Plan:</span>
+            <span className="truncate">{user.company.plan.name}</span>
+          </Badge>
+        )
+      })()}
+
+      {/* Subplan IA activo + balance de tokens (Company.aiTokenBalance + activeAISubplan) */}
+      {tokenBalance !== null && (() => {
+        const remaining = tokenBalance
+        // Total de referencia para color: tokens del subplan activo si existe; si no, sin ratio
+        const subplanTotal = activeSubplan?.tokens ? Number(activeSubplan.tokens) : 0
+        const ratio = subplanTotal > 0 ? remaining / subplanTotal : 1
+        let chipColor: 'danger' | 'warning' | 'success' = 'success'
+        if (remaining <= 0) chipColor = 'danger'
+        else if (subplanTotal > 0 && ratio < 0.15) chipColor = 'warning'
+        const fmt = (n: number) => Number(n).toLocaleString('es-ES')
+        const tooltipMsg = subplanTotal > 0
+          ? `${fmt(remaining)} de ${fmt(subplanTotal)} tokens disponibles${activeSubplan?.name ? ` · Subplan: ${activeSubplan.name}` : ''}`
+          : `${fmt(remaining)} tokens IA disponibles${activeSubplan?.name ? ` · Subplan: ${activeSubplan.name}` : ' · Sin subplan activo'}`
+        return (
+          <button
+            type="button"
+            onClick={() => navigate('/ai/subplans')}
+            title={tooltipMsg}
+            aria-label={tooltipMsg}
+            className={cn(
+              BTN_RESET,
+              'hidden rounded-full focus-visible:ring-2 focus-visible:ring-ring md:block',
+            )}
+          >
+            <Badge
+              variant={chipColor === 'danger' ? 'destructive' : chipColor}
+              className="h-8 gap-1.5 px-3 font-semibold"
+            >
+              <span className="text-muted-foreground">Tokens IA:</span>
+              <span className="tabular-nums">{fmt(remaining)}</span>
+            </Badge>
+          </button>
+        )
+      })()}
+
+      {/* Fecha de vencimiento de la company (dueDate) */}
+      {user?.company?.dueDate && (() => {
+        const due = new Date(user.company.dueDate)
+        if (isNaN(due.getTime())) return null
+        const today = new Date()
+        const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        let chipColor: 'danger' | 'warning' | 'success' = 'success'
+        if (diffDays < 0) chipColor = 'danger'
+        else if (diffDays <= 7) chipColor = 'warning'
+        const fechaFmt = due.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+        const tooltipMsg = diffDays < 0
+          ? `Vencido hace ${Math.abs(diffDays)} día${Math.abs(diffDays) === 1 ? '' : 's'}`
+          : diffDays === 0
+            ? 'Vence hoy'
+            : `Vence en ${diffDays} día${diffDays === 1 ? '' : 's'}`
+        return (
+          <Badge
+            variant={chipColor === 'danger' ? 'destructive' : chipColor}
+            title={tooltipMsg}
+            className="hidden h-8 gap-1.5 px-3 font-semibold lg:inline-flex"
+          >
+            <span className="text-muted-foreground">Vencimiento:</span>
+            <span className="tabular-nums">{fechaFmt}</span>
+          </Badge>
+        )
+      })()}
+
+      {/* Notifications bell con badge realtime */}
+      <NotificationBell />
 
       {/* Dark mode toggle */}
-      <Tooltip title={mode === 'light' ? 'Modo oscuro' : 'Modo claro'} arrow>
-        <IconButton
-          variant="plain"
-          color="neutral"
-          size="sm"
-          onClick={() => setMode(mode === 'light' ? 'dark' : 'light')}
-        >
-          {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
-        </IconButton>
-      </Tooltip>
+      <button
+        type="button"
+        onClick={() => setMode(mode === 'light' ? 'dark' : 'light')}
+        aria-label={mode === 'light' ? 'Modo oscuro' : 'Modo claro'}
+        title={mode === 'light' ? 'Modo oscuro' : 'Modo claro'}
+        className={cn(iconBtnClass, '[&>svg]:text-[20px]!')}
+      >
+        {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
+      </button>
 
       {/* User dropdown */}
-      <Dropdown>
-        <MenuButton
-          variant="plain"
-          color="neutral"
-          size="sm"
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            px: 1,
-            borderRadius: 'md',
-          }}
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          onClick={() => setUserMenuOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          aria-label="Menú de usuario"
+          className={cn(
+            BTN_RESET,
+            'flex items-center gap-2 rounded-full py-1 pr-2 pl-1 transition-colors hover:bg-accent',
+            'focus-visible:ring-2 focus-visible:ring-ring',
+          )}
         >
-          <Avatar size="sm" src={user?.profileImage} sx={{ width: 30, height: 30, fontSize: 13 }}>
-            {user?.name?.charAt(0) || 'U'}
-          </Avatar>
-          <Box sx={{ display: { xs: 'none', sm: 'block' }, textAlign: 'left' }}>
-            <Typography level="body-sm" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+          {user?.profileImage ? (
+            <img
+              src={user.profileImage}
+              alt=""
+              className="size-8 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <Avatar name={user?.name || 'Administrador'} size="sm" />
+          )}
+          <span className="hidden text-left leading-tight sm:block">
+            <span className="block truncate text-sm font-semibold text-foreground">
               {user?.name || 'Administrador'}
-            </Typography>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary', lineHeight: 1.2 }}>
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
               {user?.profile || 'admin'}
-            </Typography>
-          </Box>
-          <ExpandMoreIcon sx={{ fontSize: 16, color: 'text.tertiary', display: { xs: 'none', sm: 'block' } }} />
-        </MenuButton>
-        <Menu placement="bottom-end" sx={{ minWidth: 200 }}>
-          <MenuItem onClick={() => handleNavigate('/profile')}>
-            <ProfileIcon sx={{ mr: 1.5, fontSize: 18 }} />
-            Mi Perfil
-          </MenuItem>
-          <MenuItem onClick={() => handleNavigate('/notifications')}>
-            <NotificationsIcon sx={{ mr: 1.5, fontSize: 18 }} />
-            Notificaciones
-          </MenuItem>
-          <Divider />
-          <MenuItem onClick={() => handleNavigate('/help')}>
-            <HelpIcon sx={{ mr: 1.5, fontSize: 18 }} />
-            Ayuda
-          </MenuItem>
-          <MenuItem onClick={() => handleNavigate('/feedback')}>
-            <FeedbackIcon sx={{ mr: 1.5, fontSize: 18 }} />
-            Feedback
-          </MenuItem>
-          <Divider />
-          <MenuItem color="danger" onClick={handleLogout}>
-            <LogoutIcon sx={{ mr: 1.5, fontSize: 18 }} />
-            Cerrar Sesión
-          </MenuItem>
-        </Menu>
-      </Dropdown>
-    </Box>
+            </span>
+          </span>
+          <span
+            className={cn(
+              'hidden text-muted-foreground transition-transform sm:flex [&>svg]:text-[16px]!',
+              userMenuOpen && 'rotate-180',
+            )}
+          >
+            <ExpandMoreIcon />
+          </span>
+        </button>
+
+        {userMenuOpen && (
+          <>
+            {/* Click-outside catcher */}
+            <div
+              aria-hidden
+              onClick={() => setUserMenuOpen(false)}
+              className="fixed inset-0 z-40 cursor-default"
+            />
+            <div
+              role="menu"
+              className="absolute top-[calc(100%+8px)] right-0 z-50 min-w-[220px] overflow-hidden rounded-lg border border-border bg-popover py-1.5 shadow-lg shadow-black/5"
+            >
+              {[
+                { label: 'Mi Perfil', icon: <ProfileIcon />, path: '/profile' },
+                { label: 'Notificaciones', icon: <NotificationsIcon />, path: '/notifications' },
+              ].map((mi) => (
+                <button
+                  key={mi.path}
+                  role="menuitem"
+                  type="button"
+                  onClick={() => { setUserMenuOpen(false); handleNavigate(mi.path) }}
+                  className={cn(
+                    BTN_RESET,
+                    'flex w-full items-center gap-3 px-3.5 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+                    '[&>svg]:text-[18px]! [&>svg]:text-muted-foreground',
+                  )}
+                >
+                  {mi.icon}
+                  {mi.label}
+                </button>
+              ))}
+              <div className="my-1 h-px bg-border" aria-hidden />
+              {[
+                { label: 'Ayuda', icon: <HelpIcon />, path: '/help' },
+                { label: 'Feedback', icon: <FeedbackIcon />, path: '/feedback' },
+              ].map((mi) => (
+                <button
+                  key={mi.path}
+                  role="menuitem"
+                  type="button"
+                  onClick={() => { setUserMenuOpen(false); handleNavigate(mi.path) }}
+                  className={cn(
+                    BTN_RESET,
+                    'flex w-full items-center gap-3 px-3.5 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+                    '[&>svg]:text-[18px]! [&>svg]:text-muted-foreground',
+                  )}
+                >
+                  {mi.icon}
+                  {mi.label}
+                </button>
+              ))}
+              <div className="my-1 h-px bg-border" aria-hidden />
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => { setUserMenuOpen(false); handleLogout() }}
+                className={cn(
+                  BTN_RESET,
+                  'flex w-full items-center gap-3 px-3.5 py-2 text-sm text-destructive-text transition-colors hover:bg-destructive/10',
+                  '[&>svg]:text-[18px]!',
+                )}
+              >
+                <LogoutIcon />
+                Cerrar Sesión
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </header>
   )
 
   // ─── Layout ──────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Desktop Sidebar */}
-      <Sheet
-        sx={{
-          width: sidebarWidth,
-          flexShrink: 0,
-          display: { xs: 'none', md: 'block' },
-          height: '100vh',
-          position: 'sticky',
-          top: 0,
-          transition: 'width 0.25s ease-in-out',
-          overflow: 'hidden',
-          bgcolor: SIDEBAR_BG,
-          border: 'none',
-          boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
-          zIndex: 1000,
-        }}
+    <div className="flex h-[100dvh] overflow-hidden bg-background text-foreground">
+      {/* [Fase C a11y] Skip link (WCAG 2.4.1 Bypass Blocks) — primer focusable, salta al contenido */}
+      <a
+        href="#main-content"
+        className={cn(
+          LINK_RESET,
+          'fixed top-2 left-2 z-[9999] -translate-y-[200%] rounded-md bg-primary px-4 py-2 text-primary-foreground transition-transform duration-150 focus:translate-y-0',
+        )}
+      >
+        Saltar al contenido
+      </a>
+
+      {/* Backdrop del drawer móvil */}
+      <div
+        aria-hidden
+        onClick={() => setMobileOpen(false)}
+        className={cn(
+          'fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 md:hidden',
+          mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+      />
+
+      {/* Sidebar — off-canvas en móvil (cerrado por defecto), estático y colapsable en desktop.
+          Anchos: SIDEBAR_WIDTH_EXPANDED (260) / SIDEBAR_WIDTH_COLLAPSED (68). */}
+      <nav
+        aria-label="Navegación principal"
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex w-[260px] shrink-0 flex-col overflow-hidden bg-brand-teal text-white shadow-[2px_0_8px_rgba(0,0,0,0.15)]',
+          'transition-[transform,width] duration-200 ease-in-out md:static md:z-auto md:h-full md:translate-x-0',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          collapsed && 'md:w-[68px]',
+        )}
       >
         {sidebarContent}
-      </Sheet>
-
-      {/* Mobile Sidebar */}
-      {mobileOpen && (
-        <Sheet
-          sx={{
-            width: SIDEBAR_WIDTH_EXPANDED,
-            flexShrink: 0,
-            display: { xs: 'block', md: 'none' },
-            height: '100vh',
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            zIndex: 1200,
-            overflow: 'hidden',
-            bgcolor: SIDEBAR_BG,
-            border: 'none',
-            boxShadow: '4px 0 16px rgba(0,0,0,0.3)',
-          }}
-        >
-          {sidebarContent}
-        </Sheet>
-      )}
-
-      {/* Mobile Backdrop */}
-      {mobileOpen && (
-        <Box
-          onClick={() => setMobileOpen(false)}
-          sx={{
-            display: { xs: 'block', md: 'none' },
-            position: 'fixed',
-            inset: 0,
-            bgcolor: 'rgba(0,0,0,0.5)',
-            zIndex: 1100,
-          }}
-        />
-      )}
+      </nav>
 
       {/* Right Column: TopBar + Main Content */}
-      <Box
-        sx={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          minWidth: 0,
-          width: { xs: '100%', md: `calc(100% - ${sidebarWidth}px)` },
-          transition: 'width 0.25s ease-in-out',
-        }}
-      >
+      <div className="flex min-w-0 flex-1 flex-col">
         {topBar}
 
-        <Box
-          component="main"
-          sx={{
-            flex: 1,
-            p: { xs: 2, sm: 3 },
-            bgcolor: 'background.level1',
-            overflowY: 'auto',
-          }}
+        {/* Banner de impersonación: el super está operando DENTRO de una empresa.
+            Visible en todas las vistas mientras dure la sesión de impersonación. */}
+        {isImpersonatingView && (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-300 bg-amber-100 px-[clamp(0.75rem,2vw,1.5rem)] py-2 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-200">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <ObservabilityIcon fontSize="small" />
+              <span>
+                Estás dentro de{' '}
+                <strong>{user?.impersonatedCompanyName || 'la empresa'}</strong>{' '}
+                en modo administrador (impersonación).
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => exitCompany()}
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1"
+            >
+              <LogoutIcon fontSize="small" />
+              Salir de la empresa
+            </button>
+          </div>
+        )}
+
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="@container min-h-0 flex-1 overflow-y-auto bg-background p-[clamp(0.75rem,1.5vw,1.5rem)] outline-none"
         >
           {children}
-        </Box>
-      </Box>
-    </Box>
+        </main>
+      </div>
+
+      {/* ⌘K / Ctrl+K — válvula de escape universal sobre las rutas visibles (N2.3) */}
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        commands={commands}
+        onSelect={handleNavigate}
+      />
+    </div>
   )
 }
