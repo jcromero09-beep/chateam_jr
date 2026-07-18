@@ -6,7 +6,14 @@
 
 ---
 
-## 1) Headers de seguridad en nginx
+## 1) Headers de seguridad en nginx — ✅ HECHO 2026-07-18 (con sudo)
+Aplicado en vivo: snippet `/etc/nginx/snippets/security-headers.conf` (HSTS, X-Frame-Options,
+X-Content-Type-Options, Referrer-Policy, Permissions-Policy) incluido en el server 443 + en las 2
+locations con add_header propio (/assets/, /). `nginx -t` OK, reload graceful, verificado por curl,
+backend /be/health sigue 200. Backup: `padeldev.codigo.plus.conf.bak.20260718_*`. CSP quedó fuera
+(rompe la SPA) — pendiente en Report-Only. Referencia original abajo:
+
+## 1b) Headers de seguridad en nginx (referencia original)
 
 **Archivo:** `/etc/nginx/server.d/padeldev.codigo.plus.conf` (requiere sudo).
 Pegar dentro del bloque `server { ... }` de **:443** (el de TLS), a nivel de server:
