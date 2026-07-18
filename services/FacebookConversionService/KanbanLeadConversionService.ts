@@ -14,6 +14,8 @@ import {
   WebsiteEventUser
 } from "./SendWebsiteEvent";
 import { shouldSendMetaConversion } from "./MetaConversionPolicyService";
+import { resolveCtwaClid, resolveBusinessMessagingPageId } from "./KanbanCustomConversionDispatchService"; // [I3/AC6]
+import { graphUrl } from "../../config/metaGraph"; // [AC2] URL /events vía helper único
 
 interface SendKanbanLeadParams {
   companyId: number;
@@ -309,13 +311,23 @@ export const sendKanbanLeadConversionFromTagAssignment = async (
   );
 
   // ─── 8. Enviar a Meta CAPI ─────────────────────────────────────
-  const url = `https://graph.facebook.com/${getApiVersion()}/${destination.destinationId}/events`;
+  // [I3/AC6] Atribución business_messaging cuando hay ctwa_clid (alinea con el Custom dispatcher):
+  // business_messaging + messaging_channel:whatsapp + page_id con ctwa_clid; physical_store si no.
+  const ctwaClid = await resolveCtwaClid(ticketId, contactId);
+  const pageId = ctwaClid ? await resolveBusinessMessagingPageId(companyId) : undefined;
+  const leadUserData = buildUserData(eventUser);
+  if (ctwaClid) {
+    leadUserData.ctwa_clid = ctwaClid;
+    if (pageId) leadUserData.page_id = pageId;
+  }
+  const url = graphUrl(`${destination.destinationId}/events`, getApiVersion()); // [AC2] vía helper único
   const event = {
     event_name: EVENT_NAME,
     event_time: Math.floor(Date.now() / 1000),
     event_id: eventIdString,
-    action_source: "system_generated",
-    user_data: buildUserData(eventUser),
+    action_source: ctwaClid ? "business_messaging" : "physical_store",
+    ...(ctwaClid ? { messaging_channel: "whatsapp" } : {}),
+    user_data: leadUserData,
     custom_data: customData
   };
 
@@ -467,18 +479,27 @@ export const retryKanbanLeadConversion = async (
     return { ok: false, reason: "no_destination", status: "skipped" };
   }
 
+  // [I3/AC6] Re-resolver ctwa_clid del snapshot para mantener business_messaging en el reintento.
+  const retryCtwaClid = await resolveCtwaClid(record.ticketId, record.contactId);
+  const retryPageId = retryCtwaClid ? await resolveBusinessMessagingPageId(record.companyId) : undefined;
+  const retryUserData: any = { ...(record.userData || {}) };
+  if (retryCtwaClid) {
+    retryUserData.ctwa_clid = retryCtwaClid;
+    if (retryPageId) retryUserData.page_id = retryPageId;
+  }
   const event = {
     event_name: record.eventName || EVENT_NAME,
     event_time: Math.floor(Date.now() / 1000),
     event_id: record.eventId,
-    action_source: "system_generated",
-    user_data: record.userData || {},
+    action_source: retryCtwaClid ? "business_messaging" : "physical_store",
+    ...(retryCtwaClid ? { messaging_channel: "whatsapp" } : {}),
+    user_data: retryUserData,
     custom_data: record.customData || {}
   };
 
   try {
     const response = await axios.post(
-      `https://graph.facebook.com/${getApiVersion()}/${destination.destinationId}/events`,
+      graphUrl(`${destination.destinationId}/events`, getApiVersion()), // [AC2] vía helper único
       {
         data: [event],
         partner_agent: "jrchateam-kanban-lead-capi/1.0"

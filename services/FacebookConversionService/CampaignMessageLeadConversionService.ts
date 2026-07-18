@@ -10,6 +10,7 @@ import {
   WebsiteEventUser
 } from "./SendWebsiteEvent";
 import { graphUrl } from "../../config/metaGraph"; // [AC2] URL /events vía helper único
+import { resolveBusinessMessagingPageId } from "./KanbanCustomConversionDispatchService"; // [I3/AC6]
 import { shouldSendMetaConversion } from "./MetaConversionPolicyService";
 import logger from "../../utils/logger";
 
@@ -141,6 +142,13 @@ export const sendLeadConversionFromCampaignMessage = async (
     whatsappId: campaignMessage.whatsappId || undefined
   });
 
+  // [I3/AC6] Atribución business_messaging cuando hay ctwa_clid (alinea con el Custom dispatcher):
+  // business_messaging + messaging_channel:whatsapp + page_id con ctwa_clid; physical_store si no.
+  const ctwaClid = campaignMessage.ctwaClid || null;
+  const actionSource = ctwaClid ? "business_messaging" : "physical_store";
+  const messagingChannel = ctwaClid ? "whatsapp" : null;
+  const pageId = ctwaClid ? await resolveBusinessMessagingPageId(campaignMessage.companyId) : undefined;
+
   const record = await FacebookConversionEvent.create({
     companyId: campaignMessage.companyId,
     whatsappId: campaignMessage.whatsappId,
@@ -152,9 +160,9 @@ export const sendLeadConversionFromCampaignMessage = async (
     customData,
     datasetId: destination?.destinationId || null,
     facebookEventId,
-    actionSource: "system_generated",
-    messagingChannel: null,
-    ctwaClid: campaignMessage.ctwaClid || null,
+    actionSource,
+    messagingChannel,
+    ctwaClid,
     responseStatus: destination ? "pending" : "failed",
     errorMessage: destination ? null : "Sin destino Meta CAPI resuelto"
   } as any);
@@ -167,15 +175,17 @@ export const sendLeadConversionFromCampaignMessage = async (
   }
 
   const userData = buildUserData(eventUser);
-  if (campaignMessage.ctwaClid) {
-    userData.ctwa_clid = campaignMessage.ctwaClid;
+  if (ctwaClid) {
+    userData.ctwa_clid = ctwaClid;
+    if (pageId) userData.page_id = pageId;
   }
 
   const event = {
     event_name: EVENT_NAME,
     event_time: Math.floor(Date.now() / 1000),
     event_id: facebookEventId,
-    action_source: "system_generated",
+    action_source: actionSource,
+    ...(ctwaClid ? { messaging_channel: "whatsapp" } : {}),
     user_data: userData,
     custom_data: customData
   };

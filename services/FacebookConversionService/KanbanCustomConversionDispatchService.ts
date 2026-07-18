@@ -74,7 +74,7 @@ const buildEventId = (
   return `kanban_cc_${companyId}_${contactId ?? "anon"}_${safe(kanbanKey)}_${safe(eventName)}`;
 };
 
-const resolveBusinessMessagingPageId = async (companyId: number): Promise<string | undefined> => {
+export const resolveBusinessMessagingPageId = async (companyId: number): Promise<string | undefined> => {
   const pageConnection = await Whatsapp.findOne({
     where: {
       companyId,
@@ -88,7 +88,7 @@ const resolveBusinessMessagingPageId = async (companyId: number): Promise<string
   return pageConnection?.facebookPageUserId || undefined;
 };
 
-const resolveCtwaClid = async (
+export const resolveCtwaClid = async (
   ticketId: number,
   contactId: number | null
 ): Promise<string | undefined> => {
