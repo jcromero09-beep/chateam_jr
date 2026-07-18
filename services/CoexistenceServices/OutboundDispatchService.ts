@@ -73,6 +73,23 @@ export const isUnifiedDispatchEnabled = (companyId?: number): boolean => {
   return false;
 };
 
+// [CX-8/CX-G2] Cap de throughput de coexistencia: mientras un número vive en dos canales
+// (app + Cloud API), Meta impone ~20 mensajes/segundo POR phone_number_id. Sin esto, una ráfaga
+// devuelve 429 y cae a DLQ. Espaciamos los envíos Meta a ≥50ms por número (≤20/s).
+// Inerte bajo carga normal (solo espera si el número ya envió en los últimos 50ms).
+// Nota: gate en memoria por proceso — mitiga ráfagas; en multi-nodo cada worker tiene su propio gate.
+const META_MIN_SPACING_MS = 50; // 1000ms / 20 = 50ms → 20 mps
+const _metaSendGate = new Map<string, number>(); // phoneNumberId → próximo ts permitido (ms)
+const throttleMetaSend = async (phoneNumberId?: string | null): Promise<void> => {
+  if (!phoneNumberId) return;
+  const now = Date.now();
+  const nextAllowed = _metaSendGate.get(phoneNumberId) || 0;
+  if (now < nextAllowed) {
+    await new Promise((r) => setTimeout(r, nextAllowed - now));
+  }
+  _metaSendGate.set(phoneNumberId, Math.max(now, nextAllowed) + META_MIN_SPACING_MS);
+};
+
 /**
  * Ejecuta el envío saliente unificado.
  */
@@ -163,6 +180,10 @@ export const dispatch = async (
   // 3) Adapter.send (con fallback automático si Meta falla por ventana cerrada)
   let adapter = getAdapter(decision.provider);
   const startedAt = Date.now();
+  // [CX-8/CX-G2] Cap 20 mps por phone_number_id SOLO en el envío Meta (número dual app+API).
+  if (decision.provider === "meta") {
+    await throttleMetaSend((decision.whatsapp as any)?.phoneNumberId);
+  }
   let result = await adapter.send({
     ticket,
     whatsapp: decision.whatsapp,
