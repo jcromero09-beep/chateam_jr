@@ -267,3 +267,20 @@ Golden 3/3 + harness 32/32 + regresion 23/0.
 wbotMessageIngest.ts (5 slices de handleMessage). Tecnica de romper-ciclo (await import lazy) reutilizable
 para los siguientes slices que dependan del monolito.
 Pendiente: golden grupo/media, mas slices de handleMessage, verifyQueue (T10).
+
+
+## ✅ Golden MEDIA verde + diagnóstico verifyQueue (2026-07-18, commit 5a48eb7)
+- **Golden media VERDE** (handleMessage.dbtest ahora 6/6): imagen con caption → persiste + `mediaType=image`.
+  Causa raíz del cuelgue previo (media Y verifyQueue): el **Proxy stub de baileys era un thenable roto**
+  — `proxy.then` devolvía el proxy (callable), así `await <valor-proxy>` invocaba `then(resolve)` y nunca
+  resolvía. Fix en `baileysStub.cjs`: `then/catch/finally`→`undefined` + `delay` no-op real + `downloadMediaMessage`
+  devuelve Buffer real. Para no tocar `public/` (17G reales): mock `fs/promises.writeFile`→no-op +
+  `fs.existsSync`→true solo en `public/company*`.
+- **`jest.db.config.cjs` maxWorkers:1** — los `*.dbtest` comparten chateam_test + truncateAll; en paralelo
+  se truncaban entre sí (flaky) y el mock fs se cruzaba (cuelgue). Serial obligatorio.
+- **verifyQueue (T10) sigue SKIP** con diagnóstico preciso: el delay-hang quedó RESUELTO, pero el flujo de
+  menú con 2 colas cuelga en un `await` que no resuelve bajo los dobles (incluso el 1er msg solo).
+  `--detectOpenHandles` solo muestra timers creados en import (wbotMonitor, RetryPendingMessages,
+  clasificarEtapaCliente, OpenAi), NO el await atascado. Pinpointing = probes en handleMessage = tarea dedicada.
+- Verificado: harness no-DB **32/32**, harness DB **9 passed + 1 skip**. `makeWbot` (verifyQueue.dbtest)
+  también de-thenabled (defensivo). El fix del stub es lo que desbloqueó el golden media.
