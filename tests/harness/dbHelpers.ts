@@ -30,3 +30,25 @@ export async function seedTenant() {
   const contact = await Contact.create({ name: "Cliente", number: "593999999999", companyId: cid } as any);
   return { plan, company, user, whatsapp, queue, contact };
 }
+
+/**
+ * Siembra N colas para una empresa (verifyQueue/menú necesita ≥2). Prep para la
+ * characterization de verifyQueue (Tier 10) en sesión fresca.
+ */
+export async function seedQueues(
+  companyId: number,
+  defs: Array<{ name: string; color: string; greetingMessage?: string }>
+) {
+  const created: any[] = [];
+  for (const d of defs) {
+    created.push(
+      await Queue.create({
+        name: d.name,
+        color: d.color,
+        greetingMessage: d.greetingMessage ?? null,
+        companyId,
+      } as any)
+    );
+  }
+  return created;
+}
