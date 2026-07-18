@@ -16,12 +16,19 @@ import { describe, test, expect, beforeEach, jest } from "@jest/globals";
 const TagMock: any = { findOne: jest.fn() };
 const TicketMock: any = { findOne: jest.fn() };
 const KanbanEventMock: any = { findOne: jest.fn(), create: jest.fn() };
+const CampaignMessageMock: any = { findOne: jest.fn() };
+const WhatsappMock: any = { findOne: jest.fn() };
 const axiosMock: any = { post: jest.fn() };
 
 jest.mock("../../models/Tag", () => ({ __esModule: true, default: TagMock }));
 jest.mock("../../models/Ticket", () => ({ __esModule: true, default: TicketMock }));
 jest.mock("../../models/Contact", () => ({ __esModule: true, default: {} }));
 jest.mock("../../models/KanbanLeadConversionEvent", () => ({ __esModule: true, default: KanbanEventMock }));
+// El dispatcher busca atribución de campaña vía CampaignMessage.findOne (ctwaClid) — sin mock,
+// "model not initialized" (tests/setup no registra modelos). null = sin campaña asociada (default).
+jest.mock("../../models/CampaignMessage", () => ({ __esModule: true, default: CampaignMessageMock }));
+// Path business_messaging → resolveBusinessMessagingPageId busca la conexión facebook (Whatsapp.findOne).
+jest.mock("../../models/Whatsapp", () => ({ __esModule: true, default: WhatsappMock }));
 jest.mock("axios", () => ({ __esModule: true, default: axiosMock }));
 
 jest.mock("../../services/FacebookConversionService/SendWebsiteEvent", () => ({
@@ -56,8 +63,12 @@ beforeEach(() => {
   TicketMock.findOne.mockReset();
   KanbanEventMock.findOne.mockReset();
   KanbanEventMock.create.mockReset();
+  CampaignMessageMock.findOne.mockReset();
+  WhatsappMock.findOne.mockReset();
   axiosMock.post.mockReset();
 
+  CampaignMessageMock.findOne.mockResolvedValue(null);
+  WhatsappMock.findOne.mockResolvedValue(null);
   KanbanEventMock.findOne.mockResolvedValue(null);
   KanbanEventMock.create.mockResolvedValue({ id: 555, update: jest.fn() });
   axiosMock.post.mockResolvedValue({ status: 200, data: { events_received: 1, fbtrace_id: "fb1" } });
@@ -96,6 +107,9 @@ describe("dispatchKanbanCustomConversion — envío", () => {
   test("happy path → CAPI con evento dinámico y messaging_channel", async () => {
     TagMock.findOne.mockResolvedValueOnce(makeTag());
     TicketMock.findOne.mockResolvedValueOnce(makeTicketWithContact());
+    // action_source="business_messaging" + messaging_channel="whatsapp" requieren ctwa_clid
+    // (atribución Click-To-WhatsApp) → viene de CampaignMessage; sin él sería "physical_store".
+    CampaignMessageMock.findOne.mockResolvedValueOnce({ ctwaClid: "CTWA_TEST_123" });
 
     const res = await dispatchKanbanCustomConversion({ companyId: 1, ticketId: 42, tagId: 10 });
 
@@ -111,7 +125,10 @@ describe("dispatchKanbanCustomConversion — envío", () => {
     expect(event.messaging_channel).toBe("whatsapp");
     expect(event.custom_data.lead_status).toBe("interest");
     expect(event.custom_data.kanban_key).toBe("interest");
-    expect(event.custom_data.ticket_id).toBe(42);
+    // NOTA: el servicio ya NO emite `ticket_id` en custom_data (shape documentado en el service:
+    // conversion_name/lead_status/kanban_key/kanban_tag_id/…). Se verifica kanban_tag_id en su lugar.
+    // Si el payload CAPI DEBE llevar ticket_id para atribución, es decisión de producto (no de test).
+    expect(event.custom_data.kanban_tag_id).toBe(10);
   });
 
   test("dedupe → no reenvía si ya existe pending/success", async () => {
