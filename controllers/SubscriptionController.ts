@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Request, Response } from "express";
 import * as Yup from "yup";
 import Gerencianet from "gn-api-sdk-typescript";
@@ -11,7 +15,8 @@ import Setting from "../models/Setting.js";
 import User from "../models/User.js";
 import UpdateUserService from "../services/UserServices/UpdateUserService.js";
 import Stripe from 'stripe';
-var axios = require('axios');
+import paypal from "@paypal/checkout-server-sdk";
+const axios = require('axios');
 import Plan from "../models/Plan.js";
 import ListWhatsAppsService from "../services/WhatsappService/ListWhatsAppsService.js";
 import { StartWhatsAppSession } from "../services/WbotServices/StartWhatsAppSession.js";
@@ -20,6 +25,9 @@ import { updateDueDateByCompanyId } from "../services/CompanyService/dateCompany
 import CreateInvoiceService from "../services/InvoicesService/CreateInvoiceService.js";
 import ApplePurchase from "../models/ApplePurchase.js";
 import ProvisionCreditsService from "../services/AICreditServices/ProvisionCreditsService";
+import { getPayPalClient } from "../services/PaypalService/paypalConfig.js";
+import { getPaypalAccessToken, getPaypalBaseUrl } from "../services/PaymentSync/PaypalProductService.js";
+import { processPaidPlanPayment } from "../services/SubscriptionService/PlanPaymentService.js";
 // const app = express();
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
@@ -61,7 +69,6 @@ export const createSubscription = async (
   });
 
   if (!(await schema.isValid(req.body))) {
-    //console.log("Erro linha 32")
     throw new AppError("Datos incorrectos - ¡Póngase en contacto con el servicio de asistencia!", 400);
   }
 
@@ -82,24 +89,43 @@ export const createSubscription = async (
 
 
   const parsedPlan = JSON.parse(plan);
-  //console.log('parsedPlan', parsedPlan)
-  //console.log('isRecurrent', isRecurrent)
+  const selectedPlanId = Number(parsedPlan.planId || parsedPlan.id);
+  const dbPlan = await Plan.findByPk(selectedPlanId);
+  const invoice = await Invoices.findByPk(invoiceId);
+
+  if (!dbPlan) {
+    throw new AppError("Plan no encontrado", 404);
+  }
+
+  if (!invoice) {
+    throw new AppError("Factura no encontrada", 404);
+  }
+
+  if (invoice.companyId !== companyId) {
+    throw new AppError("No tienes permiso para pagar esta factura", 403);
+  }
+
+  const shouldCreateRecurringCheckout = Boolean(dbPlan.allowRecurringPayments);
+
   if (key_STRIPE_PRIVATE) {
     // Lógica para crear la sesión de Stripe dependiendo de si es un pago recurrente o único
 
-    const priceId = parsedPlan.stripePriceId; // ID del precio del plan
+    const priceId = dbPlan.stripePriceId; // ID del precio recurrente del plan
     const stripe = new Stripe(key_STRIPE_PRIVATE, {
       apiVersion: '2025-05-28.basil' as any, // Versión compatible con tipos
     });
 
-    const priceAmount = parseFloat(price) || 0;
+    const priceAmount = parseFloat(dbPlan.amount) || parseFloat(price) || 0;
 
 
 
     let sessionStripe;
 
-    if (isRecurrent) {
-      //console.log("suscripcion stripe", isRecurrent)
+    if (shouldCreateRecurringCheckout) {
+      if (!priceId) {
+        throw new AppError("Este plan tiene pagos recurrentes activos, pero no tiene stripePriceId configurado.", 400);
+      }
+
       // Si es pago recurrente, usamos 'subscription'
       sessionStripe = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -113,15 +139,24 @@ export const createSubscription = async (
         success_url: `${process.env.STRIPE_OK_URL}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: process.env.STRIPE_CANCEL_URL,
         client_reference_id: invoiceId.toString(), // Asegúrate de convertirlo a string
+        metadata: {
+          type: "plan",
+          internal_invoice_id: invoiceId.toString(),
+          companyId: companyId.toString(),
+          planId: dbPlan.id.toString(),
+          recurring: "true"
+        },
         subscription_data: {
           metadata: {
-            internal_invoice_id: invoiceId.toString() // Doble referencia por seguridad
+            type: "plan",
+            internal_invoice_id: invoiceId.toString(), // Doble referencia por seguridad
+            companyId: companyId.toString(),
+            planId: dbPlan.id.toString(),
+            recurring: "true"
           }
         }
       });
-      //console.log(`Sesión de Stripe creada para factura ${invoiceId}: ${sessionStripe.id}`);
     } else {
-      //console.log("payment stripe", isRecurrent)
       // Si es pago único, usamos 'payment'
       sessionStripe = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -140,24 +175,41 @@ export const createSubscription = async (
         mode: 'payment',  // Pago único
         success_url: `${process.env.STRIPE_OK_URL}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: process.env.STRIPE_CANCEL_URL,
+        client_reference_id: invoiceId.toString(),
+        metadata: {
+          type: "plan",
+          internal_invoice_id: invoiceId.toString(),
+          companyId: companyId.toString(),
+          planId: dbPlan.id.toString(),
+          recurring: "false"
+        },
       });
     }
 
-    //console.log('sessionStripe', sessionStripe);
 
     // Actualizamos la factura en la base de datos con el stripe_id
-    const invoicesX = await Invoices.findByPk(invoiceId);
-    const invoiX = await invoicesX.update({
-      planId: parsedPlan.planId,
-      detail: parsedPlan.title,
-      recurrence: parsedPlan.description?.[3],
+    await invoice.update({
+      planId: dbPlan.id,
+      detail: dbPlan.name,
+      recurrence: dbPlan.recurrence,
+      value: Number(dbPlan.amount),
+      users: dbPlan.users,
+      connections: dbPlan.connections,
+      queues: dbPlan.queues,
+      useWhatsapp: dbPlan.useWhatsapp,
+      useFacebook: dbPlan.useFacebook,
+      useInstagram: dbPlan.useInstagram,
+      useCampaigns: dbPlan.useCampaigns,
+      useSchedules: dbPlan.useSchedules,
+      useInternalChat: dbPlan.useInternalChat,
+      useExternalApi: dbPlan.useExternalApi,
       stripe_id: sessionStripe.id,
+      paymentMethod: "stripe",
     });
 
     // Generamos la URL de Stripe para redirigir al cliente al checkout
     // const stripeURL = sessionStripe.url;
 
-    //console.log('stripeURL', sessionStripe.url);
     return res.json({
       stripeURL: sessionStripe.url,  // Asegúrate de que este valor esté presente
       valorext: price,               // Cualquier otro dato que desees incluir
@@ -214,6 +266,227 @@ export const createSubscription = async (
 
 };
 
+export const createPaypalPlanPayment = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const { invoiceId, planId } = req.body;
+
+    if (!invoiceId || !planId) {
+      throw new AppError("invoiceId y planId son requeridos", 400);
+    }
+
+    const invoice = await Invoices.findByPk(invoiceId);
+    const plan = await Plan.findByPk(planId);
+
+    if (!invoice) {
+      throw new AppError("Factura no encontrada", 404);
+    }
+
+    if (!plan) {
+      throw new AppError("Plan no encontrado", 404);
+    }
+
+    if (invoice.companyId !== companyId) {
+      throw new AppError("No tienes permiso para pagar esta factura", 403);
+    }
+
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+
+    if (plan.allowRecurringPayments) {
+      if (!plan.paypalPlanId) {
+        throw new AppError("Este plan tiene pagos recurrentes activos, pero no tiene paypalPlanId configurado.", 400);
+      }
+
+      const accessToken = await getPaypalAccessToken();
+      if (!accessToken) {
+        throw new AppError("PayPal no está configurado correctamente", 500);
+      }
+
+      const response = await axios.post(
+        `${getPaypalBaseUrl()}/v1/billing/subscriptions`,
+        {
+          plan_id: plan.paypalPlanId,
+          custom_id: JSON.stringify({
+            type: "plan_subscription",
+            invoiceId: invoice.id,
+            companyId,
+            planId: plan.id
+          }),
+          application_context: {
+            brand_name: "ChatEAM",
+            user_action: "SUBSCRIBE_NOW",
+            return_url: `${frontendUrl}/billing?paypalPlan=subscription`,
+            cancel_url: `${frontendUrl}/billing?paypalPlan=cancel`
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Prefer: "return=representation"
+          }
+        }
+      );
+
+      const approvalUrl = response.data.links?.find((link: any) => link.rel === "approve")?.href;
+
+      await invoice.update({
+        status: "pending",
+        paymentMethod: "paypal",
+        paypalOrderId: response.data.id,
+        subscriptionId: response.data.id,
+        planId: plan.id,
+        detail: plan.name,
+        recurrence: plan.recurrence,
+        value: Number(plan.amount),
+        users: plan.users,
+        connections: plan.connections,
+        queues: plan.queues
+      } as any);
+
+      return res.json({
+        success: true,
+        recurring: true,
+        subscriptionId: response.data.id,
+        approvalUrl
+      });
+    }
+
+    const ppClient = await getPayPalClient();
+    const request = new paypal.orders.OrdersCreateRequest();
+    request.prefer("return=representation");
+    request.requestBody({
+      intent: "CAPTURE",
+      purchase_units: [{
+        reference_id: `invoice_${invoice.id}`,
+        description: `Plan ${plan.name} - Factura #${invoice.id}`,
+        amount: {
+          currency_code: "USD",
+          value: Number(plan.amount).toFixed(2)
+        },
+        custom_id: JSON.stringify({
+          type: "plan_payment",
+          invoiceId: invoice.id,
+          planId: plan.id,
+          months: 1,
+          companyId
+        })
+      }],
+      application_context: {
+        brand_name: "ChatEAM",
+        landing_page: "BILLING",
+        user_action: "PAY_NOW",
+        return_url: `${frontendUrl}/billing?paypalPlan=success&invoiceId=${invoice.id}`,
+        cancel_url: `${frontendUrl}/billing?paypalPlan=cancel`
+      }
+    });
+
+    const order = await ppClient.execute(request);
+    const approvalUrl = order.result.links?.find((link: any) => link.rel === "approve")?.href;
+
+    await invoice.update({
+      status: "pending",
+      paymentMethod: "paypal",
+      paypalOrderId: order.result.id,
+      planId: plan.id,
+      detail: plan.name,
+      recurrence: plan.recurrence,
+      value: Number(plan.amount),
+      users: plan.users,
+      connections: plan.connections,
+      queues: plan.queues
+    } as any);
+
+    return res.json({
+      success: true,
+      recurring: false,
+      orderID: order.result.id,
+      approvalUrl
+    });
+  } catch (error: any) {
+    console.error("❌ Error creando pago PayPal de plan:", error.message);
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    return res.status(500).json({ success: false, message: error.message || "Error al crear pago PayPal" });
+  }
+};
+
+export const capturePaypalPlanPayment = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const { orderID, invoiceId } = req.body;
+
+    if (!orderID || !invoiceId) {
+      throw new AppError("orderID e invoiceId son requeridos", 400);
+    }
+
+    const invoice = await Invoices.findByPk(invoiceId);
+    if (!invoice) {
+      throw new AppError("Factura no encontrada", 404);
+    }
+
+    if (invoice.companyId !== companyId) {
+      throw new AppError("No tienes permiso para capturar esta orden", 403);
+    }
+
+    if (invoice.status === "paid") {
+      return res.json({
+        success: true,
+        status: "ALREADY_PAID",
+        invoiceId: invoice.id,
+        companyId
+      });
+    }
+
+    const ppClient = await getPayPalClient();
+    const request = new paypal.orders.OrdersCaptureRequest(orderID);
+    request.requestBody({});
+
+    const response = await ppClient.execute(request);
+    const captureData = response.result;
+
+    if (captureData.status !== "COMPLETED") {
+      throw new AppError(`El pago PayPal no se completó. Estado: ${captureData.status}`, 400);
+    }
+
+    const purchaseUnit = captureData.purchase_units?.[0];
+    const capture = purchaseUnit?.payments?.captures?.[0];
+    const captureID = capture?.id || orderID;
+    const customData = purchaseUnit?.custom_id ? JSON.parse(purchaseUnit.custom_id) : {};
+    const paidPlanId = Number(customData.planId || invoice.planId);
+
+    const result = await processPaidPlanPayment({
+      invoice,
+      companyId,
+      planId: paidPlanId,
+      paymentMethod: "paypal",
+      paymentIntent: captureID,
+      paypalOrderId: orderID
+    });
+
+    return res.json({
+      success: true,
+      status: "COMPLETED",
+      captureID,
+      invoiceId: result.invoice.id,
+      companyId
+    });
+  } catch (error: any) {
+    console.error("❌ Error capturando pago PayPal de plan:", error.message);
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    return res.status(500).json({ success: false, message: error.message || "Error al capturar pago PayPal" });
+  }
+};
+
 export const createWebhook = async (
   req: Request,
   res: Response
@@ -223,7 +496,6 @@ export const createWebhook = async (
     url: Yup.string().required()
   });
 
-  //console.log(req.body);
 
   try {
     await schema.validate(req.body, { abortEarly: false });
@@ -251,7 +523,6 @@ export const createWebhook = async (
     const create = await gerencianet.pixConfigWebhook(params, body);
     return res.json(create);
   } catch (error) {
-    //console.log(error);
   }
 };
 
@@ -262,8 +533,6 @@ export const webhook = async (
   const { type } = req.params;
   const { evento } = req.body;
 
-  ////console.log(req.body);
-  ////console.log(req.params);
 
   if (evento === "teste_webhook") {
     return res.json({ ok: true });
@@ -271,6 +540,7 @@ export const webhook = async (
   if (req.body.pix) {
     const gerencianet = new Gerencianet(options);
     req.body.pix.forEach(async (pix: any) => {
+     try {
       const detahe = await gerencianet.pixDetailCharge({
         txid: pix.txid
       });
@@ -279,8 +549,10 @@ export const webhook = async (
         const { solicitacaoPagador } = detahe;
         const invoiceID = solicitacaoPagador.replace("#Fatura:", "");
         const invoices = await Invoices.findByPk(invoiceID);
+        if (!invoices) return;
         const companyId = invoices.companyId;
         const company = await Company.findByPk(companyId);
+        if (!company) return;
 
         const expiresAt = new Date(company.dueDate);
         expiresAt.setDate(expiresAt.getDate() + 30);
@@ -321,6 +593,9 @@ export const webhook = async (
         }
 
       }
+     } catch (e: any) {
+      console.error(`[pix webhook] ${e?.message || e}`);
+     }
     });
 
   }
@@ -410,7 +685,6 @@ export const cancelsubscription = async (req, res) => {
 //       const successUrl = `${process.env.STRIPE_OK_URL}?success=true&message=Payment%20processed%20successfully`;
 //       res.redirect(successUrl);
 //     } catch (error: any) {
-//       console.error('Error in axios post:', {
 //         message: error.message,
 //         response: error.response ? error.response.data : null,
 //         status: error.response ? error.response.status : null,
@@ -427,7 +701,6 @@ export const cancelsubscription = async (req, res) => {
 //     const successUrl = `${process.env.STRIPE_OK_URL}?success=true&message=Payment%20processed%20successfully`;
 //     res.redirect(successUrl);
 //   } catch (error) {
-//     console.error(error);
 //     res.status(500).json({
 //       success: false,
 //       message: "Error processing payment"
@@ -444,6 +717,7 @@ export const stripewebhook = async (
 
   try {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const sig = req.headers['stripe-signature'] as string | undefined;
 
     if (webhookSecret) {
       // Validar firma HMAC de Stripe (requiere raw body)
@@ -453,30 +727,73 @@ export const stripewebhook = async (
 
       if (stripeKey) {
         const stripe = new Stripe(stripeKey, { apiVersion: '2025-05-28.basil' as any });
-        const sig = req.headers['stripe-signature'] as string;
         if (sig) {
-          // Usar rawBody (Buffer) capturado por bodyParser verify callback en app.ts
-          const rawBody = (req as any).rawBody;
+          // Usar req.body cuando express.raw procesó /subscription/stripewebhook.
+          // Fallback a rawBody capturado por bodyParser.verify para compatibilidad.
+          const rawBody = Buffer.isBuffer(req.body) ? req.body : (req as any).rawBody;
           if (!rawBody) {
             console.error("❌ [Stripe] rawBody no disponible — bodyParser verify no capturó el body");
             return res.status(500).json({ success: false, message: "Raw body no disponible para validación HMAC" });
           }
-          event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+
+          // Soporta múltiples signing secrets separados por coma (varios endpoints / rotación).
+          const secrets = webhookSecret.split(',').map(s => s.trim()).filter(Boolean);
+          console.log(
+            `🔐 [Stripe] Validando webhook: path=${req.originalUrl}, ` +
+            `rawBytes=${rawBody.length}, sig=${sig.slice(0, 18)}..., ` +
+            `secrets=${secrets.map(s => s.slice(0, 10) + '…').join(',')}, ` +
+            `keyMode=${stripeKey.startsWith("sk_test_") ? "test" : stripeKey.startsWith("sk_live_") ? "live" : "unknown"}`
+          );
+          let lastErr: any = null;
+          for (const secret of secrets) {
+            try {
+              event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+              lastErr = null;
+              break;
+            } catch (e) {
+              lastErr = e;
+            }
+          }
+          if (!event) {
+            // Diagnóstico: parsear SIN verificar solo para ver qué evento es (no se procesa).
+            let peek: any = null;
+            try { peek = JSON.parse(rawBody.toString('utf8')); } catch { /* ignore */ }
+            console.error(
+              `❌ [Stripe] Ningún secret validó la firma. ` +
+              `evento.type=${peek?.type || '?'}, id=${peek?.id || '?'}, ` +
+              `livemode=${peek?.livemode}, account=${peek?.account || '-'}, ` +
+              `sig=${sig.slice(0, 30)}, secretsProbados=${secrets.length}`
+            );
+            throw lastErr || new Error('Firma de webhook no válida');
+          }
         } else {
-          console.warn("⚠️ [Stripe] Webhook sin stripe-signature header — procesando sin validación");
-          event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+          // [Fase A S-4] fail-closed: sin stripe-signature NO se procesa (evita webhooks forjados → plan/créditos gratis).
+          console.error("❌ [Stripe] Webhook sin stripe-signature header — rechazado (400)");
+          return res.status(400).json({ success: false, message: "Falta stripe-signature" });
         }
       } else {
-        console.warn("⚠️ [Stripe] Sin stripeSecretKey en SuperAdmin — procesando sin validación");
-        event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        // [Fase A S-4] fail-closed: sin stripeSecretKey no se puede validar la firma → rechazar.
+        console.error("❌ [Stripe] Sin stripeSecretKey configurada — webhook rechazado (400)");
+        return res.status(400).json({ success: false, message: "Stripe no configurado para validación" });
       }
     } else {
-      // Fallback legacy: procesar sin validación HMAC
-      console.warn("⚠️ [Stripe] STRIPE_WEBHOOK_SECRET no configurado — webhook sin validación HMAC");
-      event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      // [Fase A S-4] fail-closed: sin STRIPE_WEBHOOK_SECRET no hay validación HMAC posible → rechazar.
+      console.error("❌ [Stripe] STRIPE_WEBHOOK_SECRET no configurado — webhook rechazado (400)");
+      return res.status(400).json({ success: false, message: "Webhook secret no configurado" });
     }
   } catch (err: any) {
-    console.error("❌ Webhook Stripe inválido o firma no válida:", err.message);
+    console.error(
+      "❌ Webhook Stripe inválido o firma no válida:",
+      err.message,
+      "| path:",
+      req.originalUrl,
+      "| hasRawBody:",
+      Boolean((req as any).rawBody || Buffer.isBuffer(req.body)),
+      "| hasSignature:",
+      Boolean(req.headers['stripe-signature']),
+      "| webhookSecretPrefix:",
+      process.env.STRIPE_WEBHOOK_SECRET?.slice(0, 10)
+    );
     return res.status(400).json({
       success: false,
       message: "Webhook inválido o firma no válida"
@@ -489,17 +806,33 @@ export const stripewebhook = async (
   // ⚙️ PROCESAMIENTO EN SEGUNDO PLANO
   (async () => {
     try {
+      // Guarda: si el evento no tiene estructura válida, no truena el proceso.
+      if (!event || !event.type || !event.data || !event.data.object) {
+        console.error(
+          "⚠️ [Stripe] Evento inválido o sin estructura — se omite. typeof event:",
+          typeof event,
+          "| keys:",
+          event ? Object.keys(event).slice(0, 5) : "null"
+        );
+        return;
+      }
+
       const eventType = event.type;
       const dataObject = event.data.object;
 
-      //console.log("📦 Stripe Event:", eventType, dataObject);
+      console.log(`📦 [Stripe] Evento recibido: ${eventType} | id=${dataObject?.id} | metadata.type=${dataObject?.metadata?.type || '-'}`);
 
       switch (eventType) {
         case "checkout.session.completed":
           await handleCheckoutCompleted(dataObject);
           break;
 
+        // `invoice.paid` e `invoice.payment_succeeded` son eventos distintos en Stripe
+        // pero ambos significan "la factura/renovación se cobró con éxito". Se manejan
+        // igual para que las RENOVACIONES de suscripción extiendan los días aunque el
+        // endpoint solo tenga suscrito uno de los dos.
         case "invoice.paid":
+        case "invoice.payment_succeeded":
           await handleInvoicePaid(dataObject);
           break;
 
@@ -542,97 +875,60 @@ async function handleCheckoutCompleted(dataObject: any) {
   }
   // =================================================================
 
-  const invoice = await Invoices.findOne({ where: { stripe_id: stripeId } });
+  const internalInvoiceId = dataObject.metadata?.internal_invoice_id || dataObject.client_reference_id;
+  let invoice = await Invoices.findOne({ where: { stripe_id: stripeId } });
+
+  if (!invoice && internalInvoiceId) {
+    invoice = await Invoices.findByPk(internalInvoiceId);
+  }
 
   if (!invoice) {
     console.warn("⚠️ Factura no encontrada para checkout.session.completed:", stripeId);
     return;
   }
 
-  const { planId, detail, recurrence, companyId } = invoice;
-  //console.log('planId', planId,'detail',detail, 'recurrence', recurrence,'companyId',companyId )
-  // 1. Buscar el plan actual por planId
-  const plan = await Plan.findByPk(planId);
-  if (!plan) {
-    console.error(`❌ Plan no encontrado para planId: ${planId}`);
+  if (invoice.status === "paid") {
+    console.log(`✅ Factura ${invoice.id} ya procesada para checkout ${stripeId}`);
     return;
   }
 
-  // 2. Preparar los nuevos datos de la factura usando el plan actual
-  const newInvoiceData = {
-    companyId,
-    recurrence: plan.recurrence,
-    planId,
-    detail: plan.name,          // O plan.title si usas ese campo
-    value: plan.amount,                           // Usa el precio actual del plan
-    users: plan.users,
-    status: "paid",
-    connections: plan.connections,
-    queues: plan.queues,
-    useWhatsapp: plan.useWhatsapp,
-    useFacebook: plan.useFacebook,
-    useInstagram: plan.useInstagram,
-    useCampaigns: plan.useCampaigns,
-    useSchedules: plan.useSchedules,
-    useInternalChat: plan.useInternalChat,
-    useExternalApi: plan.useExternalApi,
-    linkInvoice: dataObject.invoice_pdf,
-    subscriptionId: invoice.subscriptionId,
-    customId: invoice.customId,
-    payment_intent: dataObject.payment_intent as string,
-    dueDate: new Date().toISOString()
-  };
+  await processPaidPlanPayment({
+    invoice,
+    companyId: invoice.companyId,
+    planId: invoice.planId,
+    paymentMethod: "stripe",
+    paymentIntent: dataObject.payment_intent || dataObject.invoice || stripeId,
+    stripeId,
+    subscriptionId: dataObject.subscription || invoice.subscriptionId,
+    customerId: dataObject.customer || invoice.customId,
+    linkInvoice: dataObject.invoice_pdf
+  });
 
-  // 3. Actualiza la factura existente con los nuevos datos
-  await invoice.update(newInvoiceData as any);
-  await updateDueDateByCompanyId(companyId, planId, detail || plan.name, recurrence);
-
-  // Provisionar créditos IA para el nuevo ciclo
-  try {
-    await ProvisionCreditsService({ companyId, planId, mode: "renew" });
-    console.log(`✅ Créditos IA provisionados: company=${companyId}, plan=${planId}`);
-  } catch (e: any) {
-    console.error(`❌ Error provisionando créditos IA:`, e.message);
-    Sentry.captureException(e);
-  }
-
-  // Provisionar créditos de email si es un plan de email
-  try {
-    const EmailPlanService = require('../services/EmailPlanService').default;
-    // Ya tenemos 'invoice' al inicio de la función, no necesita buscar de nuevo
-    if (invoice && invoice.isEmailPlan && invoice.emailPlanId) {
-      await EmailPlanService.provisionEmailCredits(companyId, invoice.emailPlanId, "renew");
-      console.log(`✅ Créditos de email provisionados: company=${companyId}, emailPlan=${invoice.emailPlanId}`);
-    }
-  } catch (e: any) {
-    console.error(`❌ Error provisionando créditos de email:`, e.message);
-    // No capturamos con Sentry para no duplicar errores
-  }
-
-  try {
-    const whatsapps = await ListWhatsAppsService({ companyId });
-    for (const wa of whatsapps) {
-      await StartWhatsAppSession(wa, companyId);
-    }
-  } catch (e) {
-    console.error("❌ Error iniciando sesiones de WhatsApp:", e);
-    Sentry.captureException(e);
-  }
-
-  //console.log("✅ handleCheckoutCompleted finalizado correctamente.");
 }
 
 
 
 async function handleInvoicePaid(dataObject: any) {
   const stripeInvoiceId = dataObject.id;
-  const subscriptionId = dataObject.parent?.subscription_details?.subscription;
+  const subscriptionId = dataObject.subscription || dataObject.parent?.subscription_details?.subscription;
   const customerId = dataObject.customer;
+  const billingReason = dataObject.billing_reason;
+  const paymentIntent = dataObject.payment_intent || stripeInvoiceId;
   const internalInvoiceId =
+    dataObject.metadata?.internal_invoice_id ||
     dataObject.parent?.subscription_details?.metadata?.internal_invoice_id ||
     dataObject.lines?.data?.[0]?.metadata?.internal_invoice_id;
 
-  let invoice = null;
+  const alreadyCreatedInvoice = await Invoices.findOne({
+    where: { stripe_id: stripeInvoiceId }
+  });
+
+  if (alreadyCreatedInvoice?.status === "paid") {
+    console.log(`✅ Stripe invoice ${stripeInvoiceId} ya fue procesada`);
+    return;
+  }
+
+  let invoice: Invoices | null = null;
 
   if (subscriptionId && customerId) {
     invoice = await Invoices.findOne({
@@ -651,79 +947,32 @@ async function handleInvoicePaid(dataObject: any) {
     return;
   }
 
-  const {
-    planId, detail, recurrence, companyId,
-    value, users, connections, queues
-  } = invoice;
-  //console.log('planId', planId,'detail',detail, 'recurrence', recurrence,'companyId',companyId )
-  const newInvoiceData = {
-    companyId,
-    recurrence,
-    planId,
-    detail,
-    value,
-    users,
-    status: "paid",
-    connections,
-    queues,
-    useWhatsapp: invoice.useWhatsapp,
-    useFacebook: invoice.useFacebook,
-    useInstagram: invoice.useInstagram,
-    useCampaigns: invoice.useCampaigns,
-    useSchedules: invoice.useSchedules,
-    useInternalChat: invoice.useInternalChat,
-    useExternalApi: invoice.useExternalApi,
+  const isInitialSubscriptionInvoice = billingReason === "subscription_create";
+
+  if (isInitialSubscriptionInvoice && invoice.status === "paid") {
+    await invoice.update({
+      subscriptionId: subscriptionId || invoice.subscriptionId,
+      customId: customerId || invoice.customId,
+      payment_intent: paymentIntent,
+      linkInvoice: dataObject.invoice_pdf || invoice.linkInvoice
+    } as any);
+    console.log(`✅ Factura inicial de suscripción ya pagada: ${invoice.id}`);
+    return;
+  }
+
+  await processPaidPlanPayment({
+    invoice,
+    companyId: invoice.companyId,
+    planId: invoice.planId,
+    paymentMethod: "stripe",
+    paymentIntent,
+    stripeId: isInitialSubscriptionInvoice ? invoice.stripe_id : stripeInvoiceId,
+    subscriptionId: subscriptionId || invoice.subscriptionId,
+    customerId: customerId || invoice.customId,
     linkInvoice: dataObject.invoice_pdf,
-    subscriptionId,
-    customId: customerId,
-    payment_intent: dataObject.payment_intent as string,
-    dueDate: new Date().toISOString()
-  };
+    createNewInvoice: !isInitialSubscriptionInvoice
+  });
 
-
-  await updateDueDateByCompanyId(companyId, planId, detail, recurrence);
-
-  // Provisionar créditos IA para el nuevo ciclo
-  try {
-    await ProvisionCreditsService({ companyId, planId, mode: "renew" });
-    console.log(`✅ Créditos IA provisionados: company=${companyId}, plan=${planId}`);
-  } catch (e: any) {
-    console.error(`❌ Error provisionando créditos IA:`, e.message);
-    Sentry.captureException(e);
-  }
-
-  // Provisionar créditos de email si es un plan de email
-  try {
-    const EmailPlanService = require('../services/EmailPlanService').default;
-    // Buscar invoice por company
-    const invoiceEmail = await Invoices.findOne({ where: { companyId, isEmailPlan: true } });
-    if (invoiceEmail && invoiceEmail.emailPlanId) {
-      await EmailPlanService.provisionEmailCredits(companyId, invoiceEmail.emailPlanId, "renew");
-      console.log(`✅ Créditos de email provisionados: company=${companyId}, emailPlan=${invoiceEmail.emailPlanId}`);
-    }
-  } catch (e: any) {
-    console.error(`❌ Error provisionando créditos de email:`, e.message);
-  }
-
-  //console.log('newInvoiceData', newInvoiceData)
-  await CreateInvoiceService(newInvoiceData);
-
-  await Invoices.update(
-    { status: "paid" },
-    { where: { companyId } }
-  );
-
-  try {
-    const whatsapps = await ListWhatsAppsService({ companyId });
-    for (const wa of whatsapps) {
-      await StartWhatsAppSession(wa, companyId);
-    }
-  } catch (e) {
-    console.error("❌ Error iniciando sesiones de WhatsApp:", e);
-    Sentry.captureException(e);
-  }
-
-  //console.log("✅ handleInvoicePaid finalizado correctamente.");
 }
 
 
@@ -777,7 +1026,6 @@ async function handleInvoicePaymentFailed(dataObject: any) {
 
   await CreateInvoiceService(newInvoiceData);
 
-  //console.log("✅ handleInvoicePaymentFailed finalizado correctamente.");
 }
 
 
@@ -989,7 +1237,7 @@ async function handleAppleSubscriptionSuccess(transactionData: any, renewalData:
     const expiresDate = new Date(transactionData.expiresDate);
 
     // Buscar la factura por originalTransactionId (este ID es único por usuario)
-    let invoice = await Invoices.findOne({
+    const invoice = await Invoices.findOne({
       where: {
         appleTransactionId: originalTransactionId
       }

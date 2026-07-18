@@ -1,7 +1,8 @@
 import * as Yup from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import fs from "fs";
 import path from "path";
 
@@ -79,7 +80,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 export const show = async (req: Request, res: Response): Promise<Response> => {
   const { id } = req.params;
 
-  const record = await ShowService(id);
+  const record = await ShowService(id, req.user.companyId);
 
   return res.status(200).json(record);
 };
@@ -104,7 +105,8 @@ export const update = async (
 
   const record = await UpdateService({
     ...data,
-    id
+    id,
+    companyId
   });
 
   const io = getIO();

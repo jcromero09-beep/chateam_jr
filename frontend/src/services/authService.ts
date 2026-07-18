@@ -1,14 +1,18 @@
 import api from './api'
+// `import type` se elide al compilar, así que no crea ciclo con useAuth (que
+// importa este service en runtime). El tipo User vive allí junto a Role/Company/Plan.
+import type { User } from '../hooks/useAuth'
 
 export interface LoginCredentials {
   email: string
   password: string
-  force?: boolean
 }
 
 export interface LoginResponse {
   token: string
-  refreshToken: string
+  refreshToken?: string
+  sid?: string
+  clientType?: 'web' | 'app'
   user: {
     id: number
     name: string
@@ -24,22 +28,28 @@ export interface RefreshTokenResponse {
 
 class AuthService {
   /**
-   * Login de usuario
+   * Login de usuario.
+   * Marca explícitamente el canal como web para que el backend aplique la
+   * política de "1 sesión web por usuario" sin tocar la sesión móvil.
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
-    const response = await api.post('/api/auth/login', credentials)
+    const response = await api.post(
+      '/api/auth/login',
+      { ...credentials, clientType: 'web' },
+      { headers: { 'x-client-type': 'web' } }
+    )
     const data = response.data
 
-    // Guardar access token en localStorage
     if (data.token) {
       localStorage.setItem('token', data.token)
     }
-
-    // Para clientType=web, el refresh token viene en cookie HTTPOnly
-    // Para clientType=app, el refresh token viene en response body
-    if (data.refreshToken) {
-      localStorage.setItem('refreshToken', data.refreshToken)
+    if (data.sid) {
+      localStorage.setItem('sid', data.sid)
     }
+
+    // En web el refresh token vive en cookie HTTPOnly (jrt). No se guarda en JS.
+    // Limpiamos cualquier refreshToken residual de instalaciones legacy.
+    localStorage.removeItem('refreshToken')
 
     return data
   }
@@ -57,28 +67,22 @@ class AuthService {
       // Limpiar tokens independientemente del resultado
       localStorage.removeItem('token')
       localStorage.removeItem('refreshToken')
+      localStorage.removeItem('sid')
     }
   }
 
   /**
-   * Refrescar token de acceso
+   * Refrescar token de acceso.
+   * En web, el refresh token viaja en la cookie HTTPOnly `jrt` (no en JS).
    */
   async refreshToken(): Promise<string> {
-    const refreshToken = localStorage.getItem('refreshToken')
-
-    if (!refreshToken) {
-      throw new Error('No refresh token available')
-    }
-
-    const response = await api.post<RefreshTokenResponse>('/api/auth/refresh_token', {
-      refreshToken,
-    })
-
+    const response = await api.post<RefreshTokenResponse>(
+      '/api/auth/refresh_token',
+      {},
+      { headers: { 'x-client-type': 'web' } }
+    )
     const newToken = response.data.token
-
-    // Guardar nuevo token
     localStorage.setItem('token', newToken)
-
     return newToken
   }
 
@@ -97,8 +101,10 @@ class AuthService {
   /**
    * Obtener usuario actual
    */
-  async getCurrentUser() {
-    const response = await api.get('/api/auth/me')
+  // [Ola 4] Devolvía `any` implícito, y ese `any` se propagaba a todo el árbol de
+  // User en cada consumidor (incluido el RBAC de usePermissions).
+  async getCurrentUser(): Promise<User> {
+    const response = await api.get<User>('/api/auth/me')
     return response.data
   }
 

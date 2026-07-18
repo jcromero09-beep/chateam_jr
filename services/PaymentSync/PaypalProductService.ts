@@ -36,7 +36,7 @@ interface PaypalKeys {
 /**
  * Determina si usar sandbox o producción
  */
-function getPaypalBaseUrl(): string {
+export function getPaypalBaseUrl(): string {
     const useSandbox = process.env.PAYPAL_SANDBOX === 'true';
     return useSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PRODUCTION_URL;
 }

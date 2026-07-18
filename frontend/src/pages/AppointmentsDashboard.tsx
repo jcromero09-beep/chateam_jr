@@ -1,37 +1,30 @@
 import { useState, useEffect, useMemo } from 'react'
+// [Fase2·G] Migrado a Tailwind v4 + design system. Se conserva CircularProgress de
+// MUI Joy (sin equivalente en el DS) según las reglas de migración.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Container,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Sheet,
-  Chip,
-  Button,
-  IconButton,
-  Table,
-  Avatar,
+  CalendarBlank,
+  CalendarCheck,
+  CalendarX,
+  Clock,
+  CheckCircle,
+  XCircle,
+  ArrowClockwise,
+  MagnifyingGlass,
+  CaretLeft,
+  CaretRight,
+} from '@phosphor-icons/react'
+import { Avatar } from '@/components/ui/avatar'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
   Select,
-  Option,
-  Input,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  CalendarToday as CalendarIcon,
-  Schedule as ScheduleIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  Refresh as RefreshIcon,
-  Search as SearchIcon,
-  ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon,
-  AccessTime as TimeIcon,
-  EventAvailable as EventAvailableIcon,
-  EventBusy as EventBusyIcon,
-  KeyboardArrowLeft as PrevIcon,
-  KeyboardArrowRight as NextIcon,
-} from '@mui/icons-material'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import { toast } from 'react-toastify'
 import api from '../services/api'
 
@@ -92,6 +85,22 @@ interface WeeklyData {
   count: number
 }
 
+const formatDateForInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const columns: { label: string; width: string }[] = [
+  { label: 'Cliente', width: 'w-[25%]' },
+  { label: 'Servicio', width: 'w-[20%]' },
+  { label: 'Fecha/Hora', width: 'w-[20%]' },
+  { label: 'Usuario', width: 'w-[15%]' },
+  { label: 'Estado', width: 'w-[10%]' },
+  { label: 'Acciones', width: 'w-[10%]' },
+]
+
 export default function AppointmentsDashboard() {
   const [loading, setLoading] = useState(true)
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -134,7 +143,7 @@ export default function AppointmentsDashboard() {
       const [usersRes, blocksRes, statsRes] = await Promise.all([
         api.get('/users'),
         api.get('/appointments/availability/blocks-for-date', {
-          params: { date: new Date().toISOString().split('T')[0] }
+          params: { date: formatDateForInput(new Date()) }
         }),
         api.get('/appointments/appointments', { params: { limit: 500 } }) // For stats only
       ])
@@ -242,7 +251,7 @@ export default function AppointmentsDashboard() {
     setPage(1) // Reset to first page when filters change
   }
 
-  const getStatusColor = (status: string): 'success' | 'warning' | 'danger' | 'primary' | 'neutral' => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'confirmed':
         return 'primary'
@@ -252,7 +261,7 @@ export default function AppointmentsDashboard() {
       case 'scheduled':
         return 'warning'
       case 'cancelled':
-        return 'danger'
+        return 'destructive'
       default:
         return 'neutral'
     }
@@ -298,399 +307,399 @@ export default function AppointmentsDashboard() {
 
   if (loading) {
     return (
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-          <CircularProgress />
-        </Box>
-      </Container>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] p-5 sm:p-6 lg:p-8">
+          <div className="flex min-h-[400px] items-center justify-center">
+            <CircularProgress />
+          </div>
+        </div>
+      </div>
     )
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 0.5 }}>
-            Dashboard de Citas
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Metricas y estadisticas de agendamiento
-          </Typography>
-        </Box>
-        <IconButton variant="outlined" size="sm" onClick={fetchInitialData}>
-          <RefreshIcon />
-        </IconButton>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <CalendarBlank className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Dashboard de Citas
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Metricas y estadisticas de agendamiento
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+            onClick={fetchInitialData}
+          >
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-      {/* KPIs Grid - 5 cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Citas Totales
-                  </Typography>
-                  <Typography level="h3">{stats.total}</Typography>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'primary.softBg' }}>
-                  <CalendarIcon sx={{ color: 'primary.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Programadas
-                  </Typography>
-                  <Typography level="h3">{stats.scheduled}</Typography>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'warning.softBg' }}>
-                  <ScheduleIcon sx={{ color: 'warning.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Atendidas
-                  </Typography>
-                  <Typography level="h3">{stats.completed}</Typography>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'success.softBg' }}>
-                  <CheckCircleIcon sx={{ color: 'success.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Canceladas
-                  </Typography>
-                  <Typography level="h3">{stats.cancelled}</Typography>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'danger.softBg' }}>
-                  <CancelIcon sx={{ color: 'danger.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Confirmadas
-                  </Typography>
-                  <Typography level="h3">{stats.confirmed}</Typography>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'info.softBg' }}>
-                  <EventAvailableIcon sx={{ color: 'info.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Upcoming Blocks Carousel - Compact version */}
-      <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography level="title-md">Proximos Horarios de Hoy</Typography>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <IconButton
-              size="sm"
-              variant="plain"
-              onClick={handleCarouselPrev}
-              disabled={carouselIndex === 0}
+        {/* KPIs Grid - 5 cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            {
+              label: 'Citas Totales',
+              value: stats.total,
+              icon: <CalendarBlank className="size-5" aria-hidden />,
+              tile: 'bg-primary/12 text-primary',
+            },
+            {
+              label: 'Programadas',
+              value: stats.scheduled,
+              icon: <Clock className="size-5" aria-hidden />,
+              tile: 'bg-warning/16 text-warning-text',
+            },
+            {
+              label: 'Atendidas',
+              value: stats.completed,
+              icon: <CheckCircle className="size-5" aria-hidden />,
+              tile: 'bg-success/14 text-success-text',
+            },
+            {
+              label: 'Canceladas',
+              value: stats.cancelled,
+              icon: <XCircle className="size-5" aria-hidden />,
+              tile: 'bg-destructive/12 text-destructive-text',
+            },
+            {
+              label: 'Confirmadas',
+              value: stats.confirmed,
+              icon: <CalendarCheck className="size-5" aria-hidden />,
+              tile: 'bg-brand-cyan/15 text-[color:var(--brand-teal)] dark:text-brand-cyan',
+            },
+          ].map((kpi) => (
+            <div
+              key={kpi.label}
+              className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
             >
-              <ChevronLeftIcon />
-            </IconButton>
-            <IconButton
-              size="sm"
-              variant="plain"
-              onClick={handleCarouselNext}
-              disabled={carouselIndex >= upcomingBlocks.length - 5}
-            >
-              <ChevronRightIcon />
-            </IconButton>
-          </Box>
-        </Box>
-
-        {upcomingBlocks.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-            <EventBusyIcon sx={{ fontSize: 24, opacity: 0.3 }} />
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-              No hay bloques para hoy
-            </Typography>
-          </Box>
-        ) : (
-          <Box sx={{ display: 'flex', gap: 1, overflow: 'hidden' }}>
-            {visibleBlocks.map((block) => (
-              <Box
-                key={block.id}
-                sx={{
-                  flex: '0 0 calc(20% - 6.4px)',
-                  minWidth: 140,
-                  p: 1.5,
-                  borderRadius: 'sm',
-                  bgcolor: block.isBooked ? 'neutral.100' : 'success.100',
-                  border: '1px solid',
-                  borderColor: block.isBooked ? 'neutral.300' : 'success.300',
-                  transition: 'all 0.2s',
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <TimeIcon sx={{ fontSize: 14, color: block.isBooked ? 'neutral.500' : 'success.600' }} />
-                  <Typography
-                    level="body-sm"
-                    fontWeight="md"
-                    sx={{ color: block.isBooked ? 'neutral.700' : 'success.700' }}
-                  >
-                    {formatTime(block.startTime)}
-                  </Typography>
-                </Box>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                  {block.userName || 'Sin asignar'}
-                </Typography>
-                <Chip
-                  size="sm"
-                  variant="soft"
-                  color={block.isBooked ? 'neutral' : 'success'}
-                  sx={{ mt: 0.5, fontSize: '0.65rem', height: 18 }}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{kpi.label}</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {kpi.value}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    'flex size-10 shrink-0 items-center justify-center rounded-md',
+                    kpi.tile,
+                  )}
                 >
-                  {block.isBooked ? 'Ocupado' : 'Disponible'}
-                </Chip>
-              </Box>
-            ))}
-          </Box>
-        )}
-      </Box>
+                  {kpi.icon}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
 
-      {/* Appointments Table with Filters - Full Width */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            Citas
-          </Typography>
+        {/* Upcoming Blocks Carousel - Compact version */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-foreground">
+              Proximos Horarios de Hoy
+            </h2>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label="Horarios anteriores"
+                onClick={handleCarouselPrev}
+                disabled={carouselIndex === 0}
+              >
+                <CaretLeft className="size-4" aria-hidden />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label="Horarios siguientes"
+                onClick={handleCarouselNext}
+                disabled={carouselIndex >= upcomingBlocks.length - 5}
+              >
+                <CaretRight className="size-4" aria-hidden />
+              </Button>
+            </div>
+          </div>
+
+          {upcomingBlocks.length === 0 ? (
+            <div className="flex flex-col items-center gap-1 rounded-lg bg-muted/40 py-4 text-center">
+              <CalendarX className="size-6 text-muted-foreground/50" aria-hidden />
+              <p className="text-xs text-muted-foreground">No hay bloques para hoy</p>
+            </div>
+          ) : (
+            <div className="flex gap-2 overflow-hidden">
+              {visibleBlocks.map((block) => (
+                <div
+                  key={block.id}
+                  className={cn(
+                    'min-w-[140px] shrink-0 grow-0 basis-[calc(20%-6.4px)] rounded-lg border p-3 transition-colors',
+                    block.isBooked
+                      ? 'border-border bg-muted/50'
+                      : 'border-success/30 bg-success/10',
+                  )}
+                >
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <Clock
+                      className={cn(
+                        'size-3.5',
+                        block.isBooked ? 'text-muted-foreground' : 'text-success-text',
+                      )}
+                      aria-hidden
+                    />
+                    <span
+                      className={cn(
+                        'text-sm font-medium',
+                        block.isBooked ? 'text-foreground' : 'text-success-text',
+                      )}
+                    >
+                      {formatTime(block.startTime)}
+                    </span>
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {block.userName || 'Sin asignar'}
+                  </p>
+                  <Badge
+                    variant={block.isBooked ? 'neutral' : 'success'}
+                    className="mt-1.5 text-[0.65rem]"
+                  >
+                    {block.isBooked ? 'Ocupado' : 'Disponible'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Appointments Table with Filters - Full Width */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">Citas</h2>
 
           {/* Filters */}
-          <Grid container spacing={1} sx={{ mb: 2 }}>
-            <Grid xs={12} sm={4}>
-              <Input
-                size="sm"
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-6">
+            <div className="relative col-span-2">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
                 placeholder="Buscar..."
-                startDecorator={<SearchIcon sx={{ fontSize: 18 }} />}
+                aria-label="Buscar citas"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               />
-            </Grid>
-            <Grid xs={6} sm={2}>
-              <Select
-                size="sm"
-                value={statusFilter}
-                onChange={(_, value) => {
-                  setStatusFilter(value as string)
-                  handleFilterChange()
-                }}
-              >
-                <Option value="all">Estado</Option>
-                <Option value="scheduled">Programadas</Option>
-                <Option value="pending">Pendientes</Option>
-                <Option value="confirmed">Confirmadas</Option>
-                <Option value="completed">Atendidas</Option>
-                <Option value="cancelled">Canceladas</Option>
-              </Select>
-            </Grid>
-            <Grid xs={6} sm={2}>
-              <Select
-                size="sm"
-                value={userFilter}
-                onChange={(_, value) => {
-                  setUserFilter(value as string)
-                  handleFilterChange()
-                }}
-              >
-                <Option value="all">Usuario</Option>
+            </div>
+
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value)
+                handleFilterChange()
+              }}
+            >
+              <SelectTrigger aria-label="Filtrar por estado">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Estado</SelectItem>
+                <SelectItem value="scheduled">Programadas</SelectItem>
+                <SelectItem value="pending">Pendientes</SelectItem>
+                <SelectItem value="confirmed">Confirmadas</SelectItem>
+                <SelectItem value="completed">Atendidas</SelectItem>
+                <SelectItem value="cancelled">Canceladas</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={userFilter}
+              onValueChange={(value) => {
+                setUserFilter(value)
+                handleFilterChange()
+              }}
+            >
+              <SelectTrigger aria-label="Filtrar por usuario">
+                <SelectValue placeholder="Usuario" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Usuario</SelectItem>
                 {users.map((user) => (
-                  <Option key={user.id} value={String(user.id)}>
+                  <SelectItem key={user.id} value={String(user.id)}>
                     {user.name}
-                  </Option>
+                  </SelectItem>
                 ))}
-              </Select>
-            </Grid>
-            <Grid xs={6} sm={2}>
-              <Input
-                size="sm"
-                type="date"
-                value={dateFilter}
-                onChange={(e) => {
-                  setDateFilter(e.target.value)
-                  handleFilterChange()
-                }}
-              />
-            </Grid>
-            <Grid xs={6} sm={2}>
-              <Button
-                variant="outlined"
-                size="sm"
-                fullWidth
-                onClick={() => {
-                  setSearchQuery('')
-                  setStatusFilter('all')
-                  setUserFilter('all')
-                  setDateFilter('')
-                  setPage(1)
-                }}
-              >
-                Limpiar
-              </Button>
-            </Grid>
-          </Grid>
+              </SelectContent>
+            </Select>
+
+            <input
+              type="date"
+              aria-label="Filtrar por fecha"
+              value={dateFilter}
+              onChange={(e) => {
+                setDateFilter(e.target.value)
+                handleFilterChange()
+              }}
+              className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+            />
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                setSearchQuery('')
+                setStatusFilter('all')
+                setUserFilter('all')
+                setDateFilter('')
+                setPage(1)
+              }}
+            >
+              Limpiar
+            </Button>
+          </div>
 
           {/* Table */}
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table size="sm" stickyHeader>
-              <thead>
-                <tr>
-                  <th style={{ width: '25%' }}>Cliente</th>
-                  <th style={{ width: '20%' }}>Servicio</th>
-                  <th style={{ width: '20%' }}>Fecha/Hora</th>
-                  <th style={{ width: '15%' }}>Usuario</th>
-                  <th style={{ width: '10%' }}>Estado</th>
-                  <th style={{ width: '10%' }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAppointments.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>
-                      <Box sx={{ textAlign: 'center', py: 3 }}>
-                        <CalendarIcon sx={{ fontSize: 32, opacity: 0.3, mb: 1 }} />
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          No se encontraron citas
-                        </Typography>
-                      </Box>
-                    </td>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c) => (
+                      <th
+                        key={c.label}
+                        className={cn(
+                          'whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+                          c.width,
+                        )}
+                      >
+                        {c.label}
+                      </th>
+                    ))}
                   </tr>
-                ) : (
-                  filteredAppointments.map((appointment) => (
-                    <tr key={appointment.id}>
-                      <td>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar
-                            src={appointment.contact?.urlPicture || appointment.contact?.profilePicUrl}
-                            size="sm"
-                            sx={{ width: 32, height: 32 }}
-                          >
-                            {appointment.attendeeName?.charAt(0) || appointment.contact?.name?.charAt(0)}
-                          </Avatar>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="md">
-                              {appointment.attendeeName || appointment.contact?.name}
-                            </Typography>
-                            {appointment.attendeePhone && (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                {appointment.attendeePhone}
-                              </Typography>
-                            )}
-                          </Box>
-                        </Box>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          {appointment.service?.color && (
-                            <Box
-                              sx={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                bgcolor: appointment.service.color,
-                              }}
-                            />
-                          )}
-                          <Typography level="body-sm">
-                            {appointment.service?.name || appointment.title}
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {formatDateTime(appointment.startTime)}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {appointment.user?.name || '-'}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Chip size="sm" color={getStatusColor(appointment.status)}>
-                          {getStatusLabel(appointment.status)}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Button size="sm" variant="plain">
-                          Ver
-                        </Button>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredAppointments.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10">
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <CalendarBlank
+                            className="size-8 text-muted-foreground/40"
+                            aria-hidden
+                          />
+                          <p className="text-sm text-muted-foreground">
+                            No se encontraron citas
+                          </p>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </Table>
-          </Sheet>
+                  ) : (
+                    filteredAppointments.map((appointment) => {
+                      const displayName =
+                        appointment.attendeeName || appointment.contact?.name || '-'
+                      const picture =
+                        appointment.contact?.urlPicture ||
+                        appointment.contact?.profilePicUrl
+
+                      return (
+                        <tr
+                          key={appointment.id}
+                          className="transition-colors hover:bg-accent/40"
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              {picture ? (
+                                <img
+                                  src={picture}
+                                  alt=""
+                                  width={32}
+                                  height={32}
+                                  className="size-8 shrink-0 rounded-full object-cover"
+                                />
+                              ) : (
+                                <Avatar name={displayName} size="sm" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-foreground">
+                                  {displayName}
+                                </p>
+                                {appointment.attendeePhone && (
+                                  <p className="truncate text-xs tabular-nums text-muted-foreground">
+                                    {appointment.attendeePhone}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              {appointment.service?.color && (
+                                <span
+                                  className="size-2 shrink-0 rounded-full"
+                                  style={{ backgroundColor: appointment.service.color }}
+                                  aria-hidden
+                                />
+                              )}
+                              <span className="text-foreground">
+                                {appointment.service?.name || appointment.title}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                            {formatDateTime(appointment.startTime)}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {appointment.user?.name || '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={getStatusVariant(appointment.status)}>
+                              {getStatusLabel(appointment.status)}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Button variant="ghost" size="sm">
+                              Ver
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* Footer with Pagination */}
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mt: 2,
-              pt: 2,
-              borderTop: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <p className="text-sm text-muted-foreground">
               Mostrando {filteredAppointments.length} de {totalCount} citas
-            </Typography>
+            </p>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <IconButton
-                size="sm"
-                variant="outlined"
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-9"
+                aria-label="Pagina anterior"
                 disabled={page === 1}
                 onClick={() => handlePageChange(page - 1)}
               >
-                <PrevIcon />
-              </IconButton>
+                <CaretLeft className="size-4" aria-hidden />
+              </Button>
 
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <div className="flex items-center gap-0.5">
                 {[...Array(Math.min(5, totalPages))].map((_, index) => {
                   let pageNum: number
                   if (totalPages <= 5) {
@@ -707,111 +716,86 @@ export default function AppointmentsDashboard() {
                     <Button
                       key={pageNum}
                       size="sm"
-                      variant={page === pageNum ? 'solid' : 'plain'}
-                      color={page === pageNum ? 'primary' : 'neutral'}
-                      sx={{ minWidth: 32 }}
+                      variant={page === pageNum ? 'primary' : 'ghost'}
+                      className="min-w-9 px-2 tabular-nums"
+                      aria-label={`Pagina ${pageNum}`}
+                      aria-current={page === pageNum ? 'page' : undefined}
                       onClick={() => handlePageChange(pageNum)}
                     >
                       {pageNum}
                     </Button>
                   )
                 })}
-              </Box>
+              </div>
 
-              <IconButton
-                size="sm"
-                variant="outlined"
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-9"
+                aria-label="Pagina siguiente"
                 disabled={page === totalPages}
                 onClick={() => handlePageChange(page + 1)}
               >
-                <NextIcon />
-              </IconButton>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
+                <CaretRight className="size-4" aria-hidden />
+              </Button>
+            </div>
+          </div>
+        </div>
 
-      {/* Weekly Trend Chart - Below Table */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
+        {/* Weekly Trend Chart - Below Table */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">
             Citas por Dia de la Semana
-          </Typography>
-          <Grid container spacing={2}>
+          </h2>
+
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
             {weeklyTrend.map((day) => {
               const percentage = (day.count / maxWeeklyCount) * 100
               return (
-                <Grid key={day.day} xs={12} sm={6} md={12 / 7}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography level="body-sm" fontWeight="md" sx={{ mb: 1 }}>
-                      {day.dayName}
-                    </Typography>
-                    <Box
-                      sx={{
-                        height: 100,
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          width: '60%',
-                          height: `${Math.max(percentage, 5)}%`,
-                          bgcolor: day.count === maxWeeklyCount ? 'success.400' : 'primary.400',
-                          borderRadius: 'sm',
-                          transition: 'height 0.3s ease',
-                        }}
-                      />
-                    </Box>
-                    <Typography level="body-sm" sx={{ mt: 1, color: 'text.tertiary' }}>
-                      {day.count}
-                    </Typography>
-                  </Box>
-                </Grid>
+                <div key={day.day} className="text-center">
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    {day.dayName}
+                  </p>
+                  <div className="flex h-[100px] items-end justify-center">
+                    <div
+                      className={cn(
+                        'w-3/5 rounded-md transition-[height] duration-300',
+                        day.count === maxWeeklyCount ? 'bg-success' : 'bg-primary',
+                      )}
+                      style={{ height: `${Math.max(percentage, 5)}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-sm tabular-nums text-muted-foreground">
+                    {day.count}
+                  </p>
+                </div>
               )
             })}
-          </Grid>
+          </div>
 
           {/* Summary Row */}
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'center',
-              gap: 4,
-              mt: 3,
-              pt: 2,
-              borderTop: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography level="h4" sx={{ color: 'success.600' }}>
+          <div className="mt-6 flex flex-wrap justify-center gap-8 border-t border-border pt-4">
+            <div className="text-center">
+              <p className="text-xl font-semibold tabular-nums text-success-text">
                 {Math.max(...weeklyTrend.map((d) => d.count))}
-              </Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                Maximo diario
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography level="h4" sx={{ color: 'primary.600' }}>
+              </p>
+              <p className="text-xs text-muted-foreground">Maximo diario</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-semibold tabular-nums text-primary">
                 {Math.round(weeklyTrend.reduce((a, b) => a + b.count, 0) / 7)}
-              </Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                Promedio diario
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography level="h4" sx={{ color: 'neutral.600' }}>
+              </p>
+              <p className="text-xs text-muted-foreground">Promedio diario</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-semibold tabular-nums text-foreground">
                 {weeklyTrend.reduce((a, b) => a + b.count, 0)}
-              </Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                Total semanal
-              </Typography>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
-    </Container>
+              </p>
+              <p className="text-xs text-muted-foreground">Total semanal</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

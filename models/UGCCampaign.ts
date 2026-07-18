@@ -53,15 +53,21 @@ export interface UGCProductBrief {
 // Configuracion de generacion de contenido
 export interface UGCGenerationConfig {
   videoCount?: number;
+  imageCount?: number;
   videoDuration?: number;
+  videoResolution?: "480p" | "720p" | "1080p";
   aspectRatio?: string;
   avatarProvider?: string;
+  videoProvider?: string;
+  imageProvider?: string;
   voiceProvider?: string;
   voiceId?: string;
   musicEnabled?: boolean;
   subtitlesEnabled?: boolean;
   templateId?: string;
   hooks?: string[];
+  language?: string;
+  contentAngles?: string[];
 }
 
 // Configuracion de publicacion
@@ -178,6 +184,78 @@ class UGCCampaign extends Model<UGCCampaign> {
   @AllowNull(true)
   @Column(DataType.JSONB)
   metadata!: Record<string, unknown>;
+
+  // --- Model Selection (fal.ai adapters) ---
+
+  @AllowNull(true)
+  @Index("idx_ugc_campaigns_video_model_key")
+  @Column(DataType.STRING(80))
+  videoModelKey?: string | null;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(160))
+  videoModelId?: string | null;
+
+  @Default({})
+  @AllowNull(true)
+  @Column(DataType.JSONB)
+  videoModelDefaults?: Record<string, unknown> | null;
+
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  videoModelMotionReferenceUrl?: string | null;
+
+  @AllowNull(true)
+  @Index("idx_ugc_campaigns_image_model_key")
+  @Column(DataType.STRING(80))
+  imageModelKey?: string | null;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(160))
+  imageModelId?: string | null;
+
+  @Default({})
+  @AllowNull(true)
+  @Column(DataType.JSONB)
+  imageModelDefaults?: Record<string, unknown> | null;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  modelSelectedAt?: Date | null;
+
+  @ForeignKey(() => User)
+  @AllowNull(true)
+  @Column(DataType.INTEGER)
+  modelSelectedBy?: number | null;
+
+  // --- PR #2: Pipeline Builder (TTS + Lipsync + modo) ---
+
+  @AllowNull(true)
+  @Column(DataType.STRING(80))
+  voiceModelKey?: string | null;
+
+  @Default({})
+  @AllowNull(true)
+  @Column(DataType.JSONB)
+  voiceModelDefaults?: Record<string, unknown> | null;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(80))
+  lipsyncModelKey?: string | null;
+
+  @Default({})
+  @AllowNull(true)
+  @Column(DataType.JSONB)
+  lipsyncModelDefaults?: Record<string, unknown> | null;
+
+  @Default("image-then-video")
+  @AllowNull(false)
+  @Index("idx_ugc_campaigns_pipeline_mode")
+  @Column(DataType.STRING(40))
+  pipelineMode!:
+    | "image-then-video"
+    | "text-to-video-direct"
+    | "lipsync-talking-head";
 
   @ForeignKey(() => User)
   @AllowNull(true)

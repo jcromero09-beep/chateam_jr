@@ -6,6 +6,11 @@ import AppError from "../errors/AppError";
 import logger from "../utils/logger";
 import { instrument } from "@socket.io/admin-ui";
 import User from "../models/User";
+import {
+  REDIS_URI_CONNECTION,
+  isRedisAuthWithoutPasswordError,
+  stripRedisAuth
+} from "../config/redis";
 
 let io: SocketIO;
 let socketPubClient: RedisClientType | null = null;
@@ -18,29 +23,63 @@ const setupDistributedAdapter = async (): Promise<void> => {
   }
 
   adapterInitializationPromise = (async () => {
-    const redisUrl =
-      process.env.REDIS_URI ||
-      process.env.REDIS_URL ||
-      "redis://127.0.0.1:5000";
+    const connectAdapter = async (redisUrl: string): Promise<void> => {
+      const hasAuth = /redis:\/\/[^@]+@/i.test(redisUrl);
 
-    socketPubClient = createClient({ url: redisUrl });
-    socketSubClient = socketPubClient.duplicate();
+      socketPubClient = createClient({
+        url: redisUrl,
+        ...(hasAuth ? { socket: { reconnectStrategy: false } } : {})
+      });
+      socketSubClient = socketPubClient.duplicate();
 
-    socketPubClient.on("error", err => {
-      logger.error(`[Socket.IO] Redis pub client error: ${err.message}`);
-    });
+      socketPubClient.on("error", err => {
+        if (!isRedisAuthWithoutPasswordError(err)) {
+          logger.error(`[Socket.IO] Redis pub client error: ${err.message}`);
+        }
+      });
 
-    socketSubClient.on("error", err => {
-      logger.error(`[Socket.IO] Redis sub client error: ${err.message}`);
-    });
+      socketSubClient.on("error", err => {
+        if (!isRedisAuthWithoutPasswordError(err)) {
+          logger.error(`[Socket.IO] Redis sub client error: ${err.message}`);
+        }
+      });
 
-    await Promise.all([
-      socketPubClient.connect(),
-      socketSubClient.connect()
-    ]);
+      await Promise.all([
+        socketPubClient.connect(),
+        socketSubClient.connect()
+      ]);
 
-    io.adapter(createAdapter(socketPubClient, socketSubClient));
-    logger.info("[Socket.IO] Redis adapter connected for distributed mode");
+      io.adapter(createAdapter(socketPubClient, socketSubClient));
+      logger.info("[Socket.IO] Redis adapter connected for distributed mode");
+    };
+
+    const redisUrl = REDIS_URI_CONNECTION || "redis://127.0.0.1:5000";
+
+    try {
+      await connectAdapter(redisUrl);
+    } catch (error: any) {
+      if (!isRedisAuthWithoutPasswordError(error)) {
+        throw error;
+      }
+
+      const noAuthUrl = stripRedisAuth(redisUrl);
+      if (noAuthUrl === redisUrl) {
+        throw error;
+      }
+
+      logger.warn(
+        "[Socket.IO] Redis no tiene password configurado; reintentando adapter sin AUTH"
+      );
+
+      try {
+        await socketPubClient?.disconnect();
+        await socketSubClient?.disconnect();
+      } catch {
+        // noop: los clientes pudieron fallar antes de conectar
+      }
+
+      await connectAdapter(noAuthUrl);
+    }
   })();
 
   return adapterInitializationPromise;
@@ -87,8 +126,90 @@ export const initIO = (httpServer: Server): SocketIO => {
   workspaces.on("connection", socket => {
 
     const { userId } = socket.handshake.query;
+    const parsedUserId = Number(Array.isArray(userId) ? userId[0] : userId);
+    const parsedCompanyId = Number(socket.nsp.name.replace("/", ""));
+
+    const emitUserPresence = (online: boolean, user: User): void => {
+      socket.nsp.emit(`company-${user.companyId}-user`, {
+        action: "presence",
+        user: {
+          id: user.id,
+          online,
+          lastOnlineAt: user.metadata?.lastOnlineAt || null,
+          lastSeenAt: user.metadata?.lastSeenAt || null
+        }
+      });
+    };
+
+    const markUserOnline = async (): Promise<void> => {
+      if (!parsedUserId || Number.isNaN(parsedUserId)) return;
+
+      try {
+        const user = await User.findOne({
+          where: Number.isNaN(parsedCompanyId)
+            ? { id: parsedUserId }
+            : { id: parsedUserId, companyId: parsedCompanyId }
+        });
+
+        if (!user) return;
+
+        const now = new Date().toISOString();
+        const metadata = {
+          ...(user.metadata || {}),
+          lastSeenAt: now,
+          lastOnlineAt: user.online
+            ? user.metadata?.lastOnlineAt || now
+            : now
+        };
+
+        await user.update({ online: true, metadata });
+        emitUserPresence(true, user);
+      } catch (error: any) {
+        logger.warn(`[Socket.IO] Error marcando usuario online: ${error?.message || error}`);
+      }
+    };
+
+    const markUserOfflineIfDisconnected = async (): Promise<void> => {
+      if (!parsedUserId || Number.isNaN(parsedUserId)) return;
+
+      try {
+        const connectedSockets = await socket.nsp.fetchSockets();
+        const hasAnotherConnection = connectedSockets.some(currentSocket => {
+          const currentUserId = Number(
+            Array.isArray(currentSocket.handshake.query.userId)
+              ? currentSocket.handshake.query.userId[0]
+              : currentSocket.handshake.query.userId
+          );
+
+          return currentUserId === parsedUserId;
+        });
+
+        if (hasAnotherConnection) return;
+
+        const user = await User.findOne({
+          where: Number.isNaN(parsedCompanyId)
+            ? { id: parsedUserId }
+            : { id: parsedUserId, companyId: parsedCompanyId }
+        });
+
+        if (!user) return;
+
+        const now = new Date().toISOString();
+        const metadata = {
+          ...(user.metadata || {}),
+          lastSeenAt: now,
+          lastOfflineAt: now
+        };
+
+        await user.update({ online: false, metadata });
+        emitUserPresence(false, user);
+      } catch (error: any) {
+        logger.warn(`[Socket.IO] Error marcando usuario offline: ${error?.message || error}`);
+      }
+    };
+
+    void markUserOnline();
     // logger.info(`Client connected namespace ${socket.nsp.name}`);
-    // console.log(`namespace ${socket.nsp.name}`, "UserId Socket", userId)
 
 
     socket.on("joinChatBox", (ticketId: string) => {
@@ -117,6 +238,9 @@ export const initIO = (httpServer: Server): SocketIO => {
     });
 
     socket.on("disconnect", () => {
+      setTimeout(() => {
+        void markUserOfflineIfDisconnected();
+      }, 1500);
       // logger.info(`Client disconnected namespace ${socket.nsp.name}`);
     });
 
@@ -131,4 +255,3 @@ export const getIO = (): SocketIO => {
   return io;
 };
 
-// console.log("🔌🔌🔌 SOCKET.TS FULLY LOADED! 🔌🔌🔌");

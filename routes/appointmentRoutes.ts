@@ -84,4 +84,3 @@ router.post('/availability/mark-booked', isAuth, AppointmentController.markBlock
 router.post('/availability/release/:appointmentId', isAuth, AppointmentController.releaseBlock);
 
 export default router;
-// console.log("📄 APPOINTMENT-ROUTES.TS LOADED\!");

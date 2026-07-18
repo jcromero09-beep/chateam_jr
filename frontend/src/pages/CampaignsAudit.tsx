@@ -1,57 +1,195 @@
 import { useState, useEffect } from 'react'
+// [Re-skin Tailwind v4] De MUI Joy sólo se conservan los indicadores de progreso
+// (CircularProgress / LinearProgress), que no tienen equivalente en el design system.
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
+  Robot,
+  TrendUp,
+  Warning,
+  CheckCircle,
+  Info,
+  Lightbulb,
+  Megaphone,
+  DownloadSimple,
+  Brain,
+  Envelope,
+  WhatsappLogo,
+  TelegramLogo,
+  PencilSimple,
+  Eye,
+  Trash,
+  Check,
+  Coins,
+  FunnelSimple,
+  X,
+  MagnifyingGlass,
+  CaretDown,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
   Select,
-  Option,
-  Chip,
-  Button,
-  Divider,
-  IconButton,
-  Tooltip,
-  LinearProgress,
-  CircularProgress,
-  Alert,
-  Badge,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Input,
-  Textarea,
-  Table,
-  Sheet,
-} from '@mui/joy'
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from '@/components/ui/select'
 import {
-  SmartToy as SmartToyIcon,
-  TrendingUp as TrendingUpIcon,
-  Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon,
-  Info as InfoIcon,
-  Lightbulb as LightbulbIcon,
-  Campaign as CampaignIcon,
-  Download as DownloadIcon,
-  Psychology as PsychologyIcon,
-  Email as EmailIcon,
-  WhatsApp as WhatsAppIcon,
-  Telegram as TelegramIcon,
-  Edit as EditIcon,
-  Visibility as VisibilityIcon,
-  Delete as DeleteIcon,
-  Check as CheckIcon,
-  Token as TokenIcon,
-  FilterList as FilterListIcon,
-  Close as CloseIcon,
-  Search as SearchIcon,
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuCheckboxItem,
+} from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { toast } from 'react-toastify'
+import MetaAgentPlanCard from '../components/MetaAgentPlanCard'
+import MetaOfficialMcpCard from '../components/MetaOfficialMcpCard'
+import {
+  listMetaConnections,
+  sendAgentChatMessage,
+  requestPlan,
+  PlanResponse,
+  MetaConnection,
+} from '../services/metaAdsAgentService'
+
+// ── Clases de tabla compartidas (tokens del design system) ────────────────────
+const TH = 'whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground'
+const TD = 'px-4 py-3 align-middle'
+
+// Reset mínimo para <button> crudos: `tailwind.css` se importa SIN preflight.
+const BTN_RESET = 'appearance-none border-0 [font-family:inherit] cursor-pointer'
+
+// Sentinel para el Select de cuenta Meta: Radix no admite <SelectItem value="">.
+const MAIN_ACCOUNT = '__main__'
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip title={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={cn(
+          BTN_RESET,
+          'flex size-8 items-center justify-center rounded-md bg-transparent text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring',
+          className,
+        )}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
+}
+
+// Chip de filtro activo, con botón de limpiar accesible (target ≥24px).
+function FilterChip({
+  variant = 'primary',
+  clearLabel,
+  onClear,
+  children,
+}: {
+  variant?: BadgeProps['variant']
+  clearLabel: string
+  onClear: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <Badge variant={variant} className="py-1 pr-1">
+      {children}
+      <button
+        type="button"
+        aria-label={clearLabel}
+        onClick={onClear}
+        className={cn(
+          BTN_RESET,
+          'flex size-6 items-center justify-center rounded-full bg-transparent text-current transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring',
+        )}
+      >
+        <X className="size-3" weight="bold" aria-hidden />
+      </button>
+    </Badge>
+  )
+}
+
+// Multi-select (Radix Select no soporta `multiple`) → dropdown-menu + checkbox items.
+function MultiSelectFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  className,
+}: {
+  label: string
+  options: { value: string; label: string }[]
+  selected: string[]
+  onChange: (next: string[]) => void
+  className?: string
+}) {
+  const toggle = (value: string) =>
+    onChange(
+      selected.includes(value)
+        ? selected.filter((v) => v !== value)
+        : [...selected, value],
+    )
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className={cn(
+            BTN_RESET,
+            'flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+            className,
+          )}
+        >
+          <span className={cn('truncate', selected.length === 0 && 'text-muted-foreground')}>
+            {selected.length === 0 ? label : `${label} (${selected.length})`}
+          </span>
+          <CaretDown className="size-4 shrink-0 opacity-60" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        {options.map((o) => (
+          <DropdownMenuCheckboxItem
+            key={o.value}
+            checked={selected.includes(o.value)}
+            onCheckedChange={() => toggle(o.value)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            {o.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 interface AIRecommendation {
   id: number
@@ -114,6 +252,13 @@ interface FacebookCampaign {
     cpc: number
     cpm: number
   }
+}
+
+interface AgentChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  plan?: PlanResponse
 }
 
 type DeliveryState = 'ACTIVA' | 'NO_HAY_ANUNCIOS' | 'COMPLETADA' | 'DESACTIVADA' | 'PAUSADA'
@@ -235,6 +380,19 @@ export default function CampaignsAudit() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
 
+  // ── Agente IA Meta Ads (plan + execute) ──────────────────────────────────
+  const [agentPrompt, setAgentPrompt] = useState('')
+  const [agentLoading, setAgentLoading] = useState(false)
+  const [agentConnections, setAgentConnections] = useState<MetaConnection[]>([])
+  const [agentSelectedWaId, setAgentSelectedWaId] = useState<number | null>(null)
+  const [currentPlan, setCurrentPlan] = useState<PlanResponse | null>(null)
+  const [planModalOpen, setPlanModalOpen] = useState(false)
+  const [agentChatMessages, setAgentChatMessages] = useState<AgentChatMessage[]>([])
+
+  // OAuth callback result (leído del querystring por el componente MetaOfficialMcpCard)
+  const [mcpOauthResult, setMcpOauthResult] = useState<'success' | 'error' | null>(null)
+  const [mcpOauthReason, setMcpOauthReason] = useState<string | null>(null)
+
   // Table filters for recommendations
   const [tableFilters, setTableFilters] = useState<{
     searchText: string
@@ -332,6 +490,119 @@ export default function CampaignsAudit() {
   useEffect(() => {
     setPage(0)
   }, [tableFilters])
+
+  // ── Agente IA Meta Ads — cargar conexiones disponibles ─────────────────
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await listMetaConnections()
+        setAgentConnections(data)
+        // Si solo hay 1 conexión con AdAccount, preseleccionar
+        const firstWithAd = data.find((c) => c.facebookAdAccountId)
+        if (firstWithAd) setAgentSelectedWaId(firstWithAd.id)
+      } catch (err: any) {
+        // No bloquea la página: simplemente queda sin conexiones (fallback Capa B en backend)
+        console.warn('[CampaignsAudit.agent] listMetaConnections falló:', err?.message || err)
+      }
+    }
+    load()
+  }, [])
+
+  // ── OAuth callback result desde el querystring ─────────────────────────
+  // El backend redirige a /campaigns/audit?mcp_oauth=success|error&reason=...
+  // tras completar (o fallar) el flow OAuth contra mcp.facebook.com/ads.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const oauth = params.get('mcp_oauth')
+    if (oauth === 'success' || oauth === 'error') {
+      setMcpOauthResult(oauth)
+      setMcpOauthReason(params.get('reason'))
+    }
+  }, [])
+
+  const handleMcpCallbackHandled = () => {
+    // Limpia los params del querystring para no re-disparar la alerta
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('mcp_oauth')
+      url.searchParams.delete('reason')
+      window.history.replaceState({}, '', url.toString())
+    }
+    setMcpOauthResult(null)
+    setMcpOauthReason(null)
+  }
+
+  const handleGenerateAgentPlan = async () => {
+    if (!agentPrompt.trim()) {
+      toast.warn('Escribe una pregunta o instrucción para el agente')
+      return
+    }
+    setAgentLoading(true)
+    try {
+      const plan = await requestPlan({
+        prompt: agentPrompt.trim(),
+        whatsappId: agentSelectedWaId,
+      })
+      setCurrentPlan(plan)
+      setPlanModalOpen(true)
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Error generando plan'
+      toast.error(msg)
+    } finally {
+      setAgentLoading(false)
+    }
+  }
+
+  const handleSendAgentChatMessage = async () => {
+    const prompt = agentPrompt.trim()
+    if (!prompt) {
+      toast.warn('Escribe una pregunta para el agente')
+      return
+    }
+
+    const userMessage: AgentChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: prompt,
+    }
+
+    setAgentChatMessages((prev) => [...prev, userMessage])
+    setAgentPrompt('')
+    setAgentLoading(true)
+
+    try {
+      const response = await sendAgentChatMessage({
+        message: prompt,
+        whatsappId: agentSelectedWaId,
+      })
+
+      const plan = response.plan || null
+
+      const assistantMessage: AgentChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: response.message || 'Listo, procesé tu solicitud.',
+        plan: plan || undefined,
+      }
+
+      if (plan) setCurrentPlan(plan)
+      setAgentChatMessages((prev) => [...prev, assistantMessage])
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Error consultando al agente'
+      setAgentChatMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: 'assistant',
+          content: msg,
+        },
+      ])
+      toast.error(msg)
+    } finally {
+      setAgentLoading(false)
+    }
+  }
 
   const fetchAuditData = async () => {
     setLoading(true)
@@ -702,22 +973,27 @@ export default function CampaignsAudit() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'warning':
-        return <WarningIcon sx={{ color: 'warning.main' }} />
+        return <Warning className="size-[18px] text-warning-text" aria-hidden />
       case 'optimization':
-        return <TrendingUpIcon sx={{ color: 'success.main' }} />
+        return <TrendUp className="size-[18px] text-success-text" aria-hidden />
       case 'opportunity':
-        return <LightbulbIcon sx={{ color: 'primary.main' }} />
+        return <Lightbulb className="size-[18px] text-primary" aria-hidden />
       case 'insight':
-        return <InfoIcon sx={{ color: 'info.main' }} />
+        return (
+          <Info
+            className="size-[18px] text-[color:var(--brand-teal)] dark:text-brand-cyan"
+            aria-hidden
+          />
+        )
       default:
-        return <SmartToyIcon />
+        return <Robot className="size-[18px] text-muted-foreground" aria-hidden />
     }
   }
 
-  const getPriorityColor = (priority: string): 'danger' | 'warning' | 'primary' | 'neutral' => {
+  const getPriorityColor = (priority: string): BadgeProps['variant'] => {
     switch (priority) {
       case 'critical':
-        return 'danger'
+        return 'destructive'
       case 'high':
         return 'warning'
       case 'medium':
@@ -729,6 +1005,7 @@ export default function CampaignsAudit() {
     }
   }
 
+  // Color Joy que aún consume el LinearProgress determinado de los scores.
   const getScoreColor = (score: number): 'success' | 'primary' | 'warning' | 'danger' => {
     if (score >= 80) return 'success'
     if (score >= 60) return 'primary'
@@ -736,16 +1013,31 @@ export default function CampaignsAudit() {
     return 'danger'
   }
 
+  // Mismo umbral que getScoreColor, pero en tokens del design system.
+  const getScoreTone = (score: number): 'success' | 'primary' | 'warning' | 'destructive' => {
+    if (score >= 80) return 'success'
+    if (score >= 60) return 'primary'
+    if (score >= 40) return 'warning'
+    return 'destructive'
+  }
+
+  const scoreCircleClass: Record<string, string> = {
+    success: 'border-success/40 bg-success/14 text-success-text',
+    primary: 'border-primary/40 bg-primary/12 text-primary',
+    warning: 'border-warning/40 bg-warning/16 text-warning-text',
+    destructive: 'border-destructive/40 bg-destructive/12 text-destructive-text',
+  }
+
   const getChannelIcon = (channel: string) => {
     switch (channel?.toLowerCase()) {
       case 'whatsapp':
-        return <WhatsAppIcon sx={{ color: '#25D366', fontSize: 18 }} />
+        return <WhatsappLogo className="size-[18px] text-wa" weight="fill" aria-hidden />
       case 'email':
-        return <EmailIcon sx={{ color: '#0078D4', fontSize: 18 }} />
+        return <Envelope className="size-[18px] text-primary" weight="fill" aria-hidden />
       case 'telegram':
-        return <TelegramIcon sx={{ color: '#0088CC', fontSize: 18 }} />
+        return <TelegramLogo className="size-[18px] text-[#0088cc]" weight="fill" aria-hidden />
       default:
-        return <CampaignIcon sx={{ fontSize: 18 }} />
+        return <Megaphone className="size-[18px] text-muted-foreground" aria-hidden />
     }
   }
 
@@ -821,1305 +1113,1407 @@ export default function CampaignsAudit() {
     setMessageDateUntil(new Date().toISOString().split('T')[0])
   }
 
+  // CHAT_ONLY_MODE deja la auditoria original comentada funcionalmente.
+  // No se borra codigo: el return completo de auditoria permanece debajo para reactivarlo.
+  const CHAT_ONLY_MODE = true
+
+  if (CHAT_ONLY_MODE) {
+    return (
+      <div className="mx-auto flex min-h-[calc(100vh-96px)] max-w-3xl flex-col gap-4 p-5 sm:p-6">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Robot className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Agente Meta Ads
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Pregunta por campañas, reportes e insights. Las acciones quedan para la siguiente fase.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Card del MCP oficial — flow OAuth completo dentro del sistema */}
+        <MetaOfficialMcpCard
+          oauthCallbackResult={mcpOauthResult}
+          oauthCallbackReason={mcpOauthReason}
+          onCallbackHandled={handleMcpCallbackHandled}
+        />
+
+        {/* Selector de cuenta Meta */}
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-stretch">
+            <div className="space-y-1.5">
+              <Label htmlFor="agent-account-chat">Cuenta Meta</Label>
+              <Select
+                value={agentSelectedWaId === null ? MAIN_ACCOUNT : String(agentSelectedWaId)}
+                onValueChange={(v) => setAgentSelectedWaId(v === MAIN_ACCOUNT ? null : Number(v))}
+              >
+                <SelectTrigger
+                  id="agent-account-chat"
+                  className="min-w-[240px]"
+                  aria-label="Cuenta Meta"
+                >
+                  <SelectValue placeholder="Cuenta Meta" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={MAIN_ACCOUNT}>Cuenta principal de la empresa</SelectItem>
+                  {agentConnections.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                      {c.facebookAdAccountId ? ` · act_${c.facebookAdAccountId}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        {/* Hilo de conversación */}
+        <div className="min-h-[420px] flex-1 overflow-y-auto rounded-lg border border-border bg-background p-4">
+          <div className="flex flex-col gap-3">
+            {agentChatMessages.length === 0 && (
+              <div className="mx-auto flex max-w-[520px] flex-col items-center gap-2 py-12 text-center">
+                <Brain className="size-10 text-primary" aria-hidden />
+                <p className="text-lg font-semibold text-foreground">
+                  Pregunta algo sobre tus campañas
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Prueba con: "listame las campañas activas", "dame un reporte de la campaña X" o "que me recomiendas mejorar esta semana".
+                </p>
+              </div>
+            )}
+
+            {agentChatMessages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  'flex',
+                  message.role === 'user' ? 'justify-end' : 'justify-start',
+                )}
+              >
+                <div
+                  className={cn(
+                    'max-w-[82%] rounded-lg p-3.5 text-sm',
+                    message.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'border border-border bg-card text-card-foreground',
+                  )}
+                >
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.plan && message.plan.proposedActions?.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      onClick={() => {
+                        setCurrentPlan(message.plan || null)
+                        setPlanModalOpen(true)
+                      }}
+                    >
+                      Ver plan sugerido
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {agentLoading && (
+              <div className="flex items-center gap-2">
+                <CircularProgress size="sm" />
+                <p className="text-sm text-muted-foreground">
+                  Consultando campañas y preparando respuesta...
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Composer */}
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col gap-2 md:flex-row">
+            <textarea
+              rows={1}
+              aria-label="Pregunta para el agente Meta Ads"
+              placeholder="Escribe tu pregunta para el agente Meta Ads..."
+              value={agentPrompt}
+              onChange={(e) => setAgentPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSendAgentChatMessage()
+                }
+              }}
+              className="min-h-11 max-h-32 flex-1 resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+            />
+            <Button
+              onClick={handleSendAgentChatMessage}
+              loading={agentLoading}
+              disabled={!agentPrompt.trim()}
+              className="min-w-[120px]"
+            >
+              <Brain className="size-4" aria-hidden />
+              Enviar
+            </Button>
+          </div>
+        </div>
+
+        <MetaAgentPlanCard
+          open={planModalOpen}
+          plan={currentPlan}
+          onClose={() => setPlanModalOpen(false)}
+          onExecuted={() => {
+            if (selectedConnection && connectionStatus === 'connected') {
+              fetchCampaignsData()
+            }
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <TooltipProvider>
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* ───────── Agente IA Meta Ads (plan + execute) ───────── */}
+        <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-5">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Robot className="size-5 text-primary" weight="fill" aria-hidden />
+              <h2 className="text-base font-semibold text-foreground">
+                Pregúntale al Agente IA · Meta Ads
+              </h2>
+              <Badge variant="primary">Beta</Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Ejemplo: "lista mis 5 campañas con peor CPL los últimos 7 días" · "pausa las campañas con gasto sin conversiones" · "duplica la mejor del mes con +20% de presupuesto".
+              El agente devuelve un plan que tú revisas y confirmas antes de ejecutar.
+            </p>
+
+            <div className="flex flex-col gap-3 md:flex-row md:items-stretch">
+              <Select
+                value={agentSelectedWaId === null ? MAIN_ACCOUNT : String(agentSelectedWaId)}
+                onValueChange={(v) => setAgentSelectedWaId(v === MAIN_ACCOUNT ? null : Number(v))}
+              >
+                <SelectTrigger className="min-w-[240px] md:w-[240px]" aria-label="Cuenta Meta a usar">
+                  <SelectValue placeholder="Cuenta Meta a usar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={MAIN_ACCOUNT}>Cuenta principal de la empresa</SelectItem>
+                  {agentConnections.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                      {c.facebookAdAccountId ? ` · act_${c.facebookAdAccountId}` : ''}
+                      {c.status ? ` · ${c.status}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <textarea
+                rows={1}
+                aria-label="Qué quieres analizar o cambiar en tus campañas"
+                placeholder="¿Qué quieres analizar o cambiar en tus campañas?"
+                value={agentPrompt}
+                onChange={(e) => setAgentPrompt(e.target.value)}
+                className="min-h-9 max-h-24 flex-1 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+
+              <Button
+                size="sm"
+                onClick={handleGenerateAgentPlan}
+                loading={agentLoading}
+                disabled={!agentPrompt.trim()}
+                className="min-w-[160px]"
+              >
+                <Brain className="size-4" aria-hidden />
+                Generar plan
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {/* Header - Compacto */}
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ flexWrap: 'wrap', gap: 2 }}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Título */}
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Badge badgeContent={activeCount} color="danger" max={99}>
-              <SmartToyIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            </Badge>
-            <Box>
-              <Typography level="h2">Auditoría con IA</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+          <div className="flex items-center gap-3">
+            <span className="relative flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Robot className="size-7" weight="fill" aria-hidden />
+              {activeCount > 0 && (
+                <span
+                  className="absolute -right-1.5 -top-1.5 flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold leading-none text-destructive-foreground"
+                  aria-label={`${activeCount} recomendaciones activas`}
+                >
+                  {activeCount > 99 ? '99+' : activeCount}
+                </span>
+              )}
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Auditoría con IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Recomendaciones inteligentes para optimizar tus campañas
-              </Typography>
-            </Box>
-          </Stack>
+              </p>
+            </div>
+          </div>
 
           {/* Controles */}
-          <Stack direction="row" spacing={1} alignItems="center">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Token Status */}
             {tokenStatus && (
-              <Chip
-                startDecorator={<TokenIcon />}
-                color={tokenStatus.available ? 'success' : 'danger'}
-                variant="soft"
-                size="sm"
-              >
+              <Badge variant={tokenStatus.available ? 'success' : 'destructive'}>
+                <Coins className="size-3.5" aria-hidden />
                 {tokenStatus.remaining.toLocaleString()} / {tokenStatus.limit.toLocaleString()}
-              </Chip>
+              </Badge>
             )}
 
             {/* Período rápido */}
-            <Select
-              value={period}
-              onChange={(_, value) => setPeriod(value as string)}
-              size="sm"
-              sx={{ minWidth: 140 }}
-            >
-              <Option value="last_7_days">Últimos 7 días</Option>
-              <Option value="last_30_days">Últimos 30 días</Option>
-              <Option value="last_90_days">Últimos 90 días</Option>
+            <Select value={period} onValueChange={(value) => setPeriod(value)}>
+              <SelectTrigger className="w-[140px]" aria-label="Período">
+                <SelectValue placeholder="Período" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="last_7_days">Últimos 7 días</SelectItem>
+                <SelectItem value="last_30_days">Últimos 30 días</SelectItem>
+                <SelectItem value="last_90_days">Últimos 90 días</SelectItem>
+              </SelectContent>
             </Select>
 
             <Select
-              value={selectedCampaignId || null}
-              onChange={(_, value) => setSelectedCampaignId((value as string) || '')}
-              size="sm"
-              placeholder={loadingCampaignOptions ? 'Cargando campañas...' : 'Campaña activa'}
-              sx={{ minWidth: 240, maxWidth: 340 }}
+              value={selectedCampaignId}
+              onValueChange={(value) => setSelectedCampaignId(value || '')}
             >
-              {activeCampaignOptions.map(campaign => (
-                <Option key={campaign.id} value={campaign.id}>
-                  {campaign.name}
-                </Option>
-              ))}
+              <SelectTrigger className="w-[240px] max-w-[340px]" aria-label="Campaña activa">
+                <SelectValue
+                  placeholder={loadingCampaignOptions ? 'Cargando campañas...' : 'Campaña activa'}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {activeCampaignOptions.map((campaign) => (
+                  <SelectItem key={campaign.id} value={String(campaign.id)}>
+                    {campaign.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
 
             {/* Botón de Filtros */}
-            <Badge badgeContent={getActiveFiltersCount()} color="primary" size="sm">
-              <Button
-                startDecorator={<FilterListIcon />}
-                variant="outlined"
-                color="neutral"
-                size="sm"
-                onClick={() => setFilterModalOpen(true)}
-              >
+            <div className="relative">
+              <Button variant="outline" size="sm" onClick={() => setFilterModalOpen(true)}>
+                <FunnelSimple className="size-4" aria-hidden />
                 Filtros
               </Button>
-            </Badge>
+              {getActiveFiltersCount() > 0 && (
+                <span
+                  className="pointer-events-none absolute -right-1.5 -top-1.5 flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground"
+                  aria-label={`${getActiveFiltersCount()} filtros activos`}
+                >
+                  {getActiveFiltersCount()}
+                </span>
+              )}
+            </div>
 
             <Button
-              startDecorator={<PsychologyIcon />}
               onClick={runAIAudit}
               loading={runningAudit}
-              color="primary"
-              variant="solid"
               size="sm"
               disabled={tokenStatus ? !tokenStatus.available : false}
             >
+              <Brain className="size-4" aria-hidden />
               Generar general
             </Button>
 
             <Button
-              startDecorator={<SmartToyIcon />}
               onClick={runSelectedCampaignAudit}
               loading={runningCampaignAudit}
-              color="success"
-              variant="solid"
               size="sm"
+              variant="whatsapp"
               disabled={!selectedCampaignId || (tokenStatus ? !tokenStatus.available : false)}
             >
+              <Robot className="size-4" aria-hidden />
               Analizar campaña
             </Button>
 
             <Tooltip title="Exportar reporte">
-              <IconButton variant="outlined" color="neutral" size="sm" onClick={exportReport}>
-                <DownloadIcon />
-              </IconButton>
+              <Button variant="outline" size="icon" aria-label="Exportar reporte" onClick={exportReport}>
+                <DownloadSimple className="size-5" aria-hidden />
+              </Button>
             </Tooltip>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {loading && <LinearProgress />}
 
         {/* Active Filters Summary - Compacto */}
         {getActiveFiltersCount() > 0 && (
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Filtros:</Typography>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Filtros:</span>
 
             {filter !== 'all' && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setFilter('all')}
-                  />
-                }
-              >
+              <FilterChip clearLabel="Quitar filtro de estado" onClear={() => setFilter('all')}>
                 {filter === 'active' ? 'Activas' : 'Aplicadas'}
-              </Chip>
+              </FilterChip>
             )}
 
             {deliveryStatusFilter !== 'all' && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color={deliveryStatusFilter === 'ACTIVE' ? 'success' : deliveryStatusFilter === 'PAUSED' ? 'danger' : 'neutral'}
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setDeliveryStatusFilter('all')}
-                  />
+              <FilterChip
+                variant={
+                  deliveryStatusFilter === 'ACTIVE'
+                    ? 'success'
+                    : deliveryStatusFilter === 'PAUSED'
+                      ? 'destructive'
+                      : 'neutral'
                 }
+                clearLabel="Quitar filtro de estado de entrega"
+                onClear={() => setDeliveryStatusFilter('all')}
               >
-                {deliveryStatusFilter === 'ACTIVE' && '🟢 Activa'}
-                {deliveryStatusFilter === 'COMPLETED' && '⚪ Completada'}
-                {deliveryStatusFilter === 'PAUSED' && '🔴 Pausada'}
-                {deliveryStatusFilter === 'ARCHIVED' && '📦 Archivada'}
-                {deliveryStatusFilter === 'WITH_ISSUES' && '⚠️ Con problemas'}
-              </Chip>
+                {deliveryStatusFilter === 'ACTIVE' && 'Activa'}
+                {deliveryStatusFilter === 'COMPLETED' && 'Completada'}
+                {deliveryStatusFilter === 'PAUSED' && 'Pausada'}
+                {deliveryStatusFilter === 'ARCHIVED' && 'Archivada'}
+                {deliveryStatusFilter === 'WITH_ISSUES' && 'Con problemas'}
+              </FilterChip>
             )}
 
             {(dateRange.from || dateRange.to) && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setDateRange({ from: null, to: null })}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de fechas"
+                onClear={() => setDateRange({ from: null, to: null })}
               >
                 {dateRange.from || '...'} - {dateRange.to || '...'}
-              </Chip>
+              </FilterChip>
             )}
 
             {(spendRange.min !== null || spendRange.max !== null) && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setSpendRange({ min: null, max: null })}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de gasto"
+                onClear={() => setSpendRange({ min: null, max: null })}
               >
                 Gasto: ${spendRange.min || 0} - ${spendRange.max || '∞'}
-              </Chip>
+              </FilterChip>
             )}
 
             {ctrThreshold.operator !== 'any' && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setCtrThreshold({ operator: 'any', value: null })}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de CTR"
+                onClear={() => setCtrThreshold({ operator: 'any', value: null })}
               >
                 CTR {ctrThreshold.operator === 'gt' ? '>' : ctrThreshold.operator === 'lt' ? '<' : '='} {ctrThreshold.value}%
-              </Chip>
+              </FilterChip>
             )}
 
             {cpcThreshold.operator !== 'any' && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setCpcThreshold({ operator: 'any', value: null })}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de CPC"
+                onClear={() => setCpcThreshold({ operator: 'any', value: null })}
               >
                 CPC {cpcThreshold.operator === 'gt' ? '>' : cpcThreshold.operator === 'lt' ? '<' : '='} ${cpcThreshold.value}
-              </Chip>
+              </FilterChip>
             )}
 
             {impressionsThreshold !== null && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setImpressionsThreshold(null)}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de impresiones"
+                onClear={() => setImpressionsThreshold(null)}
               >
                 Impressions ≥ {impressionsThreshold.toLocaleString()}
-              </Chip>
+              </FilterChip>
             )}
 
             {objectiveFilter.length > 0 && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setObjectiveFilter([])}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de objetivos"
+                onClear={() => setObjectiveFilter([])}
               >
                 Objetivos: {objectiveFilter.length}
-              </Chip>
+              </FilterChip>
             )}
 
             {campaignNameSearch.trim() !== '' && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setCampaignNameSearch('')}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de nombre"
+                onClear={() => setCampaignNameSearch('')}
               >
                 Nombre: "{campaignNameSearch}"
-              </Chip>
+              </FilterChip>
             )}
 
             {selectedCampaign && (
-              <Chip
-                size="sm"
-                variant="soft"
-                color="primary"
-                endDecorator={
-                  <CloseIcon
-                    sx={{ fontSize: 16, cursor: 'pointer' }}
-                    onClick={() => setSelectedCampaignId('')}
-                  />
-                }
+              <FilterChip
+                clearLabel="Quitar filtro de campaña"
+                onClear={() => setSelectedCampaignId('')}
               >
                 Campaña: {selectedCampaign.name}
-              </Chip>
+              </FilterChip>
             )}
 
-            <Button
-              size="sm"
-              variant="plain"
-              color="neutral"
-              onClick={clearAllFilters}
-            >
+            <Button variant="ghost" size="sm" onClick={clearAllFilters}>
               Limpiar todos
             </Button>
-          </Stack>
+          </div>
         )}
 
         {/* Alert Summary */}
-        <Grid container spacing={2}>
-          <Grid xs={12} md={4}>
-            <Alert color="danger" variant="soft" startDecorator={<WarningIcon />}>
-              <Box>
-                <Typography level="title-lg" fontWeight="bold">
-                  {criticalCount}
-                </Typography>
-                <Typography level="body-sm">Recomendaciones Criticas</Typography>
-              </Box>
-            </Alert>
-          </Grid>
-          <Grid xs={12} md={4}>
-            <Alert color="warning" variant="soft" startDecorator={<TrendingUpIcon />}>
-              <Box>
-                <Typography level="title-lg" fontWeight="bold">
-                  {highCount}
-                </Typography>
-                <Typography level="body-sm">Oportunidades de Alta Prioridad</Typography>
-              </Box>
-            </Alert>
-          </Grid>
-          <Grid xs={12} md={4}>
-            <Alert color="success" variant="soft" startDecorator={<CheckCircleIcon />}>
-              <Box>
-                <Typography level="title-lg" fontWeight="bold">
-                  {appliedCount}
-                </Typography>
-                <Typography level="body-sm">Recomendaciones Aplicadas</Typography>
-              </Box>
-            </Alert>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="flex items-center gap-3 rounded-xl border border-destructive/25 bg-destructive/[0.08] p-4">
+            <Warning className="size-6 shrink-0 text-destructive-text" aria-hidden />
+            <div>
+              <p className="text-lg font-bold tabular-nums text-foreground">{criticalCount}</p>
+              <p className="text-sm text-muted-foreground">Recomendaciones Criticas</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-warning/25 bg-warning/[0.1] p-4">
+            <TrendUp className="size-6 shrink-0 text-warning-text" aria-hidden />
+            <div>
+              <p className="text-lg font-bold tabular-nums text-foreground">{highCount}</p>
+              <p className="text-sm text-muted-foreground">Oportunidades de Alta Prioridad</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-success/25 bg-success/[0.1] p-4">
+            <CheckCircle className="size-6 shrink-0 text-success-text" aria-hidden />
+            <div>
+              <p className="text-lg font-bold tabular-nums text-foreground">{appliedCount}</p>
+              <p className="text-sm text-muted-foreground">Recomendaciones Aplicadas</p>
+            </div>
+          </div>
+        </div>
 
         {/* Campaign Scores */}
         {campaignScores.length > 0 && (
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 3 }}>
-                Score de Campanas por IA
-              </Typography>
-              <Grid container spacing={3}>
-                {campaignScores.map((campaign) => (
-                  <Grid xs={12} md={6} key={campaign.campaignId}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            {getChannelIcon(campaign.channel)}
-                            <Typography level="title-md">{campaign.campaignName}</Typography>
-                          </Stack>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Box
-                              sx={{
-                                width: 60,
-                                height: 60,
-                                borderRadius: '50%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                bgcolor: `${getScoreColor(campaign.overallScore)}.softBg`,
-                                border: '3px solid',
-                                borderColor: `${getScoreColor(campaign.overallScore)}.outlinedBorder`,
-                              }}
-                            >
-                              <Typography level="h3" sx={{ color: `${getScoreColor(campaign.overallScore)}.main` }}>
-                                {campaign.overallScore}
-                              </Typography>
-                            </Box>
-                            <Chip size="sm" color="primary" variant="soft">
-                              {campaign.recommendations} tips
-                            </Chip>
-                          </Stack>
-                        </Stack>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-5 text-xl font-semibold text-foreground">
+              Score de Campanas por IA
+            </h2>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {campaignScores.map((campaign) => (
+                <div
+                  key={campaign.campaignId}
+                  className="rounded-lg border border-border bg-card p-4"
+                >
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      {getChannelIcon(campaign.channel)}
+                      <p className="text-base font-medium text-foreground">
+                        {campaign.campaignName}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={cn(
+                          'flex size-[60px] shrink-0 items-center justify-center rounded-full border-[3px] text-xl font-semibold tabular-nums',
+                          scoreCircleClass[getScoreTone(campaign.overallScore)],
+                        )}
+                      >
+                        {campaign.overallScore}
+                      </div>
+                      <Badge variant="primary">{campaign.recommendations} tips</Badge>
+                    </div>
+                  </div>
 
-                        <Divider sx={{ my: 2 }} />
+                  <div className="my-4 border-t border-border" />
 
-                        <Grid container spacing={1}>
-                          <Grid xs={6}>
-                            <Box>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Contenido
-                              </Typography>
-                              <LinearProgress
-                                determinate
-                                value={campaign.contentScore}
-                                color={getScoreColor(campaign.contentScore)}
-                                sx={{ mt: 0.5 }}
-                              />
-                              <Typography level="body-xs" fontWeight="bold">
-                                {campaign.contentScore}/100
-                              </Typography>
-                            </Box>
-                          </Grid>
-                          <Grid xs={6}>
-                            <Box>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Timing
-                              </Typography>
-                              <LinearProgress
-                                determinate
-                                value={campaign.timingScore}
-                                color={getScoreColor(campaign.timingScore)}
-                                sx={{ mt: 0.5 }}
-                              />
-                              <Typography level="body-xs" fontWeight="bold">
-                                {campaign.timingScore}/100
-                              </Typography>
-                            </Box>
-                          </Grid>
-                          <Grid xs={6}>
-                            <Box>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Audiencia
-                              </Typography>
-                              <LinearProgress
-                                determinate
-                                value={campaign.audienceScore}
-                                color={getScoreColor(campaign.audienceScore)}
-                                sx={{ mt: 0.5 }}
-                              />
-                              <Typography level="body-xs" fontWeight="bold">
-                                {campaign.audienceScore}/100
-                              </Typography>
-                            </Box>
-                          </Grid>
-                          <Grid xs={6}>
-                            <Box>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Performance
-                              </Typography>
-                              <LinearProgress
-                                determinate
-                                value={campaign.performanceScore}
-                                color={getScoreColor(campaign.performanceScore)}
-                                sx={{ mt: 0.5 }}
-                              />
-                              <Typography level="body-xs" fontWeight="bold">
-                                {campaign.performanceScore}/100
-                              </Typography>
-                            </Box>
-                          </Grid>
-                        </Grid>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
-            </CardContent>
-          </Card>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Contenido</p>
+                      <LinearProgress
+                        determinate
+                        value={campaign.contentScore}
+                        color={getScoreColor(campaign.contentScore)}
+                        sx={{ mt: 0.5 }}
+                      />
+                      <p className="text-xs font-bold tabular-nums text-foreground">
+                        {campaign.contentScore}/100
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Timing</p>
+                      <LinearProgress
+                        determinate
+                        value={campaign.timingScore}
+                        color={getScoreColor(campaign.timingScore)}
+                        sx={{ mt: 0.5 }}
+                      />
+                      <p className="text-xs font-bold tabular-nums text-foreground">
+                        {campaign.timingScore}/100
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Audiencia</p>
+                      <LinearProgress
+                        determinate
+                        value={campaign.audienceScore}
+                        color={getScoreColor(campaign.audienceScore)}
+                        sx={{ mt: 0.5 }}
+                      />
+                      <p className="text-xs font-bold tabular-nums text-foreground">
+                        {campaign.audienceScore}/100
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Performance</p>
+                      <LinearProgress
+                        determinate
+                        value={campaign.performanceScore}
+                        color={getScoreColor(campaign.performanceScore)}
+                        sx={{ mt: 0.5 }}
+                      />
+                      <p className="text-xs font-bold tabular-nums text-foreground">
+                        {campaign.performanceScore}/100
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Recommendations Table */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography level="h4">
-                Recomendaciones ({recommendations.length})
-              </Typography>
-              <Select
-                size="sm"
-                value={rowsPerPage}
-                onChange={(_, value) => {
-                  setRowsPerPage(value as number)
-                  setPage(0)
-                }}
-                sx={{ minWidth: 100 }}
-              >
-                <Option value={5}>5 / página</Option>
-                <Option value={10}>10 / página</Option>
-                <Option value={25}>25 / página</Option>
-                <Option value={50}>50 / página</Option>
-              </Select>
-            </Stack>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold text-foreground">
+              Recomendaciones ({recommendations.length})
+            </h2>
+            <Select
+              value={String(rowsPerPage)}
+              onValueChange={(value) => {
+                setRowsPerPage(Number(value))
+                setPage(0)
+              }}
+            >
+              <SelectTrigger className="w-[130px]" aria-label="Filas por página">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="5">5 / página</SelectItem>
+                <SelectItem value="10">10 / página</SelectItem>
+                <SelectItem value="25">25 / página</SelectItem>
+                <SelectItem value="50">50 / página</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-            {/* Table Filters Bar */}
-            <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
-              <Input
-                size="sm"
-                placeholder="Buscar título o campaña..."
-                value={tableFilters.searchText}
-                onChange={(e) => setTableFilters({...tableFilters, searchText: e.target.value})}
-                startDecorator={<SearchIcon />}
-                sx={{ minWidth: 300 }}
-              />
+          {/* Table Filters Bar */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Buscar título o campaña..."
+              aria-label="Buscar título o campaña"
+              value={tableFilters.searchText}
+              onChange={(e) => setTableFilters({ ...tableFilters, searchText: e.target.value })}
+              leftIcon={<MagnifyingGlass aria-hidden />}
+              className="h-9 min-w-[300px]"
+            />
 
-              <Select
-                size="sm"
-                placeholder="Prioridad"
-                multiple
-                value={tableFilters.priorityFilter}
-                onChange={(_, value) => setTableFilters({...tableFilters, priorityFilter: value as string[]})}
-                sx={{ minWidth: 140 }}
-              >
-                <Option value="critical">Crítica</Option>
-                <Option value="high">Alta</Option>
-                <Option value="medium">Media</Option>
-                <Option value="low">Baja</Option>
-              </Select>
+            <MultiSelectFilter
+              label="Prioridad"
+              className="min-w-[140px]"
+              selected={tableFilters.priorityFilter}
+              onChange={(next) => setTableFilters({ ...tableFilters, priorityFilter: next })}
+              options={[
+                { value: 'critical', label: 'Crítica' },
+                { value: 'high', label: 'Alta' },
+                { value: 'medium', label: 'Media' },
+                { value: 'low', label: 'Baja' },
+              ]}
+            />
 
-              <Select
-                size="sm"
-                placeholder="Tipo"
-                multiple
-                value={tableFilters.typeFilter}
-                onChange={(_, value) => setTableFilters({...tableFilters, typeFilter: value as string[]})}
-                sx={{ minWidth: 140 }}
-              >
-                <Option value="warning">Alerta</Option>
-                <Option value="optimization">Optimización</Option>
-                <Option value="opportunity">Oportunidad</Option>
-                <Option value="insight">Insight</Option>
-              </Select>
+            <MultiSelectFilter
+              label="Tipo"
+              className="min-w-[140px]"
+              selected={tableFilters.typeFilter}
+              onChange={(next) => setTableFilters({ ...tableFilters, typeFilter: next })}
+              options={[
+                { value: 'warning', label: 'Alerta' },
+                { value: 'optimization', label: 'Optimización' },
+                { value: 'opportunity', label: 'Oportunidad' },
+                { value: 'insight', label: 'Insight' },
+              ]}
+            />
 
-              <Select
-                size="sm"
-                placeholder="Categoría"
-                multiple
-                value={tableFilters.categoryFilter}
-                onChange={(_, value) => setTableFilters({...tableFilters, categoryFilter: value as string[]})}
-                sx={{ minWidth: 140 }}
-              >
-                <Option value="timing">Tiempo</Option>
-                <Option value="content">Contenido</Option>
-                <Option value="segmentation">Segmentación</Option>
-                <Option value="budget">Presupuesto</Option>
-                <Option value="channel">Canal</Option>
-              </Select>
+            <MultiSelectFilter
+              label="Categoría"
+              className="min-w-[140px]"
+              selected={tableFilters.categoryFilter}
+              onChange={(next) => setTableFilters({ ...tableFilters, categoryFilter: next })}
+              options={[
+                { value: 'timing', label: 'Tiempo' },
+                { value: 'content', label: 'Contenido' },
+                { value: 'segmentation', label: 'Segmentación' },
+                { value: 'budget', label: 'Presupuesto' },
+                { value: 'channel', label: 'Canal' },
+              ]}
+            />
 
-              <Select
-                size="sm"
-                placeholder="Estado"
-                multiple
-                value={tableFilters.statusFilter}
-                onChange={(_, value) => setTableFilters({...tableFilters, statusFilter: value as string[]})}
-                sx={{ minWidth: 120 }}
-              >
-                <Option value="active">Activa</Option>
-                <Option value="applied">Aplicada</Option>
-                <Option value="dismissed">Descartada</Option>
-              </Select>
+            <MultiSelectFilter
+              label="Estado"
+              className="min-w-[120px]"
+              selected={tableFilters.statusFilter}
+              onChange={(next) => setTableFilters({ ...tableFilters, statusFilter: next })}
+              options={[
+                { value: 'active', label: 'Activa' },
+                { value: 'applied', label: 'Aplicada' },
+                { value: 'dismissed', label: 'Descartada' },
+              ]}
+            />
 
-              {/* Clear table filters button */}
-              {(tableFilters.searchText ||
-                tableFilters.priorityFilter.length > 0 ||
-                tableFilters.typeFilter.length > 0 ||
-                tableFilters.categoryFilter.length > 0 ||
-                tableFilters.statusFilter.length > 0) && (
-                <Button
-                  size="sm"
-                  variant="outlined"
-                  color="neutral"
-                  onClick={() => setTableFilters({
+            {/* Clear table filters button */}
+            {(tableFilters.searchText ||
+              tableFilters.priorityFilter.length > 0 ||
+              tableFilters.typeFilter.length > 0 ||
+              tableFilters.categoryFilter.length > 0 ||
+              tableFilters.statusFilter.length > 0) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setTableFilters({
                     searchText: '',
                     priorityFilter: [],
                     typeFilter: [],
                     categoryFilter: [],
-                    statusFilter: []
-                  })}
-                >
-                  Limpiar filtros
-                </Button>
-              )}
-            </Stack>
-
-            {recommendations.length === 0 && !loading ? (
-              <Alert color="neutral" variant="soft">
-                <Stack direction="row" spacing={2} alignItems="center">
-                  <SmartToyIcon />
-                  <Box>
-                    <Typography level="title-sm">No hay recomendaciones con estos filtros</Typography>
-                    <Typography level="body-sm">
-                      {(deliveryStatusFilter !== 'all' || dateRange.from || dateRange.to)
-                        ? 'Intenta ajustar los filtros de fecha o estado de campaña'
-                        : 'Haz clic en "Actualizar" para generar análisis con IA'}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Alert>
-            ) : recommendations.length > 0 ? (
-              <>
-                {(() => {
-                  // Apply table filters
-                  const filteredRecommendations = recommendations.filter(rec => {
-                    // Search text filter (searches in title, description, campaign name)
-                    if (tableFilters.searchText.trim() !== '') {
-                      const searchLower = tableFilters.searchText.toLowerCase()
-                      const matchesSearch =
-                        rec.title.toLowerCase().includes(searchLower) ||
-                        rec.description.toLowerCase().includes(searchLower) ||
-                        rec.campaignName.toLowerCase().includes(searchLower)
-                      if (!matchesSearch) return false
-                    }
-
-                    // Priority filter
-                    if (tableFilters.priorityFilter.length > 0) {
-                      if (!tableFilters.priorityFilter.includes(rec.priority)) return false
-                    }
-
-                    // Type filter
-                    if (tableFilters.typeFilter.length > 0) {
-                      if (!tableFilters.typeFilter.includes(rec.type)) return false
-                    }
-
-                    // Category filter
-                    if (tableFilters.categoryFilter.length > 0) {
-                      if (!tableFilters.categoryFilter.includes(rec.category)) return false
-                    }
-
-                    // Status filter
-                    if (tableFilters.statusFilter.length > 0) {
-                      if (!tableFilters.statusFilter.includes(rec.status)) return false
-                    }
-
-                    return true
+                    statusFilter: [],
                   })
+                }
+              >
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
 
-                  return (
-                    <>
-                      <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-                        <Table
-                          stickyHeader
-                          hoverRow
-                          sx={{
-                            '& thead th': {
-                              bgcolor: 'background.surface',
-                              fontWeight: 'bold',
-                            },
-                          }}
-                        >
+          {recommendations.length === 0 && !loading ? (
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-4">
+              <Robot className="size-6 shrink-0 text-muted-foreground" aria-hidden />
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  No hay recomendaciones con estos filtros
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {(deliveryStatusFilter !== 'all' || dateRange.from || dateRange.to)
+                    ? 'Intenta ajustar los filtros de fecha o estado de campaña'
+                    : 'Haz clic en "Actualizar" para generar análisis con IA'}
+                </p>
+              </div>
+            </div>
+          ) : recommendations.length > 0 ? (
+            <>
+              {(() => {
+                // Apply table filters
+                const filteredRecommendations = recommendations.filter(rec => {
+                  // Search text filter (searches in title, description, campaign name)
+                  if (tableFilters.searchText.trim() !== '') {
+                    const searchLower = tableFilters.searchText.toLowerCase()
+                    const matchesSearch =
+                      rec.title.toLowerCase().includes(searchLower) ||
+                      rec.description.toLowerCase().includes(searchLower) ||
+                      rec.campaignName.toLowerCase().includes(searchLower)
+                    if (!matchesSearch) return false
+                  }
+
+                  // Priority filter
+                  if (tableFilters.priorityFilter.length > 0) {
+                    if (!tableFilters.priorityFilter.includes(rec.priority)) return false
+                  }
+
+                  // Type filter
+                  if (tableFilters.typeFilter.length > 0) {
+                    if (!tableFilters.typeFilter.includes(rec.type)) return false
+                  }
+
+                  // Category filter
+                  if (tableFilters.categoryFilter.length > 0) {
+                    if (!tableFilters.categoryFilter.includes(rec.category)) return false
+                  }
+
+                  // Status filter
+                  if (tableFilters.statusFilter.length > 0) {
+                    if (!tableFilters.statusFilter.includes(rec.status)) return false
+                  }
+
+                  return true
+                })
+
+                return (
+                  <>
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[1000px] text-sm">
                           <thead>
-                            <tr>
-                              <th style={{ width: 100 }}>Estado</th>
-                              <th style={{ width: 100 }}>Prioridad</th>
-                              <th style={{ width: 120 }}>Tipo</th>
-                              <th style={{ minWidth: 200 }}>Título</th>
-                              <th style={{ minWidth: 150 }}>Campaña</th>
-                              <th style={{ width: 120 }}>Categoría</th>
-                              <th style={{ width: 120 }}>Fecha Creación</th>
-                              <th style={{ width: 180 }}>Acciones</th>
+                            <tr className="border-b border-border bg-muted/40">
+                              <th className={cn(TH, 'w-[100px]')}>Estado</th>
+                              <th className={cn(TH, 'w-[100px]')}>Prioridad</th>
+                              <th className={cn(TH, 'w-[120px]')}>Tipo</th>
+                              <th className={cn(TH, 'min-w-[200px]')}>Título</th>
+                              <th className={cn(TH, 'min-w-[150px]')}>Campaña</th>
+                              <th className={cn(TH, 'w-[120px]')}>Categoría</th>
+                              <th className={cn(TH, 'w-[120px]')}>Fecha Creación</th>
+                              <th className={cn(TH, 'w-[180px]')}>Acciones</th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className="divide-y divide-border">
                             {filteredRecommendations
                               .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                               .map((recommendation) => (
-                          <tr key={recommendation.id}>
-                            {/* Estado */}
-                            <td>
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color={recommendation.status === 'applied' ? 'success' : recommendation.status === 'active' ? 'primary' : 'neutral'}
-                                startDecorator={recommendation.status === 'applied' ? <CheckIcon /> : null}
-                              >
-                                {recommendation.status === 'active' ? 'Activa' : recommendation.status === 'applied' ? 'Aplicada' : 'Descartada'}
-                              </Chip>
-                            </td>
-
-                            {/* Prioridad */}
-                            <td>
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color={getPriorityColor(recommendation.priority)}
-                              >
-                                {recommendation.priority === 'critical' ? 'Crítica' :
-                                 recommendation.priority === 'high' ? 'Alta' :
-                                 recommendation.priority === 'medium' ? 'Media' : 'Baja'}
-                              </Chip>
-                            </td>
-
-                            {/* Tipo */}
-                            <td>
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <Box sx={{ display: 'flex' }}>{getTypeIcon(recommendation.type)}</Box>
-                                <Typography level="body-sm">
-                                  {recommendation.type === 'optimization' ? 'Optimización' :
-                                   recommendation.type === 'warning' ? 'Alerta' :
-                                   recommendation.type === 'opportunity' ? 'Oportunidad' : 'Insight'}
-                                </Typography>
-                              </Stack>
-                            </td>
-
-                            {/* Título */}
-                            <td>
-                              <Tooltip title={recommendation.description}>
-                                <Typography level="body-sm" sx={{ fontWeight: 'md' }}>
-                                  {recommendation.title}
-                                </Typography>
-                              </Tooltip>
-                            </td>
-
-                            {/* Campaña */}
-                            <td>
-                              <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                                {recommendation.campaignName}
-                              </Typography>
-                            </td>
-
-                            {/* Categoría */}
-                            <td>
-                              <Chip size="sm" variant="outlined">
-                                {recommendation.category === 'timing' ? 'Tiempo' :
-                                 recommendation.category === 'content' ? 'Contenido' :
-                                 recommendation.category === 'segmentation' ? 'Segmentación' :
-                                 recommendation.category === 'budget' ? 'Presupuesto' : 'Canal'}
-                              </Chip>
-                            </td>
-
-                            {/* Fecha Creación */}
-                            <td>
-                              <Typography level="body-xs">
-                                {new Date(recommendation.createdAt).toLocaleDateString('es-ES', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric'
-                                })}
-                              </Typography>
-                            </td>
-
-                            {/* Acciones */}
-                            <td>
-                              <Stack direction="row" spacing={0.5}>
-                                <Tooltip title="Ver detalles">
-                                  <IconButton
-                                    size="sm"
-                                    variant="plain"
-                                    color="neutral"
-                                    onClick={() => openDetailModal(recommendation)}
-                                  >
-                                    <VisibilityIcon />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Editar">
-                                  <IconButton
-                                    size="sm"
-                                    variant="plain"
-                                    color="neutral"
-                                    onClick={() => openEditModal(recommendation)}
-                                  >
-                                    <EditIcon />
-                                  </IconButton>
-                                </Tooltip>
-                                {recommendation.status === 'active' && (
-                                  <Tooltip title="Aplicar">
-                                    <IconButton
-                                      size="sm"
-                                      variant="plain"
-                                      color="primary"
-                                      onClick={() => handleApplyRecommendation(recommendation)}
+                                <tr
+                                  key={recommendation.id}
+                                  className="transition-colors hover:bg-accent/40"
+                                >
+                                  {/* Estado */}
+                                  <td className={TD}>
+                                    <Badge
+                                      variant={
+                                        recommendation.status === 'applied'
+                                          ? 'success'
+                                          : recommendation.status === 'active'
+                                            ? 'primary'
+                                            : 'neutral'
+                                      }
                                     >
-                                      <CheckIcon />
-                                    </IconButton>
-                                  </Tooltip>
-                                )}
-                                <Tooltip title="Eliminar">
-                                  <IconButton
-                                    size="sm"
-                                    variant="plain"
-                                    color="danger"
-                                    onClick={() => openDeleteModal(recommendation)}
-                                  >
-                                    <DeleteIcon />
-                                  </IconButton>
-                                </Tooltip>
-                              </Stack>
-                            </td>
-                          </tr>
-                        ))}
+                                      {recommendation.status === 'applied' && (
+                                        <Check className="size-3" weight="bold" aria-hidden />
+                                      )}
+                                      {recommendation.status === 'active'
+                                        ? 'Activa'
+                                        : recommendation.status === 'applied'
+                                          ? 'Aplicada'
+                                          : 'Descartada'}
+                                    </Badge>
+                                  </td>
+
+                                  {/* Prioridad */}
+                                  <td className={TD}>
+                                    <Badge variant={getPriorityColor(recommendation.priority)}>
+                                      {recommendation.priority === 'critical' ? 'Crítica' :
+                                       recommendation.priority === 'high' ? 'Alta' :
+                                       recommendation.priority === 'medium' ? 'Media' : 'Baja'}
+                                    </Badge>
+                                  </td>
+
+                                  {/* Tipo */}
+                                  <td className={TD}>
+                                    <div className="flex items-center gap-2">
+                                      {getTypeIcon(recommendation.type)}
+                                      <span className="text-foreground">
+                                        {recommendation.type === 'optimization' ? 'Optimización' :
+                                         recommendation.type === 'warning' ? 'Alerta' :
+                                         recommendation.type === 'opportunity' ? 'Oportunidad' : 'Insight'}
+                                      </span>
+                                    </div>
+                                  </td>
+
+                                  {/* Título */}
+                                  <td className={TD}>
+                                    <Tooltip title={recommendation.description}>
+                                      <span
+                                        tabIndex={0}
+                                        className="rounded-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        {recommendation.title}
+                                      </span>
+                                    </Tooltip>
+                                  </td>
+
+                                  {/* Campaña */}
+                                  <td className={TD}>
+                                    <span className="text-muted-foreground">
+                                      {recommendation.campaignName}
+                                    </span>
+                                  </td>
+
+                                  {/* Categoría */}
+                                  <td className={TD}>
+                                    <Badge variant="outline">
+                                      {recommendation.category === 'timing' ? 'Tiempo' :
+                                       recommendation.category === 'content' ? 'Contenido' :
+                                       recommendation.category === 'segmentation' ? 'Segmentación' :
+                                       recommendation.category === 'budget' ? 'Presupuesto' : 'Canal'}
+                                    </Badge>
+                                  </td>
+
+                                  {/* Fecha Creación */}
+                                  <td className={cn(TD, 'whitespace-nowrap text-xs text-muted-foreground')}>
+                                    {new Date(recommendation.createdAt).toLocaleDateString('es-ES', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })}
+                                  </td>
+
+                                  {/* Acciones */}
+                                  <td className={TD}>
+                                    <div className="flex items-center gap-0.5">
+                                      <ActionBtn
+                                        label="Ver detalles"
+                                        onClick={() => openDetailModal(recommendation)}
+                                      >
+                                        <Eye className="size-[18px]" aria-hidden />
+                                      </ActionBtn>
+                                      <ActionBtn
+                                        label="Editar"
+                                        onClick={() => openEditModal(recommendation)}
+                                      >
+                                        <PencilSimple className="size-[18px]" aria-hidden />
+                                      </ActionBtn>
+                                      {recommendation.status === 'active' && (
+                                        <ActionBtn
+                                          label="Aplicar"
+                                          onClick={() => handleApplyRecommendation(recommendation)}
+                                          className="text-primary hover:bg-primary/10 hover:text-primary"
+                                        >
+                                          <Check className="size-[18px]" aria-hidden />
+                                        </ActionBtn>
+                                      )}
+                                      <ActionBtn
+                                        label="Eliminar"
+                                        onClick={() => openDeleteModal(recommendation)}
+                                        className="hover:bg-destructive/10 hover:text-destructive-text"
+                                      >
+                                        <Trash className="size-[18px]" aria-hidden />
+                                      </ActionBtn>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
                           </tbody>
-                        </Table>
-                      </Sheet>
+                        </table>
+                      </div>
+                    </div>
 
-                      {/* Paginación */}
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="space-between"
-                        sx={{ mt: 2 }}
-                      >
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Mostrando {page * rowsPerPage + 1} a{' '}
-                          {Math.min((page + 1) * rowsPerPage, filteredRecommendations.length)} de{' '}
-                          {filteredRecommendations.length} recomendaciones
-                          {filteredRecommendations.length < recommendations.length && (
-                            <span> (filtradas de {recommendations.length} totales)</span>
-                          )}
-                        </Typography>
-                        <Stack direction="row" spacing={1}>
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="neutral"
-                            disabled={page === 0}
-                            onClick={() => setPage(page - 1)}
-                          >
-                            Anterior
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="neutral"
-                            disabled={page >= Math.ceil(filteredRecommendations.length / rowsPerPage) - 1}
-                            onClick={() => setPage(page + 1)}
-                          >
-                            Siguiente
-                          </Button>
-                        </Stack>
-                      </Stack>
-                    </>
-                  )
-                })()}
-              </>
-            ) : null}
-          </CardContent>
-        </Card>
-      </Stack>
+                    {/* Paginación */}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-muted-foreground">
+                        Mostrando {page * rowsPerPage + 1} a{' '}
+                        {Math.min((page + 1) * rowsPerPage, filteredRecommendations.length)} de{' '}
+                        {filteredRecommendations.length} recomendaciones
+                        {filteredRecommendations.length < recommendations.length && (
+                          <span> (filtradas de {recommendations.length} totales)</span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={page === 0}
+                          onClick={() => setPage(page - 1)}
+                        >
+                          Anterior
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={page >= Math.ceil(filteredRecommendations.length / rowsPerPage) - 1}
+                          onClick={() => setPage(page + 1)}
+                        >
+                          Siguiente
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
+            </>
+          ) : null}
+        </div>
 
-      <Modal open={isGeneratingRecommendations}>
-        <ModalDialog
-          layout="center"
-          sx={{
-            minWidth: { xs: 'calc(100vw - 32px)', sm: 440 },
-            maxWidth: 520,
-            px: 3,
-            py: 4
-          }}
+      {/* Loading Modal (auditoría en curso) */}
+      <Dialog open={isGeneratingRecommendations}>
+        <DialogContent
+          hideClose
+          className="max-w-[520px] sm:min-w-[440px]"
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
         >
-          <Stack spacing={2.5} alignItems="center" sx={{ textAlign: 'center' }}>
+          <div className="flex flex-col items-center gap-5 px-2 py-4 text-center">
             <CircularProgress size="lg" />
-            <Box>
-              <Typography level="h4">{loadingTitle}</Typography>
-              <Typography level="body-sm" sx={{ mt: 1, color: 'text.tertiary' }}>
-                {loadingDescription}
-              </Typography>
-            </Box>
+            <div>
+              <DialogTitle className="text-xl">{loadingTitle}</DialogTitle>
+              <DialogDescription className="mt-1">{loadingDescription}</DialogDescription>
+            </div>
             <LinearProgress sx={{ width: '100%' }} />
-            <Chip
-              size="sm"
-              variant="soft"
-              color={runningCampaignAudit ? 'success' : 'primary'}
-            >
+            <Badge variant={runningCampaignAudit ? 'success' : 'primary'}>
               {loadingChipLabel}
-            </Chip>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+            </Badge>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Detail Modal */}
-      <Modal open={detailModalOpen} onClose={() => setDetailModalOpen(false)}>
-        <ModalDialog sx={{ maxWidth: 600 }}>
-          <ModalClose />
-          <Typography level="h4">Detalle de Recomendacion</Typography>
+      <Dialog open={detailModalOpen} onOpenChange={setDetailModalOpen}>
+        <DialogContent className="max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Detalle de Recomendacion</DialogTitle>
+          </DialogHeader>
           {selectedRecommendation && (
-            <Stack spacing={2} sx={{ mt: 2 }}>
-              <Box>
-                <Typography level="title-sm" sx={{ color: 'text.tertiary' }}>Titulo</Typography>
-                <Typography>{selectedRecommendation.title}</Typography>
-              </Box>
-              <Box>
-                <Typography level="title-sm" sx={{ color: 'text.tertiary' }}>Campana</Typography>
-                <Typography>{selectedRecommendation.campaignName}</Typography>
-              </Box>
-              <Box>
-                <Typography level="title-sm" sx={{ color: 'text.tertiary' }}>Descripcion</Typography>
-                <Typography>{selectedRecommendation.description}</Typography>
-              </Box>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <Typography level="title-sm" sx={{ color: 'text.tertiary' }}>Impacto</Typography>
-                  <Typography>{selectedRecommendation.impact}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="title-sm" sx={{ color: 'text.tertiary' }}>Esfuerzo</Typography>
-                  <Typography>{selectedRecommendation.effort}</Typography>
-                </Grid>
-              </Grid>
-              <Box>
-                <Typography level="title-sm" sx={{ color: 'success.main' }}>Ganancia Potencial</Typography>
-                <Typography sx={{ color: 'success.main', fontWeight: 'bold' }}>{selectedRecommendation.potentialGain}</Typography>
-              </Box>
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Titulo</p>
+                <p className="text-sm text-foreground">{selectedRecommendation.title}</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Campana</p>
+                <p className="text-sm text-foreground">{selectedRecommendation.campaignName}</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Descripcion</p>
+                <p className="text-sm text-foreground">{selectedRecommendation.description}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Impacto</p>
+                  <p className="text-sm text-foreground">{selectedRecommendation.impact}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Esfuerzo</p>
+                  <p className="text-sm text-foreground">{selectedRecommendation.effort}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-success-text">Ganancia Potencial</p>
+                <p className="text-sm font-bold text-success-text">
+                  {selectedRecommendation.potentialGain}
+                </p>
+              </div>
               {selectedRecommendation.actionData && (
-                <Box>
-                  <Typography level="title-sm" sx={{ color: 'text.tertiary' }}>Datos de Accion</Typography>
-                  <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Datos de Accion</p>
+                  <pre className="mt-1 overflow-x-auto rounded-md bg-muted p-2 text-xs text-foreground">
                     {JSON.stringify(selectedRecommendation.actionData, null, 2)}
                   </pre>
-                </Box>
+                </div>
               )}
-              <Divider />
-              <Stack direction="row" spacing={2} justifyContent="flex-end">
-                <Button variant="outlined" color="neutral" onClick={() => setDetailModalOpen(false)}>
+              <div className="border-t border-border" />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDetailModalOpen(false)}>
                   Cerrar
                 </Button>
                 {selectedRecommendation.status === 'active' && (
-                  <Button
-                    variant="solid"
-                    color="primary"
-                    startDecorator={<CheckIcon />}
-                    onClick={() => handleApplyRecommendation(selectedRecommendation)}
-                  >
+                  <Button onClick={() => handleApplyRecommendation(selectedRecommendation)}>
+                    <Check className="size-4" weight="bold" aria-hidden />
                     Marcar como Aplicada
                   </Button>
                 )}
-              </Stack>
-            </Stack>
+              </DialogFooter>
+            </div>
           )}
-        </ModalDialog>
-      </Modal>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Modal */}
-      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)}>
-        <ModalDialog sx={{ maxWidth: 600 }}>
-          <ModalClose />
-          <Typography level="h4">Editar Recomendacion</Typography>
-          <Stack spacing={2} sx={{ mt: 2 }}>
-            <FormControl>
-              <FormLabel>Titulo</FormLabel>
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent className="max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Editar Recomendacion</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-title">Titulo</Label>
               <Input
+                id="edit-title"
                 value={editForm.title || ''}
                 onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
               />
-            </FormControl>
-            <FormControl>
-              <FormLabel>Descripcion</FormLabel>
-              <Textarea
-                minRows={3}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-description">Descripcion</Label>
+              <textarea
+                id="edit-description"
+                rows={3}
                 value={editForm.description || ''}
                 onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               />
-            </FormControl>
-            <Grid container spacing={2}>
-              <Grid xs={6}>
-                <FormControl>
-                  <FormLabel>Impacto</FormLabel>
-                  <Input
-                    value={editForm.impact || ''}
-                    onChange={(e) => setEditForm({ ...editForm, impact: e.target.value })}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={6}>
-                <FormControl>
-                  <FormLabel>Esfuerzo</FormLabel>
-                  <Input
-                    value={editForm.effort || ''}
-                    onChange={(e) => setEditForm({ ...editForm, effort: e.target.value })}
-                  />
-                </FormControl>
-              </Grid>
-            </Grid>
-            <FormControl>
-              <FormLabel>Ganancia Potencial</FormLabel>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-impact">Impacto</Label>
+                <Input
+                  id="edit-impact"
+                  value={editForm.impact || ''}
+                  onChange={(e) => setEditForm({ ...editForm, impact: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-effort">Esfuerzo</Label>
+                <Input
+                  id="edit-effort"
+                  value={editForm.effort || ''}
+                  onChange={(e) => setEditForm({ ...editForm, effort: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-gain">Ganancia Potencial</Label>
               <Input
+                id="edit-gain"
                 value={editForm.potentialGain || ''}
                 onChange={(e) => setEditForm({ ...editForm, potentialGain: e.target.value })}
               />
-            </FormControl>
-            <Grid container spacing={2}>
-              <Grid xs={6}>
-                <FormControl>
-                  <FormLabel>Prioridad</FormLabel>
-                  <Select
-                    value={editForm.priority}
-                    onChange={(_, value) => setEditForm({ ...editForm, priority: value as any })}
-                  >
-                    <Option value="critical">Critica</Option>
-                    <Option value="high">Alta</Option>
-                    <Option value="medium">Media</Option>
-                    <Option value="low">Baja</Option>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid xs={6}>
-                <FormControl>
-                  <FormLabel>Categoria</FormLabel>
-                  <Select
-                    value={editForm.category}
-                    onChange={(_, value) => setEditForm({ ...editForm, category: value as any })}
-                  >
-                    <Option value="timing">Timing</Option>
-                    <Option value="content">Contenido</Option>
-                    <Option value="segmentation">Segmentacion</Option>
-                    <Option value="budget">Presupuesto</Option>
-                    <Option value="channel">Canal</Option>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-            <Divider />
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button variant="outlined" color="neutral" onClick={() => setEditModalOpen(false)}>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-priority">Prioridad</Label>
+                <Select
+                  value={editForm.priority ?? ''}
+                  onValueChange={(value) => setEditForm({ ...editForm, priority: value as any })}
+                >
+                  <SelectTrigger id="edit-priority" aria-label="Prioridad">
+                    <SelectValue placeholder="Prioridad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="critical">Critica</SelectItem>
+                    <SelectItem value="high">Alta</SelectItem>
+                    <SelectItem value="medium">Media</SelectItem>
+                    <SelectItem value="low">Baja</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-category">Categoria</Label>
+                <Select
+                  value={editForm.category ?? ''}
+                  onValueChange={(value) => setEditForm({ ...editForm, category: value as any })}
+                >
+                  <SelectTrigger id="edit-category" aria-label="Categoria">
+                    <SelectValue placeholder="Categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="timing">Timing</SelectItem>
+                    <SelectItem value="content">Contenido</SelectItem>
+                    <SelectItem value="segmentation">Segmentacion</SelectItem>
+                    <SelectItem value="budget">Presupuesto</SelectItem>
+                    <SelectItem value="channel">Canal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="border-t border-border" />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button variant="solid" color="primary" onClick={handleEditRecommendation}>
-                Guardar Cambios
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+              <Button onClick={handleEditRecommendation}>Guardar Cambios</Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Modal */}
-      <Modal open={deleteModalOpen} onClose={() => setDeleteModalOpen(false)}>
-        <ModalDialog>
-          <ModalClose />
-          <Typography level="h4" color="danger">Descartar Recomendacion</Typography>
-          <Typography sx={{ mt: 2 }}>
-            Esta accion eliminara permanentemente la recomendacion. Esta seguro?
-          </Typography>
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive-text">Descartar Recomendacion</DialogTitle>
+            <DialogDescription>
+              Esta accion eliminara permanentemente la recomendacion. Esta seguro?
+            </DialogDescription>
+          </DialogHeader>
           {selectedRecommendation && (
-            <Typography level="body-sm" sx={{ mt: 1, color: 'text.tertiary' }}>
-              "{selectedRecommendation.title}"
-            </Typography>
+            <p className="text-sm text-muted-foreground">"{selectedRecommendation.title}"</p>
           )}
-          <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-            <Button variant="outlined" color="neutral" onClick={() => setDeleteModalOpen(false)}>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
               Cancelar
             </Button>
-            <Button variant="solid" color="danger" onClick={handleDismissRecommendation}>
+            <Button
+              onClick={handleDismissRecommendation}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Eliminar Permanentemente
             </Button>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Filters Modal */}
-      <Modal open={filterModalOpen} onClose={() => setFilterModalOpen(false)}>
-        <ModalDialog sx={{ minWidth: 500, maxWidth: 600 }}>
-          <ModalClose />
-          <Typography level="h4" startDecorator={<FilterListIcon />}>
-            Filtros de Auditoría
-          </Typography>
+      <Dialog open={filterModalOpen} onOpenChange={setFilterModalOpen}>
+        <DialogContent className="max-w-[600px] sm:min-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FunnelSimple className="size-5" aria-hidden />
+              Filtros de Auditoría
+            </DialogTitle>
+          </DialogHeader>
 
-          <Divider sx={{ my: 2 }} />
+          <div className="border-t border-border" />
 
-          <Stack spacing={3}>
+          <div className="flex flex-col gap-6">
             {/* Estado de Recomendación */}
-            <FormControl>
-              <FormLabel>Estado de Recomendación</FormLabel>
-              <Select
-                value={filter}
-                onChange={(_, value) => setFilter(value as string)}
-              >
-                <Option value="all">Todas</Option>
-                <Option value="active">Activas</Option>
-                <Option value="applied">Aplicadas</Option>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-status">Estado de Recomendación</Label>
+              <Select value={filter} onValueChange={(value) => setFilter(value)}>
+                <SelectTrigger id="filter-status" aria-label="Estado de Recomendación">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="active">Activas</SelectItem>
+                  <SelectItem value="applied">Aplicadas</SelectItem>
+                </SelectContent>
               </Select>
-            </FormControl>
+            </div>
 
             {/* Estado de Entrega de Campaña (effective_status de Meta) */}
-            <FormControl>
-              <FormLabel>Estado de Entrega (Ads Manager)</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-delivery">Estado de Entrega (Ads Manager)</Label>
               <Select
                 value={deliveryStatusFilter}
-                onChange={(_, value) => setDeliveryStatusFilter(value as string)}
+                onValueChange={(value) => setDeliveryStatusFilter(value)}
               >
-                <Option value="all">Todos los estados</Option>
-                <Option value="ACTIVE">🟢 Activa (entregando)</Option>
-                <Option value="COMPLETED">⚪ Completada</Option>
-                <Option value="PAUSED">🔴 Pausada</Option>
-                <Option value="ARCHIVED">📦 Archivada</Option>
-                <Option value="WITH_ISSUES">⚠️ Con problemas</Option>
+                <SelectTrigger id="filter-delivery" aria-label="Estado de Entrega">
+                  <SelectValue placeholder="Todos los estados" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="ACTIVE">Activa (entregando)</SelectItem>
+                  <SelectItem value="COMPLETED">Completada</SelectItem>
+                  <SelectItem value="PAUSED">Pausada</SelectItem>
+                  <SelectItem value="ARCHIVED">Archivada</SelectItem>
+                  <SelectItem value="WITH_ISSUES">Con problemas</SelectItem>
+                </SelectContent>
               </Select>
-              <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+              <p className="text-xs text-muted-foreground">
                 Usa "Activa" para ver solo campañas que realmente están entregando
-              </Typography>
-            </FormControl>
+              </p>
+            </div>
 
             {/* Rango de Fechas */}
-            <Box>
-              <FormLabel sx={{ mb: 1 }}>Rango de Fechas</FormLabel>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Desde</FormLabel>
-                    <Input
-                      type="date"
-                      value={dateRange.from || ''}
-                      onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-                      slotProps={{
-                        input: {
-                          max: dateRange.to || undefined
-                        }
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Hasta</FormLabel>
-                    <Input
-                      type="date"
-                      value={dateRange.to || ''}
-                      onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-                      slotProps={{
-                        input: {
-                          min: dateRange.from || undefined
-                        }
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
+            <div>
+              <p className="mb-2 text-sm font-medium text-foreground">Rango de Fechas</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="filter-date-from">Desde</Label>
+                  <Input
+                    id="filter-date-from"
+                    type="date"
+                    value={dateRange.from || ''}
+                    onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
+                    max={dateRange.to || undefined}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="filter-date-to">Hasta</Label>
+                  <Input
+                    id="filter-date-to"
+                    type="date"
+                    value={dateRange.to || ''}
+                    onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
+                    min={dateRange.from || undefined}
+                  />
+                </div>
+              </div>
               {(dateRange.from || dateRange.to) && (
                 <Button
                   size="sm"
-                  variant="plain"
-                  color="neutral"
+                  variant="ghost"
+                  className="mt-2"
                   onClick={() => setDateRange({ from: null, to: null })}
-                  sx={{ mt: 1 }}
                 >
                   Limpiar fechas
                 </Button>
               )}
-            </Box>
+            </div>
 
-            <Divider />
+            <div className="border-t border-border" />
 
             {/* Filtros Avanzados de Campañas */}
-            <Typography level="title-md" startDecorator={<CampaignIcon />}>
+            <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Megaphone className="size-5" aria-hidden />
               Filtros Avanzados de Campañas
-            </Typography>
+            </p>
 
             {/* Rango de Gasto */}
-            <Box>
-              <FormLabel sx={{ mb: 1 }}>Rango de Gasto ($)</FormLabel>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Mínimo</FormLabel>
-                    <Input
-                      type="number"
-                      placeholder="0"
-                      value={spendRange.min || ''}
-                      onChange={(e) => setSpendRange({ ...spendRange, min: e.target.value ? Number(e.target.value) : null })}
-                      startDecorator="$"
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Máximo</FormLabel>
-                    <Input
-                      type="number"
-                      placeholder="∞"
-                      value={spendRange.max || ''}
-                      onChange={(e) => setSpendRange({ ...spendRange, max: e.target.value ? Number(e.target.value) : null })}
-                      startDecorator="$"
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
-            </Box>
+            <div>
+              <p className="mb-2 text-sm font-medium text-foreground">Rango de Gasto ($)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="filter-spend-min">Mínimo</Label>
+                  <Input
+                    id="filter-spend-min"
+                    type="number"
+                    placeholder="0"
+                    value={spendRange.min ?? ''}
+                    onChange={(e) => setSpendRange({ ...spendRange, min: e.target.value ? Number(e.target.value) : null })}
+                    leftIcon={<span className="text-sm">$</span>}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="filter-spend-max">Máximo</Label>
+                  <Input
+                    id="filter-spend-max"
+                    type="number"
+                    placeholder="∞"
+                    value={spendRange.max ?? ''}
+                    onChange={(e) => setSpendRange({ ...spendRange, max: e.target.value ? Number(e.target.value) : null })}
+                    leftIcon={<span className="text-sm">$</span>}
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* CTR Threshold */}
-            <Box>
-              <FormLabel sx={{ mb: 1 }}>CTR (Click-Through Rate) %</FormLabel>
-              <Grid container spacing={2}>
-                <Grid xs={4}>
-                  <FormControl>
-                    <Select
-                      value={ctrThreshold.operator}
-                      onChange={(_, value) => setCtrThreshold({ ...ctrThreshold, operator: value as any })}
-                    >
-                      <Option value="any">Cualquiera</Option>
-                      <Option value="gt">Mayor que</Option>
-                      <Option value="lt">Menor que</Option>
-                      <Option value="eq">Igual a</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={8}>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      placeholder="Ej: 2.5"
-                      value={ctrThreshold.value || ''}
-                      onChange={(e) => setCtrThreshold({ ...ctrThreshold, value: e.target.value ? Number(e.target.value) : null })}
-                      endDecorator="%"
-                      disabled={ctrThreshold.operator === 'any'}
-                      slotProps={{
-                        input: {
-                          step: 0.01
-                        }
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
-            </Box>
+            <div>
+              <p className="mb-2 text-sm font-medium text-foreground">CTR (Click-Through Rate) %</p>
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-4">
+                  <Select
+                    value={ctrThreshold.operator}
+                    onValueChange={(value) => setCtrThreshold({ ...ctrThreshold, operator: value as any })}
+                  >
+                    <SelectTrigger className="h-11" aria-label="Operador CTR">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Cualquiera</SelectItem>
+                      <SelectItem value="gt">Mayor que</SelectItem>
+                      <SelectItem value="lt">Menor que</SelectItem>
+                      <SelectItem value="eq">Igual a</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-8">
+                  <Input
+                    type="number"
+                    step={0.01}
+                    aria-label="Valor de CTR"
+                    placeholder="Ej: 2.5"
+                    value={ctrThreshold.value ?? ''}
+                    onChange={(e) => setCtrThreshold({ ...ctrThreshold, value: e.target.value ? Number(e.target.value) : null })}
+                    disabled={ctrThreshold.operator === 'any'}
+                    rightSlot={<span className="pr-2 text-sm text-muted-foreground">%</span>}
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* CPC Threshold */}
-            <Box>
-              <FormLabel sx={{ mb: 1 }}>CPC (Cost Per Click) $</FormLabel>
-              <Grid container spacing={2}>
-                <Grid xs={4}>
-                  <FormControl>
-                    <Select
-                      value={cpcThreshold.operator}
-                      onChange={(_, value) => setCpcThreshold({ ...cpcThreshold, operator: value as any })}
-                    >
-                      <Option value="any">Cualquiera</Option>
-                      <Option value="gt">Mayor que</Option>
-                      <Option value="lt">Menor que</Option>
-                      <Option value="eq">Igual a</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={8}>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      placeholder="Ej: 1.50"
-                      value={cpcThreshold.value || ''}
-                      onChange={(e) => setCpcThreshold({ ...cpcThreshold, value: e.target.value ? Number(e.target.value) : null })}
-                      startDecorator="$"
-                      disabled={cpcThreshold.operator === 'any'}
-                      slotProps={{
-                        input: {
-                          step: 0.01
-                        }
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
-            </Box>
+            <div>
+              <p className="mb-2 text-sm font-medium text-foreground">CPC (Cost Per Click) $</p>
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-4">
+                  <Select
+                    value={cpcThreshold.operator}
+                    onValueChange={(value) => setCpcThreshold({ ...cpcThreshold, operator: value as any })}
+                  >
+                    <SelectTrigger className="h-11" aria-label="Operador CPC">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Cualquiera</SelectItem>
+                      <SelectItem value="gt">Mayor que</SelectItem>
+                      <SelectItem value="lt">Menor que</SelectItem>
+                      <SelectItem value="eq">Igual a</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-8">
+                  <Input
+                    type="number"
+                    step={0.01}
+                    aria-label="Valor de CPC"
+                    placeholder="Ej: 1.50"
+                    value={cpcThreshold.value ?? ''}
+                    onChange={(e) => setCpcThreshold({ ...cpcThreshold, value: e.target.value ? Number(e.target.value) : null })}
+                    disabled={cpcThreshold.operator === 'any'}
+                    leftIcon={<span className="text-sm">$</span>}
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* Impressions Threshold */}
-            <FormControl>
-              <FormLabel>Impresiones Mínimas</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-impressions">Impresiones Mínimas</Label>
               <Input
+                id="filter-impressions"
                 type="number"
                 placeholder="Ej: 10000"
-                value={impressionsThreshold || ''}
+                value={impressionsThreshold ?? ''}
                 onChange={(e) => setImpressionsThreshold(e.target.value ? Number(e.target.value) : null)}
               />
-            </FormControl>
+            </div>
 
             {/* Objective Filter */}
-            <FormControl>
-              <FormLabel>Objetivo de Campaña</FormLabel>
-              <Select
-                multiple
-                placeholder="Seleccionar objetivos..."
-                value={objectiveFilter}
-                onChange={(_, value) => setObjectiveFilter(value as string[])}
-                renderValue={(selected) => (
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                    {selected.map((option) => (
-                      <Chip key={option.value} size="sm" variant="soft">
-                        {option.label}
-                      </Chip>
-                    ))}
-                  </Box>
-                )}
-              >
-                <Option value="CONVERSIONS">Conversiones</Option>
-                <Option value="TRAFFIC">Tráfico</Option>
-                <Option value="AWARENESS">Reconocimiento</Option>
-                <Option value="ENGAGEMENT">Interacción</Option>
-                <Option value="APP_INSTALLS">Instalaciones de App</Option>
-                <Option value="LEAD_GENERATION">Generación de Leads</Option>
-                <Option value="MESSAGES">Mensajes</Option>
-                <Option value="SALES">Ventas</Option>
-              </Select>
-            </FormControl>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-foreground">Objetivo de Campaña</p>
+              <MultiSelectFilter
+                label="Seleccionar objetivos..."
+                className="h-11 w-full"
+                selected={objectiveFilter}
+                onChange={setObjectiveFilter}
+                options={[
+                  { value: 'CONVERSIONS', label: 'Conversiones' },
+                  { value: 'TRAFFIC', label: 'Tráfico' },
+                  { value: 'AWARENESS', label: 'Reconocimiento' },
+                  { value: 'ENGAGEMENT', label: 'Interacción' },
+                  { value: 'APP_INSTALLS', label: 'Instalaciones de App' },
+                  { value: 'LEAD_GENERATION', label: 'Generación de Leads' },
+                  { value: 'MESSAGES', label: 'Mensajes' },
+                  { value: 'SALES', label: 'Ventas' },
+                ]}
+              />
+              {objectiveFilter.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {objectiveFilter.map((option) => (
+                    <Badge key={option} variant="neutral">
+                      {option}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Campaign Name Search */}
-            <FormControl>
-              <FormLabel>Buscar por Nombre de Campaña</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-name">Buscar por Nombre de Campaña</Label>
               <Input
+                id="filter-name"
                 placeholder="Ej: Black Friday, Navidad..."
                 value={campaignNameSearch}
                 onChange={(e) => setCampaignNameSearch(e.target.value)}
-                startDecorator={<SearchIcon />}
+                leftIcon={<MagnifyingGlass aria-hidden />}
               />
-            </FormControl>
+            </div>
 
-            <Divider />
+            <div className="border-t border-border" />
 
             {/* Acciones */}
-            <Stack direction="row" spacing={2} justifyContent="space-between">
+            <div className="flex items-center justify-between gap-3">
               <Button
-                variant="outlined"
-                color="neutral"
+                variant="outline"
                 onClick={clearAllFilters}
                 disabled={getActiveFiltersCount() === 0}
               >
                 Limpiar todos
               </Button>
-              <Stack direction="row" spacing={1}>
-                <Button
-                  variant="outlined"
-                  color="neutral"
-                  onClick={() => setFilterModalOpen(false)}
-                >
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setFilterModalOpen(false)}>
                   Cancelar
                 </Button>
-                <Button
-                  variant="solid"
-                  color="primary"
-                  onClick={() => setFilterModalOpen(false)}
-                >
-                  Aplicar Filtros
-                </Button>
-              </Stack>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+                <Button onClick={() => setFilterModalOpen(false)}>Aplicar Filtros</Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal del Plan del Agente Meta Ads */}
+      <MetaAgentPlanCard
+        open={planModalOpen}
+        plan={currentPlan}
+        onClose={() => setPlanModalOpen(false)}
+        onExecuted={() => {
+          // Refrescar datos relevantes después de ejecutar acciones
+          if (selectedConnection && connectionStatus === 'connected') {
+            fetchCampaignsData()
+          }
+        }}
+      />
+      </div>
+    </TooltipProvider>
   )
 }

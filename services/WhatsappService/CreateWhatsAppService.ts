@@ -14,6 +14,10 @@ interface Request {
   complationMessage?: string;
   outOfHoursMessage?: string;
   ratingMessage?: string;
+  npsEnabled?: boolean | null;
+  acceptAudio?: boolean | null;
+  callRejectMessage?: string;
+  rejectAudioMessage?: string;
   status?: string;
   isDefault?: boolean;
   token?: string;
@@ -83,6 +87,10 @@ const CreateWhatsAppService = async ({
   timeInactiveMessage,
   inactiveMessage,
   ratingMessage,
+  npsEnabled,
+  acceptAudio,
+  callRejectMessage,
+  rejectAudioMessage,
   maxUseBotQueuesNPS,
   expiresTicketNPS,
   whenExpiresTicket,
@@ -202,6 +210,10 @@ const CreateWhatsAppService = async ({
       complationMessage,
       outOfHoursMessage,
       ratingMessage,
+      ...(npsEnabled !== undefined && { npsEnabled }),
+      ...(acceptAudio !== undefined && { acceptAudio }),
+      ...(callRejectMessage !== undefined && { callRejectMessage }),
+      ...(rejectAudioMessage !== undefined && { rejectAudioMessage }),
       isDefault,
       companyId,
       token,

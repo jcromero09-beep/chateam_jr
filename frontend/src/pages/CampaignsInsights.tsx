@@ -1,47 +1,27 @@
 import { useState, useEffect } from 'react'
+// [Re-skin Tailwind v4] De MUI Joy sólo se conservan los indicadores de progreso
+// (CircularProgress / LinearProgress), que no tienen equivalente en el design system.
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Select,
-  Option,
-  Chip,
-  Sheet,
-  Table,
-  LinearProgress,
-  IconButton,
-  Tooltip,
-  Alert,
-  CircularProgress,
-  Input,
-  Button,
-} from '@mui/joy'
-import {
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  Remove as RemoveIcon,
-  Campaign as CampaignIcon,
-  Visibility as VisibilityIcon,
-  TouchApp as TouchAppIcon,
-  AttachMoney as MoneyIcon,
-  People as PeopleIcon,
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  PauseCircle as PauseCircleIcon,
-  Error as ErrorIcon,
-  Search as SearchIcon,
-  KeyboardArrowLeft as ArrowLeftIcon,
-  KeyboardArrowRight as ArrowRightIcon,
-  Chat as ChatIcon,
-  PersonAdd as PersonAddIcon,
-  Forum as ForumIcon,
-  ViewColumn as ViewColumnIcon,
-} from '@mui/icons-material'
+  Megaphone,
+  Eye,
+  HandTap,
+  CurrencyDollar,
+  Users,
+  DownloadSimple,
+  ArrowClockwise,
+  CheckCircle,
+  PauseCircle,
+  WarningCircle,
+  MagnifyingGlass,
+  CaretLeft,
+  CaretRight,
+  ChatCircle,
+  UserPlus,
+  ChatsCircle,
+  Columns,
+  TrendUp,
+} from '@phosphor-icons/react'
 import {
   AreaChart,
   Area,
@@ -52,7 +32,21 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
+import logger from '../utils/logger'
 import DateRangePicker from '../components/DateRangePicker'
 import CustomColumnModal, {
   type CustomColumn,
@@ -60,6 +54,37 @@ import CustomColumnModal, {
   formatCustomValue,
   getOperatorSymbol,
 } from '../components/CustomColumnModal'
+
+// ── Clases de tabla compartidas (tokens del design system) ────────────────────
+const TH = 'whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'
+const TH_NUM = `${TH} text-right`
+const TD = 'whitespace-nowrap px-4 py-3'
+const TD_NUM = 'whitespace-nowrap px-4 py-3 text-right tabular-nums'
+
+// Columna fija a la izquierda: el fondo debe ser OPACO (si no, las celdas de la
+// derecha se ven por debajo al hacer scroll horizontal) y a la vez idéntico al
+// compuesto real (card + tinte de la fila) → color-mix sobre los mismos tokens.
+const STICKY_HEAD_CELL =
+  'sticky left-0 z-20 bg-[color-mix(in_srgb,var(--muted)_40%,var(--card))] shadow-[2px_0_4px_-2px] shadow-black/10'
+const STICKY_BODY_CELL =
+  'sticky left-0 z-10 bg-card shadow-[2px_0_4px_-2px] shadow-black/10 transition-colors group-hover:bg-[color-mix(in_srgb,var(--accent)_40%,var(--card))]'
+
+// Tinte de cada bloque de métricas por objetivo (cabeceras)
+const BLOCK_TINT = {
+  ventas: 'bg-success/12',
+  mensajes: 'bg-primary/12',
+  leads: 'bg-warning/16',
+  video: 'bg-muted',
+  custom: 'bg-primary/12',
+} as const
+
+// Color del icono de cada KPI
+const STAT_TONE: Record<string, string> = {
+  primary: 'text-primary',
+  success: 'text-success-text',
+  warning: 'text-warning-text',
+  neutral: 'text-muted-foreground',
+}
 
 interface FacebookCampaign {
   id: string
@@ -122,6 +147,22 @@ interface FacebookAd {
   clicks: number
   spend: number
   reach: number
+  ctr: number
+  cpc: number
+  cpm: number
+}
+
+interface FacebookAdSet {
+  id: string
+  name: string
+  campaign_id: string
+  campaign_name: string
+  status: string
+  impressions: number
+  clicks: number
+  spend: number
+  reach: number
+  frequency: number
   ctr: number
   cpc: number
   cpm: number
@@ -256,6 +297,7 @@ export default function CampaignsInsights() {
   const [dateLabel, setDateLabel] = useState('Ultimos 30 dias')
   const [statusFilter, setStatusFilter] = useState('ACTIVA')
   const [campaigns, setCampaigns] = useState<FacebookCampaign[]>([])
+  const [adSets, setAdSets] = useState<FacebookAdSet[]>([])
   const [ads, setAds] = useState<FacebookAd[]>([])
   const [trendData, setTrendData] = useState<InsightsTrend[]>([])
   const [totals, setTotals] = useState<AggregatedInsights | null>(null)
@@ -265,6 +307,7 @@ export default function CampaignsInsights() {
   const [debugMode, setDebugMode] = useState(false)
 
   // Estados para búsqueda y paginación - Campañas
+  const [insightsTab, setInsightsTab] = useState<'campaigns' | 'adsets' | 'ads'>('campaigns')
   const [campaignSearch, setCampaignSearch] = useState('')
   const [campaignPage, setCampaignPage] = useState(1)
   const [campaignRowsPerPage, setCampaignRowsPerPage] = useState(10)
@@ -290,6 +333,10 @@ export default function CampaignsInsights() {
   }
 
   // Estados para búsqueda y paginación - Anuncios
+  const [adSetSearch, setAdSetSearch] = useState('')
+  const [adSetStatusFilter, setAdSetStatusFilter] = useState('ACTIVA')
+  const [adSetPage, setAdSetPage] = useState(1)
+  const [adSetRowsPerPage, setAdSetRowsPerPage] = useState(10)
   const [adSearch, setAdSearch] = useState('')
   const [adStatusFilter, setAdStatusFilter] = useState('ACTIVA')
   const [adPage, setAdPage] = useState(1)
@@ -406,6 +453,7 @@ export default function CampaignsInsights() {
 
       if (response.data.success) {
         setCampaigns(response.data.campaigns || [])
+        setAdSets(response.data.adSets || response.data.adsets || [])
         setTrendData(response.data.trends || [])
         setTotals(response.data.totals || null)
         setAds(response.data.ads || [])
@@ -458,6 +506,31 @@ export default function CampaignsInsights() {
   const campaignMap = new Map(campaigns.map(c => [String(c.id), c]))
   const campaignNameMap = new Map(campaigns.map(c => [c.name, c]))
 
+  // Filtrar conjuntos por búsqueda y por estado de entrega de su campaña padre
+  const filteredAdSets = adSets.filter(adSet => {
+    const search = adSetSearch.toLowerCase()
+    const matchesSearch = (adSet.name || '').toLowerCase().includes(search) ||
+                          (adSet.campaign_name || '').toLowerCase().includes(search)
+    let matchesStatus = true
+    if (adSetStatusFilter !== 'all') {
+      const parentCampaign = campaignMap.get(String(adSet.campaign_id)) || campaignNameMap.get(adSet.campaign_name)
+      if (parentCampaign) {
+        const deliveryState = classifyCampaignDelivery(parentCampaign)
+        matchesStatus = deliveryState === adSetStatusFilter
+      } else {
+        matchesStatus = false
+      }
+    }
+    return matchesSearch && matchesStatus
+  })
+
+  // Paginación de conjuntos
+  const totalAdSetPages = Math.ceil(filteredAdSets.length / adSetRowsPerPage)
+  const paginatedAdSets = filteredAdSets.slice(
+    (adSetPage - 1) * adSetRowsPerPage,
+    adSetPage * adSetRowsPerPage
+  )
+
   // Filtrar anuncios por búsqueda y por estado de entrega de su campaña padre
   const filteredAds = ads.filter(ad => {
     const matchesSearch = ad.name.toLowerCase().includes(adSearch.toLowerCase()) ||
@@ -487,6 +560,10 @@ export default function CampaignsInsights() {
   useEffect(() => {
     setCampaignPage(1)
   }, [campaignSearch, statusFilter])
+
+  useEffect(() => {
+    setAdSetPage(1)
+  }, [adSetSearch, adSetStatusFilter])
 
   useEffect(() => {
     setAdPage(1)
@@ -546,56 +623,56 @@ export default function CampaignsInsights() {
     {
       label: 'Gasto Total',
       value: formatCurrency(totals.spend),
-      icon: <MoneyIcon />,
+      icon: <CurrencyDollar className="size-5" aria-hidden />,
       color: 'primary',
       description: 'Cantidad total gastada en todas las campanas durante el periodo seleccionado',
     },
     {
       label: 'Impresiones',
       value: formatNumber(totals.impressions),
-      icon: <VisibilityIcon />,
+      icon: <Eye className="size-5" aria-hidden />,
       color: 'success',
       description: 'Numero total de veces que tus anuncios fueron mostrados en pantalla',
     },
     {
       label: 'Clics',
       value: formatNumber(totals.clicks),
-      icon: <TouchAppIcon />,
+      icon: <HandTap className="size-5" aria-hidden />,
       color: 'warning',
       description: 'Numero total de clics en tus anuncios (enlaces, CTA, imagen, etc.)',
     },
     {
       label: 'CTR',
       value: formatPercent(totals.ctr),
-      icon: <TrendingUpIcon />,
+      icon: <TrendUp className="size-5" aria-hidden />,
       color: 'success',
       description: 'Click-Through Rate: porcentaje de personas que hicieron clic despues de ver el anuncio (Clics / Impresiones)',
     },
     {
       label: 'CPC',
       value: formatCurrency(totals.cpc),
-      icon: <MoneyIcon />,
+      icon: <CurrencyDollar className="size-5" aria-hidden />,
       color: 'neutral',
       description: 'Costo Por Clic: precio promedio pagado por cada clic en tus anuncios',
     },
     {
       label: 'CPM',
       value: formatCurrency(totals.cpm),
-      icon: <MoneyIcon />,
+      icon: <CurrencyDollar className="size-5" aria-hidden />,
       color: 'neutral',
       description: 'Costo Por Mil impresiones: precio promedio pagado por cada 1.000 visualizaciones del anuncio',
     },
     {
       label: 'Alcance',
       value: formatNumber(totals.reach),
-      icon: <PeopleIcon />,
+      icon: <Users className="size-5" aria-hidden />,
       color: 'primary',
       description: 'Numero de personas unicas que vieron tus anuncios al menos una vez',
     },
     {
       label: 'Frecuencia',
       value: totals.frequency.toFixed(2),
-      icon: <CampaignIcon />,
+      icon: <Megaphone className="size-5" aria-hidden />,
       color: 'neutral',
       description: 'Promedio de veces que cada persona vio tu anuncio (Impresiones / Alcance)',
     },
@@ -603,43 +680,44 @@ export default function CampaignsInsights() {
     {
       label: 'Conversaciones',
       value: formatNumber(campaigns.reduce((sum, c) => sum + (c.insights?.conversationsStarted || 0), 0)),
-      icon: <ChatIcon />,
+      icon: <ChatCircle className="size-5" aria-hidden />,
       color: 'primary',
       description: 'Total de conversaciones iniciadas desde anuncios (messaging_conversation_started_7d)',
     },
     {
       label: 'Contactos Msj',
       value: formatNumber(campaigns.reduce((sum, c) => sum + (c.insights?.messagingContacts || 0), 0)),
-      icon: <ForumIcon />,
+      icon: <ChatsCircle className="size-5" aria-hidden />,
       color: 'success',
       description: 'Total de contactos que respondieron por primera vez a tus anuncios (messaging_first_reply)',
     },
     {
       label: 'Nuevos Contactos',
       value: formatNumber(campaigns.reduce((sum, c) => sum + (c.insights?.newMessagingConnections || 0), 0)),
-      icon: <PersonAddIcon />,
+      icon: <UserPlus className="size-5" aria-hidden />,
       color: 'warning',
       description: 'Total de nuevas conexiones de mensajeria generadas por tus anuncios (total_messaging_connection)',
     },
   ] : []
 
   // Usa delivery_state (estado calculado) para determinar el estado real de la campaña
+  // El icono hereda el color del Badge contenedor (currentColor) → sin colores hardcodeados.
   const getDeliveryStateIcon = (state: DeliveryState) => {
     switch (state) {
       case 'ACTIVA':
-        return <CheckCircleIcon sx={{ color: 'success.500', fontSize: 18 }} />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'DESACTIVADA':
-        return <PauseCircleIcon sx={{ color: 'warning.500', fontSize: 18 }} />
+        return <PauseCircle className="size-3.5" weight="fill" aria-hidden />
       case 'COMPLETADA':
-        return <CheckCircleIcon sx={{ color: 'neutral.500', fontSize: 18 }} />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'NO_HAY_ANUNCIOS':
-        return <ErrorIcon sx={{ color: 'danger.500', fontSize: 18 }} />
+        return <WarningCircle className="size-3.5" weight="fill" aria-hidden />
       default:
-        return <ErrorIcon sx={{ color: 'neutral.500', fontSize: 18 }} />
+        return <WarningCircle className="size-3.5" weight="fill" aria-hidden />
     }
   }
 
-  const getDeliveryStateColor = (state: DeliveryState): 'success' | 'warning' | 'neutral' | 'danger' => {
+  const getDeliveryStateColor = (state: DeliveryState): BadgeProps['variant'] => {
     switch (state) {
       case 'ACTIVA':
         return 'success'
@@ -648,7 +726,7 @@ export default function CampaignsInsights() {
       case 'COMPLETADA':
         return 'neutral'
       case 'NO_HAY_ANUNCIOS':
-        return 'danger'
+        return 'destructive'
       default:
         return 'neutral'
     }
@@ -736,757 +814,815 @@ export default function CampaignsInsights() {
 
   if (connectionStatus === 'checking') {
     return (
-      <Container maxWidth="xl">
-        <Stack spacing={3} alignItems="center" justifyContent="center" sx={{ minHeight: '50vh' }}>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto flex min-h-[50vh] max-w-[1400px] flex-col items-center justify-center gap-4 p-5 sm:p-6 lg:p-8">
           <CircularProgress size="lg" />
-          <Typography level="body-lg">Verificando conexion con Facebook...</Typography>
-        </Stack>
-      </Container>
+          <p className="text-base text-muted-foreground">Verificando conexion con Facebook...</p>
+        </div>
+      </div>
     )
   }
 
   if (connectionStatus === 'error') {
     return (
-      <Container maxWidth="xl">
-        <Stack spacing={3} sx={{ mt: 4 }}>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
           {/* Header */}
-          <Stack direction="row" spacing={2} alignItems="center">
-            <CampaignIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Facebook Ads Insights</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Megaphone className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Facebook Ads Insights
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Métricas de tu cuenta publicitaria de Meta
-              </Typography>
-            </Box>
-          </Stack>
+              </p>
+            </div>
+          </div>
 
           {/* Card de configuración pendiente */}
-          <Card
-            variant="outlined"
-            sx={{
-              maxWidth: 600,
-              mx: 'auto',
-              mt: 4,
-              textAlign: 'center',
-              borderColor: 'warning.300',
-              bgcolor: 'warning.50',
-            }}
-          >
-            <CardContent sx={{ py: 4, px: 3 }}>
-              <Box sx={{ mb: 2 }}>
-                <CampaignIcon sx={{ fontSize: 56, color: 'warning.500', opacity: 0.8 }} />
-              </Box>
-              <Typography level="h4" sx={{ mb: 1 }}>
-                Configuración Pendiente
-              </Typography>
-              <Typography level="body-md" sx={{ mb: 3, color: 'text.secondary' }}>
-                {error || 'Para visualizar las métricas de tus campañas, necesitas vincular tu cuenta publicitaria de Meta (Facebook Ads).'}
-              </Typography>
+          <section className="mx-auto mt-4 w-full max-w-[600px] rounded-xl border border-warning/30 bg-warning/10 p-6 text-center">
+            <span className="mx-auto mb-4 flex size-14 items-center justify-center text-warning-text">
+              <Megaphone className="size-14" weight="fill" aria-hidden />
+            </span>
+            <h2 className="mb-2 text-lg font-semibold text-foreground">
+              Configuración Pendiente
+            </h2>
+            <p className="mb-6 text-sm text-muted-foreground">
+              {error || 'Para visualizar las métricas de tus campañas, necesitas vincular tu cuenta publicitaria de Meta (Facebook Ads).'}
+            </p>
 
-              <Card variant="soft" sx={{ textAlign: 'left', mb: 3, bgcolor: 'background.surface' }}>
-                <CardContent>
-                  <Typography level="title-sm" sx={{ mb: 1.5 }}>¿Cómo configurarlo?</Typography>
-                  <Stack spacing={1}>
-                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>1.</Typography>}>
-                      Ve a <strong>Canales → Facebook</strong> en el menú lateral
-                    </Typography>
-                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>2.</Typography>}>
-                      Vincula tu cuenta de Facebook con permisos de Ads
-                    </Typography>
-                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>3.</Typography>}>
-                      Configura tu <strong>Ad Account ID</strong> en las credenciales
-                    </Typography>
-                    <Typography level="body-sm" startDecorator={<Typography sx={{ fontWeight: 700, color: 'primary.500', mr: 0.5 }}>4.</Typography>}>
-                      Regresa aquí y tus métricas aparecerán automáticamente
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
+            <div className="mb-6 rounded-lg border border-border bg-card p-4 text-left">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">¿Cómo configurarlo?</h3>
+              <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:font-bold marker:text-primary">
+                <li>
+                  Ve a <strong className="font-semibold text-foreground">Canales → Facebook</strong> en el menú lateral
+                </li>
+                <li>Vincula tu cuenta de Facebook con permisos de Ads</li>
+                <li>
+                  Configura tu <strong className="font-semibold text-foreground">Ad Account ID</strong> en las credenciales
+                </li>
+                <li>Regresa aquí y tus métricas aparecerán automáticamente</li>
+              </ol>
+            </div>
 
-              {adsConnections.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography level="body-sm" sx={{ mb: 1, textAlign: 'left' }}>Conexiones disponibles:</Typography>
-                  <Select
-                    value={selectedConnection?.toString() || ''}
-                    onChange={(_, value) => handleConnectionChange(Number(value))}
-                    placeholder="Seleccionar conexión"
-                    sx={{ minWidth: 250 }}
-                  >
+            {adsConnections.length > 0 && (
+              <div className="mb-4 text-left">
+                <p className="mb-1.5 text-sm text-foreground">Conexiones disponibles:</p>
+                <Select
+                  value={selectedConnection?.toString() ?? ''}
+                  onValueChange={(value) => handleConnectionChange(Number(value))}
+                >
+                  <SelectTrigger className="h-10 w-full max-w-[280px]" aria-label="Seleccionar conexión">
+                    <SelectValue placeholder="Seleccionar conexión" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {adsConnections.map((conn) => (
-                      <Option key={conn.id} value={conn.id.toString()}>
+                      <SelectItem key={conn.id} value={conn.id.toString()}>
                         {conn.name} (act_{conn.facebookAdAccountId})
-                      </Option>
+                      </SelectItem>
                     ))}
-                  </Select>
-                </Box>
-              )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-              <Button
-                variant="outlined"
-                color="neutral"
-                startDecorator={<RefreshIcon />}
-                onClick={() => fetchAdsConnections()}
-                size="sm"
-              >
-                Reintentar conexión
-              </Button>
-            </CardContent>
-          </Card>
-        </Stack>
-      </Container>
+            <Button variant="outline" size="sm" onClick={() => fetchAdsConnections()}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Reintentar conexión
+            </Button>
+          </section>
+        </div>
+      </div>
     )
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <CampaignIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Facebook Ads Insights</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Metricas de tu cuenta publicitaria de Meta
-              </Typography>
-            </Box>
-          </Stack>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Megaphone className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Facebook Ads Insights
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Metricas de tu cuenta publicitaria de Meta
+                </p>
+              </div>
+            </div>
 
-          <Stack direction="row" spacing={2}>
-            {adsConnections.length > 1 && (
-              <Select
-                value={selectedConnection?.toString() || ''}
-                onChange={(_, value) => handleConnectionChange(Number(value))}
-                sx={{ minWidth: 200 }}
-              >
-                {adsConnections.map((conn) => (
-                  <Option key={conn.id} value={conn.id.toString()}>
-                    {conn.name}
-                  </Option>
-                ))}
-              </Select>
-            )}
-
-            <DateRangePicker
-              since={dateSince}
-              until={dateUntil}
-              presetLabel={dateLabel}
-              onApply={async (s, u, label) => {
-                // Invalidar cache para obtener datos frescos de la API
-                try {
-                  await api.post('/meta-marketing/invalidate-cache')
-                } catch (_) {}
-                setDateSince(s)
-                setDateUntil(u)
-                setDateLabel(label)
-              }}
-            />
-
-            <Tooltip title="Forzar recarga (invalida cache)">
-              <IconButton variant="outlined" color="neutral" onClick={handleForceRefresh} disabled={loading}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="Exportar CSV">
-              <IconButton variant="outlined" color="neutral" onClick={exportData} disabled={campaigns.length === 0}>
-                <DownloadIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        </Stack>
-
-        {loading && <LinearProgress />}
-
-        {error && (
-          <Alert color="warning" variant="soft">
-            {error}
-          </Alert>
-        )}
-
-        {/* KPI Cards */}
-        {totals && (
-          <Grid container spacing={2}>
-            {stats.map((stat, index) => (
-              <Grid xs={12} sm={6} md={3} key={index}>
-                <Tooltip
-                  title={stat.description}
-                  placement="top"
-                  arrow
-                  sx={{
-                    maxWidth: 280,
-                    borderRadius: '12px',
-                    px: 1.5,
-                    py: 1,
-                    fontSize: '13px',
-                    lineHeight: 1.4,
-                    boxShadow: 'md',
-                  }}
+            <div className="flex flex-wrap items-center gap-2">
+              {adsConnections.length > 1 && (
+                <Select
+                  value={selectedConnection?.toString() ?? ''}
+                  onValueChange={(value) => handleConnectionChange(Number(value))}
                 >
-                  <Card sx={{ cursor: 'default' }}>
-                    <CardContent>
-                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                        <Box>
-                          <Typography level="body-sm" sx={{ mb: 1, color: 'text.tertiary' }}>
-                            {stat.label}
-                          </Typography>
-                          <Typography level="h3">
-                            {stat.value}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ color: `${stat.color}.500` }}>
-                          {stat.icon}
-                        </Box>
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                </Tooltip>
-              </Grid>
-            ))}
-          </Grid>
-        )}
+                  <SelectTrigger className="h-10 w-[200px]" aria-label="Conexión de Facebook">
+                    <SelectValue placeholder="Conexión" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {adsConnections.map((conn) => (
+                      <SelectItem key={conn.id} value={conn.id.toString()}>
+                        {conn.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
 
-        {/* Campaigns Table */}
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
+              <DateRangePicker
+                since={dateSince}
+                until={dateUntil}
+                presetLabel={dateLabel}
+                onApply={async (s, u, label) => {
+                  // Invalidar cache para obtener datos frescos de la API.
+                  // Si falla, se muestran los datos cacheados (degradación aceptable).
+                  try {
+                    await api.post('/meta-marketing/invalidate-cache')
+                  } catch (err) {
+                    logger.warn('[CampaignsInsights] no se pudo invalidar la caché de Meta', err)
+                  }
+                  setDateSince(s)
+                  setDateUntil(u)
+                  setDateLabel(label)
+                }}
+              />
+
+              <Tooltip title="Forzar recarga (invalida cache)">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Forzar recarga"
+                  onClick={handleForceRefresh}
+                  disabled={loading}
+                >
+                  <ArrowClockwise className="size-5" aria-hidden />
+                </Button>
+              </Tooltip>
+
+              <Tooltip title="Exportar CSV">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Exportar CSV"
+                  onClick={exportData}
+                  disabled={campaigns.length === 0}
+                >
+                  <DownloadSimple className="size-5" aria-hidden />
+                </Button>
+              </Tooltip>
+            </div>
+          </div>
+
+          {loading && <LinearProgress />}
+
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/16 p-4 text-sm text-warning-text"
+            >
+              <WarningCircle className="size-5 shrink-0" aria-hidden />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* KPI Cards */}
+          {totals && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {stats.map((stat, index) => (
+                <Tooltip key={index} title={stat.description}>
+                  <div
+                    tabIndex={0}
+                    className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm text-muted-foreground">{stat.label}</p>
+                        <p className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+                          {stat.value}
+                        </p>
+                      </div>
+                      <span className={cn('shrink-0', STAT_TONE[stat.color])}>{stat.icon}</span>
+                    </div>
+                  </div>
+                </Tooltip>
+              ))}
+            </div>
+          )}
+
+          <Tabs
+            value={insightsTab}
+            onValueChange={(value) => setInsightsTab((value as 'campaigns' | 'adsets' | 'ads') || 'campaigns')}
+          >
+            <div className="rounded-xl border border-border bg-card p-2 shadow-sm shadow-black/[0.02]">
+              <TabsList className="flex-wrap">
+                <TabsTrigger value="campaigns">Campanas ({filteredCampaigns.length})</TabsTrigger>
+                <TabsTrigger value="adsets">Conjuntos de anuncios ({filteredAdSets.length})</TabsTrigger>
+                <TabsTrigger value="ads">Anuncios ({filteredAds.length})</TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* Campaigns Table */}
+            <TabsContent value="campaigns" className="mt-6 space-y-4">
               {/* Header con título y controles */}
-              <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                <Typography level="h4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-foreground">
                   Campanas ({filteredCampaigns.length})
-                </Typography>
-                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
                   {/* Buscador */}
                   <Input
-                    size="sm"
+                    className="h-9 w-[200px]"
                     placeholder="Buscar campana..."
-                    startDecorator={<SearchIcon sx={{ fontSize: 18 }} />}
+                    aria-label="Buscar campana"
+                    leftIcon={<MagnifyingGlass aria-hidden />}
                     value={campaignSearch}
                     onChange={(e) => setCampaignSearch(e.target.value)}
-                    sx={{ minWidth: 200 }}
                   />
                   {/* Filtro de estado (usa delivery_state calculado) */}
-                  <Select
-                    size="sm"
-                    value={statusFilter}
-                    onChange={(_, value) => setStatusFilter(value as string)}
-                    sx={{ minWidth: 160 }}
-                  >
-                    <Option value="all">Todos</Option>
-                    <Option value="ACTIVA">Activas</Option>
-                    <Option value="DESACTIVADA">Desactivadas</Option>
-                    <Option value="COMPLETADA">Completadas</Option>
-                    <Option value="NO_HAY_ANUNCIOS">Sin Anuncios</Option>
+                  <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value)}>
+                    <SelectTrigger className="h-9 w-[160px]" aria-label="Filtrar por estado">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="ACTIVA">Activas</SelectItem>
+                      <SelectItem value="DESACTIVADA">Desactivadas</SelectItem>
+                      <SelectItem value="COMPLETADA">Completadas</SelectItem>
+                      <SelectItem value="NO_HAY_ANUNCIOS">Sin Anuncios</SelectItem>
+                    </SelectContent>
                   </Select>
                   {/* Selector de métricas por objetivo */}
                   <Select
-                    size="sm"
                     value={objectiveView}
-                    onChange={(_, value) => setObjectiveView((value as ObjectiveView) || 'base')}
-                    sx={{ minWidth: 200 }}
+                    onValueChange={(value) => setObjectiveView((value as ObjectiveView) || 'base')}
                   >
-                    <Option value="base">Metricas Base</Option>
-                    <Option value="ventas">+ Ventas (E-commerce)</Option>
-                    <Option value="mensajes">+ Mensajes</Option>
-                    <Option value="leads">+ Leads</Option>
-                    <Option value="video">+ Video (Branding)</Option>
+                    <SelectTrigger className="h-9 w-[200px]" aria-label="Vista de metricas">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="base">Metricas Base</SelectItem>
+                      <SelectItem value="ventas">+ Ventas (E-commerce)</SelectItem>
+                      <SelectItem value="mensajes">+ Mensajes</SelectItem>
+                      <SelectItem value="leads">+ Leads</SelectItem>
+                      <SelectItem value="video">+ Video (Branding)</SelectItem>
+                    </SelectContent>
                   </Select>
                   {/* Botón Columnas Personalizadas */}
                   <Tooltip title="Crear columnas con formulas personalizadas">
-                    <Button
-                      size="sm"
-                      variant="outlined"
-                      color="neutral"
-                      startDecorator={<ViewColumnIcon sx={{ fontSize: 18 }} />}
-                      onClick={() => setCustomColumnsModalOpen(true)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => setCustomColumnsModalOpen(true)}>
+                      <Columns className="size-4" aria-hidden />
                       Personalizar
                       {customColumns.length > 0 && (
-                        <Chip size="sm" color="primary" variant="solid" sx={{ ml: 0.5 }}>
+                        <Badge variant="primary" className="ml-0.5">
                           {customColumns.length}
-                        </Chip>
+                        </Badge>
                       )}
                     </Button>
                   </Tooltip>
                   {/* Filas por página */}
                   <Select
-                    size="sm"
                     value={campaignRowsPerPage.toString()}
-                    onChange={(_, value) => setCampaignRowsPerPage(Number(value))}
-                    sx={{ minWidth: 80 }}
+                    onValueChange={(value) => setCampaignRowsPerPage(Number(value))}
                   >
-                    <Option value="5">5</Option>
-                    <Option value="10">10</Option>
-                    <Option value="25">25</Option>
-                    <Option value="50">50</Option>
+                    <SelectTrigger className="h-9 w-[80px]" aria-label="Filas por pagina">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5</SelectItem>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
                   </Select>
-                </Stack>
-              </Stack>
+                </div>
+              </div>
 
               {/* Tabla con scroll horizontal */}
-              <Sheet sx={{ overflowX: 'auto', overflowY: 'hidden' }}>
-                <Table sx={{
-                  '& th, & td': { whiteSpace: 'nowrap' },
-                  // Columna Campaña fija a la izquierda
-                  '& th:first-of-type, & td:first-of-type': {
-                    position: 'sticky',
-                    left: 0,
-                    zIndex: 1,
-                    bgcolor: 'background.surface',
-                    boxShadow: '2px 0 4px -2px rgba(0,0,0,0.1)',
-                  },
-                  '& thead th:first-of-type': {
-                    zIndex: 2,
-                  },
-                  tableLayout: 'auto',
-                  minWidth: objectiveView === 'base' ? 900 : 1200,
-                }}>
-                  <thead>
-                    <tr>
-                      {/* === BLOQUE BASE (siempre visible) === */}
-                      <th style={{ minWidth: 250, width: 250 }}>Campana</th>
-                      <th>Estado</th>
-                      <th>Objetivo</th>
-                      <th style={{ textAlign: 'right' }}>Gasto</th>
-                      <th style={{ textAlign: 'right' }}>Impresiones</th>
-                      <th style={{ textAlign: 'right' }}>Alcance</th>
-                      <th style={{ textAlign: 'right' }}>Frecuencia</th>
-                      <th style={{ textAlign: 'right' }}>CPM</th>
-                      <th style={{ textAlign: 'right' }}>Clics</th>
-                      <th style={{ textAlign: 'right' }}>CTR</th>
-                      <th style={{ textAlign: 'right' }}>CPC</th>
-                      {/* === BLOQUE VENTAS === */}
-                      {objectiveView === 'ventas' && (
-                        <>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>LPV</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>$/LPV</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>Carrito</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>Checkout</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>Compras</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>$/Compra</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>Val.Conv.</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-success-softBg)' }}>ROAS</th>
-                        </>
-                      )}
-                      {/* === BLOQUE MENSAJES === */}
-                      {objectiveView === 'mensajes' && (
-                        <>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-primary-softBg)' }}>Conversaciones</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-primary-softBg)' }}>$/Conv.</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-primary-softBg)' }}>Contactos Msj</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-primary-softBg)' }}>$/Contacto</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-primary-softBg)' }}>Nuevos Contactos</th>
-                        </>
-                      )}
-                      {/* === BLOQUE LEADS === */}
-                      {objectiveView === 'leads' && (
-                        <>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-warning-softBg)' }}>Leads</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-warning-softBg)' }}>$/Lead</th>
-                        </>
-                      )}
-                      {/* === BLOQUE VIDEO === */}
-                      {objectiveView === 'video' && (
-                        <>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-neutral-softBg)' }}>Reprod. 3s</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-neutral-softBg)' }}>ThruPlays</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-neutral-softBg)' }}>$/ThruPlay</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-neutral-softBg)' }}>Visto 50%</th>
-                          <th style={{ textAlign: 'right', background: 'var(--joy-palette-neutral-softBg)' }}>Visto 95%</th>
-                        </>
-                      )}
-                      {/* === COLUMNAS PERSONALIZADAS (siempre visibles) === */}
-                      {customColumns.map(col => (
-                        <th
-                          key={col.id}
-                          style={{
-                            textAlign: 'right',
-                            background: 'var(--joy-palette-primary-softBg)',
-                            minWidth: 110,
-                          }}
-                        >
-                          <Tooltip title={`${col.name}: ${getOperatorSymbol(col.operator)} (formula personalizada)`}>
-                            <Typography level="body-xs" fontWeight="bold" noWrap>
-                              {col.name}
-                            </Typography>
-                          </Tooltip>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedCampaigns.length === 0 ? (
-                      <tr>
-                        <td colSpan={getColumnCount()}>
-                          <Typography level="body-sm" sx={{ textAlign: 'center', py: 4, color: 'text.tertiary' }}>
-                            {campaignSearch ? 'No se encontraron campanas con ese nombre' : 'No hay campanas para mostrar'}
-                          </Typography>
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedCampaigns.map((campaign) => {
-                        const ins = campaign.insights
-                        return (
-                          <tr key={campaign.id}>
-                            {/* === BLOQUE BASE === */}
-                            <td>
-                              <Tooltip title={campaign.name} placement="top-start">
-                                <Typography level="body-sm" fontWeight="bold" sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {campaign.name}
-                                </Typography>
-                              </Tooltip>
-                            </td>
-                            <td>
-                              {(() => {
-                                const deliveryState = classifyCampaignDelivery(campaign)
-                                return (
-                                  <Chip
-                                    size="sm"
-                                    color={getDeliveryStateColor(deliveryState)}
-                                    variant="soft"
-                                    startDecorator={getDeliveryStateIcon(deliveryState)}
-                                  >
-                                    {getDeliveryStateLabel(deliveryState)}
-                                  </Chip>
-                                )
-                              })()}
-                            </td>
-                            <td>
-                              <Chip size="sm" variant="outlined">
-                                {getObjectiveLabel(campaign.objective)}
-                              </Chip>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm" fontWeight="bold">
-                                {formatCurrency(ins.spend)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatNumber(ins.impressions)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatNumber(ins.reach)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {ins.frequency.toFixed(2)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatCurrency(ins.cpm)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatNumber(ins.clicks)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm" fontWeight="bold">
-                                {formatPercent(ins.ctr)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatCurrency(ins.cpc)}
-                              </Typography>
-                            </td>
-                            {/* === BLOQUE VENTAS === */}
-                            {objectiveView === 'ventas' && (
-                              <>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatNumber(ins.landingPageViews || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatCurrency(ins.costPerLPV || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatNumber(ins.addToCart || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatNumber(ins.initiateCheckout || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatNumber(ins.purchases || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatCurrency(ins.costPerPurchase || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatCurrency(ins.conversionValue || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold" sx={{ color: (ins.roas || 0) >= 1 ? 'success.600' : 'danger.600' }}>
-                                    {(ins.roas || 0).toFixed(2)}x
-                                  </Typography>
-                                </td>
-                              </>
-                            )}
-                            {/* === BLOQUE MENSAJES === */}
-                            {objectiveView === 'mensajes' && (
-                              <>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatNumber(ins.conversationsStarted || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatCurrency(ins.costPerConversation || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatNumber(ins.messagingContacts || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatCurrency(ins.costPerMessagingContact || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatNumber(ins.newMessagingConnections || 0)}</Typography>
-                                </td>
-                              </>
-                            )}
-                            {/* === BLOQUE LEADS === */}
-                            {objectiveView === 'leads' && (
-                              <>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatNumber(ins.leads || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatCurrency(ins.costPerLead || 0)}</Typography>
-                                </td>
-                              </>
-                            )}
-                            {/* === BLOQUE VIDEO === */}
-                            {objectiveView === 'video' && (
-                              <>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatNumber(ins.videoPlays || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatNumber(ins.thruPlays || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">{formatCurrency(ins.costPerThruPlay || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatNumber(ins.videoP50 || 0)}</Typography>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm">{formatNumber(ins.videoP95 || 0)}</Typography>
-                                </td>
-                              </>
-                            )}
-                            {/* === COLUMNAS PERSONALIZADAS === */}
-                            {customColumns.map(col => {
-                              const value = evaluateCustomColumn(col, ins as unknown as Record<string, number | undefined>)
-                              return (
-                                <td key={col.id} style={{ textAlign: 'right' }}>
-                                  <Typography level="body-sm" fontWeight="bold">
-                                    {formatCustomValue(value, col.format, formatCurrency, formatNumber, formatPercent)}
-                                  </Typography>
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        )
-                      })
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+                <div className="overflow-x-auto">
+                  <table
+                    className={cn(
+                      'w-full text-sm',
+                      objectiveView === 'base' ? 'min-w-[900px]' : 'min-w-[1200px]',
                     )}
-                  </tbody>
-                </Table>
-              </Sheet>
+                  >
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        {/* === BLOQUE BASE (siempre visible) === */}
+                        <th className={cn(TH, STICKY_HEAD_CELL, 'w-[250px] min-w-[250px]')}>Campana</th>
+                        <th className={TH}>Estado</th>
+                        <th className={TH}>Objetivo</th>
+                        <th className={TH_NUM}>Gasto</th>
+                        <th className={TH_NUM}>Impresiones</th>
+                        <th className={TH_NUM}>Alcance</th>
+                        <th className={TH_NUM}>Frecuencia</th>
+                        <th className={TH_NUM}>CPM</th>
+                        <th className={TH_NUM}>Clics</th>
+                        <th className={TH_NUM}>CTR</th>
+                        <th className={TH_NUM}>CPC</th>
+                        {/* === BLOQUE VENTAS === */}
+                        {objectiveView === 'ventas' && (
+                          <>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>LPV</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>$/LPV</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>Carrito</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>Checkout</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>Compras</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>$/Compra</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>Val.Conv.</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.ventas)}>ROAS</th>
+                          </>
+                        )}
+                        {/* === BLOQUE MENSAJES === */}
+                        {objectiveView === 'mensajes' && (
+                          <>
+                            <th className={cn(TH_NUM, BLOCK_TINT.mensajes)}>Conversaciones</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.mensajes)}>$/Conv.</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.mensajes)}>Contactos Msj</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.mensajes)}>$/Contacto</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.mensajes)}>Nuevos Contactos</th>
+                          </>
+                        )}
+                        {/* === BLOQUE LEADS === */}
+                        {objectiveView === 'leads' && (
+                          <>
+                            <th className={cn(TH_NUM, BLOCK_TINT.leads)}>Leads</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.leads)}>$/Lead</th>
+                          </>
+                        )}
+                        {/* === BLOQUE VIDEO === */}
+                        {objectiveView === 'video' && (
+                          <>
+                            <th className={cn(TH_NUM, BLOCK_TINT.video)}>Reprod. 3s</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.video)}>ThruPlays</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.video)}>$/ThruPlay</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.video)}>Visto 50%</th>
+                            <th className={cn(TH_NUM, BLOCK_TINT.video)}>Visto 95%</th>
+                          </>
+                        )}
+                        {/* === COLUMNAS PERSONALIZADAS (siempre visibles) === */}
+                        {customColumns.map(col => (
+                          <th
+                            key={col.id}
+                            className={cn(TH_NUM, BLOCK_TINT.custom, 'min-w-[110px]')}
+                          >
+                            <Tooltip title={`${col.name}: ${getOperatorSymbol(col.operator)} (formula personalizada)`}>
+                              <span className="block truncate">{col.name}</span>
+                            </Tooltip>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {paginatedCampaigns.length === 0 ? (
+                        <tr>
+                          <td colSpan={getColumnCount()} className="px-4 py-10 text-center text-muted-foreground">
+                            {campaignSearch ? 'No se encontraron campanas con ese nombre' : 'No hay campanas para mostrar'}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedCampaigns.map((campaign) => {
+                          const ins = campaign.insights
+                          return (
+                            <tr key={campaign.id} className="group transition-colors hover:bg-accent/40">
+                              {/* === BLOQUE BASE === */}
+                              <td className={cn(TD, STICKY_BODY_CELL)}>
+                                <Tooltip title={campaign.name}>
+                                  <span className="block max-w-[220px] truncate font-semibold text-foreground">
+                                    {campaign.name}
+                                  </span>
+                                </Tooltip>
+                              </td>
+                              <td className={TD}>
+                                {(() => {
+                                  const deliveryState = classifyCampaignDelivery(campaign)
+                                  return (
+                                    <Badge variant={getDeliveryStateColor(deliveryState)}>
+                                      {getDeliveryStateIcon(deliveryState)}
+                                      {getDeliveryStateLabel(deliveryState)}
+                                    </Badge>
+                                  )
+                                })()}
+                              </td>
+                              <td className={TD}>
+                                <Badge variant="outline">{getObjectiveLabel(campaign.objective)}</Badge>
+                              </td>
+                              <td className={cn(TD_NUM, 'font-semibold text-foreground')}>
+                                {formatCurrency(ins.spend)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>
+                                {formatNumber(ins.impressions)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>
+                                {formatNumber(ins.reach)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>
+                                {ins.frequency.toFixed(2)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>
+                                {formatCurrency(ins.cpm)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>
+                                {formatNumber(ins.clicks)}
+                              </td>
+                              <td className={cn(TD_NUM, 'font-semibold text-foreground')}>
+                                {formatPercent(ins.ctr)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>
+                                {formatCurrency(ins.cpc)}
+                              </td>
+                              {/* === BLOQUE VENTAS === */}
+                              {objectiveView === 'ventas' && (
+                                <>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ins.landingPageViews || 0)}</td>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatCurrency(ins.costPerLPV || 0)}</td>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ins.addToCart || 0)}</td>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ins.initiateCheckout || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatNumber(ins.purchases || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatCurrency(ins.costPerPurchase || 0)}</td>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatCurrency(ins.conversionValue || 0)}</td>
+                                  <td
+                                    className={cn(
+                                      TD_NUM,
+                                      'font-semibold',
+                                      (ins.roas || 0) >= 1 ? 'text-success-text' : 'text-destructive-text',
+                                    )}
+                                  >
+                                    {(ins.roas || 0).toFixed(2)}x
+                                  </td>
+                                </>
+                              )}
+                              {/* === BLOQUE MENSAJES === */}
+                              {objectiveView === 'mensajes' && (
+                                <>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatNumber(ins.conversationsStarted || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatCurrency(ins.costPerConversation || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatNumber(ins.messagingContacts || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatCurrency(ins.costPerMessagingContact || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatNumber(ins.newMessagingConnections || 0)}</td>
+                                </>
+                              )}
+                              {/* === BLOQUE LEADS === */}
+                              {objectiveView === 'leads' && (
+                                <>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatNumber(ins.leads || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatCurrency(ins.costPerLead || 0)}</td>
+                                </>
+                              )}
+                              {/* === BLOQUE VIDEO === */}
+                              {objectiveView === 'video' && (
+                                <>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ins.videoPlays || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatNumber(ins.thruPlays || 0)}</td>
+                                  <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatCurrency(ins.costPerThruPlay || 0)}</td>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ins.videoP50 || 0)}</td>
+                                  <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ins.videoP95 || 0)}</td>
+                                </>
+                              )}
+                              {/* === COLUMNAS PERSONALIZADAS === */}
+                              {customColumns.map(col => {
+                                const value = evaluateCustomColumn(col, ins as unknown as Record<string, number | undefined>)
+                                return (
+                                  <td key={col.id} className={cn(TD_NUM, 'font-semibold text-foreground')}>
+                                    {formatCustomValue(value, col.format, formatCurrency, formatNumber, formatPercent)}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
               {/* Paginación */}
               {totalCampaignPages > 1 && (
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
                     Mostrando {((campaignPage - 1) * campaignRowsPerPage) + 1} - {Math.min(campaignPage * campaignRowsPerPage, filteredCampaigns.length)} de {filteredCampaigns.length}
-                  </Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <IconButton
-                      size="sm"
-                      variant="outlined"
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      aria-label="Pagina anterior"
                       disabled={campaignPage === 1}
                       onClick={() => setCampaignPage(p => p - 1)}
                     >
-                      <ArrowLeftIcon />
-                    </IconButton>
-                    <Typography level="body-sm">
+                      <CaretLeft className="size-4" aria-hidden />
+                    </Button>
+                    <span className="text-sm text-foreground">
                       Pagina {campaignPage} de {totalCampaignPages}
-                    </Typography>
-                    <IconButton
-                      size="sm"
-                      variant="outlined"
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      aria-label="Pagina siguiente"
                       disabled={campaignPage === totalCampaignPages}
                       onClick={() => setCampaignPage(p => p + 1)}
                     >
-                      <ArrowRightIcon />
-                    </IconButton>
-                  </Stack>
-                </Stack>
+                      <CaretRight className="size-4" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
               )}
-            </Stack>
-          </CardContent>
-        </Card>
+            </TabsContent>
 
-        {/* Ads Table */}
-        {ads.length > 0 && (
-          <Card>
-            <CardContent>
-              <Stack spacing={2}>
-                {/* Header con título y controles */}
-                <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                  <Typography level="h4">
-                    Anuncios ({filteredAds.length})
-                  </Typography>
-                  <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-                    {/* Buscador */}
-                    <Input
-                      size="sm"
-                      placeholder="Buscar anuncio o campana..."
-                      startDecorator={<SearchIcon sx={{ fontSize: 18 }} />}
-                      value={adSearch}
-                      onChange={(e) => setAdSearch(e.target.value)}
-                      sx={{ minWidth: 220 }}
-                    />
-                    {/* Filtro por estado de campaña padre */}
-                    <Select
-                      size="sm"
-                      value={adStatusFilter}
-                      onChange={(_, value) => setAdStatusFilter(value as string)}
-                      sx={{ minWidth: 160 }}
-                    >
-                      <Option value="all">Todas las campanas</Option>
-                      <Option value="ACTIVA">Campanas Activas</Option>
-                      <Option value="DESACTIVADA">Campanas Desactivadas</Option>
-                      <Option value="COMPLETADA">Campanas Completadas</Option>
-                      <Option value="NO_HAY_ANUNCIOS">Sin Anuncios</Option>
-                    </Select>
-                    {/* Filas por página */}
-                    <Select
-                      size="sm"
-                      value={adRowsPerPage.toString()}
-                      onChange={(_, value) => setAdRowsPerPage(Number(value))}
-                      sx={{ minWidth: 80 }}
-                    >
-                      <Option value="5">5</Option>
-                      <Option value="10">10</Option>
-                      <Option value="25">25</Option>
-                      <Option value="50">50</Option>
-                    </Select>
-                  </Stack>
-                </Stack>
+            {/* Ad Sets Table */}
+            <TabsContent value="adsets" className="mt-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-foreground">
+                  Conjuntos de anuncios ({filteredAdSets.length})
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    className="h-9 w-[240px]"
+                    placeholder="Buscar conjunto o campana..."
+                    aria-label="Buscar conjunto o campana"
+                    leftIcon={<MagnifyingGlass aria-hidden />}
+                    value={adSetSearch}
+                    onChange={(e) => setAdSetSearch(e.target.value)}
+                  />
+                  <Select value={adSetStatusFilter} onValueChange={(value) => setAdSetStatusFilter(value)}>
+                    <SelectTrigger className="h-9 w-[180px]" aria-label="Filtrar por estado de campana">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las campanas</SelectItem>
+                      <SelectItem value="ACTIVA">Campanas Activas</SelectItem>
+                      <SelectItem value="DESACTIVADA">Campanas Desactivadas</SelectItem>
+                      <SelectItem value="COMPLETADA">Campanas Completadas</SelectItem>
+                      <SelectItem value="NO_HAY_ANUNCIOS">Sin Anuncios</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={adSetRowsPerPage.toString()}
+                    onValueChange={(value) => setAdSetRowsPerPage(Number(value))}
+                  >
+                    <SelectTrigger className="h-9 w-[80px]" aria-label="Filas por pagina">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5</SelectItem>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
-                {/* Tabla */}
-                <Sheet sx={{ overflow: 'auto' }}>
-                  <Table>
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-sm">
                     <thead>
-                      <tr>
-                        <th style={{ width: '20%' }}>Anuncio</th>
-                        <th style={{ width: '20%' }}>Campana</th>
-                        <th style={{ textAlign: 'right' }}>Impresiones</th>
-                        <th style={{ textAlign: 'right' }}>Clics</th>
-                        <th style={{ textAlign: 'right' }}>CTR</th>
-                        <th style={{ textAlign: 'right' }}>Gasto</th>
-                        <th style={{ textAlign: 'right' }}>CPC</th>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        <th className={cn(TH, STICKY_HEAD_CELL, 'w-[260px] min-w-[260px]')}>
+                          Conjunto de anuncios
+                        </th>
+                        <th className={cn(TH, 'min-w-[240px]')}>Campana</th>
+                        <th className={TH}>Estado</th>
+                        <th className={TH_NUM}>Gasto</th>
+                        <th className={TH_NUM}>Impresiones</th>
+                        <th className={TH_NUM}>Alcance</th>
+                        <th className={TH_NUM}>Frecuencia</th>
+                        <th className={TH_NUM}>CPM</th>
+                        <th className={TH_NUM}>Clics</th>
+                        <th className={TH_NUM}>CTR</th>
+                        <th className={TH_NUM}>CPC</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-border">
+                      {paginatedAdSets.length === 0 ? (
+                        <tr>
+                          <td colSpan={11} className="px-4 py-10 text-center text-muted-foreground">
+                            {adSetSearch || adSetStatusFilter !== 'all' ? 'No se encontraron conjuntos con esos filtros' : 'No hay conjuntos de anuncios para mostrar'}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedAdSets.map((adSet) => {
+                          const parentCampaign = campaignMap.get(String(adSet.campaign_id)) || campaignNameMap.get(adSet.campaign_name)
+                          const deliveryState = parentCampaign ? classifyCampaignDelivery(parentCampaign) : 'DESACTIVADA'
+                          return (
+                            <tr key={adSet.id} className="group transition-colors hover:bg-accent/40">
+                              <td className={cn(TD, STICKY_BODY_CELL)}>
+                                <Tooltip title={adSet.name}>
+                                  <span className="block max-w-[240px] truncate font-semibold text-foreground">
+                                    {adSet.name}
+                                  </span>
+                                </Tooltip>
+                              </td>
+                              <td className={TD}>
+                                <Tooltip title={adSet.campaign_name}>
+                                  <span className="block max-w-[220px] truncate text-xs text-muted-foreground">
+                                    {adSet.campaign_name}
+                                  </span>
+                                </Tooltip>
+                              </td>
+                              <td className={TD}>
+                                <Badge variant={getDeliveryStateColor(deliveryState)}>
+                                  {getDeliveryStateIcon(deliveryState)}
+                                  {getDeliveryStateLabel(deliveryState)}
+                                </Badge>
+                              </td>
+                              <td className={cn(TD_NUM, 'font-semibold text-foreground')}>
+                                {formatCurrency(adSet.spend)}
+                              </td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(adSet.impressions)}</td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(adSet.reach)}</td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>{adSet.frequency.toFixed(2)}</td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatCurrency(adSet.cpm)}</td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(adSet.clicks)}</td>
+                              <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatPercent(adSet.ctr)}</td>
+                              <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatCurrency(adSet.cpc)}</td>
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {totalAdSetPages > 1 && (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Mostrando {((adSetPage - 1) * adSetRowsPerPage) + 1} - {Math.min(adSetPage * adSetRowsPerPage, filteredAdSets.length)} de {filteredAdSets.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      aria-label="Pagina anterior"
+                      disabled={adSetPage === 1}
+                      onClick={() => setAdSetPage(p => p - 1)}
+                    >
+                      <CaretLeft className="size-4" aria-hidden />
+                    </Button>
+                    <span className="text-sm text-foreground">
+                      Pagina {adSetPage} de {totalAdSetPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      aria-label="Pagina siguiente"
+                      disabled={adSetPage === totalAdSetPages}
+                      onClick={() => setAdSetPage(p => p + 1)}
+                    >
+                      <CaretRight className="size-4" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Ads Table */}
+            <TabsContent value="ads" className="mt-6 space-y-4">
+              {/* Header con título y controles */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-foreground">
+                  Anuncios ({filteredAds.length})
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Buscador */}
+                  <Input
+                    className="h-9 w-[220px]"
+                    placeholder="Buscar anuncio o campana..."
+                    aria-label="Buscar anuncio o campana"
+                    leftIcon={<MagnifyingGlass aria-hidden />}
+                    value={adSearch}
+                    onChange={(e) => setAdSearch(e.target.value)}
+                  />
+                  {/* Filtro por estado de campaña padre */}
+                  <Select value={adStatusFilter} onValueChange={(value) => setAdStatusFilter(value)}>
+                    <SelectTrigger className="h-9 w-[160px]" aria-label="Filtrar por estado de campana">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las campanas</SelectItem>
+                      <SelectItem value="ACTIVA">Campanas Activas</SelectItem>
+                      <SelectItem value="DESACTIVADA">Campanas Desactivadas</SelectItem>
+                      <SelectItem value="COMPLETADA">Campanas Completadas</SelectItem>
+                      <SelectItem value="NO_HAY_ANUNCIOS">Sin Anuncios</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Filas por página */}
+                  <Select
+                    value={adRowsPerPage.toString()}
+                    onValueChange={(value) => setAdRowsPerPage(Number(value))}
+                  >
+                    <SelectTrigger className="h-9 w-[80px]" aria-label="Filas por pagina">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5</SelectItem>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Tabla */}
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[820px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        <th className={cn(TH, 'w-1/5')}>Anuncio</th>
+                        <th className={cn(TH, 'w-1/5')}>Campana</th>
+                        <th className={TH_NUM}>Impresiones</th>
+                        <th className={TH_NUM}>Clics</th>
+                        <th className={TH_NUM}>CTR</th>
+                        <th className={TH_NUM}>Gasto</th>
+                        <th className={TH_NUM}>CPC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
                       {paginatedAds.length === 0 ? (
                         <tr>
-                          <td colSpan={7}>
-                            <Typography level="body-sm" sx={{ textAlign: 'center', py: 4, color: 'text.tertiary' }}>
-                              {adSearch || adStatusFilter !== 'all' ? 'No se encontraron anuncios con esos filtros' : 'No hay anuncios para mostrar'}
-                            </Typography>
+                          <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                            {adSearch || adStatusFilter !== 'all' ? 'No se encontraron anuncios con esos filtros' : 'No hay anuncios para mostrar'}
                           </td>
                         </tr>
                       ) : (
                         paginatedAds.map((ad) => (
-                          <tr key={ad.id}>
-                            <td>
-                              <Typography level="body-sm" fontWeight="bold">
-                                {ad.name}
-                              </Typography>
+                          <tr key={ad.id} className="transition-colors hover:bg-accent/40">
+                            <td className={TD}>
+                              <span className="font-semibold text-foreground">{ad.name}</span>
                             </td>
-                            <td>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                {ad.campaign_name}
-                              </Typography>
+                            <td className={TD}>
+                              <span className="text-xs text-muted-foreground">{ad.campaign_name}</span>
                             </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatNumber(ad.impressions)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatNumber(ad.clicks)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm" fontWeight="bold">
-                                {formatPercent(ad.ctr)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm" fontWeight="bold">
-                                {formatCurrency(ad.spend)}
-                              </Typography>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <Typography level="body-sm">
-                                {formatCurrency(ad.cpc)}
-                              </Typography>
-                            </td>
+                            <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ad.impressions)}</td>
+                            <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatNumber(ad.clicks)}</td>
+                            <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatPercent(ad.ctr)}</td>
+                            <td className={cn(TD_NUM, 'font-semibold text-foreground')}>{formatCurrency(ad.spend)}</td>
+                            <td className={cn(TD_NUM, 'text-muted-foreground')}>{formatCurrency(ad.cpc)}</td>
                           </tr>
                         ))
                       )}
                     </tbody>
-                  </Table>
-                </Sheet>
+                  </table>
+                </div>
+              </div>
 
-                {/* Paginación */}
-                {totalAdPages > 1 && (
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Mostrando {((adPage - 1) * adRowsPerPage) + 1} - {Math.min(adPage * adRowsPerPage, filteredAds.length)} de {filteredAds.length}
-                    </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <IconButton
-                        size="sm"
-                        variant="outlined"
-                        disabled={adPage === 1}
-                        onClick={() => setAdPage(p => p - 1)}
-                      >
-                        <ArrowLeftIcon />
-                      </IconButton>
-                      <Typography level="body-sm">
-                        Pagina {adPage} de {totalAdPages}
-                      </Typography>
-                      <IconButton
-                        size="sm"
-                        variant="outlined"
-                        disabled={adPage === totalAdPages}
-                        onClick={() => setAdPage(p => p + 1)}
-                      >
-                        <ArrowRightIcon />
-                      </IconButton>
-                    </Stack>
-                  </Stack>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
-        )}
+              {/* Paginación */}
+              {totalAdPages > 1 && (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Mostrando {((adPage - 1) * adRowsPerPage) + 1} - {Math.min(adPage * adRowsPerPage, filteredAds.length)} de {filteredAds.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      aria-label="Pagina anterior"
+                      disabled={adPage === 1}
+                      onClick={() => setAdPage(p => p - 1)}
+                    >
+                      <CaretLeft className="size-4" aria-hidden />
+                    </Button>
+                    <span className="text-sm text-foreground">
+                      Pagina {adPage} de {totalAdPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      aria-label="Pagina siguiente"
+                      disabled={adPage === totalAdPages}
+                      onClick={() => setAdPage(p => p + 1)}
+                    >
+                      <CaretRight className="size-4" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
-        {/* Trend Chart */}
-        {trendData.length > 0 && (
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 3 }}>
-                Tendencia de Metricas
-              </Typography>
+          {/* Trend Chart */}
+          {trendData.length > 0 && (
+            <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-5 text-base font-semibold text-foreground">Tendencia de Metricas</h2>
               <ResponsiveContainer width="100%" height={350}>
                 <AreaChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -1534,19 +1670,19 @@ export default function CampaignsInsights() {
                   />
                 </AreaChart>
               </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        )}
-      </Stack>
+            </section>
+          )}
+        </div>
 
-      {/* Modal Columnas Personalizadas */}
-      <CustomColumnModal
-        open={customColumnsModalOpen}
-        onClose={() => setCustomColumnsModalOpen(false)}
-        onSave={handleSaveCustomColumns}
-        columns={customColumns}
-        previewData={campaigns.length > 0 ? (campaigns[0].insights as unknown as Record<string, number | undefined>) : null}
-      />
-    </Container>
+        {/* Modal Columnas Personalizadas */}
+        <CustomColumnModal
+          open={customColumnsModalOpen}
+          onClose={() => setCustomColumnsModalOpen(false)}
+          onSave={handleSaveCustomColumns}
+          columns={customColumns}
+          previewData={campaigns.length > 0 ? (campaigns[0].insights as unknown as Record<string, number | undefined>) : null}
+        />
+      </div>
+    </TooltipProvider>
   )
 }

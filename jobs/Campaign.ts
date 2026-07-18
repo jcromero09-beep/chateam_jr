@@ -8,7 +8,8 @@ import CampaignSetting from "../models/CampaignSetting";
 import WhatsAppTemplate from "../models/WhatsAppTemplate";
 import { getIO } from "../libs/socket";
 import moment from "moment";
-import { isArray, isEmpty, isNil } from "lodash";
+import lodash from "lodash";
+const { isArray, isEmpty, isNil } = lodash;
 
 // Importar add y getSettings desde queues.ts
 import { add, getSettings } from "../queues";

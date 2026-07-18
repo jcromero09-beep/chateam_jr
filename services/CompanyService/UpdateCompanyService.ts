@@ -26,6 +26,10 @@ interface CompanyData {
   // AI fields
   aiTokenBalance?: number;
   activeAISubplanId?: number | null;
+  // Email marketing fields — el front (Companies.tsx) los envía en el PUT pero se
+  // descartaban en silencio (no estaban en el destructuring ni en updateData).
+  emailCreditsTotal?: number;
+  activeEmailPlanId?: number | null;
 }
 
 const UpdateCompanyService = async (
@@ -50,7 +54,9 @@ const UpdateCompanyService = async (
     stripePublicKey,
     stripeSecretKey,
     aiTokenBalance,
-    activeAISubplanId
+    activeAISubplanId,
+    emailCreditsTotal,
+    activeEmailPlanId
   } = companyData;
 
   if (!company) {
@@ -150,8 +156,34 @@ const UpdateCompanyService = async (
   // AI fields
   if (aiTokenBalance !== undefined) updateData.aiTokenBalance = aiTokenBalance;
   if (activeAISubplanId !== undefined) updateData.activeAISubplanId = activeAISubplanId;
+  // Email marketing fields (antes se perdían al editar la empresa)
+  if (emailCreditsTotal !== undefined) updateData.emailCreditsTotal = emailCreditsTotal;
+  if (activeEmailPlanId !== undefined) updateData.activeEmailPlanId = activeEmailPlanId;
+
+  const previousPlanId = company.planId;
 
   await company.update(updateData);
+
+  // ── Si la company cambió a un plan distinto al demo, marcar referral
+  //    como "claimable" (NO entregar recompensa todavía — eso lo hace la
+  //    company afiliadora manualmente desde su wallet). ───────────────────
+  try {
+    if (
+      planId !== undefined &&
+      Number(planId) !== 1 &&
+      Number(previousPlanId) !== Number(planId)
+    ) {
+      const { markAffiliateReferralClaimable } = await import(
+        "../AffiliateServices/ProcessAffiliateActivationService"
+      );
+      await markAffiliateReferralClaimable(Number(company.id));
+    }
+  } catch (refErr: any) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[UpdateCompanyService] Error marcando referral claimable: ${refErr.message}`
+    );
+  }
 
   if (companyData.campaignsEnabled !== undefined) {
     const [setting, created] = await Setting.findOrCreate({

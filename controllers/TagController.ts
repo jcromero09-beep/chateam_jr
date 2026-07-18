@@ -12,7 +12,10 @@ import SimpleListService from "../services/TagServices/SimpleListService";
 import SyncTagService from "../services/TagServices/SyncTagsService";
 import KanbanListService from "../services/TagServices/KanbanListService";
 import TagAIRecommendationService from "../services/TagServices/TagAIRecommendationService";
+import TagMetaConversionAIService from "../services/TagServices/TagMetaConversionAIService";
+import { syncCustomConversionForTag } from "../services/FacebookConversionService/MetaCustomConversionService";
 import ContactTag from "../models/ContactTag";
+import logger from "../utils/logger";
 
 type IndexQuery = {
   searchParam?: string;
@@ -39,7 +42,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 };
 
 export const store = async (req: Request, res: Response): Promise<Response> => {
-  const { name, color, kanban,
+  const { name, color, key, kanban,
     timeLane,
     nextLaneId,
     greetingMessageLane,
@@ -53,14 +56,25 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     followupDelay2,
     followupMessage3,
     followupDelay3,
+    followupType,
+    timeLaneUnit,
     aiGuidance1,
     aiGuidance2,
-    aiGuidance3 } = req.body;
+    aiGuidance3,
+    sendMetaConversion,
+    metaConversionName,
+    metaEventName,
+    metaLeadStatus,
+    metaCustomEventType,
+    metaRule,
+    metaValue,
+    metaCurrency } = req.body;
   const { companyId } = req.user;
-//console.log('tags', req.body)
+
   const tag = await CreateService({
     name,
     color,
+    key,
     kanban,
     companyId,
     timeLane,
@@ -76,10 +90,29 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     followupDelay2,
     followupMessage3,
     followupDelay3,
+    followupType,
+    timeLaneUnit,
     aiGuidance1,
     aiGuidance2,
-    aiGuidance3
+    aiGuidance3,
+    sendMetaConversion,
+    metaConversionName,
+    metaEventName,
+    metaLeadStatus,
+    metaCustomEventType,
+    metaRule,
+    metaValue,
+    metaCurrency
   });
+
+  // Hook Meta: si el check está activo, crear/reusar/sincronizar la custom
+  // conversion. Nunca rompe la creación del tag (el servicio no lanza).
+  if (tag.sendMetaConversion) {
+    await syncCustomConversionForTag(tag).catch(err =>
+      logger.warn(`[TagController.store] sync Meta falló tag=${tag.id}: ${err?.message || err}`)
+    );
+    await tag.reload();
+  }
 
   const io = getIO();
   io.of(String(companyId))
@@ -94,7 +127,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 export const show = async (req: Request, res: Response): Promise<Response> => {
   const { tagId } = req.params;
 
-  const tag = await ShowService(tagId);
+  const tag = await ShowService(tagId, req.user.companyId);
 
   return res.status(200).json(tag);
 };
@@ -105,7 +138,6 @@ export const update = async (
 ): Promise<Response> => {
   const { kanban } = req.body;
 
-  //console.log(kanban)
   if (req.user.profile !== "admin" && kanban === 1) {
     throw new AppError("ERR_NO_PERMISSION", 403);
   }
@@ -115,6 +147,16 @@ export const update = async (
   const { companyId } = req.user;
 
   const tag = await UpdateService({ tagData, id: tagId });
+
+  // Hook Meta: si el check está activo, sincronizar custom conversion en Meta.
+  // Si Meta falla, el servicio deja metaConversionStatus=failed + metaLastError
+  // SIN romper el guardado del tag.
+  if (tag && tag.sendMetaConversion) {
+    await syncCustomConversionForTag(tag).catch(err =>
+      logger.warn(`[TagController.update] sync Meta falló tag=${tag.id}: ${err?.message || err}`)
+    );
+    await tag.reload();
+  }
 
   const io = getIO();
   io.of(String(companyId))
@@ -202,6 +244,36 @@ export const aiRecommend = async (
   });
 };
 
+/**
+ * POST /tags/meta-conversion/ai-recommend
+ * Sugiere la configuración de una conversión personalizada Meta para una
+ * etiqueta Kanban (nombre/evento/lead_status/custom_event_type/rule).
+ * SOLO devuelve campos sugeridos — NO guarda ni envía a Meta.
+ */
+export const metaConversionAiRecommend = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { name, description, key } = req.body;
+  const { companyId } = req.user;
+
+  if (!name || typeof name !== "string" || name.trim().length < 2) {
+    throw new AppError("El nombre de la etiqueta es requerido (mínimo 2 caracteres)", 400);
+  }
+
+  const recommendation = await TagMetaConversionAIService({
+    name: name.trim(),
+    description: typeof description === "string" ? description.trim() : undefined,
+    key: typeof key === "string" ? key.trim() : undefined,
+    companyId
+  });
+
+  return res.json({
+    success: true,
+    data: recommendation
+  });
+};
+
 export const removeContactTag = async (
   req: Request,
   res: Response
@@ -209,7 +281,6 @@ export const removeContactTag = async (
   const { tagId, contactId } = req.params;
   const { companyId } = req.user;
 
-  // console.log(tagId, contactId)
 
   await ContactTag.destroy({
     where: {
@@ -218,7 +289,7 @@ export const removeContactTag = async (
     }
   });
 
-  const tag = await ShowService(tagId);
+  const tag = await ShowService(tagId, req.user.companyId);
 
   const io = getIO();
   io.of(String(companyId))

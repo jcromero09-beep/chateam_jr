@@ -1,6 +1,7 @@
 // services/IntegrationsServices/OpenAiSocialService.ts
 // 🆕 MIGRADO: Ahora usa AIClientService para selección automática de proveedor
-import { isNil, isNull } from "lodash";
+import lodash from "lodash";
+const { isNil, isNull } = lodash;
 import path from "path";
 import fsc from "fs/promises";
 import fs from "fs";

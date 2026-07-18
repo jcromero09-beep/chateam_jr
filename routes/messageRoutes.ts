@@ -30,5 +30,6 @@ messageRoutes.post("/messages/quick/:ticketId", isAuth, MessageController.sendQu
 
 // Reintento de descifrado de mensajes CIPHERTEXT
 messageRoutes.post("/messages/:messageId/retry-decrypt", isAuth, MessageController.retryDecrypt);
+messageRoutes.post("/messages/ticket/:ticketId/recover", isAuth, MessageController.recoverTicketMessages);
 
 export default messageRoutes;

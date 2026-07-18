@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import paypal from "@paypal/checkout-server-sdk";
 import { getPayPalClient } from "./paypalConfig";
 import Invoices from "../../models/Invoices";

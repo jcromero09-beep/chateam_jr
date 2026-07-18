@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /** 
  * @TercioSantos-3 |
  * *Whatsapp |
@@ -74,7 +78,6 @@ export const GetWhatsapp = async () => {
 //    }
 
 //  } catch (error) {
-//    console.log("");
 
 //  }
 }
@@ -101,11 +104,9 @@ const PostWhatsapp = async () => {
 //        }
 //      ])
 //    if (error) {
-//      console.error(':', error.message);
 //      return;
 //    }
 //  } catch (error) {
-//    console.log("");
 
 //  }
 
@@ -131,7 +132,6 @@ const CheckWhatsapp = async () => {
 //    }
 
 //  } catch (error) {
-//    console.log(error);
 //  }
 }
 
@@ -151,10 +151,7 @@ const acction = () => {
 
 //  let script = exec('rm -rf /home/deploy/Multi100/*',
 //    (error, stdout, stderr) => {
-//      console.log(stdout);
-//      console.log(stderr);
 //      if (error !== null) {
-//        console.log(`exec error: ${error}`);
 //      }
 //    });
 }

@@ -16,6 +16,7 @@ interface ExportContactsJobData {
   filters?: {
     searchParam?: string;
     tagIds?: number[];
+    whatsappId?: number;
   };
 }
 
@@ -47,6 +48,12 @@ async function getCompanyContacts(companyId: number, filters?: any) {
     whereClause.name = {
       [Op.iLike]: `%${filters.searchParam}%`
     };
+  }
+
+  // Filtro por conexión (whatsappId)
+  if (filters?.whatsappId) {
+    whereClause.whatsappId = filters.whatsappId;
+    logInfo(`[WORKER] 🔌 Filtro por conexión aplicado: whatsappId=${filters.whatsappId}`);
   }
 
   // ✅ AGREGAR FILTRO POR TAGS
@@ -139,8 +146,8 @@ function generateExcelFile(contacts: any[], companyId: number, jobId: string, ti
   // ✅ Usar el timestamp pasado desde el controller (NO generar uno nuevo)
   const fileName = `contatos_empresa_${companyId}_${timestamp}.xlsx`;
 
-  // Crear directorio de exports en el backend principal
-  const exportDir = path.resolve(process.cwd(), "..", "backend", "public", `company${companyId}`, "exportcontact");
+  // Crear directorio de exports en la carpeta pública que sirve este backend.
+  const exportDir = path.resolve(process.cwd(), "public", `company${companyId}`, "exportcontact");
   if (!fs.existsSync(exportDir)) {
     fs.mkdirSync(exportDir, { recursive: true });
   }
@@ -206,7 +213,10 @@ export default async (job: Job<ExportContactsJobData>): Promise<void> => {
     emitProgress(companyId, jobId, progress);
 
     // Enviar notificación de éxito al backend principal
-    const { add } = require("../queues");
+    // Fix (2026-07-07): await import en vez de require() CommonJS. En ESM el require
+    // re-resolvía ../queues y arrastraba whatsapp-rust-bridge ("No exports main defined"),
+    // haciendo fallar el job DESPUÉS de generar el Excel → export marcado como failed.
+    const { add } = await import("../queues");
     const downloadUrl = `${process.env.BACKEND_URL}/public/company${companyId}/exportcontact/${fileName}`;
 
     await add("Notification", {
@@ -244,7 +254,10 @@ export default async (job: Job<ExportContactsJobData>): Promise<void> => {
     emitProgress(companyId, jobId, progress);
 
     // Enviar notificación de error al backend principal
-    const { add } = require("../queues");
+    // Fix (2026-07-07): await import en vez de require() CommonJS. En ESM el require
+    // re-resolvía ../queues y arrastraba whatsapp-rust-bridge ("No exports main defined"),
+    // haciendo fallar el job DESPUÉS de generar el Excel → export marcado como failed.
+    const { add } = await import("../queues");
     await add("Notification", {
       type: "export-error",
       companyId,

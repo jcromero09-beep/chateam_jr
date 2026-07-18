@@ -196,6 +196,7 @@ export default function ForwardContactPicker({
                     endAction={
                       <Checkbox
                         checked={selectedContactIds.has(contact.id)}
+                        onClick={(event) => event.stopPropagation()}
                         onChange={() => handleToggleContact(contact.id)}
                         size="sm"
                       />

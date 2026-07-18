@@ -1,155 +1,312 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState } from 'react'
+import { CircularProgress } from '@mui/joy'
+import { UsersThree, ArrowClockwise } from '@phosphor-icons/react'
+import { toast } from 'react-toastify'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
-  Box, Typography, Table, Sheet, Chip, CircularProgress, Alert, Select, Option
-} from '@mui/joy'
-import { Users, AlertCircle } from 'lucide-react'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import api from '../services/api'
 
-const isDev = import.meta.env.DEV
-const devLog = (...args: unknown[]) => { if (isDev) console.log(...args) }
-
-interface Referral {
+interface ReferralRow {
   id: number
-  affiliateId: number
-  referredCompanyId: number
-  commissionAmount: number
   status: string
-  level: number
-  sourceType: string
-  paidAt: string | null
+  rewardStatus: 'pending' | 'claimable' | 'claimed' | 'cancelled' | string
+  rewardType: 'tokens' | 'days' | null
+  rewardTokens: number
+  rewardDays: number
+  activatedAt: string | null
+  rewardClaimedAt: string | null
+  rewardProcessedAt: string | null
   createdAt: string
-  affiliate?: { id: number; name: string; referralCode: string }
+  affiliate?: {
+    id: number
+    name: string
+    rewardType: 'tokens' | 'days'
+    rewardTokens: number
+    rewardDays: number
+  }
+  referredCompany?: {
+    id: number
+    name: string
+    email?: string
+    planId?: number
+    plan?: { id: number; name: string }
+  }
 }
 
-const STATUS_MAP: Record<string, { label: string; color: 'success' | 'warning' | 'danger' | 'neutral' }> = {
-  pending: { label: 'Pendiente', color: 'warning' },
-  paid: { label: 'Pagado', color: 'success' },
-  cancelled: { label: 'Cancelado', color: 'danger' },
+const StatusChip = ({ status }: { status: string }) => {
+  const map: Record<string, { variant: BadgeProps['variant']; label: string }> = {
+    registered: { variant: 'warning', label: 'Registrado' },
+    active: { variant: 'success', label: 'Activo' },
+    paid: { variant: 'success', label: 'Pagado' },
+    pending: { variant: 'neutral', label: 'Pendiente' },
+    cancelled: { variant: 'neutral', label: 'Cancelado' },
+  }
+  const m = map[status] || { variant: 'neutral' as const, label: status }
+  return <Badge variant={m.variant}>{m.label}</Badge>
 }
+
+const RewardChip = ({ status }: { status: string }) => {
+  const map: Record<string, { variant: BadgeProps['variant']; label: string }> = {
+    pending: { variant: 'neutral', label: 'Pendiente de pago' },
+    claimable: { variant: 'warning', label: 'Disponible' },
+    claimed: { variant: 'success', label: 'Cobrado' },
+    cancelled: { variant: 'neutral', label: 'Cancelado' },
+  }
+  const m = map[status] || { variant: 'neutral' as const, label: status }
+  return <Badge variant={m.variant}>{m.label}</Badge>
+}
+
+const formatReward = (r: ReferralRow): string => {
+  if (r.rewardStatus === 'claimed') {
+    if (r.rewardType === 'tokens') return `${Number(r.rewardTokens).toLocaleString()} tokens`
+    if (r.rewardType === 'days') return `${r.rewardDays} días`
+  }
+  if (r.affiliate?.rewardType === 'tokens') {
+    return `${Number(r.affiliate.rewardTokens || 0).toLocaleString()} tokens`
+  }
+  if (r.affiliate?.rewardType === 'days') {
+    return `${r.affiliate.rewardDays || 0} días`
+  }
+  return '—'
+}
+
+const columns = [
+  'Empresa referida',
+  'Programa',
+  'Plan actual',
+  'Estado',
+  'Recompensa',
+  'Estado pago',
+  'Registro',
+  '',
+]
 
 export default function AffiliateReferrals() {
-  const [referrals, setReferrals] = useState<Referral[]>([])
-  const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<string>('')
+  const [rows, setRows] = useState<ReferralRow[]>([])
+  const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [claimingId, setClaimingId] = useState<number | null>(null)
+  const limit = 20
+  const totalPages = Math.max(1, Math.ceil(count / limit))
 
-  const fetchReferrals = useCallback(async () => {
+  useEffect(() => { fetchData() }, [page, statusFilter])
+
+  const fetchData = async () => {
     try {
       setLoading(true)
-      const params: Record<string, string | number> = { page, limit: 20 }
-      if (statusFilter) params.status = statusFilter
-      const { data: res } = await api.get('/affiliates/referrals', { params })
-      if (res.success) {
-        setReferrals(res.data.rows || [])
-        setCount(res.data.count || 0)
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al cargar'
-      setError(msg)
-      devLog('[AffiliateReferrals] Error:', err)
+      const { data } = await api.get('/affiliates/referrals', {
+        params: { page, limit, status: statusFilter || undefined },
+      })
+      setRows(data?.data?.rows || [])
+      setCount(data?.data?.count || 0)
+    } catch (err) {
+      console.error('Error cargando referidos', err)
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, page])
+  }
 
-  useEffect(() => { fetchReferrals() }, [fetchReferrals])
+  const handleClaim = async (referralId: number) => {
+    if (claimingId) return
+    try {
+      setClaimingId(referralId)
+      const { data } = await api.post(`/affiliates/referrals/${referralId}/claim-reward`)
+      if (data?.data?.alreadyClaimed) {
+        toast.info('La recompensa ya estaba cobrada')
+      } else {
+        const r = data?.data
+        if (r?.rewardType === 'tokens' && r.rewardTokens > 0) {
+          toast.success(`Recompensa cobrada: ${Number(r.rewardTokens).toLocaleString()} tokens`)
+        } else if (r?.rewardType === 'days' && r.rewardDays > 0) {
+          toast.success(`Recompensa cobrada: ${r.rewardDays} días extra`)
+        } else {
+          toast.success('Recompensa cobrada')
+        }
+      }
+      await fetchData()
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.response?.data?.errors?.[0] || 'No se pudo cobrar la recompensa'
+      toast.error(msg)
+    } finally {
+      setClaimingId(null)
+    }
+  }
 
-  const formatCurrency = (val: number) => `$${Number(val || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })
+  const summary = {
+    total: count,
+    registered: rows.filter(r => r.rewardStatus === 'pending').length,
+    claimable: rows.filter(r => r.rewardStatus === 'claimable').length,
+    claimed: rows.filter(r => r.rewardStatus === 'claimed').length,
+  }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography level="h3" sx={{ fontWeight: 700 }}>
-            <Users size={22} style={{ marginRight: 8, verticalAlign: 'middle' }} />
-            Referidos
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'neutral.500' }}>
-            {count} referidos en total
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Select
-            size="sm" placeholder="Estado"
-            value={statusFilter}
-            onChange={(_, v) => { setStatusFilter(v || ''); setPage(1) }}
-            sx={{ minWidth: 130 }}
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <UsersThree className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Mis Referidos
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Empresas registradas con tus links de afiliado.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+            onClick={fetchData}
           >
-            <Option value="">Todos</Option>
-            <Option value="pending">Pendiente</Option>
-            <Option value="paid">Pagado</Option>
-            <Option value="cancelled">Cancelado</Option>
-          </Select>
-        </Box>
-      </Box>
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress size="lg" /></Box>
-      ) : error ? (
-        <Alert color="danger" startDecorator={<AlertCircle size={18} />}>{error}</Alert>
-      ) : referrals.length === 0 ? (
-        <Alert color="neutral">Sin referidos registrados</Alert>
-      ) : (
-        <Sheet variant="outlined" sx={{ borderRadius: 'md', overflow: 'auto' }}>
-          <Table stickyHeader hoverRow sx={{ '& th': { bgcolor: 'background.level1' } }}>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Programa</th>
-                <th>Empresa Referida</th>
-                <th>Comisión</th>
-                <th>Nivel</th>
-                <th>Tipo</th>
-                <th>Estado</th>
-                <th>Fecha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {referrals.map((r) => {
-                const sc = STATUS_MAP[r.status] || STATUS_MAP.pending
-                return (
-                  <tr key={r.id}>
-                    <td><Typography level="body-xs">#{r.id}</Typography></td>
-                    <td>
-                      <Typography level="body-sm">{r.affiliate?.name || `Programa #${r.affiliateId}`}</Typography>
-                    </td>
-                    <td><Typography level="body-sm">Empresa #{r.referredCompanyId}</Typography></td>
-                    <td><Typography level="body-sm" sx={{ fontWeight: 600 }}>{formatCurrency(r.commissionAmount)}</Typography></td>
-                    <td><Chip size="sm" variant="outlined">Nivel {r.level}</Chip></td>
-                    <td><Chip size="sm" variant="soft" color="primary">{r.sourceType || 'signup'}</Chip></td>
-                    <td><Chip size="sm" variant="soft" color={sc.color}>{sc.label}</Chip></td>
-                    <td><Typography level="body-xs">{formatDate(r.createdAt)}</Typography></td>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total" value={String(summary.total)} />
+          <StatTile label="Pendientes" value={String(summary.registered)} />
+          <StatTile label="Por cobrar" value={String(summary.claimable)} tone="warning" />
+          <StatTile label="Cobrados" value={String(summary.claimed)} tone="success" />
+        </div>
+
+        {/* Filters */}
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+            <div className="sm:w-52">
+              <Select
+                value={statusFilter || 'all'}
+                onValueChange={(v) => { setStatusFilter(v === 'all' ? '' : v); setPage(1) }}
+              >
+                <SelectTrigger aria-label="Filtrar por estado">
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="registered">Registrado</SelectItem>
+                  <SelectItem value="active">Activo</SelectItem>
+                  <SelectItem value="paid">Pagado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              Actualizar
+            </Button>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {loading ? (
+            <div className="flex items-center justify-center p-10 text-muted-foreground">
+              <CircularProgress size="md" />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              Aún no tienes referidos. Comparte tus links en la sección "Links".
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c, i) => (
+                      <th
+                        key={i}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
+                    ))}
                   </tr>
-                )
-              })}
-            </tbody>
-          </Table>
-        </Sheet>
-      )}
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {rows.map((r) => {
+                    const planName =
+                      r.referredCompany?.plan?.name ||
+                      (r.referredCompany?.planId === 1 ? 'Demo' : '—')
+                    const canClaim = r.rewardStatus === 'claimable'
+                    return (
+                      <tr key={r.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-sm text-foreground">
+                              {r.referredCompany?.name || '—'}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {r.referredCompany?.email || ''}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{r.affiliate?.name || '—'}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{planName}</td>
+                        <td className="px-4 py-3"><StatusChip status={r.status} /></td>
+                        <td className="whitespace-nowrap px-4 py-3 text-foreground">{formatReward(r)}</td>
+                        <td className="px-4 py-3"><RewardChip status={r.rewardStatus} /></td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {canClaim ? (
+                            <Button
+                              size="sm"
+                              loading={claimingId === r.id}
+                              onClick={() => handleClaim(r.id)}
+                            >
+                              Cobrar
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-      {/* Paginación simple */}
-      {count > 20 && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 2 }}>
-          <Chip
-            variant={page > 1 ? 'soft' : 'outlined'}
-            onClick={() => page > 1 && setPage(p => p - 1)}
-            sx={{ cursor: page > 1 ? 'pointer' : 'default' }}
-          >
-            Anterior
-          </Chip>
-          <Chip variant="outlined">Página {page}</Chip>
-          <Chip
-            variant={referrals.length === 20 ? 'soft' : 'outlined'}
-            onClick={() => referrals.length === 20 && setPage(p => p + 1)}
-            sx={{ cursor: referrals.length === 20 ? 'pointer' : 'default' }}
-          >
-            Siguiente
-          </Chip>
-        </Box>
-      )}
-    </Box>
+        {/* Pagination */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground">
+            {count} referidos — página {page} de {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage(p => p - 1)}
+            >
+              Anterior
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page >= totalPages}
+              onClick={() => setPage(p => p + 1)}
+            >
+              Siguiente
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -6,10 +6,18 @@ import logger from "../../utils/logger";
  */
 export interface AppointmentContext {
   ticketId: number;
-  step: 'awaiting_date' | 'awaiting_confirmation' | 'confirmed' | 'cancelled';
+  step:
+    | 'awaiting_service_selection'
+    | 'awaiting_user_selection'
+    | 'awaiting_date'
+    | 'awaiting_confirmation'
+    | 'confirmed'
+    | 'cancelled';
   appointmentId?: number;
   serviceId?: number;
   serviceName?: string;
+  userId?: number;
+  userName?: string;
   contactId?: number;
   lastAction: 'create' | 'reschedule' | 'list';
   createdAt: string;
@@ -183,7 +191,12 @@ class AppointmentContextStore {
       return false;
     }
 
-    return context.step === 'awaiting_confirmation' || context.step === 'awaiting_date';
+    return [
+      'awaiting_service_selection',
+      'awaiting_user_selection',
+      'awaiting_date',
+      'awaiting_confirmation'
+    ].includes(context.step);
   }
 
   /**

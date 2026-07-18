@@ -16,14 +16,17 @@ import {
   BelongsTo,
   BeforeDestroy
 } from "sequelize-typescript";
-import { hash, compare } from "bcryptjs";
+import bcrypt from "bcryptjs";
 import Ticket from "./Ticket";
 import Queue from "./Queue";
 import UserQueue from "./UserQueue";
 import Company from "./Company";
+import Role from "./Role";
 import QuickMessage from "./QuickMessage";
 import Whatsapp from "./Whatsapp";
 import Chatbot from "./Chatbot";
+
+const { hash, compare } = bcrypt;
 
 @Table
 class User extends Model<User> {
@@ -55,6 +58,11 @@ class User extends Model<User> {
   @Default(null)
   @Column(DataType.STRING)
   profileImage: string;
+
+  // Recibir notificaciones in-app de citas nuevas (solo aplica a admins)
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  notifyNewAppointments: boolean;
   
   @ForeignKey(() => Whatsapp)
   @Column(DataType.INTEGER)
@@ -113,6 +121,14 @@ class User extends Model<User> {
 
   @BelongsTo(() => Company)
   company: Company;
+
+  // [Fase3·N2.0] Rol configurable (nullable: si es null cae al comportamiento actual, solo-plan).
+  @ForeignKey(() => Role)
+  @Column(DataType.INTEGER)
+  roleId: number | null;
+
+  @BelongsTo(() => Role)
+  role: Role;
 
   @HasMany(() => Ticket)
   tickets: Ticket[];

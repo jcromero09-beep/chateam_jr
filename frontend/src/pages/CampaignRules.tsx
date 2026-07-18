@@ -6,54 +6,43 @@
  * métricas de campañas y ejecutan acciones automáticas.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, forwardRef } from 'react'
+// [Re-skin Tailwind v4] Sólo se conserva de MUI Joy el indicador de progreso
+// (CircularProgress), que no tiene equivalente en el design system.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Sheet,
-  Table,
-  Chip,
-  IconButton,
-  Tooltip,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  DialogTitle,
+  Sparkle,
+  Plus,
+  PencilSimple,
+  Trash,
+  ArrowClockwise,
+  X,
+  Play,
+  Pause,
+  ClockCounterClockwise,
+  Bug,
+  WarningCircle,
+  BellRinging,
+} from '@phosphor-icons/react'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Dialog,
   DialogContent,
-  DialogActions,
-  FormControl,
-  FormLabel,
-  Input,
-  Textarea,
-  Select,
-  Option,
-  Alert,
-  CircularProgress,
-  Divider,
-  Stack,
-  Badge,
-  Switch,
-} from '@mui/joy'
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  PlayArrow as PlayIcon,
-  Pause as PauseIcon,
-  History as HistoryIcon,
-  BugReport as TestIcon,
-  AutoAwesome as TemplateIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Schedule as ScheduleIcon,
-  NotificationsActive as NotifyIcon,
-  Close as CloseIcon,
-  Add as PlusIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 // ============================================================
@@ -145,17 +134,17 @@ const SCOPE_LABELS: Record<string, string> = {
   ad: 'Anuncio',
 }
 
-const STATUS_CONFIG: Record<string, { color: 'success' | 'warning' | 'danger'; label: string }> = {
-  active: { color: 'success', label: 'Activa' },
-  paused: { color: 'warning', label: 'Pausada' },
-  error: { color: 'danger', label: 'Error' },
+const STATUS_CONFIG: Record<string, { variant: BadgeProps['variant']; label: string }> = {
+  active: { variant: 'success', label: 'Activa' },
+  paused: { variant: 'warning', label: 'Pausada' },
+  error: { variant: 'destructive', label: 'Error' },
 }
 
-const RESULT_CONFIG: Record<string, { color: 'success' | 'warning' | 'danger' | 'neutral'; icon: string }> = {
-  success: { color: 'success', icon: '✅' },
-  failed: { color: 'danger', icon: '❌' },
-  skipped: { color: 'neutral', icon: '⏭️' },
-  cooldown: { color: 'warning', icon: '⏱️' },
+const RESULT_CONFIG: Record<string, { variant: BadgeProps['variant']; icon: string }> = {
+  success: { variant: 'success', icon: '✅' },
+  failed: { variant: 'destructive', icon: '❌' },
+  skipped: { variant: 'neutral', icon: '⏭️' },
+  cooldown: { variant: 'warning', icon: '⏱️' },
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -183,6 +172,73 @@ function formatRelative(dateStr: string | null): string {
   if (hours < 24) return `hace ${hours}h`
   return `hace ${Math.floor(hours / 24)}d`
 }
+
+// ============================================================
+// PRIMITIVAS LOCALES DEL DESIGN SYSTEM
+// ============================================================
+
+const inputCls =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+const rowInputCls =
+  'h-9 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+// Toggle accesible (role=switch) con tokens del design system — no hay wrapper Switch en @/components/ui.
+function Toggle({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean
+  onChange: () => void
+  label: string
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onChange}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// Botón de acción de fila (mismo look que RowAction del DS, con onClick).
+// forwardRef + ...props: <Tooltip> (Radix, asChild) inyecta ref y handlers en el
+// hijo; si no se propagan, el tooltip no se ancla ni se abre.
+const ActionBtn = forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string }
+>(({ label, className, children, ...props }, ref) => (
+  <button
+    ref={ref}
+    type="button"
+    aria-label={label}
+    className={cn(
+      'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </button>
+))
+ActionBtn.displayName = 'ActionBtn'
 
 // ============================================================
 // COMPONENTE PRINCIPAL
@@ -491,737 +547,843 @@ export default function CampaignRules() {
   // ============================================================
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box>
-          <Typography level="h3" startDecorator={<TemplateIcon />}>
-            Reglas Automatizadas
-          </Typography>
-          <Typography level="body-sm" color="neutral">
-            Automatiza acciones en tus campañas Meta Ads según métricas de rendimiento
-          </Typography>
-        </Box>
-        <Stack direction="row" gap={1}>
-          <Button
-            variant="outlined"
-            startDecorator={<TemplateIcon />}
-            onClick={() => setShowTemplatesPanel(true)}
-          >
-            Templates
-          </Button>
-          <Button
-            startDecorator={<AddIcon />}
-            onClick={handleOpenCreate}
-          >
-            Crear Regla
-          </Button>
-          <IconButton variant="outlined" onClick={loadRules} loading={loading}>
-            <RefreshIcon />
-          </IconButton>
-        </Stack>
-      </Stack>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Sparkle className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Reglas Automatizadas
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Automatiza acciones en tus campañas Meta Ads según métricas de rendimiento
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowTemplatesPanel(true)}>
+                <Sparkle className="size-4" aria-hidden />
+                Templates
+              </Button>
+              <Button size="sm" onClick={handleOpenCreate}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Crear Regla
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Actualizar"
+                className="text-muted-foreground"
+                onClick={loadRules}
+                disabled={loading}
+              >
+                <ArrowClockwise className={cn('size-5', loading && 'animate-spin')} aria-hidden />
+              </Button>
+            </div>
+          </div>
 
-      {/* Error global */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 2 }} endDecorator={
-          <IconButton size="sm" color="danger" onClick={() => setError(null)}><CloseIcon /></IconButton>
-        }>
-          {error}
-        </Alert>
-      )}
+          {/* Error global */}
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+            >
+              <span className="flex items-center gap-2">
+                <WarningCircle className="size-[18px] shrink-0" aria-hidden />
+                {error}
+              </span>
+              <button
+                type="button"
+                aria-label="Cerrar alerta"
+                onClick={() => setError(null)}
+                className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-destructive/15"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
+          )}
 
-      {/* Tabla de reglas */}
-      <Card>
-        <CardContent>
-          {loading ? (
-            <Box display="flex" justifyContent="center" py={4}>
-              <CircularProgress />
-            </Box>
-          ) : rules.length === 0 ? (
-            <Box textAlign="center" py={6}>
-              <TemplateIcon sx={{ fontSize: 48, color: 'neutral.400', mb: 2 }} />
-              <Typography level="h4" color="neutral">Sin reglas configuradas</Typography>
-              <Typography level="body-sm" color="neutral" mb={2}>
-                Crea tu primera regla o usa un template pre-configurado
-              </Typography>
-              <Stack direction="row" gap={1} justifyContent="center">
-                <Button onClick={handleOpenCreate} startDecorator={<AddIcon />}>Crear Regla</Button>
-                <Button variant="outlined" onClick={() => setShowTemplatesPanel(true)} startDecorator={<TemplateIcon />}>
-                  Ver Templates
-                </Button>
-              </Stack>
-            </Box>
-          ) : (
-            <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-              <Table stickyHeader hoverRow>
-                <thead>
-                  <tr>
-                    <th style={{ width: '200px' }}>Nombre</th>
-                    <th style={{ width: '100px' }}>Scope</th>
-                    <th style={{ width: '120px' }}>Frecuencia</th>
-                    <th style={{ width: '100px' }}>Estado</th>
-                    <th style={{ width: '130px' }}>Último trigger</th>
-                    <th style={{ width: '80px', textAlign: 'center' }}>Triggers</th>
-                    <th style={{ width: '140px', textAlign: 'center' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rules.map(rule => (
-                    <tr key={rule.id}>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold">{rule.name}</Typography>
-                          {rule.description && (
-                            <Typography level="body-xs" color="neutral" noWrap sx={{ maxWidth: 180 }}>
-                              {rule.description}
-                            </Typography>
-                          )}
-                          {rule.status === 'error' && (
-                            <Chip color="danger" size="sm" startDecorator={<ErrorIcon />}>
-                              {rule.consecutiveErrors} errores
-                            </Chip>
-                          )}
-                        </Box>
-                      </td>
-                      <td>
-                        <Chip size="sm" variant="soft">
-                          {SCOPE_LABELS[rule.scope] || rule.scope}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {FREQUENCY_LABELS[rule.frequency] || rule.frequency}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" gap={1} alignItems="center">
-                          <Chip
-                            size="sm"
-                            color={STATUS_CONFIG[rule.status]?.color || 'neutral'}
-                          >
-                            {STATUS_CONFIG[rule.status]?.label || rule.status}
-                          </Chip>
-                          <Switch
-                            size="sm"
-                            checked={rule.status === 'active'}
-                            onChange={() => handleToggleStatus(rule)}
-                            disabled={rule.status === 'error'}
-                          />
-                        </Stack>
-                      </td>
-                      <td>
-                        <Tooltip title={formatDate(rule.lastTriggeredAt)}>
-                          <Typography level="body-xs" color="neutral">
-                            {formatRelative(rule.lastTriggeredAt)}
-                          </Typography>
-                        </Tooltip>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <Badge badgeContent={rule.triggerCount} max={999} color="primary">
-                          <NotifyIcon sx={{ fontSize: 18, color: 'neutral.400' }} />
-                        </Badge>
-                      </td>
-                      <td>
-                        <Stack direction="row" gap={0.5} justifyContent="center">
-                          <Tooltip title="Editar">
-                            <IconButton size="sm" variant="soft" onClick={() => handleEdit(rule)}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Simular (dry run)">
-                            <IconButton size="sm" variant="soft" color="neutral" onClick={() => handleTest(rule)}>
-                              <TestIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Ver historial">
-                            <IconButton size="sm" variant="soft" color="neutral" onClick={() => handleOpenLogs(rule)}>
-                              <HistoryIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title={rule.status === 'active' ? 'Pausar' : 'Activar'}>
-                            <IconButton
-                              size="sm"
-                              variant="soft"
-                              color={rule.status === 'active' ? 'warning' : 'success'}
-                              onClick={() => handleToggleStatus(rule)}
-                            >
-                              {rule.status === 'active' ? <PauseIcon fontSize="small" /> : <PlayIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Eliminar">
-                            <IconButton
-                              size="sm"
-                              variant="soft"
-                              color="danger"
-                              onClick={() => { setSelectedRule(rule); setShowDeleteModal(true) }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Stack>
-                      </td>
+          {/* Tabla de reglas */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            {loading ? (
+              <div className="flex justify-center py-10">
+                <CircularProgress />
+              </div>
+            ) : rules.length === 0 ? (
+              <div className="px-4 py-12 text-center">
+                <Sparkle className="mx-auto size-12 text-muted-foreground" aria-hidden />
+                <h2 className="mt-3 text-lg font-semibold text-foreground">Sin reglas configuradas</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Crea tu primera regla o usa un template pre-configurado
+                </p>
+                <div className="mt-4 flex justify-center gap-2">
+                  <Button size="sm" onClick={handleOpenCreate}>
+                    <Plus className="size-4" weight="bold" aria-hidden />
+                    Crear Regla
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setShowTemplatesPanel(true)}>
+                    <Sparkle className="size-4" aria-hidden />
+                    Ver Templates
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nombre</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scope</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Frecuencia</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Último trigger</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Triggers</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acciones</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
-          )}
-          {total > 0 && (
-            <Typography level="body-xs" color="neutral" mt={1}>
-              Total: {total} regla{total !== 1 ? 's' : ''}
-            </Typography>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ============================================================
-          MODAL: Crear / Editar Regla
-          ============================================================ */}
-      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)}>
-        <ModalDialog size="lg" sx={{ maxWidth: 720, width: '95vw', overflow: 'auto', maxHeight: '90vh' }}>
-          <ModalClose />
-          <DialogTitle>
-            {isEditing ? '✏️ Editar Regla' : '➕ Nueva Regla Automatizada'}
-          </DialogTitle>
-          <DialogContent>
-            {formError && (
-              <Alert color="danger" sx={{ mb: 2 }}>
-                {formError}
-              </Alert>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {rules.map(rule => (
+                      <tr key={rule.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 align-top">
+                          <div className="max-w-[220px] space-y-1">
+                            <p className="font-medium text-foreground">{rule.name}</p>
+                            {rule.description && (
+                              <p className="truncate text-xs text-muted-foreground">
+                                {rule.description}
+                              </p>
+                            )}
+                            {rule.status === 'error' && (
+                              <Badge variant="destructive">
+                                <WarningCircle className="size-3" aria-hidden />
+                                {rule.consecutiveErrors} errores
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <Badge variant="neutral">
+                            {SCOPE_LABELS[rule.scope] || rule.scope}
+                          </Badge>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 align-top text-muted-foreground">
+                          {FREQUENCY_LABELS[rule.frequency] || rule.frequency}
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-center gap-2">
+                            <Badge variant={STATUS_CONFIG[rule.status]?.variant || 'neutral'}>
+                              {STATUS_CONFIG[rule.status]?.label || rule.status}
+                            </Badge>
+                            <Toggle
+                              checked={rule.status === 'active'}
+                              onChange={() => handleToggleStatus(rule)}
+                              disabled={rule.status === 'error'}
+                              label={rule.status === 'active' ? 'Pausar regla' : 'Activar regla'}
+                            />
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 align-top">
+                          <Tooltip title={formatDate(rule.lastTriggeredAt)}>
+                            <span className="text-xs text-muted-foreground">
+                              {formatRelative(rule.lastTriggeredAt)}
+                            </span>
+                          </Tooltip>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-center justify-center gap-1.5 text-muted-foreground">
+                            <BellRinging className="size-[18px]" aria-hidden />
+                            <span className="tabular-nums text-xs font-medium">
+                              {rule.triggerCount > 999 ? '999+' : rule.triggerCount}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <Tooltip title="Editar">
+                              <ActionBtn label="Editar" onClick={() => handleEdit(rule)}>
+                                <PencilSimple className="size-[18px]" aria-hidden />
+                              </ActionBtn>
+                            </Tooltip>
+                            <Tooltip title="Simular (dry run)">
+                              <ActionBtn label="Simular (dry run)" onClick={() => handleTest(rule)}>
+                                <Bug className="size-[18px]" aria-hidden />
+                              </ActionBtn>
+                            </Tooltip>
+                            <Tooltip title="Ver historial">
+                              <ActionBtn label="Ver historial" onClick={() => handleOpenLogs(rule)}>
+                                <ClockCounterClockwise className="size-[18px]" aria-hidden />
+                              </ActionBtn>
+                            </Tooltip>
+                            <Tooltip title={rule.status === 'active' ? 'Pausar' : 'Activar'}>
+                              <ActionBtn
+                                label={rule.status === 'active' ? 'Pausar' : 'Activar'}
+                                onClick={() => handleToggleStatus(rule)}
+                                className={
+                                  rule.status === 'active'
+                                    ? 'text-warning-text hover:bg-warning/10 hover:text-warning-text'
+                                    : 'text-success-text hover:bg-success/10 hover:text-success-text'
+                                }
+                              >
+                                {rule.status === 'active'
+                                  ? <Pause className="size-[18px]" aria-hidden />
+                                  : <Play className="size-[18px]" aria-hidden />}
+                              </ActionBtn>
+                            </Tooltip>
+                            <Tooltip title="Eliminar">
+                              <ActionBtn
+                                label="Eliminar"
+                                onClick={() => { setSelectedRule(rule); setShowDeleteModal(true) }}
+                                className="hover:bg-destructive/10 hover:text-destructive-text"
+                              >
+                                <Trash className="size-[18px]" aria-hidden />
+                              </ActionBtn>
+                            </Tooltip>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+          </div>
 
-            {/* Datos básicos */}
-            <Stack gap={2} mb={2}>
-              <FormControl required>
-                <FormLabel>Nombre</FormLabel>
-                <Input
+          {total > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Total: {total} regla{total !== 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+
+        {/* ============================================================
+            MODAL: Crear / Editar Regla
+            ============================================================ */}
+        <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+          <DialogContent className="max-w-[720px]">
+            <DialogHeader>
+              <DialogTitle>
+                {isEditing ? '✏️ Editar Regla' : '➕ Nueva Regla Automatizada'}
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {formError && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+                >
+                  {formError}
+                </div>
+              )}
+
+              {/* Datos básicos */}
+              <div className="space-y-1.5">
+                <Label htmlFor="rule-name">Nombre</Label>
+                <input
+                  id="rule-name"
+                  required
                   placeholder="Ej: Pausar campaña con CPA alto"
                   value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  className={inputCls}
                 />
-              </FormControl>
+              </div>
 
-              <FormControl>
-                <FormLabel>Descripción</FormLabel>
-                <Textarea
-                  minRows={2}
+              <div className="space-y-1.5">
+                <Label htmlFor="rule-description">Descripción</Label>
+                <textarea
+                  id="rule-description"
+                  rows={2}
                   placeholder="Descripción opcional de la regla..."
                   value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  className={cn(inputCls, 'h-auto py-2.5 leading-relaxed')}
                 />
-              </FormControl>
+              </div>
 
-              <Stack direction="row" gap={2}>
-                <FormControl sx={{ flex: 1 }}>
-                  <FormLabel>Scope</FormLabel>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="rule-scope">Scope</Label>
                   <Select
                     value={form.scope}
-                    onChange={(_, v) => setForm(f => ({ ...f, scope: v as string }))}
+                    onValueChange={v => setForm(f => ({ ...f, scope: v }))}
                   >
-                    <Option value="campaign">Campaña</Option>
-                    <Option value="adset">Conjunto de anuncios</Option>
-                    <Option value="ad">Anuncio</Option>
-                    <Option value="account">Cuenta</Option>
+                    <SelectTrigger id="rule-scope" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="campaign">Campaña</SelectItem>
+                      <SelectItem value="adset">Conjunto de anuncios</SelectItem>
+                      <SelectItem value="ad">Anuncio</SelectItem>
+                      <SelectItem value="account">Cuenta</SelectItem>
+                    </SelectContent>
                   </Select>
-                </FormControl>
+                </div>
 
-                <FormControl sx={{ flex: 1 }}>
-                  <FormLabel>Frecuencia de evaluación</FormLabel>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="rule-frequency">Frecuencia de evaluación</Label>
                   <Select
                     value={form.frequency}
-                    onChange={(_, v) => setForm(f => ({ ...f, frequency: v as string }))}
+                    onValueChange={v => setForm(f => ({ ...f, frequency: v }))}
                   >
-                    <Option value="every_15min">Cada 15 minutos</Option>
-                    <Option value="every_30min">Cada 30 minutos</Option>
-                    <Option value="hourly">Cada hora</Option>
-                    <Option value="every_6h">Cada 6 horas</Option>
-                    <Option value="daily">Diario</Option>
+                    <SelectTrigger id="rule-frequency" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="every_15min">Cada 15 minutos</SelectItem>
+                      <SelectItem value="every_30min">Cada 30 minutos</SelectItem>
+                      <SelectItem value="hourly">Cada hora</SelectItem>
+                      <SelectItem value="every_6h">Cada 6 horas</SelectItem>
+                      <SelectItem value="daily">Diario</SelectItem>
+                    </SelectContent>
                   </Select>
-                </FormControl>
+                </div>
 
-                <FormControl sx={{ width: 140 }}>
-                  <FormLabel>Cooldown (min)</FormLabel>
-                  <Input
+                <div className="space-y-1.5 sm:col-span-1">
+                  <Label htmlFor="rule-cooldown">Cooldown (min)</Label>
+                  <input
+                    id="rule-cooldown"
                     type="number"
+                    min={1}
                     value={form.cooldownMinutes}
                     onChange={e => setForm(f => ({ ...f, cooldownMinutes: Number(e.target.value) }))}
-                    slotProps={{ input: { min: 1 } }}
+                    className={inputCls}
                   />
-                </FormControl>
-              </Stack>
-            </Stack>
+                </div>
+              </div>
 
-            <Divider sx={{ my: 2 }} />
+              <div className="border-t border-border" />
 
-            {/* Condiciones */}
-            <Box mb={2}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                <Typography level="title-md">🔍 Condiciones</Typography>
-                <Button size="sm" variant="soft" startDecorator={<PlusIcon />} onClick={addCondition}>
-                  Agregar condición
-                </Button>
-              </Stack>
+              {/* Condiciones */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-foreground">🔍 Condiciones</h3>
+                  <Button variant="outline" size="sm" onClick={addCondition}>
+                    <Plus className="size-4" weight="bold" aria-hidden />
+                    Agregar condición
+                  </Button>
+                </div>
 
-              <Stack gap={1}>
-                {form.conditions.map((cond, idx) => (
-                  <Card key={idx} variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-                      {idx > 0 && (
+                <div className="space-y-2">
+                  {form.conditions.map((cond, idx) => (
+                    <div key={idx} className="rounded-lg border border-border p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {idx > 0 && (
+                          <Select
+                            value={cond.logic || 'AND'}
+                            onValueChange={v => updateCondition(idx, 'logic', v)}
+                          >
+                            <SelectTrigger className="w-[70px] flex-none" aria-label="Operador lógico">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="AND">Y</SelectItem>
+                              <SelectItem value="OR">O</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+
                         <Select
-                          size="sm"
-                          value={cond.logic || 'AND'}
-                          onChange={(_, v) => updateCondition(idx, 'logic', v)}
-                          sx={{ width: 70 }}
+                          value={cond.metric}
+                          onValueChange={v => updateCondition(idx, 'metric', v)}
                         >
-                          <Option value="AND">Y</Option>
-                          <Option value="OR">O</Option>
+                          <SelectTrigger className="min-w-[160px] flex-[2]" aria-label="Métrica">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {metrics.length > 0 ? metrics.map(m => (
+                              <SelectItem key={m.key} value={m.key}>{m.label}</SelectItem>
+                            )) : (
+                              <>
+                                <SelectItem value="spend">Gasto (Spend)</SelectItem>
+                                <SelectItem value="ctr">CTR (%)</SelectItem>
+                                <SelectItem value="cpc">CPC ($)</SelectItem>
+                                <SelectItem value="cpm">CPM ($)</SelectItem>
+                                <SelectItem value="roas">ROAS</SelectItem>
+                                <SelectItem value="frequency">Frecuencia</SelectItem>
+                                <SelectItem value="impressions">Impresiones</SelectItem>
+                                <SelectItem value="conversions">Conversiones</SelectItem>
+                                <SelectItem value="cost_per_conversion">CPA ($)</SelectItem>
+                                <SelectItem value="reach">Alcance</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
                         </Select>
-                      )}
 
-                      <Select
-                        size="sm"
-                        value={cond.metric}
-                        onChange={(_, v) => updateCondition(idx, 'metric', v)}
-                        sx={{ flex: 2, minWidth: 160 }}
-                      >
-                        {metrics.length > 0 ? metrics.map(m => (
-                          <Option key={m.key} value={m.key}>{m.label}</Option>
-                        )) : (
-                          <>
-                            <Option value="spend">Gasto (Spend)</Option>
-                            <Option value="ctr">CTR (%)</Option>
-                            <Option value="cpc">CPC ($)</Option>
-                            <Option value="cpm">CPM ($)</Option>
-                            <Option value="roas">ROAS</Option>
-                            <Option value="frequency">Frecuencia</Option>
-                            <Option value="impressions">Impresiones</Option>
-                            <Option value="conversions">Conversiones</Option>
-                            <Option value="cost_per_conversion">CPA ($)</Option>
-                            <Option value="reach">Alcance</Option>
-                          </>
-                        )}
-                      </Select>
-
-                      <Select
-                        size="sm"
-                        value={cond.operator}
-                        onChange={(_, v) => updateCondition(idx, 'operator', v)}
-                        sx={{ width: 130 }}
-                      >
-                        {operators.length > 0 ? operators.map(o => (
-                          <Option key={o.key} value={o.key}>{o.label}</Option>
-                        )) : (
-                          <>
-                            <Option value=">">Mayor que</Option>
-                            <Option value="<">Menor que</Option>
-                            <Option value=">=">Mayor o igual</Option>
-                            <Option value="<=">Menor o igual</Option>
-                            <Option value="=">Igual a</Option>
-                            <Option value="!=">Diferente de</Option>
-                            <Option value="between">Entre</Option>
-                          </>
-                        )}
-                      </Select>
-
-                      <Input
-                        size="sm"
-                        type="number"
-                        value={cond.value}
-                        onChange={e => updateCondition(idx, 'value', Number(e.target.value))}
-                        sx={{ width: 80 }}
-                        placeholder="Valor"
-                      />
-
-                      {cond.operator === 'between' && (
-                        <Input
-                          size="sm"
-                          type="number"
-                          value={cond.value2 || ''}
-                          onChange={e => updateCondition(idx, 'value2', Number(e.target.value))}
-                          sx={{ width: 80 }}
-                          placeholder="Hasta"
-                        />
-                      )}
-
-                      <Select
-                        size="sm"
-                        value={cond.timeRange}
-                        onChange={(_, v) => updateCondition(idx, 'timeRange', v)}
-                        sx={{ flex: 1, minWidth: 120 }}
-                      >
-                        {timeRanges.length > 0 ? timeRanges.map(t => (
-                          <Option key={t.key} value={t.key}>{t.label}</Option>
-                        )) : (
-                          <>
-                            <Option value="last_1_day">Último día</Option>
-                            <Option value="last_3_days">Últimos 3 días</Option>
-                            <Option value="last_7_days">Últimos 7 días</Option>
-                            <Option value="last_14_days">Últimos 14 días</Option>
-                            <Option value="last_30_days">Últimos 30 días</Option>
-                          </>
-                        )}
-                      </Select>
-
-                      {form.conditions.length > 1 && (
-                        <IconButton size="sm" color="danger" onClick={() => removeCondition(idx)}>
-                          <CloseIcon fontSize="small" />
-                        </IconButton>
-                      )}
-                    </Stack>
-                  </Card>
-                ))}
-              </Stack>
-            </Box>
-
-            <Divider sx={{ my: 2 }} />
-
-            {/* Acciones */}
-            <Box mb={2}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                <Typography level="title-md">⚡ Acciones</Typography>
-                <Button size="sm" variant="soft" startDecorator={<PlusIcon />} onClick={addAction}>
-                  Agregar acción
-                </Button>
-              </Stack>
-
-              <Stack gap={1}>
-                {form.actions.map((action, idx) => (
-                  <Card key={idx} variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack gap={1}>
-                      <Stack direction="row" gap={1} alignItems="center">
                         <Select
-                          size="sm"
-                          value={action.type}
-                          onChange={(_, v) => updateAction(idx, 'type', v)}
-                          sx={{ flex: 1 }}
+                          value={cond.operator}
+                          onValueChange={v => updateCondition(idx, 'operator', v)}
                         >
-                          <Option value="pause">⏸️ Pausar campaña</Option>
-                          <Option value="activate">▶️ Activar campaña</Option>
-                          <Option value="adjust_budget">💰 Ajustar presupuesto</Option>
-                          <Option value="notify_whatsapp">📱 Notificar por WhatsApp</Option>
+                          <SelectTrigger className="w-[130px] flex-none" aria-label="Operador">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {operators.length > 0 ? operators.map(o => (
+                              <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
+                            )) : (
+                              <>
+                                <SelectItem value=">">Mayor que</SelectItem>
+                                <SelectItem value="<">Menor que</SelectItem>
+                                <SelectItem value=">=">Mayor o igual</SelectItem>
+                                <SelectItem value="<=">Menor o igual</SelectItem>
+                                <SelectItem value="=">Igual a</SelectItem>
+                                <SelectItem value="!=">Diferente de</SelectItem>
+                                <SelectItem value="between">Entre</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
+
+                        <input
+                          type="number"
+                          value={cond.value}
+                          onChange={e => updateCondition(idx, 'value', Number(e.target.value))}
+                          placeholder="Valor"
+                          aria-label="Valor"
+                          className={cn(rowInputCls, 'w-20 flex-none')}
+                        />
+
+                        {cond.operator === 'between' && (
+                          <input
+                            type="number"
+                            value={cond.value2 || ''}
+                            onChange={e => updateCondition(idx, 'value2', Number(e.target.value))}
+                            placeholder="Hasta"
+                            aria-label="Valor hasta"
+                            className={cn(rowInputCls, 'w-20 flex-none')}
+                          />
+                        )}
+
+                        <Select
+                          value={cond.timeRange}
+                          onValueChange={v => updateCondition(idx, 'timeRange', v)}
+                        >
+                          <SelectTrigger className="min-w-[120px] flex-1" aria-label="Rango de tiempo">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {timeRanges.length > 0 ? timeRanges.map(t => (
+                              <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>
+                            )) : (
+                              <>
+                                <SelectItem value="last_1_day">Último día</SelectItem>
+                                <SelectItem value="last_3_days">Últimos 3 días</SelectItem>
+                                <SelectItem value="last_7_days">Últimos 7 días</SelectItem>
+                                <SelectItem value="last_14_days">Últimos 14 días</SelectItem>
+                                <SelectItem value="last_30_days">Últimos 30 días</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
+
+                        {form.conditions.length > 1 && (
+                          <button
+                            type="button"
+                            aria-label="Quitar condición"
+                            title="Quitar condición"
+                            onClick={() => removeCondition(idx)}
+                            className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            <Trash className="size-[18px]" aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-border" />
+
+              {/* Acciones */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-foreground">⚡ Acciones</h3>
+                  <Button variant="outline" size="sm" onClick={addAction}>
+                    <Plus className="size-4" weight="bold" aria-hidden />
+                    Agregar acción
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {form.actions.map((action, idx) => (
+                    <div key={idx} className="space-y-2 rounded-lg border border-border p-3">
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={action.type}
+                          onValueChange={v => updateAction(idx, 'type', v)}
+                        >
+                          <SelectTrigger className="flex-1" aria-label="Tipo de acción">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pause">⏸️ Pausar campaña</SelectItem>
+                            <SelectItem value="activate">▶️ Activar campaña</SelectItem>
+                            <SelectItem value="adjust_budget">💰 Ajustar presupuesto</SelectItem>
+                            <SelectItem value="notify_whatsapp">📱 Notificar por WhatsApp</SelectItem>
+                          </SelectContent>
                         </Select>
                         {form.actions.length > 1 && (
-                          <IconButton size="sm" color="danger" onClick={() => removeAction(idx)}>
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
+                          <button
+                            type="button"
+                            aria-label="Quitar acción"
+                            title="Quitar acción"
+                            onClick={() => removeAction(idx)}
+                            className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            <Trash className="size-[18px]" aria-hidden />
+                          </button>
                         )}
-                      </Stack>
+                      </div>
 
                       {/* Parámetros de adjust_budget */}
                       {action.type === 'adjust_budget' && (
-                        <Stack direction="row" gap={1}>
+                        <div className="flex flex-wrap items-center gap-2">
                           <Select
-                            size="sm"
                             value={action.params?.direction || 'increase'}
-                            onChange={(_, v) => updateAction(idx, 'params.direction', v)}
-                            sx={{ flex: 1 }}
+                            onValueChange={v => updateAction(idx, 'params.direction', v)}
                           >
-                            <Option value="increase">Aumentar</Option>
-                            <Option value="decrease">Disminuir</Option>
+                            <SelectTrigger className="min-w-[120px] flex-1" aria-label="Dirección del ajuste">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="increase">Aumentar</SelectItem>
+                              <SelectItem value="decrease">Disminuir</SelectItem>
+                            </SelectContent>
                           </Select>
-                          <Input
-                            size="sm"
+                          <input
                             type="number"
                             value={action.params?.amount || ''}
                             onChange={e => updateAction(idx, 'params.amount', Number(e.target.value))}
-                            sx={{ width: 80 }}
                             placeholder="Monto"
+                            aria-label="Monto"
+                            className={cn(rowInputCls, 'w-20 flex-none')}
                           />
                           <Select
-                            size="sm"
                             value={action.params?.unit || 'percent'}
-                            onChange={(_, v) => updateAction(idx, 'params.unit', v)}
-                            sx={{ width: 110 }}
+                            onValueChange={v => updateAction(idx, 'params.unit', v)}
                           >
-                            <Option value="percent">Porcentaje (%)</Option>
-                            <Option value="absolute">Monto fijo ($)</Option>
+                            <SelectTrigger className="w-[140px] flex-none" aria-label="Unidad">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="percent">Porcentaje (%)</SelectItem>
+                              <SelectItem value="absolute">Monto fijo ($)</SelectItem>
+                            </SelectContent>
                           </Select>
-                        </Stack>
+                        </div>
                       )}
 
                       {/* Parámetros de notify_whatsapp */}
                       {action.type === 'notify_whatsapp' && (
-                        <Textarea
-                          size="sm"
-                          minRows={2}
+                        <textarea
+                          rows={2}
                           placeholder="Mensaje de notificación... Usa {{campaignName}}, {{spend}}, {{ctr}}, etc."
+                          aria-label="Mensaje de notificación"
                           value={action.params?.message || ''}
                           onChange={e => updateAction(idx, 'params.message', e.target.value)}
+                          className={cn(rowInputCls, 'h-auto py-2 leading-relaxed')}
                         />
                       )}
-                    </Stack>
-                  </Card>
-                ))}
-              </Stack>
-            </Box>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-            <Divider sx={{ my: 2 }} />
+              <div className="border-t border-border" />
 
-            {/* Números de notificación */}
-            <Box>
-              <Typography level="title-md" mb={1}>📱 Números de WhatsApp para notificaciones</Typography>
-              <Typography level="body-xs" color="neutral" mb={1}>
-                Ingresa los números que recibirán alertas (con código de país, sin +). Ej: 5215512345678
-              </Typography>
+              {/* Números de notificación */}
+              <div>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">
+                  📱 Números de WhatsApp para notificaciones
+                </h3>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Ingresa los números que recibirán alertas (con código de país, sin +). Ej: 5215512345678
+                </p>
 
-              <Stack direction="row" gap={1} mb={1}>
-                <Input
-                  size="sm"
-                  placeholder="Ej: 5215512345678"
-                  value={form.newPhone}
-                  onChange={e => setForm(f => ({ ...f, newPhone: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') addPhone() }}
-                  sx={{ flex: 1 }}
-                />
-                <Button size="sm" variant="soft" onClick={addPhone} startDecorator={<PlusIcon />}>
-                  Agregar
-                </Button>
-              </Stack>
+                <div className="mb-2 flex items-center gap-2">
+                  <input
+                    placeholder="Ej: 5215512345678"
+                    aria-label="Número de WhatsApp"
+                    value={form.newPhone}
+                    onChange={e => setForm(f => ({ ...f, newPhone: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') addPhone() }}
+                    className={cn(rowInputCls, 'flex-1')}
+                  />
+                  <Button variant="outline" size="sm" onClick={addPhone}>
+                    <Plus className="size-4" weight="bold" aria-hidden />
+                    Agregar
+                  </Button>
+                </div>
 
-              <Stack direction="row" gap={0.5} flexWrap="wrap">
-                {form.notificationPhones.map((phone, idx) => (
-                  <Chip
-                    key={idx}
-                    size="sm"
-                    variant="soft"
-                    color="primary"
-                    endDecorator={
-                      <IconButton size="sm" onClick={() => removePhone(idx)}>
-                        <CloseIcon sx={{ fontSize: 12 }} />
-                      </IconButton>
-                    }
-                  >
-                    +{phone}
-                  </Chip>
-                ))}
-                {form.notificationPhones.length === 0 && (
-                  <Typography level="body-xs" color="neutral">Sin números configurados</Typography>
-                )}
-              </Stack>
-            </Box>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {form.notificationPhones.map((phone, idx) => (
+                    <Badge key={idx} variant="primary" className="pr-1">
+                      +{phone}
+                      <button
+                        type="button"
+                        aria-label={`Quitar número +${phone}`}
+                        onClick={() => removePhone(idx)}
+                        className="ml-0.5 flex size-4 items-center justify-center rounded-full transition-colors hover:bg-primary/20"
+                      >
+                        <X className="size-3" aria-hidden />
+                      </button>
+                    </Badge>
+                  ))}
+                  {form.notificationPhones.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Sin números configurados</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowCreateModal(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" loading={formLoading} onClick={handleSave}>
+                {isEditing ? 'Guardar cambios' : 'Crear Regla'}
+              </Button>
+            </DialogFooter>
           </DialogContent>
-          <DialogActions>
-            <Button variant="outlined" onClick={() => setShowCreateModal(false)}>Cancelar</Button>
-            <Button loading={formLoading} onClick={handleSave}>
-              {isEditing ? 'Guardar cambios' : 'Crear Regla'}
-            </Button>
-          </DialogActions>
-        </ModalDialog>
-      </Modal>
+        </Dialog>
 
-      {/* ============================================================
-          MODAL: Historial de Logs
-          ============================================================ */}
-      <Modal open={showLogsModal} onClose={() => setShowLogsModal(false)}>
-        <ModalDialog size="lg" sx={{ maxWidth: 800, width: '95vw', overflow: 'auto', maxHeight: '90vh' }}>
-          <ModalClose />
-          <DialogTitle>
-            📋 Historial — {selectedRule?.name}
-          </DialogTitle>
-          <DialogContent>
+        {/* ============================================================
+            MODAL: Historial de Logs
+            ============================================================ */}
+        <Dialog open={showLogsModal} onOpenChange={setShowLogsModal}>
+          <DialogContent className="max-w-[800px]">
+            <DialogHeader>
+              <DialogTitle>📋 Historial — {selectedRule?.name}</DialogTitle>
+            </DialogHeader>
+
             {logsLoading ? (
-              <Box display="flex" justifyContent="center" py={4}>
+              <div className="flex justify-center py-10">
                 <CircularProgress />
-              </Box>
+              </div>
             ) : logs.length === 0 ? (
-              <Box textAlign="center" py={4}>
-                <HistoryIcon sx={{ fontSize: 40, color: 'neutral.400' }} />
-                <Typography level="body-sm" color="neutral" mt={1}>Sin registros de ejecución</Typography>
-              </Box>
+              <div className="py-10 text-center">
+                <ClockCounterClockwise className="mx-auto size-10 text-muted-foreground" aria-hidden />
+                <p className="mt-2 text-sm text-muted-foreground">Sin registros de ejecución</p>
+              </div>
             ) : (
-              <Stack gap={1}>
+              <div className="space-y-2">
                 {logs.map(log => (
-                  <Card key={log.id} variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                      <Box flex={1}>
-                        <Stack direction="row" gap={1} alignItems="center" mb={0.5}>
-                          <Typography level="body-xs">
-                            {RESULT_CONFIG[log.result]?.icon || '•'} {' '}
+                  <div key={log.id} className="rounded-lg border border-border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs text-foreground">
+                            {RESULT_CONFIG[log.result]?.icon || '•'}{' '}
                             <strong>{log.campaignName || 'General'}</strong>
-                          </Typography>
-                          <Chip
-                            size="sm"
-                            color={RESULT_CONFIG[log.result]?.color || 'neutral'}
-                          >
+                          </span>
+                          <Badge variant={RESULT_CONFIG[log.result]?.variant || 'neutral'}>
                             {log.result}
-                          </Chip>
-                          {log.conditionsMet && <Chip size="sm" color="success">Condiciones ✓</Chip>}
+                          </Badge>
+                          {log.conditionsMet && <Badge variant="success">Condiciones ✓</Badge>}
                           {log.notificationsSent > 0 && (
-                            <Chip size="sm" color="primary" startDecorator={<NotifyIcon sx={{ fontSize: 12 }} />}>
+                            <Badge variant="primary">
+                              <BellRinging className="size-3" aria-hidden />
                               {log.notificationsSent} env.
-                            </Chip>
+                            </Badge>
                           )}
-                        </Stack>
+                        </div>
                         {log.actionsTaken && log.actionsTaken.length > 0 && (
-                          <Typography level="body-xs" color="neutral">
+                          <p className="text-xs text-muted-foreground">
                             Acciones: {log.actionsTaken.map(a => `${ACTION_LABELS[a.type] || a.type} (${a.result})`).join(', ')}
-                          </Typography>
+                          </p>
                         )}
                         {log.error && (
-                          <Typography level="body-xs" color="danger">⚠️ {log.error}</Typography>
+                          <p className="text-xs text-destructive-text">⚠️ {log.error}</p>
                         )}
                         {log.metricsSnapshot && Object.keys(log.metricsSnapshot).length > 0 && (
-                          <Typography level="body-xs" color="neutral">
+                          <p className="text-xs text-muted-foreground">
                             Métricas: {Object.entries(log.metricsSnapshot)
                               .filter(([, v]) => v > 0)
                               .slice(0, 4)
                               .map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`)
                               .join(' | ')}
-                          </Typography>
+                          </p>
                         )}
-                      </Box>
-                      <Typography level="body-xs" color="neutral" sx={{ whiteSpace: 'nowrap', ml: 1 }}>
+                      </div>
+                      <span className="whitespace-nowrap text-xs text-muted-foreground">
                         {formatDate(log.executedAt)}
-                      </Typography>
-                    </Stack>
-                  </Card>
+                      </span>
+                    </div>
+                  </div>
                 ))}
-              </Stack>
+              </div>
             )}
-          </DialogContent>
-          <DialogActions>
-            <Button variant="outlined" onClick={() => setShowLogsModal(false)}>Cerrar</Button>
-          </DialogActions>
-        </ModalDialog>
-      </Modal>
 
-      {/* ============================================================
-          MODAL: Dry Run (Test)
-          ============================================================ */}
-      <Modal open={showTestModal} onClose={() => setShowTestModal(false)}>
-        <ModalDialog size="lg" sx={{ maxWidth: 720, width: '95vw', overflow: 'auto', maxHeight: '90vh' }}>
-          <ModalClose />
-          <DialogTitle>🧪 Simulación — {selectedRule?.name}</DialogTitle>
-          <DialogContent>
-            <Alert color="neutral" sx={{ mb: 2 }}>
-              Esta simulación evalúa las condiciones con datos reales de Meta Ads <strong>sin ejecutar ninguna acción</strong>.
-            </Alert>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowLogsModal(false)}>
+                Cerrar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ============================================================
+            MODAL: Dry Run (Test)
+            ============================================================ */}
+        <Dialog open={showTestModal} onOpenChange={setShowTestModal}>
+          <DialogContent className="max-w-[720px]">
+            <DialogHeader>
+              <DialogTitle>🧪 Simulación — {selectedRule?.name}</DialogTitle>
+            </DialogHeader>
+
+            <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              Esta simulación evalúa las condiciones con datos reales de Meta Ads{' '}
+              <strong className="text-foreground">sin ejecutar ninguna acción</strong>.
+            </div>
+
             {testLoading ? (
-              <Box display="flex" justifyContent="center" py={4}>
+              <div className="flex justify-center py-10">
                 <CircularProgress />
-              </Box>
+              </div>
             ) : !testResults ? (
-              <Box textAlign="center" py={4}>
-                <Typography color="neutral">No se pudo obtener datos de simulación</Typography>
-              </Box>
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                No se pudo obtener datos de simulación
+              </p>
             ) : testResults.results.length === 0 ? (
-              <Box textAlign="center" py={4}>
-                <Typography color="neutral">No hay campañas activas para evaluar</Typography>
-              </Box>
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                No hay campañas activas para evaluar
+              </p>
             ) : (
-              <Stack gap={1}>
-                <Typography level="body-sm" color="neutral" mb={1}>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
                   {testResults.results.filter(r => r.conditionsMet).length} de {testResults.results.length} campañas dispararían la regla
-                </Typography>
+                </p>
                 {testResults.results.map((r, idx) => (
-                  <Card key={idx} variant="outlined" sx={{ p: 1.5, borderColor: r.conditionsMet ? 'success.500' : 'neutral.300' }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                      <Box>
-                        <Stack direction="row" gap={1} mb={0.5}>
-                          <Typography level="body-sm" fontWeight="bold">{r.campaignName}</Typography>
-                          {r.conditionsMet
-                            ? <Chip color="success" size="sm">✅ Dispararía</Chip>
-                            : <Chip color="neutral" size="sm">❌ No dispara</Chip>
-                          }
-                        </Stack>
-                        {r.conditionsMet && r.wouldExecute.length > 0 && (
-                          <Typography level="body-xs" sx={{ color: 'success.600' }}>
-                            Ejecutaría: {r.wouldExecute.map(a => ACTION_LABELS[a.type] || a.type).join(', ')}
-                          </Typography>
-                        )}
-                        <Typography level="body-xs" color="neutral">
-                          {Object.entries(r.metrics)
-                            .filter(([, v]) => v > 0)
-                            .slice(0, 5)
-                            .map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`)
-                            .join(' | ')}
-                        </Typography>
-                      </Box>
-                    </Stack>
-                  </Card>
+                  <div
+                    key={idx}
+                    className={cn(
+                      'rounded-lg border p-3',
+                      r.conditionsMet ? 'border-success' : 'border-border',
+                    )}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-foreground">{r.campaignName}</p>
+                        {r.conditionsMet
+                          ? <Badge variant="success">✅ Dispararía</Badge>
+                          : <Badge variant="neutral">❌ No dispara</Badge>}
+                      </div>
+                      {r.conditionsMet && r.wouldExecute.length > 0 && (
+                        <p className="text-xs text-success-text">
+                          Ejecutaría: {r.wouldExecute.map(a => ACTION_LABELS[a.type] || a.type).join(', ')}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {Object.entries(r.metrics)
+                          .filter(([, v]) => v > 0)
+                          .slice(0, 5)
+                          .map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`)
+                          .join(' | ')}
+                      </p>
+                    </div>
+                  </div>
                 ))}
-              </Stack>
+              </div>
             )}
-          </DialogContent>
-          <DialogActions>
-            <Button variant="outlined" onClick={() => setShowTestModal(false)}>Cerrar</Button>
-          </DialogActions>
-        </ModalDialog>
-      </Modal>
 
-      {/* ============================================================
-          MODAL: Templates
-          ============================================================ */}
-      <Modal open={showTemplatesPanel} onClose={() => setShowTemplatesPanel(false)}>
-        <ModalDialog size="lg" sx={{ maxWidth: 700, width: '95vw', overflow: 'auto', maxHeight: '90vh' }}>
-          <ModalClose />
-          <DialogTitle>✨ Templates Pre-configurados</DialogTitle>
-          <DialogContent>
-            <Typography level="body-sm" color="neutral" mb={2}>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowTestModal(false)}>
+                Cerrar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ============================================================
+            MODAL: Templates
+            ============================================================ */}
+        <Dialog open={showTemplatesPanel} onOpenChange={setShowTemplatesPanel}>
+          <DialogContent className="max-w-[700px]">
+            <DialogHeader>
+              <DialogTitle>✨ Templates Pre-configurados</DialogTitle>
+            </DialogHeader>
+
+            <p className="text-sm text-muted-foreground">
               Selecciona un template para crear una regla con configuración optimizada. Podrás personalizar los valores.
-            </Typography>
-            <Stack gap={2}>
+            </p>
+
+            <div className="space-y-3">
               {templates.map(template => (
-                <Card key={template.id} variant="outlined" sx={{ p: 2 }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                    <Box flex={1}>
-                      <Typography level="title-sm" mb={0.5}>{template.name}</Typography>
-                      <Typography level="body-sm" color="neutral" mb={1}>{template.description}</Typography>
-                      <Stack direction="row" gap={0.5} flexWrap="wrap">
-                        <Chip size="sm" variant="soft">
+                <div key={template.id} className="rounded-lg border border-border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 space-y-1">
+                      <p className="text-sm font-semibold text-foreground">{template.name}</p>
+                      <p className="text-sm text-muted-foreground">{template.description}</p>
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <Badge variant="neutral">
                           {SCOPE_LABELS[template.scope] || template.scope}
-                        </Chip>
-                        <Chip size="sm" variant="soft">
+                        </Badge>
+                        <Badge variant="neutral">
                           {FREQUENCY_LABELS[template.frequency] || template.frequency}
-                        </Chip>
-                        <Chip size="sm" variant="soft">
+                        </Badge>
+                        <Badge variant="neutral">
                           {template.conditions.length} condición{template.conditions.length !== 1 ? 'es' : ''}
-                        </Chip>
-                        <Chip size="sm" variant="soft">
+                        </Badge>
+                        <Badge variant="neutral">
                           {template.actions.map(a => ACTION_LABELS[a.type] || a.type).join(', ')}
-                        </Chip>
-                      </Stack>
-                    </Box>
+                        </Badge>
+                      </div>
+                    </div>
                     <Button
                       size="sm"
-                      variant="soft"
-                      color="primary"
+                      className="shrink-0"
                       onClick={() => handleUseTemplate(template)}
-                      sx={{ ml: 1, flexShrink: 0 }}
                     >
                       Usar template
                     </Button>
-                  </Stack>
-                </Card>
+                  </div>
+                </div>
               ))}
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button variant="outlined" onClick={() => setShowTemplatesPanel(false)}>Cerrar</Button>
-          </DialogActions>
-        </ModalDialog>
-      </Modal>
+            </div>
 
-      {/* ============================================================
-          MODAL: Confirmar Eliminación
-          ============================================================ */}
-      <Modal open={showDeleteModal} onClose={() => setShowDeleteModal(false)}>
-        <ModalDialog size="sm">
-          <ModalClose />
-          <DialogTitle>🗑️ Eliminar Regla</DialogTitle>
-          <DialogContent>
-            <Typography>
-              ¿Estás seguro de eliminar la regla <strong>"{selectedRule?.name}"</strong>?
-              Esta acción eliminará también todo el historial de ejecuciones.
-            </Typography>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowTemplatesPanel(false)}>
+                Cerrar
+              </Button>
+            </DialogFooter>
           </DialogContent>
-          <DialogActions>
-            <Button variant="outlined" onClick={() => setShowDeleteModal(false)}>Cancelar</Button>
-            <Button color="danger" onClick={handleDelete}>Eliminar</Button>
-          </DialogActions>
-        </ModalDialog>
-      </Modal>
-    </Box>
+        </Dialog>
+
+        {/* ============================================================
+            MODAL: Confirmar Eliminación
+            ============================================================ */}
+        <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>🗑️ Eliminar Regla</DialogTitle>
+            </DialogHeader>
+
+            <p className="text-sm text-muted-foreground">
+              ¿Estás seguro de eliminar la regla{' '}
+              <strong className="text-foreground">"{selectedRule?.name}"</strong>?
+              Esta acción eliminará también todo el historial de ejecuciones.
+            </p>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowDeleteModal(false)}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={handleDelete}
+              >
+                Eliminar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   )
 }

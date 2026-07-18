@@ -7,6 +7,9 @@ const ticketRoutes = express.Router();
 
 ticketRoutes.get("/tickets", isAuth, TicketController.index);
 
+// [Fase A] La ruta específica DEBE ir antes que /tickets/:ticketId (si no, "counts" se toma como id → 500).
+ticketRoutes.get("/tickets/counts", isAuth, TicketController.counts);
+
 ticketRoutes.get("/tickets/:ticketId", isAuth, TicketController.show);
 
 ticketRoutes.get("/tickets-log/:ticketId", isAuth, TicketController.showLog);
@@ -28,7 +31,5 @@ ticketRoutes.delete("/tickets/:ticketId", isAuth, TicketController.remove);
 ticketRoutes.post("/tickets/closeAll", isAuth, TicketController.closeAll);
 
 ticketRoutes.put("/tickets/:ticketId/followup", isAuth, TicketController.toggleFollowup);
-
-ticketRoutes.get("/tickets/counts", isAuth, TicketController.counts);
 
 export default ticketRoutes;

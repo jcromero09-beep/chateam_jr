@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import AppError from "../../errors/AppError.js";
 import { WebhookModel } from "../../models/Webhook.js";
 import { sendMessageFlow } from "../../controllers/MessageController.js";
@@ -22,6 +28,7 @@ import SendWhatsAppMediaFlow, {
 import { randomizarCaminho } from "../../utils/randomizador.js";
 import { SendMessageFlow } from "../../helpers/SendMessageFlow.js";
 import formatBody from "../../helpers/Mustache.js";
+import formatBodyFlow from "../../helpers/FlowVariables.js";
 import SetTicketMessagesAsRead from "../../helpers/SetTicketMessagesAsRead.js";
 import SendWhatsAppMessage from "../WbotServices/SendWhatsAppMessage.js";
 import ShowTicketService from "../TicketServices/ShowTicketService.js";
@@ -44,11 +51,13 @@ import Bluebird from "bluebird";
 const { delay } = Bluebird;
 import typebotListener from "../TypebotServices/typebotListener.js";
 import { getWbot } from "../../libs/wbot.js";
-import { proto } from "@whiskeysockets/baileys";
+import { proto } from "baileys";
 import { handleOpenAi } from "../IntegrationsServices/OpenAiService.js";
 import { IOpenAi } from "../../@types/openai.js";
+import { chargeFlowExecution } from "../AICreditServices/AIUsagePricingService.js";
+import handleFlowAppointmentNode from "./FlowAppointmentNode.js";
 
-// __dirname is already available in CommonJS
+// currentDir is already available in CommonJS
 
 
 interface IAddContact {
@@ -88,7 +97,6 @@ export const ActionsWebhookService = async (
 
     const io = getIO();
     let next = nextStage;
-    // console.log(
     //   "ActionWebhookService | 53",
     //   idFlowDb,
     //   companyId,
@@ -214,17 +222,14 @@ export const ActionsWebhookService = async (
 
     let noAlterNext = false;
 
-    for (var i = 0; i < lengthLoop; i++) {
+    for (let i = 0; i < lengthLoop; i++) {
       let nodeSelected: any;
       let ticketInit: Ticket;
 
       try {
         if (pressKey) {
-       // console.log("UPDATE2...");
           if (pressKey === "parar") {
-      // console.log("UPDATE3...");
             if (idTicket) {
-         // console.log("UPDATE4...");
               ticketInit = await Ticket.findOne({
                 where: { id: idTicket, whatsappId }
               });
@@ -236,12 +241,19 @@ export const ActionsWebhookService = async (
           }
 
           if (execFn === "") {
-        // console.log("UPDATE5...");
-            nodeSelected = {
-              type: "menu"
-            };
+            // Nodo "citas": en la reanudación NO forzar comportamiento de menú;
+            // devolver el control al nodo real para que su sub-máquina lea pressKey.
+            const pausedCitasNode = nodes.find(
+              (n: any) => n.id === next && (n.data?.type === "citas" || n.type === "citas")
+            );
+            if (pausedCitasNode) {
+              nodeSelected = pausedCitasNode;
+            } else {
+              nodeSelected = {
+                type: "menu"
+              };
+            }
           } else {
-        // console.log("UPDATE6...");
             const nodeArray = nodes.filter(node => node.id === execFn);
             nodeSelected = nodeArray && nodeArray.length > 0 ? nodeArray[0] : null;
             if (!nodeSelected) {
@@ -250,7 +262,6 @@ export const ActionsWebhookService = async (
             }
           }
         } else {
-      // console.log("UPDATE7...");
           const otherNodeArray = nodes.filter(node => node.id === next);
           const otherNode = otherNodeArray && otherNodeArray.length > 0 ? otherNodeArray[0] : null;
           if (otherNode) {
@@ -294,7 +305,7 @@ export const ActionsWebhookService = async (
           const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
           await typeSimulation(ticket, "composing");
           await SendWhatsAppMessage({
-            body: formatBody(msg.body, ticketDetails as any),
+            body: formatBodyFlow(msg.body, ticketDetails as any, numberPhrase),
             ticket: ticketDetails,
             quotedMsg: null
           });
@@ -303,9 +314,7 @@ export const ActionsWebhookService = async (
 
         await intervalWhats("1");
       }
-  // console.log("273");
       if (resolvedType === "typebot") {
-    // console.log("275");
         const wbot = getWbot(whatsapp.id);
         await typebotListener({
           wbot: wbot,
@@ -316,7 +325,7 @@ export const ActionsWebhookService = async (
       }
 
       if (resolvedType === "openai") {
-        let {
+        const {
           name,
           prompt,
           voice,
@@ -329,7 +338,7 @@ export const ActionsWebhookService = async (
           maxMessages
         } = nodeSelected.data.typebotIntegration as IOpenAi;
 
-        let openAiSettings = {
+        const openAiSettings = {
           name,
           prompt,
           voice,
@@ -355,15 +364,49 @@ export const ActionsWebhookService = async (
           whatsappId: whatsapp?.id
         });
 
-        await handleOpenAi(
-          openAiSettings,
-          msg,
-          wbot,
-          ticket,
-          contact,
-          null,
-          ticketTraking
-        );
+        // 💳 COBRO UNIFICADO: ejecucion de nodo OpenAI en FlowBuilder = flow_execution
+        // Si la company no tiene saldo, NO se invoca el nodo IA pero el flujo
+        // continua para no romper nodos posteriores.
+        // Nota: handleOpenAi internamente cobra "message" por la respuesta IA.
+        let canRunFlowAI = true;
+        try {
+          await chargeFlowExecution({
+            companyId,
+            units: 1,
+            source: "flowbuilder_openai_node",
+            sourceId: ticket.id,
+            description: `Nodo OpenAI FlowBuilder ticket=${ticket.id}`,
+            metadata: { promptName: name, queueId }
+          });
+        } catch (creditErr: any) {
+          const isInsufficient =
+            creditErr instanceof AppError &&
+            (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+              creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+          if (isInsufficient) {
+            logger.warn(
+              `[FlowBuilder OpenAI] Sin creditos para flow_execution (company=${companyId} ticket=${ticket.id}); skip nodo IA`
+            );
+            canRunFlowAI = false;
+          } else {
+            logger.warn(
+              `[FlowBuilder OpenAI] Error cobrando flow_execution: ${creditErr?.message || creditErr}; skip nodo IA por seguridad`
+            );
+            canRunFlowAI = false;
+          }
+        }
+
+        if (canRunFlowAI) {
+          await handleOpenAi(
+            openAiSettings,
+            msg,
+            wbot,
+            ticket,
+            contact,
+            null,
+            ticketTraking
+          );
+        }
       }
 
       if (resolvedType === "question") {
@@ -454,14 +497,13 @@ export const ActionsWebhookService = async (
 
       if (resolvedType === "singleBlock" || resolvedType === "content") {
 
-          for (var iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
+          for (let iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
             const elementNowSelected = nodeSelected.data.seq[iLoc];
         
             // Asegura que 'ticket' esté cargado (evita NPE con ticket.dataWebhook)
             if (!ticket && idTicket) {
               ticket = await Ticket.findOne({ where: { id: idTicket, companyId } });
             }
-        // console.log('idTicket',idTicket)
         
             // === BLOQUE NUEVO (copiado del que sí funciona) ===
             const ticketUpdate = await Ticket.findOne({
@@ -482,7 +524,6 @@ export const ActionsWebhookService = async (
                 flowStopped: null
               });
 
-          // console.log("ticket", ticket.lastFlowId,ticket.dataWebhook,ticket.hashFlowId,ticket.flowStopped,)
         
               // asegúrate de cortar también el for exterior:
               next = "";    // ← clave para que el loop de arriba haga break
@@ -520,6 +561,9 @@ export const ActionsWebhookService = async (
               msg = bodyFor;
             }
 
+            // Aplicar variables dinamicas del FlowBuilder ({name}, {email}, {empresa}, custom fields, etc.)
+            msg = formatBodyFlow(msg, ticketDetails as any, numberPhrase);
+
             await delay(3000);
             await typeSimulation(ticket, "composing");
 
@@ -532,7 +576,7 @@ export const ActionsWebhookService = async (
             SetTicketMessagesAsRead(ticketDetails);
 
             await ticketDetails.update({
-              lastMessage: formatBody(bodyFor, ticket.contact)
+              lastMessage: msg
             });
 
             await intervalWhats("1");
@@ -591,11 +635,6 @@ export const ActionsWebhookService = async (
             // Usar process.cwd() para construir la ruta correcta
             const mediaDirectory = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
 
-        // console.log('=== FLOW AUDIO ===');
-        // console.log('filename:', filename);
-        // console.log('mediaDirectory:', mediaDirectory);
-        // console.log('Archivo existe?:', fs.existsSync(mediaDirectory));
-        // console.log('isRecord:', nodeSelected.data.elements.filter(item => item.number === elementNowSelected)[0].record);
 
             const ticketInt = await Ticket.findOne({
               where: { id: ticket.id }
@@ -621,10 +660,6 @@ export const ActionsWebhookService = async (
             // Usar process.cwd() para construir la ruta correcta
             const mediaDirectory = path.join(process.cwd(), "public", `company${companyId}`, "flowbuilder", filename);
 
-        // console.log('=== FLOW VIDEO ===');
-        // console.log('filename:', filename);
-        // console.log('mediaDirectory:', mediaDirectory);
-        // console.log('Archivo existe?:', fs.existsSync(mediaDirectory));
 
             const ticketInt = await Ticket.findOne({
               where: { id: ticket.id }
@@ -716,7 +751,7 @@ export const ActionsWebhookService = async (
           const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
           await typeSimulation(ticket, "composing");
           await SendWhatsAppMessage({
-            body: url,
+            body: formatBodyFlow(url, ticketDetails as any, numberPhrase),
             ticket: ticketDetails,
             quotedMsg: null
           });
@@ -733,7 +768,7 @@ export const ActionsWebhookService = async (
           const ticketDetails = await ShowTicketService(ticket?.id || idTicket, companyId);
           await typeSimulation(ticket, "composing");
           await SendWhatsAppMessage({
-            body: listData.message,
+            body: formatBodyFlow(listData.message, ticketDetails as any, numberPhrase),
             ticket: ticketDetails,
             quotedMsg: null
           });
@@ -765,8 +800,24 @@ export const ActionsWebhookService = async (
 
       let isMenu: boolean;
 
+      // Nodo "citas": sub-máquina conversacional de agendamiento (módulo aparte).
+      // Siempre pausa (esperando respuesta) o termina; nunca ramifica a otro nodo.
+      if (resolvedType === "citas") {
+        await handleFlowAppointmentNode({
+          ticket,
+          companyId,
+          whatsappId,
+          nodeSelected,
+          pressKey,
+          dataWebhook,
+          numberPhrase,
+          idFlowDb,
+          hashWebhookId
+        });
+        break;
+      }
+
       if (resolvedType === "menu") {
-     //   console.log(650, "menu");
         if (pressKey) {
           const filterOne = connectStatic.filter(
             confil => confil.source === next
@@ -790,14 +841,12 @@ export const ActionsWebhookService = async (
           pressKey = "999";
 
           const isNodeExist = nodes.filter(item => item.id === execFn);
-      // console.log(674, "menu");
           if (isNodeExist.length > 0) {
             isMenu = isNodeExist[0].type === "menu" ? true : false;
           } else {
             isMenu = false;
           }
         } else {
-      // console.log(681, "menu");
           let optionsMenu = "";
           const opts = nodeSelected.data.arrayOption || [];
           opts.forEach((item: any, idx: number) => {
@@ -846,8 +895,11 @@ export const ActionsWebhookService = async (
 
           await typeSimulation(ticket, "composing");
 
+          // Aplicar variables dinamicas del FlowBuilder al menu ({name}, {empresa}, etc.)
+          const renderedMenuBody = formatBodyFlow(msg.body, ticketDetails as any, numberPhrase);
+
           await SendWhatsAppMessage({
-            body: msg.body,
+            body: renderedMenuBody,
             ticket: ticketDetails,
             quotedMsg: null
           });
@@ -855,7 +907,7 @@ export const ActionsWebhookService = async (
           SetTicketMessagesAsRead(ticketDetails);
 
           await ticketDetails.update({
-            lastMessage: formatBody(msg.body, ticket.contact)
+            lastMessage: renderedMenuBody
           });
           await intervalWhats("1");
 
@@ -897,10 +949,9 @@ export const ActionsWebhookService = async (
       let isContinue = false;
 
       if (pressKey === "999" && execCount > 0) {
-    // console.log(587, "ActionsWebhookService | 587");
 
         pressKey = undefined;
-        let result = connects.filter(connect => connect.source === execFn)[0];
+        const result = connects.filter(connect => connect.source === execFn)[0];
         if (typeof result === "undefined") {
           next = "";
         } else {
@@ -929,7 +980,6 @@ export const ActionsWebhookService = async (
             next = result.target;
           }
         }
-    // console.log(619, "ActionsWebhookService");
       }
 
       if (!pressKey && !isContinue) {
@@ -937,10 +987,8 @@ export const ActionsWebhookService = async (
           connect => connect.source === nodeSelected.id
         ).length;
 
-       // console.log(626, "ActionsWebhookService");
 
         if (nextNode === 0) {
-         // console.log(654, "ActionsWebhookService");
 
           await Ticket.findOne({
             where: { id: idTicket, whatsappId, companyId: companyId }
@@ -961,9 +1009,7 @@ export const ActionsWebhookService = async (
         break;
       }
 
-  // console.log(678, "ActionsWebhookService");
 
-  // console.log("UPDATE10...");
       ticket = await Ticket.findOne({
         where: { id: idTicket, whatsappId, companyId: companyId }
       });
@@ -978,7 +1024,6 @@ export const ActionsWebhookService = async (
           });
       }
 
-  // console.log("UPDATE12...");
       await ticket.update({
         whatsappId: Number(whatsappId) || undefined,
         queueId: ticket?.queueId,

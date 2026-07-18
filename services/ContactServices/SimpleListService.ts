@@ -8,10 +8,14 @@ export interface SearchContactParams {
 }
 
 const SimpleListService = async ({ name, companyId }: SearchContactParams): Promise<Contact[]> => {
-  let options: FindOptions = {
+  const options: FindOptions = {
     order: [
       ['name', 'ASC']
-    ]
+    ],
+    // [Fase A P-1] Cap de seguridad: sin límite, un tenant grande (11k+ contactos) materializaba
+    // ~7 MB en heap por request (riesgo OOM en el NAS). El autocompletado envía `name` y rara vez
+    // necesita >500 resultados. Mantiene el contrato (array plano).
+    limit: 500
   }
 
   if (name) {

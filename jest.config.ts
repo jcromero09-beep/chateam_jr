@@ -27,6 +27,12 @@ const config: Config = {
     "<rootDir>/dist/",
     "<rootDir>/node_modules/.cache/"
   ],
+  // tests/harness/ usa su propia config (jest.harness.config.cjs) con AST transform +
+  // moduleNameMapper (baileys/.js) para importar el monolito. NO deben correr aquí.
+  testPathIgnorePatterns: [
+    "/node_modules/",
+    "<rootDir>/tests/harness/"
+  ],
   // Solo transformar archivos de test, no todo node_modules
   transformIgnorePatterns: ["/node_modules/"],
   // Timeout de 30s para tests con mocks

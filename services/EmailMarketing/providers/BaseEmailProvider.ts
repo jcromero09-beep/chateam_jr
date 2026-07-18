@@ -11,7 +11,16 @@ export interface EmailMessage {
   textContent?: string;
   attachments?: Array<{
     filename: string;
-    content: string | Buffer;
+    /**
+     * Contenido inline del adjunto.
+     * Si se provee `path`, este campo puede omitirse — el provider hará stream del archivo.
+     */
+    content?: string | Buffer;
+    /**
+     * Ruta absoluta al archivo. Si está presente, el provider preferirá leer
+     * el archivo por stream en lugar de cargar `content` en memoria.
+     */
+    path?: string;
     contentType?: string;
   }>;
   customArgs?: Record<string, string>;

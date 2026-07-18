@@ -45,6 +45,12 @@ import {
   
     @Column(DataType.DATE)
     declare lastSeenAt: Date | null;
+
+    // [Multi-empresa] Empresa activa de la sesión. La fija /switch-company y la lee
+    // RefreshTokenService para que el switch SOBREVIVA a los refresh del token
+    // (sin esto, un refresh vuelve a la empresa home del refresh token).
+    @Column(DataType.INTEGER)
+    declare activeCompanyId: number | null;
   
     @AllowNull(false)
     @Column(DataType.DATE)

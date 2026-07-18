@@ -2,10 +2,10 @@ import Mustache from "mustache";
 import Ticket from "../models/Ticket";
 
 function makeid(length) {
-  var result = '';
-  var characters = '0123456789';
-  var charactersLength = characters.length;
-  for (var i = 0; i < length; i++) {
+  let result = '';
+  const characters = '0123456789';
+  const charactersLength = characters.length;
+  for (let i = 0; i < length; i++) {
     result += characters.charAt(Math.floor(Math.random() * charactersLength));
   }
   return result;
@@ -80,8 +80,8 @@ export default (body: string, ticket?: Ticket): string => {
     date: date(),
     queue: ticket ? ticket?.queue?.name : "",
     connection: ticket ? ticket?.whatsapp?.name : "",
-    data_hora: new Array(date(), hour()).join(" as "),
-    protocol: new Array(control(), ticket ? ticket.id.toString() : "").join(""),
+    data_hora: [date(), hour()].join(" as "),
+    protocol: [control(), ticket ? ticket.id.toString() : ""].join(""),
     name_company: ticket ? ticket?.company?.name : "",
   };
 

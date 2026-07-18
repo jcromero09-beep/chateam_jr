@@ -36,7 +36,7 @@ const generateLimiter = rateLimit({
   legacyHeaders: false,  // Deshabilita headers `X-RateLimit-*`
   keyGenerator: (req) => {
     // Usa combinación de IP + userId para rate limiting más preciso
-    const userId = (req as any).user?.id || 'anonymous';
+    const userId = req.user?.id || 'anonymous';
     return `${req.ip}-${userId}`;
   }
 });
@@ -224,4 +224,3 @@ aiImageGenerationRoutes.get(
 // ============================================================================
 
 export default aiImageGenerationRoutes;
-// console.log("📄 AI-IMAGE-ROUTES.TS LOADED\!");

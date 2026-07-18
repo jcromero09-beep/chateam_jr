@@ -6,7 +6,8 @@ import User from "../../models/User";
 import Contact from "../../models/Contact";
 import Queue from "../../models/Queue";
 
-import { intersection } from "lodash";
+import lodash from "lodash";
+const { intersection } = lodash;
 
 interface Request {
   dateStart: string;

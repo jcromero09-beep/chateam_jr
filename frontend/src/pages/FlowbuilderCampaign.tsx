@@ -1,20 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Typography, Stack, Container, Card, CardContent, Box, Button, Table, Sheet,
-  Chip, IconButton, Modal, ModalDialog, FormControl, FormLabel, Input, Select,
-  Option, Tooltip, CircularProgress, Switch,
-} from '@mui/joy'
+  TextAa,
+  Plus,
+  PencilSimple,
+  Trash,
+  MagnifyingGlass,
+  WhatsappLogo,
+  TreeStructure,
+  ArrowClockwise,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { RowAction } from '@/components/ui/row-action'
 import {
-  Campaign as CampaignIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  TextFields as PhraseIcon,
-  WhatsApp as WhatsAppIcon,
-  AccountTree as FlowIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { toast } from 'react-toastify'
 
@@ -195,262 +202,304 @@ export default function FlowbuilderCampaign() {
     c.phrase?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  const closeModal = () => {
+    setOpenModal(false)
+    resetForm()
+  }
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box sx={{
-              width: 48, height: 48, borderRadius: '12px',
-              bgcolor: '#5BC2D2', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <PhraseIcon sx={{ color: '#fff', fontSize: 28 }} />
-            </Box>
-            <Box>
-              <Typography level="h2">Palabras Clave</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <TextAa className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Palabras Clave
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Configura palabras que disparan flujos automaticamente
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <Tooltip title="Actualizar">
-              <IconButton variant="outlined" color="neutral" onClick={fetchCampaigns}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <Button
-              startDecorator={<AddIcon />}
-              onClick={handleOpenCreate}
-              sx={{ bgcolor: '#5BC2D2', '&:hover': { bgcolor: '#4AA8B8' } }}
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchCampaigns}
             >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={handleOpenCreate}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nueva Palabra Clave
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Info */}
-        <Card variant="soft" color="primary" sx={{ bgcolor: '#EFF6FF', border: '1px solid #BFDBFE' }}>
-          <CardContent>
-            <Typography level="body-sm" sx={{ color: '#1e40af' }}>
-              Cuando un cliente envia un mensaje que contenga la palabra clave configurada,
-              se ejecutara automaticamente el flujo asignado en la conexion seleccionada.
-              La comparacion ignora mayusculas, tildes y espacios extra.
-            </Typography>
-          </CardContent>
-        </Card>
+        <div className="rounded-lg border border-border bg-accent/50 p-4 text-sm text-accent-foreground">
+          Cuando un cliente envia un mensaje que contenga la palabra clave configurada,
+          se ejecutara automaticamente el flujo asignado en la conexion seleccionada.
+          La comparacion ignora mayusculas, tildes y espacios extra.
+        </div>
 
         {/* Search */}
-        <Input
-          placeholder="Buscar por nombre o palabra clave..."
-          startDecorator={<SearchIcon />}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          sx={{ maxWidth: 400 }}
-        />
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            placeholder="Buscar por nombre o palabra clave..."
+            aria-label="Buscar palabras clave"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
 
         {/* Table */}
-        <Card>
-          <CardContent sx={{ p: 0 }}>
-            {loading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                <CircularProgress size="lg" />
-              </Box>
-            ) : filtered.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 6 }}>
-                <PhraseIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 1 }} />
-                <Typography level="body-lg" sx={{ color: 'text.secondary' }}>
-                  {searchTerm ? 'Sin resultados' : 'No hay palabras clave configuradas'}
-                </Typography>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
-                  {searchTerm ? 'Intenta con otro termino' : 'Crea tu primera palabra clave para disparar flujos'}
-                </Typography>
-                {!searchTerm && (
-                  <Button startDecorator={<AddIcon />} onClick={handleOpenCreate} variant="outlined">
-                    Crear primera palabra clave
-                  </Button>
-                )}
-              </Box>
-            ) : (
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table
-                  stripe="odd"
-                  hoverRow
-                  sx={{
-                    '& th': { fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'text.tertiary' },
-                    '& td': { py: 1.5 },
-                  }}
-                >
-                  <thead>
-                    <tr>
-                      <th>Nombre</th>
-                      <th>Palabra Clave</th>
-                      <th>Flujo</th>
-                      <th>Conexion</th>
-                      <th style={{ width: 80 }}>Estado</th>
-                      <th style={{ width: 100 }}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((campaign) => (
-                      <tr key={campaign.id}>
-                        <td>
-                          <Typography level="body-sm" fontWeight={600}>
-                            {campaign.name}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip
-                            variant="soft"
-                            color="primary"
-                            size="sm"
-                            startDecorator={<PhraseIcon sx={{ fontSize: 14 }} />}
-                          >
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <CircularProgress size="lg" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+              <TextAa className="size-12 text-muted-foreground" aria-hidden />
+              <p className="text-base text-muted-foreground">
+                {searchTerm ? 'Sin resultados' : 'No hay palabras clave configuradas'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {searchTerm ? 'Intenta con otro termino' : 'Crea tu primera palabra clave para disparar flujos'}
+              </p>
+              {!searchTerm && (
+                <Button variant="outline" size="sm" className="mt-2" onClick={handleOpenCreate}>
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                  Crear primera palabra clave
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nombre</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Palabra Clave</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Flujo</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Conexion</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map((campaign) => {
+                    const active = campaign.status !== false
+                    return (
+                      <tr key={campaign.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 font-medium text-foreground">{campaign.name}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant="primary">
+                            <TextAa className="size-3.5" aria-hidden />
                             {campaign.phrase}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <FlowIcon sx={{ fontSize: 16, color: '#5BC2D2' }} />
-                            <Typography level="body-sm">{getFlowName(campaign.flowId)}</Typography>
-                          </Stack>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 text-foreground">
+                            <TreeStructure className="size-4 text-brand-teal" aria-hidden />
+                            <span>{getFlowName(campaign.flowId)}</span>
+                          </div>
                         </td>
-                        <td>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <WhatsAppIcon sx={{ fontSize: 16, color: '#25D366' }} />
-                            <Typography level="body-sm">{getWhatsappName(campaign.whatsappId)}</Typography>
-                          </Stack>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 text-foreground">
+                            <WhatsappLogo className="size-4 text-wa" weight="fill" aria-hidden />
+                            <span>{getWhatsappName(campaign.whatsappId)}</span>
+                          </div>
                         </td>
-                        <td>
-                          <Switch
-                            checked={campaign.status !== false}
-                            onChange={() => handleToggleStatus(campaign)}
-                            size="sm"
-                            color={campaign.status !== false ? 'success' : 'neutral'}
-                          />
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={active}
+                            aria-label={active ? 'Desactivar palabra clave' : 'Activar palabra clave'}
+                            onClick={() => handleToggleStatus(campaign)}
+                            className={cn(
+                              'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                              active ? 'bg-success' : 'bg-muted-foreground/40',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'inline-block size-5 rounded-full bg-white shadow transition-transform',
+                                active ? 'translate-x-5' : 'translate-x-0.5',
+                              )}
+                              aria-hidden
+                            />
+                          </button>
                         </td>
-                        <td>
-                          <Stack direction="row" spacing={0.5}>
-                            <Tooltip title="Editar">
-                              <IconButton size="sm" variant="plain" color="neutral" onClick={() => handleOpenEdit(campaign)}>
-                                <EditIcon sx={{ fontSize: 18 }} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Eliminar">
-                              <IconButton size="sm" variant="plain" color="danger" onClick={() => handleDelete(campaign.id)}>
-                                <DeleteIcon sx={{ fontSize: 18 }} />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <RowAction label="Editar">
+                              <button
+                                type="button"
+                                aria-label="Editar"
+                                onClick={() => handleOpenEdit(campaign)}
+                                className="flex size-full items-center justify-center"
+                              >
+                                <PencilSimple className="size-[18px]" aria-hidden />
+                              </button>
+                            </RowAction>
+                            <button
+                              type="button"
+                              aria-label="Eliminar"
+                              title="Eliminar"
+                              onClick={() => handleDelete(campaign.id)}
+                              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                            >
+                              <Trash className="size-[18px]" aria-hidden />
+                            </button>
+                          </div>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </Sheet>
-            )}
-          </CardContent>
-        </Card>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         {/* Stats */}
         {campaigns.length > 0 && (
-          <Stack direction="row" spacing={2}>
-            <Chip variant="outlined" size="sm">
-              Total: {campaigns.length}
-            </Chip>
-            <Chip variant="outlined" size="sm" color="success">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">Total: {campaigns.length}</Badge>
+            <Badge variant="success">
               Activas: {campaigns.filter(c => c.status !== false).length}
-            </Chip>
-            <Chip variant="outlined" size="sm" color="neutral">
+            </Badge>
+            <Badge variant="neutral">
               Inactivas: {campaigns.filter(c => c.status === false).length}
-            </Chip>
-          </Stack>
+            </Badge>
+          </div>
         )}
-      </Stack>
+      </div>
 
       {/* Modal Crear/Editar */}
-      <Modal open={openModal} onClose={() => { setOpenModal(false); resetForm() }}>
-        <ModalDialog sx={{ minWidth: 440, maxWidth: 500 }}>
-          <Typography level="title-lg" sx={{ mb: 0.5 }}>
-            {editingId ? 'Editar Palabra Clave' : 'Nueva Palabra Clave'}
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 3 }}>
-            {editingId
-              ? 'Modifica la configuracion de esta palabra clave'
-              : 'Cuando un cliente envie un mensaje con esta palabra, se ejecutara el flujo seleccionado'
-            }
-          </Typography>
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={closeModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-foreground">
+                {editingId ? 'Editar Palabra Clave' : 'Nueva Palabra Clave'}
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {editingId
+                  ? 'Modifica la configuracion de esta palabra clave'
+                  : 'Cuando un cliente envie un mensaje con esta palabra, se ejecutara el flujo seleccionado'}
+              </p>
+            </div>
 
-          <Stack spacing={2.5}>
-            <FormControl required>
-              <FormLabel>Nombre</FormLabel>
-              <Input
-                placeholder="Ej: Saludo inicial, Soporte..."
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              />
-            </FormControl>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="fc-name">Nombre</Label>
+                <input
+                  id="fc-name"
+                  placeholder="Ej: Saludo inicial, Soporte..."
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-            <FormControl required>
-              <FormLabel>Palabra Clave</FormLabel>
-              <Input
-                placeholder="Ej: hola, menu, soporte, precios..."
-                startDecorator={<PhraseIcon sx={{ fontSize: 18 }} />}
-                value={formData.phrase}
-                onChange={(e) => setFormData(prev => ({ ...prev, phrase: e.target.value }))}
-              />
-              <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                Se activara cuando el mensaje del cliente CONTENGA esta palabra (sin importar mayusculas o tildes)
-              </Typography>
-            </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="fc-phrase">Palabra Clave</Label>
+                <div className="relative">
+                  <TextAa
+                    className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <input
+                    id="fc-phrase"
+                    placeholder="Ej: hola, menu, soporte, precios..."
+                    value={formData.phrase}
+                    onChange={(e) => setFormData(prev => ({ ...prev, phrase: e.target.value }))}
+                    className="h-11 w-full rounded-md border border-input bg-card pl-10 pr-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Se activara cuando el mensaje del cliente CONTENGA esta palabra (sin importar mayusculas o tildes)
+                </p>
+              </div>
 
-            <FormControl required>
-              <FormLabel>Flujo a ejecutar</FormLabel>
-              <Select
-                placeholder="Selecciona un flujo..."
-                startDecorator={<FlowIcon sx={{ fontSize: 18 }} />}
-                value={formData.flowId}
-                onChange={(_, value) => setFormData(prev => ({ ...prev, flowId: value as string }))}
-              >
-                {flows.map(f => (
-                  <Option key={f.id} value={f.id.toString()}>{f.name}</Option>
-                ))}
-              </Select>
-            </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="fc-flow">Flujo a ejecutar</Label>
+                <Select
+                  value={formData.flowId}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, flowId: value }))}
+                >
+                  <SelectTrigger id="fc-flow" className="h-11">
+                    <span className="flex items-center gap-2 truncate">
+                      <TreeStructure className="size-[18px] shrink-0 text-brand-teal" aria-hidden />
+                      <SelectValue placeholder="Selecciona un flujo..." />
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {flows.map(f => (
+                      <SelectItem key={f.id} value={f.id.toString()}>{f.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <FormControl required>
-              <FormLabel>Conexion</FormLabel>
-              <Select
-                placeholder="Selecciona una conexion..."
-                startDecorator={<WhatsAppIcon sx={{ fontSize: 18, color: '#25D366' }} />}
-                value={formData.whatsappId}
-                onChange={(_, value) => setFormData(prev => ({ ...prev, whatsappId: value as string }))}
-              >
-                {whatsapps.map(w => (
-                  <Option key={w.id} value={w.id.toString()}>{w.name}</Option>
-                ))}
-              </Select>
-              <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                La palabra clave solo se detectara en mensajes de esta conexion
-              </Typography>
-            </FormControl>
-          </Stack>
+              <div className="space-y-1.5">
+                <Label htmlFor="fc-whatsapp">Conexion</Label>
+                <Select
+                  value={formData.whatsappId}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, whatsappId: value }))}
+                >
+                  <SelectTrigger id="fc-whatsapp" className="h-11">
+                    <span className="flex items-center gap-2 truncate">
+                      <WhatsappLogo className="size-[18px] shrink-0 text-wa" weight="fill" aria-hidden />
+                      <SelectValue placeholder="Selecciona una conexion..." />
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {whatsapps.map(w => (
+                      <SelectItem key={w.id} value={w.id.toString()}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  La palabra clave solo se detectara en mensajes de esta conexion
+                </p>
+              </div>
 
-          <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-            <Button variant="outlined" color="neutral" onClick={() => { setOpenModal(false); resetForm() }}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleSave}
-              loading={saving}
-              sx={{ bgcolor: '#5BC2D2', '&:hover': { bgcolor: '#4AA8B8' } }}
-            >
-              {editingId ? 'Guardar Cambios' : 'Crear Palabra Clave'}
-            </Button>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={closeModal}>
+                  Cancelar
+                </Button>
+                <Button size="sm" loading={saving} onClick={handleSave}>
+                  {editingId ? 'Guardar Cambios' : 'Crear Palabra Clave'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

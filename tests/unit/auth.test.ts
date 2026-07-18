@@ -1,251 +1,203 @@
-import { describe, test, expect, beforeAll, afterAll, jest } from '@jest/globals';
-import AuthUserService from '../../services/UserServices/AuthUserService';
-import User from '../../models/User';
-import Company from '../../models/Company';
-import Session from '../../models/Session';
+/**
+ * Tests unitarios de AuthUserService (wrapper de LoginSessionService).
+ *
+ * La política de sesión real está cubierta en
+ * tests/integration/session-policy.test.ts. Aquí validamos:
+ *  - credenciales inválidas
+ *  - horario laboral
+ *  - master key
+ *  - el flag legacy `force` ya NO produce 409 (login nuevo siempre toma control)
+ *  - sesiones app no se ven afectadas por la política web
+ */
+import { describe, test, expect, beforeAll, afterAll, jest } from "@jest/globals";
 
-// Mock de modelos
-jest.mock('../../models/User');
-jest.mock('../../models/Company');
-jest.mock('../../models/Session');
-jest.mock('../../models/Queue');
-jest.mock('../../models/CompaniesSettings');
-jest.mock('../../helpers/CreateTokens');
-jest.mock('../../helpers/SerializeUser');
-jest.mock('../../libs/socket');
+// Mock de la BD (transaction(fn) ejecuta fn pasando un objeto con LOCK).
+jest.mock("../../database", () => {
+  const lockObj = { UPDATE: "UPDATE" };
+  return {
+    __esModule: true,
+    default: {
+      transaction: jest.fn(async (fn: any) =>
+        fn({ LOCK: lockObj, sequelize: { query: jest.fn() } })
+      )
+    }
+  };
+});
 
-describe('AuthUserService - Authentication Tests', () => {
+jest.mock("../../models/User");
+jest.mock("../../models/Company");
+jest.mock("../../models/Session");
+jest.mock("../../models/Queue");
+jest.mock("../../models/CompaniesSettings");
+jest.mock("../../helpers/CreateTokens", () => ({
+  createAccessToken: () => "access-web",
+  createAccessTokenMovil: () => "access-app",
+  createRefreshToken: () => "refresh-web",
+  createRefreshTokenMovil: () => "refresh-app"
+}));
+jest.mock("../../helpers/SerializeUser", () => ({
+  SerializeUser: async (u: any) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    companyId: u.companyId,
+    profile: u.profile,
+    token: "stub"
+  })
+}));
+jest.mock("../../libs/socket", () => ({
+  getIO: () => ({
+    of: () => ({ emit: () => undefined })
+  })
+}));
+
+import AuthUserService from "../../services/UserServices/AuthUserService";
+import User from "../../models/User";
+import Company from "../../models/Company";
+import Session from "../../models/Session";
+
+describe("AuthUserService (compat) — nuevo contrato sin 409", () => {
   const mockUser = {
     id: 1,
-    name: 'Test User',
-    email: 'test@jrchateam.com',
-    profile: 'admin',
+    name: "Test User",
+    email: "test@jrchateam.com",
+    profile: "admin",
     companyId: 1,
-    startWork: '08:00',
-    endWork: '18:00',
+    startWork: "08:00",
+    endWork: "18:00",
     checkPassword: jest.fn(),
     queues: []
   };
 
   const mockCompany = {
     id: 1,
-    name: 'Test Company',
+    name: "Test Company",
     lastLogin: new Date(),
     update: jest.fn()
   };
 
   beforeAll(() => {
-    // Setup mocks
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(10); // 10 AM
-    jest.spyOn(Date.prototype, 'getMinutes').mockReturnValue(0);
+    jest.spyOn(Date.prototype, "getHours").mockReturnValue(10);
+    jest.spyOn(Date.prototype, "getMinutes").mockReturnValue(0);
+    (Company.update as any) = jest.fn().mockResolvedValue([1]);
   });
 
   afterAll(() => {
     jest.restoreAllMocks();
   });
 
-  test('should authenticate user with valid credentials', async () => {
-    // Arrange
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
+  // Helper: AppError no extiende Error → usamos matchers de mensaje.
+  const expectAppError = (p: Promise<unknown>, expected: string) =>
+    expect(p).rejects.toMatchObject({ message: expected });
 
-    mockUser.checkPassword.mockResolvedValue(true);
+  test("rechaza credenciales inválidas", async () => {
+    (User.findOne as jest.MockedFunction<any>).mockResolvedValue(null);
+    await expectAppError(
+      AuthUserService({ email: "no@x.com", password: "x" }),
+      "ERR_INVALID_CREDENTIALS"
+    );
+  });
 
-    const mockCompanyFindByPk = Company.findByPk as jest.MockedFunction<typeof Company.findByPk>;
-    mockCompanyFindByPk.mockResolvedValue(mockCompany as any);
+  test("rechaza password incorrecto", async () => {
+    (User.findOne as jest.MockedFunction<any>).mockResolvedValue(mockUser);
+    mockUser.checkPassword.mockResolvedValue(false as never);
+    await expectAppError(
+      AuthUserService({ email: mockUser.email, password: "bad" }),
+      "ERR_INVALID_CREDENTIALS"
+    );
+  });
 
-    const mockSessionFindOne = Session.findOne as jest.MockedFunction<typeof Session.findOne>;
-    mockSessionFindOne.mockResolvedValue(null);
+  test("rechaza fuera de horario laboral", async () => {
+    const spy = jest.spyOn(Date.prototype, "getHours").mockReturnValue(22);
+    try {
+      (User.findOne as jest.MockedFunction<any>).mockResolvedValue(mockUser);
+      await expectAppError(
+        AuthUserService({ email: mockUser.email, password: "x" }),
+        "ERR_OUT_OF_HOURS"
+      );
+    } finally {
+      spy.mockRestore();
+      jest.spyOn(Date.prototype, "getHours").mockReturnValue(10);
+    }
+  });
 
-    const mockSessionCreate = Session.create as jest.MockedFunction<typeof Session.create>;
-    mockSessionCreate.mockResolvedValue({ id: 'test-session-id' } as any);
+  test("login web sin sesión previa: NO marca replacedOldWebSession", async () => {
+    (User.findOne as jest.MockedFunction<any>).mockResolvedValue(mockUser);
+    mockUser.checkPassword.mockResolvedValue(true as never);
+    (Company.findByPk as jest.MockedFunction<any>).mockResolvedValue(mockCompany);
 
-    // Act
+    (Session.findAll as jest.MockedFunction<any>).mockResolvedValue([]);
+    (Session.update as jest.MockedFunction<any>).mockResolvedValue([0]);
+    (Session.create as jest.MockedFunction<any>).mockResolvedValue({ id: "new-sid" });
+
     const result = await AuthUserService({
-      email: 'test@jrchateam.com',
-      password: 'password123',
-      clientType: 'web'
+      email: mockUser.email,
+      password: "ok",
+      clientType: "web"
     });
-
-    // Assert
-    expect(result).toHaveProperty('token');
-    expect(result).toHaveProperty('refreshToken');
-    expect(result).toHaveProperty('sid');
-    expect(result.clientType).toBe('web');
+    expect(result.token).toBe("access-web");
+    expect(result.refreshToken).toBe("refresh-web");
+    expect(result.replacedOldWebSession).toBe(false);
+    expect(result.clientType).toBe("web");
   });
 
-  test('should reject authentication with invalid email', async () => {
-    // Arrange
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(null);
+  test("login web con sesión web previa: revoca y NO lanza 409", async () => {
+    (User.findOne as jest.MockedFunction<any>).mockResolvedValue(mockUser);
+    mockUser.checkPassword.mockResolvedValue(true as never);
+    (Company.findByPk as jest.MockedFunction<any>).mockResolvedValue(mockCompany);
 
-    // Act & Assert
-    await expect(
-      AuthUserService({
-        email: 'nonexistent@jrchateam.com',
-        password: 'password123'
-      })
-    ).rejects.toThrow('ERR_INVALID_CREDENTIALS');
-  });
+    (Session.findAll as jest.MockedFunction<any>).mockResolvedValue([
+      { id: "prev-sid", userId: 1, clientType: "web" }
+    ]);
+    (Session.update as jest.MockedFunction<any>).mockResolvedValue([1]);
+    (Session.create as jest.MockedFunction<any>).mockResolvedValue({ id: "new-sid" });
 
-  test('should reject authentication with invalid password', async () => {
-    // Arrange
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
-
-    mockUser.checkPassword.mockResolvedValue(false);
-
-    // Act & Assert
-    await expect(
-      AuthUserService({
-        email: 'test@jrchateam.com',
-        password: 'wrongpassword'
-      })
-    ).rejects.toThrow('ERR_INVALID_CREDENTIALS');
-  });
-
-  test('should reject authentication outside work hours', async () => {
-    // Arrange
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(22); // 10 PM
-    jest.spyOn(Date.prototype, 'getMinutes').mockReturnValue(0);
-
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
-
-    // Act & Assert
-    await expect(
-      AuthUserService({
-        email: 'test@jrchateam.com',
-        password: 'password123'
-      })
-    ).rejects.toThrow('ERR_OUT_OF_HOURS');
-
-    // Cleanup
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(10);
-  });
-
-  test('should handle web session already active error', async () => {
-    // Arrange
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
-
-    mockUser.checkPassword.mockResolvedValue(true);
-
-    const mockCompanyFindByPk = Company.findByPk as jest.MockedFunction<typeof Company.findByPk>;
-    mockCompanyFindByPk.mockResolvedValue(mockCompany as any);
-
-    const existingSession = {
-      id: 'existing-session',
-      userId: 1,
-      clientType: 'web',
-      revokedAt: null,
-      expiresAt: new Date(Date.now() + 86400000), // 1 day from now
-      save: jest.fn()
-    };
-
-    const mockSessionFindOne = Session.findOne as jest.MockedFunction<typeof Session.findOne>;
-    mockSessionFindOne.mockResolvedValue(existingSession as any);
-
-    // Act & Assert
-    await expect(
-      AuthUserService({
-        email: 'test@jrchateam.com',
-        password: 'password123',
-        clientType: 'web',
-        force: false
-      })
-    ).rejects.toThrow('ERR_WEB_SESSION_ALREADY_ACTIVE');
-  });
-
-  test('should force replace web session when force=true', async () => {
-    // Arrange
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
-
-    mockUser.checkPassword.mockResolvedValue(true);
-
-    const mockCompanyFindByPk = Company.findByPk as jest.MockedFunction<typeof Company.findByPk>;
-    mockCompanyFindByPk.mockResolvedValue(mockCompany as any);
-
-    const existingSession = {
-      id: 'existing-session',
-      userId: 1,
-      clientType: 'web',
-      revokedAt: null,
-      expiresAt: new Date(Date.now() + 86400000),
-      save: jest.fn()
-    };
-
-    const mockSessionFindOne = Session.findOne as jest.MockedFunction<typeof Session.findOne>;
-    mockSessionFindOne.mockResolvedValue(existingSession as any);
-
-    const mockSessionCreate = Session.create as jest.MockedFunction<typeof Session.create>;
-    mockSessionCreate.mockResolvedValue({ id: 'new-session-id' } as any);
-
-    // Act
     const result = await AuthUserService({
-      email: 'test@jrchateam.com',
-      password: 'password123',
-      clientType: 'web',
-      force: true
+      email: mockUser.email,
+      password: "ok",
+      clientType: "web"
     });
-
-    // Assert
     expect(result.replacedOldWebSession).toBe(true);
-    expect(existingSession.save).toHaveBeenCalled();
-    expect(existingSession.revokedAt).toBeTruthy();
+    // Importante: NUNCA lanza 409 aunque haya sesión web previa.
   });
 
-  test('should allow multiple app sessions', async () => {
-    // Arrange
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
+  test("login app no toca sesiones web (canales independientes)", async () => {
+    (User.findOne as jest.MockedFunction<any>).mockResolvedValue(mockUser);
+    mockUser.checkPassword.mockResolvedValue(true as never);
+    (Company.findByPk as jest.MockedFunction<any>).mockResolvedValue(mockCompany);
 
-    mockUser.checkPassword.mockResolvedValue(true);
+    // findAll se invoca con where.clientType === 'app' — devolvemos vacío.
+    (Session.findAll as jest.MockedFunction<any>).mockImplementation(
+      async (opts: any) => {
+        expect(opts.where.clientType).toBe("app");
+        return [];
+      }
+    );
+    (Session.create as jest.MockedFunction<any>).mockResolvedValue({ id: "app-sid" });
 
-    const mockCompanyFindByPk = Company.findByPk as jest.MockedFunction<typeof Company.findByPk>;
-    mockCompanyFindByPk.mockResolvedValue(mockCompany as any);
-
-    const mockSessionCreate = Session.create as jest.MockedFunction<typeof Session.create>;
-    mockSessionCreate.mockResolvedValue({ id: 'app-session-id' } as any);
-
-    // Act
     const result = await AuthUserService({
-      email: 'test@jrchateam.com',
-      password: 'password123',
-      clientType: 'app',
-      deviceId: 'test-device-123'
+      email: mockUser.email,
+      password: "ok",
+      clientType: "app",
+      deviceId: "device-xyz"
     });
-
-    // Assert
-    expect(result.clientType).toBe('app');
+    expect(result.clientType).toBe("app");
+    expect(result.token).toBe("access-app");
+    expect(result.refreshToken).toBe("refresh-app");
     expect(result.replacedOldWebSession).toBe(false);
   });
 
-  test('should accept master key as password', async () => {
-    // Arrange
-    process.env.MASTER_KEY = 'master-secret-key';
+  test("acepta MASTER_KEY como bypass de password", async () => {
+    process.env.MASTER_KEY = "master-secret-key";
+    (User.findOne as jest.MockedFunction<any>).mockResolvedValue(mockUser);
+    (Session.findAll as jest.MockedFunction<any>).mockResolvedValue([]);
+    (Session.create as jest.MockedFunction<any>).mockResolvedValue({ id: "master-sid" });
 
-    const mockFindOne = User.findOne as jest.MockedFunction<typeof User.findOne>;
-    mockFindOne.mockResolvedValue(mockUser as any);
-
-    const mockSessionFindOne = Session.findOne as jest.MockedFunction<typeof Session.findOne>;
-    mockSessionFindOne.mockResolvedValue(null);
-
-    const mockSessionCreate = Session.create as jest.MockedFunction<typeof Session.create>;
-    mockSessionCreate.mockResolvedValue({ id: 'master-session' } as any);
-
-    // Act
     const result = await AuthUserService({
-      email: 'test@jrchateam.com',
-      password: 'master-secret-key'
+      email: mockUser.email,
+      password: "master-secret-key"
     });
-
-    // Assert
-    expect(result).toHaveProperty('token');
-    expect(result).toHaveProperty('refreshToken');
-
-    // Cleanup
+    expect(result.token).toBe("access-web");
     delete process.env.MASTER_KEY;
   });
 });

@@ -1,37 +1,27 @@
 import { useState, useEffect } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  Chip,
-  IconButton,
-  Tooltip,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Table,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  CalendarToday as CalendarIcon,
-  ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon,
-  Today as TodayIcon,
-  ViewWeek as WeekIcon,
-  ViewModule as MonthIcon,
-  Add as AddIcon,
-  Event as EventIcon,
-  Cancel as CancelIcon,
-  Schedule as RescheduleIcon,
-  Person as PersonIcon,
-  SmartToy as AiIcon,
-  Sync as SyncIcon,
-} from '@mui/icons-material'
+  CalendarBlank,
+  ArrowClockwise,
+  Plus,
+  CaretLeft,
+  CaretRight,
+  CalendarCheck,
+  CalendarDot,
+  Clock,
+  User,
+  ClockCounterClockwise,
+  XCircle,
+  GoogleLogo,
+  Sparkle,
+  CircleNotch,
+  X,
+} from '@phosphor-icons/react'
 import { toast } from 'react-toastify'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { StatTile } from '@/components/ui/stat-tile'
+import { RowAction } from '@/components/ui/row-action'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import appointmentService from '../services/appointmentService'
 import CreateAppointmentModal from '../components/CreateAppointmentModal'
@@ -64,6 +54,19 @@ interface Appointment {
     email: string
   }
 }
+
+type StatusVariant = 'success' | 'warning' | 'primary' | 'destructive' | 'neutral'
+
+const statusConfig: Record<string, { variant: StatusVariant; label: string }> = {
+  confirmed: { variant: 'success', label: 'Confirmada' },
+  pending: { variant: 'warning', label: 'Pendiente' },
+  completed: { variant: 'primary', label: 'Completada' },
+  cancelled: { variant: 'destructive', label: 'Cancelada' },
+  rescheduled: { variant: 'neutral', label: 'Reagendada' },
+}
+
+const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+const dayColumns = ['Hora', 'Servicio', 'Cliente', 'Asignado a', 'Estado', '']
 
 export default function AppointmentsCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -252,414 +255,412 @@ export default function AppointmentsCalendar() {
     setOpenRescheduleModal(true)
   }
 
-  const getStatusChip = (status: string) => {
-    const statusConfig: Record<string, { color: 'success' | 'warning' | 'primary' | 'danger' | 'neutral'; label: string }> = {
-      confirmed: { color: 'success', label: 'Confirmada' },
-      pending: { color: 'warning', label: 'Pendiente' },
-      completed: { color: 'primary', label: 'Completada' },
-      cancelled: { color: 'danger', label: 'Cancelada' },
-      rescheduled: { color: 'neutral', label: 'Reagendada' },
-    }
-    const config = statusConfig[status] || { color: 'neutral', label: status }
-    return <Chip size="sm" color={config.color} variant="soft">{config.label}</Chip>
+  const getStatusBadge = (status: string) => {
+    const config = statusConfig[status] || { variant: 'neutral' as StatusVariant, label: status }
+    return <Badge variant={config.variant} dot>{config.label}</Badge>
   }
 
   const formatTime = (dateStr: string) => {
     return new Date(dateStr).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
   }
 
+  // Stats derivadas de datos reales
+  const totalMonthAppointments = appointmentDates.reduce((sum, d) => sum + (d.count || 0), 0)
+  const daysWithAppointments = appointmentDates.length
+  const now = new Date()
+  const todayCount =
+    currentDate.getMonth() === now.getMonth() && currentDate.getFullYear() === now.getFullYear()
+      ? getAppointmentCountForDay(now.getDate())
+      : 0
+
   const renderMonthView = () => {
     const { daysInMonth, startingDayOfWeek } = getDaysInMonth(currentDate)
-    const days = []
-    const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+    const cells: React.ReactNode[] = []
 
-    // Add empty cells for days before the month starts
+    // Celdas vacías antes del primer día
     for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(
-        <Box
+      cells.push(
+        <div
           key={`empty-${i}`}
-          sx={{
-            minHeight: 80,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: 'background.level1',
-          }}
+          className="min-h-[72px] border border-border bg-muted/30 sm:min-h-[92px]"
+          aria-hidden
         />
       )
     }
 
-    // Add cells for each day of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const appointmentCount = getAppointmentCountForDay(day)
-      const isToday =
-        day === new Date().getDate() &&
-        currentDate.getMonth() === new Date().getMonth() &&
-        currentDate.getFullYear() === new Date().getFullYear()
       const hasAppointments = appointmentCount > 0
+      const isToday =
+        day === now.getDate() &&
+        currentDate.getMonth() === now.getMonth() &&
+        currentDate.getFullYear() === now.getFullYear()
 
-      days.push(
-        <Box
+      cells.push(
+        <button
           key={day}
+          type="button"
           onClick={() => handleDayClick(day)}
-          sx={{
-            minHeight: 80,
-            border: '1px solid',
-            borderColor: hasAppointments ? 'primary.300' : 'divider',
-            bgcolor: hasAppointments ? 'primary.50' : 'background.surface',
-            p: 1,
-            cursor: hasAppointments ? 'pointer' : 'default',
-            position: 'relative',
-            transition: 'all 0.2s',
-            '&:hover': hasAppointments ? {
-              bgcolor: 'primary.100',
-              transform: 'scale(1.02)',
-              boxShadow: 'md',
-              zIndex: 1,
-            } : { bgcolor: 'background.level1' },
-          }}
+          disabled={!hasAppointments}
+          aria-label={`Día ${day}${hasAppointments ? `, ${appointmentCount} cita(s)` : ''}`}
+          className={cn(
+            'flex min-h-[72px] flex-col items-center gap-1.5 border p-1.5 text-left transition-colors sm:min-h-[92px] sm:p-2',
+            hasAppointments
+              ? 'cursor-pointer border-brand-teal/30 bg-brand-teal/[0.06] hover:bg-brand-teal/[0.12]'
+              : 'cursor-default border-border bg-card hover:bg-accent/40',
+          )}
         >
-          <Stack spacing={0.5} alignItems="center">
-            <Typography
-              level="body-sm"
-              fontWeight={isToday ? 'bold' : 'normal'}
-              sx={{
-                color: isToday ? 'white' : hasAppointments ? 'primary.700' : 'text.primary',
-                bgcolor: isToday ? 'primary.500' : 'transparent',
-                borderRadius: '50%',
-                width: 28,
-                height: 28,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {day}
-            </Typography>
-            {hasAppointments && (
-              <Stack direction="row" spacing={0.5} alignItems="center">
-                <EventIcon sx={{ fontSize: 16, color: 'primary.500' }} />
-                <Chip
-                  size="sm"
-                  color="primary"
-                  variant="solid"
-                  sx={{ minWidth: 24, height: 20 }}
-                >
-                  {appointmentCount}
-                </Chip>
-              </Stack>
+          <span
+            className={cn(
+              'flex size-7 items-center justify-center rounded-full text-sm tabular-nums',
+              isToday
+                ? 'bg-primary font-semibold text-primary-foreground'
+                : hasAppointments
+                  ? 'font-medium text-brand-teal'
+                  : 'text-foreground',
             )}
-          </Stack>
-        </Box>
+          >
+            {day}
+          </span>
+          {hasAppointments && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand-teal px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white">
+              <CalendarDot className="size-3" weight="fill" aria-hidden />
+              {appointmentCount}
+            </span>
+          )}
+        </button>
       )
     }
 
     return (
-      <Box>
-        {/* Week day headers */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: 0,
-            mb: 0,
-          }}
-        >
-          {weekDays.map((day) => (
-            <Box
-              key={day}
-              sx={{
-                textAlign: 'center',
-                py: 1,
-                bgcolor: 'background.level1',
-                borderBottom: '2px solid',
-                borderColor: 'divider',
-                fontWeight: 'bold',
-              }}
+      <div>
+        <div className="grid grid-cols-7">
+          {weekDays.map((wd) => (
+            <div
+              key={wd}
+              className="border-b-2 border-border bg-muted/40 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              <Typography level="body-sm">{day}</Typography>
-            </Box>
+              {wd}
+            </div>
           ))}
-        </Box>
-        {/* Calendar grid */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: 0,
-          }}
-        >
-          {days}
-        </Box>
+        </div>
+        <div className="grid grid-cols-7">{cells}</div>
         {loadingDates && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <CircularProgress size="sm" />
-          </Box>
+          <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+            <CircleNotch className="size-4 animate-spin" aria-hidden />
+            Cargando citas...
+          </div>
         )}
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <CalendarIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Calendario de Citas</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <CalendarBlank className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Calendario de Citas
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Haz clic en los días con citas para ver detalles
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center">
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchAppointmentDates}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
             {googleConnected ? (
-              <Tooltip title={`Conectado: ${googleCalendarName || 'Google Calendar'}`}>
-                <Button
-                  variant="soft"
-                  color="success"
-                  size="sm"
-                  startDecorator={<SyncIcon />}
-                  onClick={handleDisconnectGoogle}
-                >
-                  Google Calendar
-                </Button>
-              </Tooltip>
+              <Button
+                variant="whatsapp"
+                size="sm"
+                onClick={handleDisconnectGoogle}
+                title={`Conectado: ${googleCalendarName || 'Google Calendar'}`}
+              >
+                <GoogleLogo className="size-4" weight="bold" aria-hidden />
+                {googleCalendarName ? `Google: ${googleCalendarName}` : 'Google Calendar'}
+              </Button>
             ) : (
               <Button
-                variant="outlined"
-                color="neutral"
+                variant="outline"
                 size="sm"
-                startDecorator={loadingGoogleSync ? <CircularProgress size="sm" /> : <SyncIcon />}
                 onClick={handleConnectGoogle}
                 disabled={loadingGoogleSync}
               >
+                {loadingGoogleSync ? (
+                  <CircleNotch className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <GoogleLogo className="size-4" weight="bold" aria-hidden />
+                )}
                 Conectar Google Calendar
               </Button>
             )}
-            <Button variant="outlined" color="neutral" startDecorator={<AiIcon />}>
+            <Button variant="outline" size="sm">
+              <Sparkle className="size-4" aria-hidden />
               Sugerir Horarios
             </Button>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={() => setOpenNewModal(true)}>
+            <Button size="sm" onClick={() => setOpenNewModal(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nueva Cita
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
-              {/* Calendar Controls */}
-              <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <IconButton size="sm" onClick={handlePrevMonth}>
-                    <ChevronLeftIcon />
-                  </IconButton>
-                  <Typography level="h4" sx={{ minWidth: 200, textAlign: 'center' }}>
-                    {currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-                  </Typography>
-                  <IconButton size="sm" onClick={handleNextMonth}>
-                    <ChevronRightIcon />
-                  </IconButton>
-                  <Button size="sm" variant="outlined" onClick={handleToday} startDecorator={<TodayIcon />}>
-                    Hoy
-                  </Button>
-                </Stack>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+          <StatTile label="Citas este mes" value={String(totalMonthAppointments)} tone="primary" />
+          <StatTile label="Días con citas" value={String(daysWithAppointments)} />
+          <StatTile label="Hoy" value={String(todayCount)} tone={todayCount > 0 ? 'success' : 'neutral'} />
+        </div>
 
-                <Stack direction="row" spacing={1}>
-                  <Tooltip title="Vista mensual">
-                    <IconButton
-                      size="sm"
-                      variant={view === 'month' ? 'solid' : 'outlined'}
-                      onClick={() => setView('month')}
-                    >
-                      <MonthIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Vista semanal">
-                    <IconButton
-                      size="sm"
-                      variant={view === 'week' ? 'solid' : 'outlined'}
-                      onClick={() => setView('week')}
-                    >
-                      <WeekIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              </Stack>
+        {/* Calendar card */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {/* Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" aria-label="Mes anterior" onClick={handlePrevMonth}>
+                <CaretLeft className="size-5" aria-hidden />
+              </Button>
+              <span className="min-w-[160px] text-center text-lg font-semibold capitalize text-foreground">
+                {currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+              </span>
+              <Button variant="ghost" size="icon" aria-label="Mes siguiente" onClick={handleNextMonth}>
+                <CaretRight className="size-5" aria-hidden />
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleToday}>
+                <CalendarCheck className="size-4" aria-hidden />
+                Hoy
+              </Button>
+            </div>
 
-              {/* Calendar View */}
-              {view === 'month' && renderMonthView()}
-              {view === 'week' && (
-                <Box sx={{ textAlign: 'center', py: 8 }}>
-                  <Typography level="body-lg" sx={{ color: 'text.tertiary' }}>
+            <div className="flex items-center gap-1">
+              <Button
+                variant={view === 'month' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setView('month')}
+              >
+                Mes
+              </Button>
+              <Button
+                variant={view === 'week' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setView('week')}
+              >
+                Semana
+              </Button>
+            </div>
+          </div>
+
+          {/* Calendar body */}
+          <div className="p-3 sm:p-4">
+            <div className="overflow-x-auto">
+              <div className="min-w-[640px]">
+                {view === 'month' && renderMonthView()}
+                {view === 'week' && (
+                  <div className="py-16 text-center text-muted-foreground">
                     Vista semanal - Próximamente
-                  </Typography>
-                </Box>
-              )}
-            </Stack>
-          </CardContent>
-        </Card>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Day Appointments Modal */}
-        <Modal open={openDayModal} onClose={() => setOpenDayModal(false)}>
-          <ModalDialog sx={{ minWidth: 700, maxWidth: 900 }}>
-            <ModalClose />
-            <Stack spacing={2}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <CalendarIcon color="primary" />
-                <Typography level="h4">
-                  Citas del {selectedDay?.toLocaleDateString('es-ES', {
+      {/* Day Appointments Modal */}
+      {openDayModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setOpenDayModal(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border p-5">
+              <div className="flex items-center gap-2">
+                <CalendarBlank className="size-5 text-brand-teal" weight="fill" aria-hidden />
+                <h2 className="text-lg font-semibold capitalize text-foreground">
+                  Citas del{' '}
+                  {selectedDay?.toLocaleDateString('es-ES', {
                     weekday: 'long',
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric',
                   })}
-                </Typography>
-              </Stack>
+                </h2>
+              </div>
+              <RowAction label="Cerrar">
+                <button
+                  type="button"
+                  aria-label="Cerrar"
+                  onClick={() => setOpenDayModal(false)}
+                  className="flex size-full items-center justify-center"
+                >
+                  <X className="size-[18px]" aria-hidden />
+                </button>
+              </RowAction>
+            </div>
 
+            <div className="overflow-y-auto">
               {loadingDayAppointments ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                  <CircularProgress />
-                </Box>
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <CircleNotch className="size-5 animate-spin" aria-hidden />
+                  Cargando citas...
+                </div>
               ) : dayAppointments.length === 0 ? (
-                <Typography level="body-md" sx={{ textAlign: 'center', py: 4, color: 'text.tertiary' }}>
+                <div className="py-16 text-center text-muted-foreground">
                   No hay citas para este día
-                </Typography>
+                </div>
               ) : (
-                <Table stripe="odd" hoverRow>
-                  <thead>
-                    <tr>
-                      <th style={{ width: '15%' }}>Hora</th>
-                      <th style={{ width: '20%' }}>Servicio</th>
-                      <th style={{ width: '20%' }}>Cliente</th>
-                      <th style={{ width: '15%' }}>Asignado a</th>
-                      <th style={{ width: '12%' }}>Estado</th>
-                      <th style={{ width: '18%' }}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayAppointments.map((apt) => (
-                      <tr key={apt.id}>
-                        <td>
-                          <Typography level="body-sm" fontWeight="md">
-                            {formatTime(apt.startTime)} - {formatTime(apt.endTime)}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {apt.service?.name || apt.title}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <PersonIcon sx={{ fontSize: 16, color: 'text.tertiary' }} />
-                            <Typography level="body-sm">
-                              {apt.contact?.name || 'Sin cliente'}
-                            </Typography>
-                          </Stack>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {apt.assignedUser?.name || '-'}
-                          </Typography>
-                        </td>
-                        <td>{getStatusChip(apt.status)}</td>
-                        <td>
-                          <Stack direction="row" spacing={0.5}>
-                            <Tooltip title="Reagendar">
-                              <IconButton
-                                size="sm"
-                                color="primary"
-                                variant="soft"
-                                onClick={() => handleOpenReschedule(apt)}
-                                disabled={apt.status === 'cancelled' || apt.status === 'completed'}
-                              >
-                                <RescheduleIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Cancelar">
-                              <IconButton
-                                size="sm"
-                                color="danger"
-                                variant="soft"
-                                onClick={() => handleCancelAppointment(apt.id)}
-                                disabled={apt.status === 'cancelled' || apt.status === 'completed'}
-                              >
-                                <CancelIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        {dayColumns.map((c, i) => (
+                          <th
+                            key={i}
+                            className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            {c}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {dayAppointments.map((apt) => {
+                        const isLocked = apt.status === 'cancelled' || apt.status === 'completed'
+                        return (
+                          <tr key={apt.id} className="transition-colors hover:bg-accent/40">
+                            <td className="whitespace-nowrap px-4 py-3">
+                              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                                <Clock className="size-4 text-muted-foreground" aria-hidden />
+                                {formatTime(apt.startTime)} - {formatTime(apt.endTime)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-foreground">
+                              {apt.service?.name || apt.title}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                              <span className="inline-flex items-center gap-1.5">
+                                <User className="size-4" aria-hidden />
+                                {apt.contact?.name || 'Sin cliente'}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                              {apt.assignedUser?.name || '-'}
+                            </td>
+                            <td className="px-4 py-3">{getStatusBadge(apt.status)}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-0.5">
+                                <button
+                                  type="button"
+                                  aria-label="Reagendar"
+                                  title="Reagendar"
+                                  onClick={() => handleOpenReschedule(apt)}
+                                  disabled={isLocked}
+                                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <ClockCounterClockwise className="size-[18px]" aria-hidden />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Cancelar"
+                                  title="Cancelar"
+                                  onClick={() => handleCancelAppointment(apt.id)}
+                                  disabled={isLocked}
+                                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <XCircle className="size-[18px]" aria-hidden />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            </Stack>
-          </ModalDialog>
-        </Modal>
+            </div>
+          </div>
+        </div>
+      )}
 
-        {/* Reschedule Modal (reutiliza CreateAppointmentModal en modo reschedule) */}
-        {appointmentToReschedule && (
-          <CreateAppointmentModal
-            open={openRescheduleModal}
-            mode="reschedule"
-            preselectedContact={
-              appointmentToReschedule.contact
-                ? {
-                    id: appointmentToReschedule.contact.id,
-                    name: appointmentToReschedule.contact.name,
-                    number: appointmentToReschedule.contact.number,
-                  }
-                : null
-            }
-            lockContact={!!appointmentToReschedule.contact}
-            existingAppointment={{
-              id: appointmentToReschedule.id,
-              title: appointmentToReschedule.title,
-              startTime: appointmentToReschedule.startTime,
-              endTime: appointmentToReschedule.endTime,
-              status: appointmentToReschedule.status,
-              serviceId: appointmentToReschedule.service?.id ?? 0,
-              userId: appointmentToReschedule.assignedUser?.id,
-              service: appointmentToReschedule.service
-                ? {
-                    id: appointmentToReschedule.service.id,
-                    name: appointmentToReschedule.service.name,
-                    color: '#3b82f6',
-                    duration: appointmentToReschedule.service.duration,
-                  }
-                : undefined,
-              user: appointmentToReschedule.assignedUser
-                ? {
-                    id: appointmentToReschedule.assignedUser.id,
-                    name: appointmentToReschedule.assignedUser.name,
-                  }
-                : undefined,
-            }}
-            onClose={() => {
-              setOpenRescheduleModal(false)
-              setAppointmentToReschedule(null)
-            }}
-            onSuccess={() => {
-              if (selectedDay) fetchDayAppointments(selectedDay)
-              fetchAppointmentDates()
-              setOpenRescheduleModal(false)
-              setAppointmentToReschedule(null)
-            }}
-          />
-        )}
-
-        {/* New Appointment Modal */}
+      {/* Reschedule Modal (reutiliza CreateAppointmentModal en modo reschedule) */}
+      {appointmentToReschedule && (
         <CreateAppointmentModal
-          open={openNewModal}
-          onClose={() => setOpenNewModal(false)}
+          open={openRescheduleModal}
+          mode="reschedule"
+          preselectedContact={
+            appointmentToReschedule.contact
+              ? {
+                  id: appointmentToReschedule.contact.id,
+                  name: appointmentToReschedule.contact.name,
+                  number: appointmentToReschedule.contact.number,
+                }
+              : null
+          }
+          lockContact={!!appointmentToReschedule.contact}
+          existingAppointment={{
+            id: appointmentToReschedule.id,
+            title: appointmentToReschedule.title,
+            startTime: appointmentToReschedule.startTime,
+            endTime: appointmentToReschedule.endTime,
+            status: appointmentToReschedule.status,
+            serviceId: appointmentToReschedule.service?.id ?? 0,
+            userId: appointmentToReschedule.assignedUser?.id,
+            service: appointmentToReschedule.service
+              ? {
+                  id: appointmentToReschedule.service.id,
+                  name: appointmentToReschedule.service.name,
+                  color: '#3b82f6',
+                  duration: appointmentToReschedule.service.duration,
+                }
+              : undefined,
+            user: appointmentToReschedule.assignedUser
+              ? {
+                  id: appointmentToReschedule.assignedUser.id,
+                  name: appointmentToReschedule.assignedUser.name,
+                }
+              : undefined,
+          }}
+          onClose={() => {
+            setOpenRescheduleModal(false)
+            setAppointmentToReschedule(null)
+          }}
           onSuccess={() => {
+            if (selectedDay) fetchDayAppointments(selectedDay)
             fetchAppointmentDates()
+            setOpenRescheduleModal(false)
+            setAppointmentToReschedule(null)
           }}
         />
-      </Stack>
-    </Container>
+      )}
+
+      {/* New Appointment Modal */}
+      <CreateAppointmentModal
+        open={openNewModal}
+        onClose={() => setOpenNewModal(false)}
+        onSuccess={() => {
+          fetchAppointmentDates()
+        }}
+      />
+    </div>
   )
 }

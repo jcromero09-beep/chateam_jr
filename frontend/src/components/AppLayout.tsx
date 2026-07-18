@@ -106,7 +106,8 @@ import { usePlanFeatures, PlanFeature } from '../hooks/usePlanFeatures'
 import { Module } from '../utils/permissions'
 import socketService from '../services/socket'
 import api from '../services/api'
-import { exitCompany } from '../services/impersonation'
+import logger from '../utils/logger'
+import { exitCompany, switchCompany } from '../services/impersonation'
 // ── Design system (Tailwind v4) ───────────────────────────────────────────────
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -163,6 +164,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { mode, systemMode, setMode } = useColorScheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
+  const [switchingCompany, setSwitchingCompany] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const [chatUnreads, setChatUnreads] = useState(0)
@@ -241,7 +244,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
           setTokenBalance(Number(res.data?.tokenBalance ?? 0))
           setActiveSubplan(res.data?.activeSubplan || null)
         })
-        .catch(() => {})
+        // Refresco de badge en segundo plano: no interrumpe al usuario, pero deja rastro en dev.
+        .catch((err) => logger.warn('[AppLayout] no se pudo refrescar el saldo de tokens', err))
     }
     socket.on(channel, handler)
     return () => { socket.off(channel, handler) }
@@ -256,7 +260,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const handleUpdate = () => {
       api.get('/chats-total-unreads')
         .then(res => setChatUnreads(res.data.total || 0))
-        .catch(() => {})
+        .catch((err) => logger.warn('[AppLayout] no se pudo refrescar el contador de chats', err))
     }
     socket.on(channel, handleUpdate)
     return () => { socket.off(channel, handleUpdate) }
@@ -271,7 +275,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         // Refetch on any chatUnreadsChange event
         api.get('/chats-total-unreads')
           .then(res => setChatUnreads(res.data.total || 0))
-          .catch(() => {})
+          .catch((err) => logger.warn('[AppLayout] no se pudo refrescar el contador de chats', err))
       }
     }
     window.addEventListener('chatUnreadsChange', handler)
@@ -1114,13 +1118,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
           icon: <ReceiptIcon />,
           module: 'billing',
         },
-        {
-          path: '/permissions-manager',
-          label: 'Permisos',
-          icon: <PermissionsIcon />,
-          module: 'permissions_manager',
-          roles: ['super'],
-        },
       ],
     },
     {
@@ -1146,6 +1143,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
               label: 'Empresas',
               icon: <CompaniesIcon />,
               module: 'companies',
+              roles: ['super'],
+            },
+            {
+              path: '/permissions-manager',
+              label: 'Permisos',
+              icon: <PermissionsIcon />,
+              module: 'permissions_manager',
               roles: ['super'],
             },
             {
@@ -1240,7 +1244,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isImpersonatingView = user?.impersonating === true
   const visibleSections: MenuSection[] =
     user?.super === true && !isImpersonatingView
-      ? rawSections
+      ? rawSections.filter((s) => s.title === 'PLATAFORMA')
       : isImpersonatingView
         ? rawSections.filter((s) => s.title !== 'PLATAFORMA')
         : rawSections
@@ -1520,6 +1524,78 @@ export default function AppLayout({ children }: AppLayoutProps) {
       >
         <MenuIcon />
       </button>
+
+      {/* [Multi-empresa] Selector de empresa activa — solo si el usuario tiene
+          >1 membresía y NO está impersonando (ahí manda el banner de impersonación). */}
+      {!isImpersonatingView && (user?.memberships?.length ?? 0) > 1 && (() => {
+        const current = user!.memberships!.find((m) => m.isCurrent)
+        const currentName = current?.companyName || user?.company?.name || 'Empresa'
+        return (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setCompanyMenuOpen((o) => !o)}
+              aria-haspopup="true"
+              aria-expanded={companyMenuOpen}
+              title="Cambiar de empresa"
+              className={cn(
+                BTN_RESET,
+                'flex h-9 items-center gap-2 rounded-md border border-border bg-card/70 px-3 text-sm font-medium transition-colors hover:bg-accent',
+              )}
+            >
+              <BusinessIcon fontSize="small" className="text-primary" />
+              <span className="max-w-[160px] truncate">{currentName}</span>
+              <ExpandMoreIcon
+                fontSize="small"
+                className={cn('transition-transform', companyMenuOpen && 'rotate-180')}
+              />
+            </button>
+            {companyMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setCompanyMenuOpen(false)} />
+                <div className="absolute left-0 top-full z-50 mt-1 min-w-[240px] rounded-md border border-border bg-card p-1 shadow-lg">
+                  <p className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Cambiar de empresa
+                  </p>
+                  {user!.memberships!.map((m) => (
+                    <button
+                      key={m.companyId}
+                      type="button"
+                      disabled={m.isCurrent || switchingCompany}
+                      onClick={async () => {
+                        if (m.isCurrent) return
+                        setSwitchingCompany(true)
+                        try {
+                          await switchCompany(m.companyId)
+                        } catch {
+                          setSwitchingCompany(false)
+                        }
+                      }}
+                      className={cn(
+                        BTN_RESET,
+                        'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent disabled:cursor-default',
+                        m.isCurrent && 'bg-accent/50',
+                      )}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <BusinessIcon fontSize="small" className="shrink-0 text-muted-foreground" />
+                        <span className="truncate">{m.companyName || `Empresa ${m.companyId}`}</span>
+                      </span>
+                      {m.isCurrent ? (
+                        <span className="shrink-0 text-xs font-medium text-primary">Actual</span>
+                      ) : (
+                        <span className="shrink-0 text-xs capitalize text-muted-foreground">
+                          {m.profile}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Spacer */}
       <div className="flex-1" />

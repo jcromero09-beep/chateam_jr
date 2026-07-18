@@ -1,45 +1,41 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Sheet,
-  Table,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Textarea,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-  Select,
-  Option,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-} from '@mui/joy'
+  FileHtml,
+  Plus,
+  Trash,
+  PencilSimple,
+  MagnifyingGlass,
+  ArrowClockwise,
+  Code,
+  Eye,
+  Copy,
+} from '@phosphor-icons/react'
+// [Fase2·G] CircularProgress se conserva como MUI (design system sin equivalente Radix).
+import { CircularProgress } from '@mui/joy'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Code as CodeIcon,
-  Visibility as PreviewIcon,
-  ContentCopy as CopyIcon,
-  Description as TemplateIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 import * as emailService from '../services/emailCampaignService'
+import { sanitizeTemplateHtml } from '../utils/sanitizeHtml'
 
 interface EmailTemplate {
   id: number
@@ -71,8 +67,10 @@ const CATEGORIES = [
   { value: 'promotional', label: 'Promocional' },
   { value: 'transactional', label: 'Transaccional' },
   { value: 'welcome', label: 'Bienvenida' },
-  { value: 'notification', label: 'Notificacion' },
+  { value: 'notification', label: 'Notificación' },
 ]
+
+const columns = ['Nombre', 'Asunto', 'Categoría', 'Fecha', 'Acciones']
 
 export default function EmailMarketingPlantillas() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
@@ -239,441 +237,425 @@ export default function EmailMarketingPlantillas() {
   // ---- Render ----
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack
-          direction="row"
-          spacing={2}
-          alignItems="center"
-          justifyContent="space-between"
-          flexWrap="wrap"
-          sx={{ gap: 1 }}
-        >
-          <Stack direction="row" spacing={2} alignItems="center">
-            <TemplateIcon sx={{ fontSize: 36, color: 'primary.500' }} />
-            <Box>
-              <Typography level="h2">Plantillas de Email</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                {count > 0 ? `${count} plantillas guardadas` : 'Crea y edita plantillas HTML para tus campanas'}
-              </Typography>
-            </Box>
-          </Stack>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <FileHtml className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Plantillas de Email
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {count > 0
+                    ? `${count} plantillas guardadas`
+                    : 'Crea y edita plantillas HTML para tus campañas'}
+                </p>
+              </div>
+            </div>
 
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Tooltip title="Actualizar">
-              <IconButton variant="outlined" color="neutral" onClick={refreshList} disabled={loading}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={handleOpenCreate}>
-              Nueva Plantilla
-            </Button>
-          </Stack>
-        </Stack>
+            <div className="flex items-center gap-2">
+              <Tooltip title="Actualizar">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Actualizar"
+                  className="text-muted-foreground"
+                  onClick={refreshList}
+                  disabled={loading}
+                >
+                  <ArrowClockwise className="size-5" aria-hidden />
+                </Button>
+              </Tooltip>
+              <Button size="sm" onClick={handleOpenCreate}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Nueva Plantilla
+              </Button>
+            </div>
+          </div>
 
-        {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                  Total Plantillas
-                </Typography>
-                <Typography level="h3">{count}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                  Categorias
-                </Typography>
-                <Typography level="h3">
-                  {new Set(templates.map((t) => t.category)).size}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                  Ultima creada
-                </Typography>
-                <Typography level="body-sm">
-                  {templates[0]
-                    ? new Date(templates[0].createdAt).toLocaleDateString('es-ES')
-                    : '--'}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatTile label="Total Plantillas" value={String(count)} />
+            <StatTile
+              label="Categorías"
+              value={String(new Set(templates.map((t) => t.category)).size)}
+            />
+            <StatTile
+              label="Última creada"
+              value={
+                templates[0]
+                  ? new Date(templates[0].createdAt).toLocaleDateString('es-ES')
+                  : '--'
+              }
+            />
+          </div>
 
-        {/* Search */}
-        <Card variant="outlined">
-          <CardContent>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Input
+          {/* Search */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
                 placeholder="Buscar plantillas... (Enter para buscar)"
+                aria-label="Buscar plantillas"
                 value={searchParam}
                 onChange={(e) => setSearchParam(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && refreshList()}
-                startDecorator={<SearchIcon />}
-                sx={{ flexGrow: 1 }}
+                className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               />
-              <Button
-                variant="outlined"
-                color="neutral"
-                startDecorator={<SearchIcon />}
-                onClick={refreshList}
-                disabled={loading}
-              >
-                Buscar
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
+            </div>
+            <Button variant="outline" size="sm" onClick={refreshList} disabled={loading}>
+              <MagnifyingGlass className="size-4" aria-hidden />
+              Buscar
+            </Button>
+          </div>
 
-        {/* Table */}
-        <Card variant="outlined">
-          <CardContent sx={{ p: 0 }}>
-            {loading && templates.length === 0 ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                <CircularProgress size="md" />
-              </Box>
-            ) : (
-              <Sheet sx={{ overflow: 'auto', borderRadius: 'var(--joy-radius-md)' }}>
-                <Table
-                  stickyHeader
-                  hoverRow
-                  sx={{
-                    '& thead th': { fontWeight: 700, fontSize: '0.8rem' },
-                    '& tbody td': { verticalAlign: 'middle' },
-                    '--TableCell-paddingX': '16px',
-                    '--TableCell-paddingY': '12px',
-                  }}
-                >
-                  <thead>
+          {/* Table */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c, i) => (
+                      <th
+                        key={i}
+                        className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground ${
+                          c === 'Acciones' ? 'text-center' : ''
+                        }`}
+                      >
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {loading && templates.length === 0 ? (
                     <tr>
-                      <th style={{ minWidth: 220 }}>Nombre</th>
-                      <th style={{ minWidth: 200 }}>Asunto</th>
-                      <th style={{ minWidth: 120 }}>Categoria</th>
-                      <th style={{ minWidth: 140 }}>Fecha</th>
-                      <th style={{ minWidth: 140, textAlign: 'center' }}>Acciones</th>
+                      <td colSpan={5} className="px-4 py-12 text-center">
+                        <div className="flex justify-center">
+                          <CircularProgress size="md" />
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {templates.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', padding: '3rem' }}>
-                          <Stack spacing={1} alignItems="center">
-                            <TemplateIcon sx={{ fontSize: 48, color: 'neutral.300' }} />
-                            <Typography level="body-md" sx={{ color: 'text.tertiary' }}>
-                              No hay plantillas creadas
-                            </Typography>
-                            <Button size="sm" startDecorator={<AddIcon />} onClick={handleOpenCreate}>
-                              Crear primera plantilla
-                            </Button>
-                          </Stack>
+                  ) : templates.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <FileHtml className="size-12 text-muted-foreground/50" aria-hidden />
+                          <p className="text-sm text-muted-foreground">
+                            No hay plantillas creadas
+                          </p>
+                          <Button size="sm" onClick={handleOpenCreate}>
+                            <Plus className="size-4" weight="bold" aria-hidden />
+                            Crear primera plantilla
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    templates.map((template) => (
+                      <tr key={template.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 font-medium text-foreground">{template.name}</td>
+                        <td className="px-4 py-3">
+                          <span className="block max-w-[220px] truncate text-muted-foreground">
+                            {template.subject || '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="neutral">
+                            {CATEGORIES.find((c) => c.value === template.category)?.label ??
+                              template.category}
+                          </Badge>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {new Date(template.createdAt).toLocaleDateString('es-ES', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <Tooltip title="Editar plantilla">
+                              <button
+                                type="button"
+                                aria-label="Editar plantilla"
+                                onClick={() => handleOpenEdit(template)}
+                                className="flex size-8 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
+                              >
+                                <PencilSimple className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Copiar HTML">
+                              <button
+                                type="button"
+                                aria-label="Copiar HTML"
+                                onClick={() => handleCopyHtml(template)}
+                                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                              >
+                                <Copy className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Eliminar">
+                              <button
+                                type="button"
+                                aria-label="Eliminar"
+                                onClick={() => {
+                                  setSelectedTemplate(template)
+                                  setOpenDeleteModal(true)
+                                }}
+                                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                              >
+                                <Trash className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                          </div>
                         </td>
                       </tr>
-                    ) : (
-                      templates.map((template) => (
-                        <tr key={template.id}>
-                          <td>
-                            <Typography level="body-sm" fontWeight="md">
-                              {template.name}
-                            </Typography>
-                          </td>
-                          <td>
-                            <Typography
-                              level="body-sm"
-                              sx={{
-                                color: 'text.secondary',
-                                maxWidth: 220,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {template.subject || '-'}
-                            </Typography>
-                          </td>
-                          <td>
-                            <Chip size="sm" variant="soft" color="neutral">
-                              {CATEGORIES.find((c) => c.value === template.category)?.label ??
-                                template.category}
-                            </Chip>
-                          </td>
-                          <td>
-                            <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                              {new Date(template.createdAt).toLocaleDateString('es-ES', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                              })}
-                            </Typography>
-                          </td>
-                          <td>
-                            <Stack direction="row" spacing={0.5} justifyContent="center">
-                              <Tooltip title="Editar plantilla" size="sm">
-                                <IconButton
-                                  size="sm"
-                                  variant="plain"
-                                  color="primary"
-                                  onClick={() => handleOpenEdit(template)}
-                                >
-                                  <EditIcon />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Copiar HTML" size="sm">
-                                <IconButton
-                                  size="sm"
-                                  variant="plain"
-                                  color="neutral"
-                                  onClick={() => handleCopyHtml(template)}
-                                >
-                                  <CopyIcon />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Eliminar" size="sm">
-                                <IconButton
-                                  size="sm"
-                                  variant="plain"
-                                  color="danger"
-                                  onClick={() => {
-                                    setSelectedTemplate(template)
-                                    setOpenDeleteModal(true)
-                                  }}
-                                >
-                                  <DeleteIcon />
-                                </IconButton>
-                              </Tooltip>
-                            </Stack>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </Table>
-              </Sheet>
-            )}
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             {hasMore && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                <Button variant="outlined" color="neutral" size="sm" onClick={handleLoadMore} loading={loading}>
-                  Cargar mas
+              <div className="flex justify-center border-t border-border p-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLoadMore}
+                  loading={loading}
+                >
+                  Cargar más
                 </Button>
-              </Box>
+              </div>
             )}
-          </CardContent>
-        </Card>
-      </Stack>
+          </div>
+        </div>
+      </div>
 
       {/* ---- Create/Edit Template Modal ---- */}
-      <Modal open={openModal} onClose={handleCloseModal}>
-        <ModalDialog
-          sx={{
-            width: { xs: '95vw', md: '80vw' },
-            maxWidth: 1000,
-            maxHeight: '92vh',
-            overflow: 'auto',
-          }}
-        >
-          <ModalClose />
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
-            <CodeIcon sx={{ color: 'primary.500' }} />
-            <Typography level="h4">
-              {editingTemplate ? 'Editar Plantilla' : 'Nueva Plantilla de Email'}
-            </Typography>
-          </Stack>
-
-          <Stack spacing={2}>
-            {/* Row: Name + Subject + Category */}
-            <Grid container spacing={2}>
-              <Grid xs={12} md={5}>
-                <FormControl required error={!!formErrors.name}>
-                  <FormLabel>Nombre</FormLabel>
-                  <Input
-                    placeholder="Ej: Newsletter Mensual"
-                    value={form.name}
-                    onChange={(e) => handleFormChange('name', e.target.value)}
-                  />
-                  {formErrors.name && (
-                    <Typography level="body-xs" color="danger">{formErrors.name}</Typography>
-                  )}
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={4}>
-                <FormControl required error={!!formErrors.subject}>
-                  <FormLabel>Asunto</FormLabel>
-                  <Input
-                    placeholder="Asunto del email"
-                    value={form.subject}
-                    onChange={(e) => handleFormChange('subject', e.target.value)}
-                  />
-                  {formErrors.subject && (
-                    <Typography level="body-xs" color="danger">{formErrors.subject}</Typography>
-                  )}
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={3}>
-                <FormControl>
-                  <FormLabel>Categoria</FormLabel>
-                  <Select
-                    value={form.category}
-                    onChange={(_, val) => handleFormChange('category', val ?? 'general')}
-                  >
-                    {CATEGORIES.map((cat) => (
-                      <Option key={cat.value} value={cat.value}>{cat.label}</Option>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-
-            {/* Editor with tabs: Code / Preview */}
-            <FormControl required error={!!formErrors.htmlContent}>
-              <Tabs value={editorTab} onChange={(_, val) => setEditorTab(val as number)}>
-                <TabList>
-                  <Tab>
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      <CodeIcon sx={{ fontSize: 16 }} />
-                      <span>Codigo HTML</span>
-                    </Stack>
-                  </Tab>
-                  <Tab>
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      <PreviewIcon sx={{ fontSize: 16 }} />
-                      <span>Vista Previa</span>
-                    </Stack>
-                  </Tab>
-                </TabList>
-
-                <TabPanel value={0} sx={{ p: 0, pt: 1 }}>
-                  <Textarea
-                    placeholder="Escribe o pega aqui el HTML de tu plantilla de email..."
-                    minRows={14}
-                    maxRows={22}
-                    value={form.htmlContent}
-                    onChange={(e) => handleFormChange('htmlContent', e.target.value)}
-                    sx={{
-                      fontFamily: 'monospace',
-                      fontSize: '0.8rem',
-                      lineHeight: 1.5,
-                    }}
-                  />
-                </TabPanel>
-
-                <TabPanel value={1} sx={{ p: 0, pt: 1 }}>
-                  <Box
-                    sx={{
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 'md',
-                      minHeight: 300,
-                      maxHeight: 450,
-                      overflow: 'auto',
-                      bgcolor: 'white',
-                    }}
-                  >
-                    {form.htmlContent ? (
-                      <Box
-                        sx={{ p: 2 }}
-                        dangerouslySetInnerHTML={{ __html: form.htmlContent }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          height: 300,
-                          color: 'text.tertiary',
-                        }}
-                      >
-                        <Typography level="body-sm">
-                          Escribe HTML en la pestana de codigo para ver la vista previa aqui
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </TabPanel>
-              </Tabs>
-              {formErrors.htmlContent && (
-                <Typography level="body-xs" color="danger">{formErrors.htmlContent}</Typography>
-              )}
-            </FormControl>
-
-            {/* Buttons */}
-            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 1 }}>
-              <Button variant="outlined" color="neutral" onClick={handleCloseModal} disabled={formSubmitting}>
-                Cancelar
-              </Button>
-              <Button
-                color="primary"
-                startDecorator={formSubmitting ? <CircularProgress size="sm" /> : editingTemplate ? <EditIcon /> : <AddIcon />}
-                onClick={handleSubmit}
-                disabled={formSubmitting}
-              >
-                {formSubmitting
-                  ? 'Guardando...'
-                  : editingTemplate
-                  ? 'Guardar Cambios'
-                  : 'Crear Plantilla'}
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-
-      {/* ---- Delete Modal ---- */}
-      <Modal
-        open={openDeleteModal}
-        onClose={() => {
-          setOpenDeleteModal(false)
-          setSelectedTemplate(null)
+      <Dialog
+        open={openModal}
+        onOpenChange={(o) => {
+          if (!o) handleCloseModal()
         }}
       >
-        <ModalDialog variant="outlined" role="alertdialog" sx={{ maxWidth: 420 }}>
-          <ModalClose />
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <DeleteIcon sx={{ color: 'danger.500' }} />
-              <Typography level="h4">Eliminar plantilla</Typography>
-            </Stack>
-            <Typography level="body-md">
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Code className="size-5 text-primary" aria-hidden />
+              {editingTemplate ? 'Editar Plantilla' : 'Nueva Plantilla de Email'}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Row: Name + Subject + Category */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+              <div className="space-y-1.5 md:col-span-5">
+                <Label htmlFor="tpl-name">
+                  Nombre <span className="text-destructive-text">*</span>
+                </Label>
+                <Input
+                  id="tpl-name"
+                  placeholder="Ej: Newsletter Mensual"
+                  value={form.name}
+                  invalid={!!formErrors.name}
+                  onChange={(e) => handleFormChange('name', e.target.value)}
+                />
+                {formErrors.name && (
+                  <p className="text-xs text-destructive-text">{formErrors.name}</p>
+                )}
+              </div>
+              <div className="space-y-1.5 md:col-span-4">
+                <Label htmlFor="tpl-subject">
+                  Asunto <span className="text-destructive-text">*</span>
+                </Label>
+                <Input
+                  id="tpl-subject"
+                  placeholder="Asunto del email"
+                  value={form.subject}
+                  invalid={!!formErrors.subject}
+                  onChange={(e) => handleFormChange('subject', e.target.value)}
+                />
+                {formErrors.subject && (
+                  <p className="text-xs text-destructive-text">{formErrors.subject}</p>
+                )}
+              </div>
+              <div className="space-y-1.5 md:col-span-3">
+                <Label htmlFor="tpl-category">Categoría</Label>
+                <Select
+                  value={form.category}
+                  onValueChange={(val) => handleFormChange('category', val || 'general')}
+                >
+                  <SelectTrigger id="tpl-category" className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((cat) => (
+                      <SelectItem key={cat.value} value={cat.value}>
+                        {cat.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Editor with tabs: Code / Preview */}
+            <div className="space-y-1.5">
+              <Tabs
+                value={editorTab === 0 ? 'code' : 'preview'}
+                onValueChange={(val) => setEditorTab(val === 'code' ? 0 : 1)}
+              >
+                <TabsList>
+                  <TabsTrigger value="code">
+                    <Code className="size-4" aria-hidden />
+                    Código HTML
+                  </TabsTrigger>
+                  <TabsTrigger value="preview">
+                    <Eye className="size-4" aria-hidden />
+                    Vista Previa
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="code">
+                  <textarea
+                    placeholder="Escribe o pega aquí el HTML de tu plantilla de email..."
+                    rows={14}
+                    value={form.htmlContent}
+                    aria-invalid={!!formErrors.htmlContent || undefined}
+                    onChange={(e) => handleFormChange('htmlContent', e.target.value)}
+                    className="min-h-[300px] w-full resize-y rounded-md border border-input bg-card p-3 font-mono text-xs leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 aria-[invalid=true]:border-destructive"
+                  />
+                </TabsContent>
+
+                <TabsContent value="preview">
+                  <div className="max-h-[450px] min-h-[300px] overflow-auto rounded-md border border-border bg-white">
+                    {form.htmlContent ? (
+                      // [Ola 2 · XSS] El HTML de la plantilla es contenido no confiable: lo
+                      // escribe cualquier agente del tenant y se renderizaba con
+                      // dangerouslySetInnerHTML, así que un <script> en la plantilla se
+                      // ejecutaba con la sesión de quien la abriera (y el token está en
+                      // localStorage → robo de cuenta entre agentes de la misma empresa).
+                      //
+                      // Dos capas independientes, a propósito:
+                      //  1. DOMPurify limpia el HTML (quita <script>, on* handlers, javascript:…).
+                      //  2. sandbox="" es el valor MÁS restrictivo: sin allow-scripts (no ejecuta
+                      //     JS) y sin allow-same-origin (origen opaco: no alcanza el localStorage
+                      //     ni el DOM del padre).
+                      // Si una capa falla (bypass de sanitizador / sandbox no soportado), la otra
+                      // sigue conteniendo. Además el iframe es más fiel como preview: los clientes
+                      // de correo tampoco ejecutan JS.
+                      <iframe
+                        title="Vista previa de la plantilla"
+                        sandbox=""
+                        srcDoc={sanitizeTemplateHtml(form.htmlContent)}
+                        className="h-[450px] w-full border-0 bg-white"
+                      />
+                    ) : (
+                      <div className="flex h-[300px] items-center justify-center">
+                        <p className="text-sm text-muted-foreground">
+                          Escribe HTML en la pestaña de código para ver la vista previa aquí
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+              </Tabs>
+              {formErrors.htmlContent && (
+                <p className="text-xs text-destructive-text">{formErrors.htmlContent}</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCloseModal}
+              disabled={formSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              loading={formSubmitting}
+              disabled={formSubmitting}
+            >
+              {!formSubmitting &&
+                (editingTemplate ? (
+                  <PencilSimple className="size-4" aria-hidden />
+                ) : (
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                ))}
+              {formSubmitting
+                ? 'Guardando...'
+                : editingTemplate
+                ? 'Guardar Cambios'
+                : 'Crear Plantilla'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Delete Modal ---- */}
+      <Dialog
+        open={openDeleteModal}
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenDeleteModal(false)
+            setSelectedTemplate(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash className="size-5 text-destructive-text" aria-hidden />
+              Eliminar plantilla
+            </DialogTitle>
+            <DialogDescription>
               Eliminar la plantilla{' '}
-              <Typography fontWeight="bold">"{selectedTemplate?.name}"</Typography>?
-              Esta accion no se puede deshacer.
-            </Typography>
-            <Stack direction="row" spacing={1} justifyContent="flex-end">
-              <Button
-                variant="outlined"
-                color="neutral"
-                onClick={() => {
-                  setOpenDeleteModal(false)
-                  setSelectedTemplate(null)
-                }}
-                disabled={deleteLoading}
-              >
-                Cancelar
-              </Button>
-              <Button
-                color="danger"
-                startDecorator={deleteLoading ? <CircularProgress size="sm" /> : <DeleteIcon />}
-                onClick={handleDeleteConfirm}
-                disabled={deleteLoading}
-              >
-                {deleteLoading ? 'Eliminando...' : 'Eliminar'}
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+              <span className="font-semibold text-foreground">
+                &quot;{selectedTemplate?.name}&quot;
+              </span>
+              ? Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOpenDeleteModal(false)
+                setSelectedTemplate(null)
+              }}
+              disabled={deleteLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleDeleteConfirm}
+              loading={deleteLoading}
+              disabled={deleteLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {!deleteLoading && <Trash className="size-4" aria-hidden />}
+              {deleteLoading ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
   )
 }

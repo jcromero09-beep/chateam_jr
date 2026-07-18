@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import * as Yup from "yup";
 import AppError from "../../errors/AppError";
 import Prompt from "../../models/Prompt";
@@ -130,7 +136,7 @@ const UpdatePromptService = async ({
     devLog(`[DEBUG] Eliminando archivo anterior: ${oldFileName}`);
 
     const oldFilePath = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "..",
@@ -142,7 +148,7 @@ const UpdatePromptService = async ({
     );
 
     const embeddingPath = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "..",
@@ -220,7 +226,7 @@ const UpdatePromptService = async ({
     devLog(`[DEBUG] Generando embedding para nuevo archivo: ${fileNameIA}`);
 
     const rutaDelArchivo = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "..",

@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Job: EmailWebhook
  * Procesa webhooks y notificaciones de bounce/open/click de proveedores de email.

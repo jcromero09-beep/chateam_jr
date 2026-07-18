@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { selectModel } from "./ModelRouterService";
 import AvailabilityService from "../AppointmentServices/AvailabilityService";
 import AppointmentService from "../../models/AppointmentService";
@@ -74,7 +78,7 @@ const extractDateFromMessage = async (
   companyId: number
 ): Promise<string | null> => {
   const modelSelection = await selectModel('availability_guard', message, 'nano');
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini';
+  const modelKey = modelSelection?.entity.key || 'gpt-5.5';
 
   const now = new Date();
   const today = now.toISOString().split('T')[0]; // YYYY-MM-DD

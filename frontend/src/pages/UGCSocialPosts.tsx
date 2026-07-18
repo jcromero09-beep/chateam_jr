@@ -1,30 +1,28 @@
 import { useState, useEffect, useCallback } from 'react'
-import {
-  Box,
-  Typography,
-  Sheet,
-  Card,
-  Chip,
-  Button,
-  CircularProgress,
-  Select,
-  Option,
-  Divider,
-  IconButton,
-} from '@mui/joy'
+import { CircularProgress } from '@mui/joy'
 import {
   Article,
-  Refresh,
-  Visibility,
-  FavoriteBorder,
-  ChatBubbleOutline,
-  Share,
-  AttachMoney,
-  Instagram,
-  Videocam,
-  Facebook,
+  ArrowClockwise,
+  Eye,
+  Heart,
+  ChatCircle,
+  ShareNetwork,
+  CurrencyDollar,
+  InstagramLogo,
+  FacebookLogo,
+  YoutubeLogo,
+  VideoCamera,
   Image as ImageIcon,
-} from '@mui/icons-material'
+} from '@phosphor-icons/react'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -56,17 +54,17 @@ interface SocialPost {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PLATFORM_CONFIG: Record<PostPlatform, { label: string; color: string; icon: React.ReactNode }> = {
-  instagram: { label: 'Instagram', color: '#E1306C', icon: <Instagram sx={{ fontSize: 14 }} /> },
-  tiktok:    { label: 'TikTok',    color: '#010101', icon: <Videocam sx={{ fontSize: 14 }} /> },
-  facebook:  { label: 'Facebook',  color: '#1877F2', icon: <Facebook sx={{ fontSize: 14 }} /> },
-  youtube:   { label: 'YouTube',   color: '#FF0000', icon: <Videocam sx={{ fontSize: 14 }} /> },
+const PLATFORM_CONFIG: Record<PostPlatform, { label: string; icon: React.ReactNode }> = {
+  instagram: { label: 'Instagram', icon: <InstagramLogo className="size-3.5 text-[#e4405f]" weight="fill" aria-hidden /> },
+  tiktok:    { label: 'TikTok',    icon: <VideoCamera className="size-3.5 text-foreground" weight="fill" aria-hidden /> },
+  facebook:  { label: 'Facebook',  icon: <FacebookLogo className="size-3.5 text-[#1877f2]" weight="fill" aria-hidden /> },
+  youtube:   { label: 'YouTube',   icon: <YoutubeLogo className="size-3.5 text-[#ff0000]" weight="fill" aria-hidden /> },
 }
 
-const STATUS_CONFIG: Record<PostStatus, { label: string; color: 'success' | 'primary' | 'danger' }> = {
-  published: { label: 'Publicado',  color: 'success' },
-  scheduled: { label: 'Programado', color: 'primary' },
-  failed:    { label: 'Fallido',    color: 'danger'  },
+const STATUS_CONFIG: Record<PostStatus, { label: string; variant: BadgeProps['variant'] }> = {
+  published: { label: 'Publicado',  variant: 'success' },
+  scheduled: { label: 'Programado', variant: 'primary' },
+  failed:    { label: 'Fallido',    variant: 'destructive' },
 }
 
 const POST_TYPE_LABELS: Record<PostType, string> = {
@@ -76,6 +74,10 @@ const POST_TYPE_LABELS: Record<PostType, string> = {
   short: 'Short',
   video: 'Video',
 }
+
+// Grid layout compartido entre header y filas
+const GRID_COLUMNS =
+  '60px 1fr 110px 80px 100px minmax(60px,80px) minmax(60px,80px) minmax(60px,80px) minmax(60px,80px) 80px 70px 90px'
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -92,10 +94,10 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('es', { day: '2-digit', month: 'short' })
 }
 
-function engagementColor(rate: number): 'success' | 'warning' | 'danger' {
+function engagementVariant(rate: number): BadgeProps['variant'] {
   if (rate >= 5) return 'success'
   if (rate >= 2) return 'warning'
-  return 'danger'
+  return 'destructive'
 }
 
 function truncate(text: string, max = 100): string {
@@ -105,119 +107,78 @@ function truncate(text: string, max = 100): string {
 // ─── Post Row ─────────────────────────────────────────────────────────────────
 
 function PostRow({ post }: { post: SocialPost }) {
-  const platformCfg    = PLATFORM_CONFIG[post.platform]
-  const statusCfg      = STATUS_CONFIG[post.status]
-  const engColor       = engagementColor(post.engagementRate)
+  const platformCfg = PLATFORM_CONFIG[post.platform]
+  const statusCfg   = STATUS_CONFIG[post.status]
+  const engVariant  = engagementVariant(post.engagementRate)
 
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: '60px 1fr 110px 80px 100px minmax(60px,80px) minmax(60px,80px) minmax(60px,80px) minmax(60px,80px) 80px 70px 90px',
-        alignItems: 'center',
-        gap: 1,
-        px: 2,
-        py: 1.5,
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        '&:hover': { bgcolor: 'neutral.softBg' },
-        transition: 'background-color 0.15s',
-      }}
+    <div
+      className="grid items-center gap-1 border-b border-border px-4 py-3 transition-colors hover:bg-accent/40"
+      style={{ gridTemplateColumns: GRID_COLUMNS }}
     >
       {/* Thumbnail */}
-      <Box
-        sx={{
-          width: 50,
-          height: 50,
-          borderRadius: 'sm',
-          overflow: 'hidden',
-          flexShrink: 0,
-          bgcolor: 'neutral.100',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <div className="flex size-[50px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
         {post.thumbnailUrl ? (
-          <Box
-            component="img"
-            src={post.thumbnailUrl}
-            alt="thumb"
-            sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          <img src={post.thumbnailUrl} alt="thumb" className="size-full object-cover" />
         ) : (
-          <ImageIcon sx={{ fontSize: 22, color: 'neutral.400' }} />
+          <ImageIcon className="size-[22px] text-muted-foreground" aria-hidden />
         )}
-      </Box>
+      </div>
 
       {/* Caption */}
-      <Box sx={{ minWidth: 0 }}>
-        <Typography level="body-sm" noWrap sx={{ mb: 0.25 }}>
-          {truncate(post.caption)}
-        </Typography>
-        <Typography level="body-xs" color="neutral">@{post.accountUsername}</Typography>
-      </Box>
+      <div className="min-w-0">
+        <p className="mb-0.5 truncate text-sm text-foreground">{truncate(post.caption)}</p>
+        <p className="text-xs text-muted-foreground">@{post.accountUsername}</p>
+      </div>
 
       {/* Platform */}
-      <Chip
-        size="sm"
-        variant="soft"
-        startDecorator={platformCfg.icon}
-        sx={{ maxWidth: 110 }}
-      >
+      <Badge variant="neutral" className="max-w-[110px]">
+        {platformCfg.icon}
         {platformCfg.label}
-      </Chip>
+      </Badge>
 
       {/* Type */}
-      <Chip size="sm" variant="outlined" color="neutral">
-        {POST_TYPE_LABELS[post.postType]}
-      </Chip>
+      <Badge variant="outline">{POST_TYPE_LABELS[post.postType]}</Badge>
 
       {/* Published */}
-      <Typography level="body-xs" color="neutral">
-        {formatDate(post.publishedAt)}
-      </Typography>
+      <span className="text-xs text-muted-foreground">{formatDate(post.publishedAt)}</span>
 
       {/* Views */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Visibility sx={{ fontSize: 13, color: 'text.tertiary' }} />
-        <Typography level="body-xs">{formatNumber(post.viewsCount)}</Typography>
-      </Box>
+      <div className="flex items-center gap-1">
+        <Eye className="size-[13px] text-muted-foreground" aria-hidden />
+        <span className="text-xs text-foreground">{formatNumber(post.viewsCount)}</span>
+      </div>
 
       {/* Likes */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <FavoriteBorder sx={{ fontSize: 13, color: 'text.tertiary' }} />
-        <Typography level="body-xs">{formatNumber(post.likesCount)}</Typography>
-      </Box>
+      <div className="flex items-center gap-1">
+        <Heart className="size-[13px] text-muted-foreground" aria-hidden />
+        <span className="text-xs text-foreground">{formatNumber(post.likesCount)}</span>
+      </div>
 
       {/* Comments */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <ChatBubbleOutline sx={{ fontSize: 13, color: 'text.tertiary' }} />
-        <Typography level="body-xs">{formatNumber(post.commentsCount)}</Typography>
-      </Box>
+      <div className="flex items-center gap-1">
+        <ChatCircle className="size-[13px] text-muted-foreground" aria-hidden />
+        <span className="text-xs text-foreground">{formatNumber(post.commentsCount)}</span>
+      </div>
 
       {/* Shares */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Share sx={{ fontSize: 13, color: 'text.tertiary' }} />
-        <Typography level="body-xs">{formatNumber(post.sharesCount)}</Typography>
-      </Box>
+      <div className="flex items-center gap-1">
+        <ShareNetwork className="size-[13px] text-muted-foreground" aria-hidden />
+        <span className="text-xs text-foreground">{formatNumber(post.sharesCount)}</span>
+      </div>
 
       {/* Engagement Rate */}
-      <Chip size="sm" variant="soft" color={engColor}>
-        {post.engagementRate.toFixed(1)}%
-      </Chip>
+      <Badge variant={engVariant}>{post.engagementRate.toFixed(1)}%</Badge>
 
       {/* Purchase Intents */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <AttachMoney sx={{ fontSize: 13, color: 'success.500' }} />
-        <Typography level="body-xs" fontWeight="md">{post.purchaseIntents}</Typography>
-      </Box>
+      <div className="flex items-center gap-1">
+        <CurrencyDollar className="size-[13px] text-success-text" aria-hidden />
+        <span className="text-xs font-medium text-foreground">{post.purchaseIntents}</span>
+      </div>
 
       {/* Status */}
-      <Chip size="sm" variant="soft" color={statusCfg.color}>
-        {statusCfg.label}
-      </Chip>
-    </Box>
+      <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+    </div>
   )
 }
 
@@ -225,39 +186,24 @@ function PostRow({ post }: { post: SocialPost }) {
 
 function TableHeader() {
   const cols = [
-    { label: 'Imagen',      w: '60px' },
-    { label: 'Publicacion', w: '1fr'  },
-    { label: 'Plataforma',  w: '110px' },
-    { label: 'Tipo',        w: '80px' },
-    { label: 'Publicado',   w: '100px' },
-    { label: 'Views',       w: 'minmax(60px,80px)' },
-    { label: 'Likes',       w: 'minmax(60px,80px)' },
-    { label: 'Coment.',     w: 'minmax(60px,80px)' },
-    { label: 'Shares',      w: 'minmax(60px,80px)' },
-    { label: 'Engagement',  w: '80px' },
-    { label: 'Intents',     w: '70px' },
-    { label: 'Estado',      w: '90px' },
+    'Imagen', 'Publicacion', 'Plataforma', 'Tipo', 'Publicado',
+    'Views', 'Likes', 'Coment.', 'Shares', 'Engagement', 'Intents', 'Estado',
   ]
 
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: cols.map(c => c.w).join(' '),
-        gap: 1,
-        px: 2,
-        py: 1,
-        bgcolor: 'background.level1',
-        borderBottom: '2px solid',
-        borderColor: 'divider',
-      }}
+    <div
+      className="grid gap-1 border-b-2 border-border bg-muted/40 px-4 py-2"
+      style={{ gridTemplateColumns: GRID_COLUMNS }}
     >
-      {cols.map(col => (
-        <Typography key={col.label} level="body-xs" fontWeight="lg" color="neutral" noWrap>
-          {col.label}
-        </Typography>
+      {cols.map(label => (
+        <span
+          key={label}
+          className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          {label}
+        </span>
       ))}
-    </Box>
+    </div>
   )
 }
 
@@ -295,126 +241,141 @@ export default function UGCSocialPosts() {
   })
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto' }}>
-      {/* ── Header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Article sx={{ fontSize: 28, color: 'primary.500' }} />
-          <Box>
-            <Typography level="h3">Publicaciones</Typography>
-            <Typography level="body-sm" color="neutral">
-              Metricas de publicaciones en todas las plataformas
-            </Typography>
-          </Box>
-        </Box>
-        <IconButton variant="outlined" color="neutral" size="sm" onClick={fetchPosts} disabled={loading}>
-          <Refresh />
-        </IconButton>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] p-4 md:p-6">
+        {/* ── Header ── */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Article className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Publicaciones</h1>
+              <p className="text-sm text-muted-foreground">
+                Metricas de publicaciones en todas las plataformas
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+            onClick={fetchPosts}
+            disabled={loading}
+          >
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-      {/* ── Filters ── */}
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Select
-          size="sm"
-          value={platformFilter}
-          onChange={(_, v) => setPlatformFilter(v as PostPlatform | 'all')}
-          sx={{ minWidth: 130 }}
-          placeholder="Plataforma"
-        >
-          <Option value="all">Todas las plataformas</Option>
-          <Option value="instagram">Instagram</Option>
-          <Option value="tiktok">TikTok</Option>
-          <Option value="facebook">Facebook</Option>
-          <Option value="youtube">YouTube</Option>
-        </Select>
+        {/* ── Filters ── */}
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <Select
+            value={platformFilter}
+            onValueChange={(v) => setPlatformFilter(v as PostPlatform | 'all')}
+          >
+            <SelectTrigger className="w-[150px]" aria-label="Filtrar por plataforma">
+              <SelectValue placeholder="Plataforma" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las plataformas</SelectItem>
+              <SelectItem value="instagram">Instagram</SelectItem>
+              <SelectItem value="tiktok">TikTok</SelectItem>
+              <SelectItem value="facebook">Facebook</SelectItem>
+              <SelectItem value="youtube">YouTube</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Select
-          size="sm"
-          value={typeFilter}
-          onChange={(_, v) => setTypeFilter(v as PostType | 'all')}
-          sx={{ minWidth: 120 }}
-          placeholder="Tipo"
-        >
-          <Option value="all">Todos los tipos</Option>
-          <Option value="feed">Feed</Option>
-          <Option value="story">Story</Option>
-          <Option value="reel">Reel</Option>
-          <Option value="short">Short</Option>
-          <Option value="video">Video</Option>
-        </Select>
+          <Select
+            value={typeFilter}
+            onValueChange={(v) => setTypeFilter(v as PostType | 'all')}
+          >
+            <SelectTrigger className="w-[140px]" aria-label="Filtrar por tipo">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los tipos</SelectItem>
+              <SelectItem value="feed">Feed</SelectItem>
+              <SelectItem value="story">Story</SelectItem>
+              <SelectItem value="reel">Reel</SelectItem>
+              <SelectItem value="short">Short</SelectItem>
+              <SelectItem value="video">Video</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Select
-          size="sm"
-          value={statusFilter}
-          onChange={(_, v) => setStatusFilter(v as PostStatus | 'all')}
-          sx={{ minWidth: 120 }}
-          placeholder="Estado"
-        >
-          <Option value="all">Todos los estados</Option>
-          <Option value="published">Publicado</Option>
-          <Option value="scheduled">Programado</Option>
-          <Option value="failed">Fallido</Option>
-        </Select>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as PostStatus | 'all')}
+          >
+            <SelectTrigger className="w-[140px]" aria-label="Filtrar por estado">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los estados</SelectItem>
+              <SelectItem value="published">Publicado</SelectItem>
+              <SelectItem value="scheduled">Programado</SelectItem>
+              <SelectItem value="failed">Fallido</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Typography level="body-xs" color="neutral" sx={{ ml: 'auto' }}>
-          {filteredPosts.length} publicacion{filteredPosts.length !== 1 ? 'es' : ''}
-        </Typography>
-      </Box>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {filteredPosts.length} publicacion{filteredPosts.length !== 1 ? 'es' : ''}
+          </span>
+        </div>
 
-      {/* ── Error state ── */}
-      {error && (
-        <Sheet variant="soft" color="danger" sx={{ p: 2, borderRadius: 'md', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography level="body-sm" color="danger">{error}</Typography>
-            <Button size="sm" variant="plain" color="danger" onClick={fetchPosts}>Reintentar</Button>
-          </Box>
-        </Sheet>
-      )}
+        {/* ── Error state ── */}
+        {error && (
+          <div className="mb-6 flex items-center justify-between rounded-md bg-destructive/12 p-4">
+            <span className="text-sm text-destructive-text">{error}</span>
+            <Button variant="ghost" size="sm" className="text-destructive-text" onClick={fetchPosts}>
+              Reintentar
+            </Button>
+          </div>
+        )}
 
-      {/* ── Table ── */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size="lg" />
-        </Box>
-      ) : filteredPosts.length === 0 ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 10, gap: 2 }}>
-          <Article sx={{ fontSize: 64, color: 'text.tertiary' }} />
-          <Typography level="h3" textAlign="center">Sin publicaciones</Typography>
-          <Typography level="body-md" color="neutral" textAlign="center" sx={{ maxWidth: 400 }}>
-            {posts.length === 0
-              ? 'No hay publicaciones sincronizadas. Conecta cuentas sociales y espera la primera sincronizacion.'
-              : 'No hay publicaciones que coincidan con los filtros seleccionados.'}
-          </Typography>
-        </Box>
-      ) : (
-        <Card variant="outlined" sx={{ overflow: 'auto' }}>
-          <Box sx={{ minWidth: 1100 }}>
-            <TableHeader />
-            {filteredPosts.map(post => (
-              <PostRow key={post.id} post={post} />
-            ))}
-          </Box>
-        </Card>
-      )}
+        {/* ── Table ── */}
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <CircularProgress size="lg" />
+          </div>
+        ) : filteredPosts.length === 0 ? (
+          <div className="flex flex-col items-center gap-4 py-20">
+            <Article className="size-16 text-muted-foreground" aria-hidden />
+            <h2 className="text-center text-2xl font-semibold text-foreground">Sin publicaciones</h2>
+            <p className="max-w-[400px] text-center text-muted-foreground">
+              {posts.length === 0
+                ? 'No hay publicaciones sincronizadas. Conecta cuentas sociales y espera la primera sincronizacion.'
+                : 'No hay publicaciones que coincidan con los filtros seleccionados.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-auto rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="min-w-[1100px]">
+              <TableHeader />
+              {filteredPosts.map(post => (
+                <PostRow key={post.id} post={post} />
+              ))}
+            </div>
+          </div>
+        )}
 
-      {/* Engagement legend */}
-      {filteredPosts.length > 0 && (
-        <>
-          <Divider sx={{ my: 2 }} />
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Typography level="body-xs" color="neutral" fontWeight="md">Engagement:</Typography>
-            {([
-              { color: 'success' as const, label: '>5% excelente' },
-              { color: 'warning' as const, label: '2-5% aceptable' },
-              { color: 'danger' as const,  label: '<2% bajo'      },
-            ]).map(item => (
-              <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Chip size="sm" variant="soft" color={item.color}>{item.label}</Chip>
-              </Box>
-            ))}
-          </Box>
-        </>
-      )}
-    </Box>
+        {/* Engagement legend */}
+        {filteredPosts.length > 0 && (
+          <>
+            <div className="my-4 border-t border-border" />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Engagement:</span>
+              {([
+                { variant: 'success' as const, label: '>5% excelente' },
+                { variant: 'warning' as const, label: '2-5% aceptable' },
+                { variant: 'destructive' as const, label: '<2% bajo' },
+              ]).map(item => (
+                <Badge key={item.label} variant={item.variant}>{item.label}</Badge>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   )
 }

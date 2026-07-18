@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Box,
   IconButton,
@@ -11,7 +11,6 @@ import {
   Typography,
   CircularProgress,
   Tooltip,
-  Chip,
   Alert,
   Modal,
   ModalDialog,
@@ -35,7 +34,10 @@ import {
   Description as DocumentIcon,
   CameraAlt as CameraIcon,
   Person as PersonIcon,
-  Videocam as _VideoIcon,
+  Videocam as VideoIcon,
+  Audiotrack as AudioFileIcon,
+  PictureAsPdf as PdfIcon,
+  InsertDriveFile as GenericFileIcon,
   Schedule as ScheduleIcon,
   FlashOn as QuickIcon,
   Add as AddIcon,
@@ -44,6 +46,7 @@ import {
   Lock as LockIcon,
   LockOpen as LockOpenIcon,
   UploadFile as UploadFileIcon,
+  DriveFileRenameOutline as SignatureIcon,
 } from '@mui/icons-material'
 import api from '../../services/api'
 import type { Message } from '../../types/Message'
@@ -65,6 +68,11 @@ interface ContactOption {
   id: number
   name: string
   number: string
+  whatsappId?: number | null
+  whatsapp?: {
+    id: number
+    name: string
+  } | null
 }
 
 interface UserOption {
@@ -88,12 +96,42 @@ interface MessageInputProps {
   ticketChannel?: string
   onSendMessage?: (message: string) => void
   droppedFiles?: File[]
+  onDroppedFilesHandled?: () => void
   contactId?: number
   contactName?: string
   contactNumber?: string
   whatsappId?: number | null
+  whatsappName?: string
   replyingTo?: Message
   onCancelReply?: () => void
+  /** Optimistic UI de media: se invoca ANTES de subir el/los archivo(s) con los
+   *  placeholders a mostrar de inmediato en el chat (preview local + "enviando"). */
+  onMediaSendStart?: (placeholders: OptimisticMediaMessage[]) => void
+  /** Progreso de subida (0-100) para los placeholders del lote. */
+  onMediaSendProgress?: (tempIds: string[], percent: number) => void
+  /** Subida finalizada (éxito o error): el chat debe retirar los placeholders. */
+  onMediaSendEnd?: (tempIds: string[], success: boolean) => void
+}
+
+/** Mensaje provisional que se pinta mientras el archivo sube. Usa una URL local
+ *  (blob:) para previsualizar sin esperar al servidor. */
+export interface OptimisticMediaMessage {
+  id: string
+  tempId: string
+  body: string
+  fromMe: true
+  mediaType: string
+  mediaUrl: string
+  ack: number
+  createdAt: string
+  isUploading: true
+}
+
+// Formatea Date a 'YYYY-MM-DDTHH:mm' para <input type="datetime-local"> (hora LOCAL del navegador)
+const buildDefaultSendAt = (minutesAhead = 15): string => {
+  const date = new Date(Date.now() + minutesAhead * 60_000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export default function MessageInput({
@@ -102,12 +140,17 @@ export default function MessageInput({
   ticketChannel: _ticketChannel = 'whatsapp',
   onSendMessage,
   droppedFiles,
+  onDroppedFilesHandled,
   contactId,
   contactName,
   contactNumber,
   whatsappId,
+  whatsappName,
   replyingTo,
   onCancelReply,
+  onMediaSendStart,
+  onMediaSendProgress,
+  onMediaSendEnd,
 }: MessageInputProps) {
   const { user } = useAuth()
   const [message, setMessage] = useState('')
@@ -124,6 +167,7 @@ export default function MessageInput({
   const [selectedQuickMessage, setSelectedQuickMessage] = useState<QuickMessage | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [isPrivateMode, setIsPrivateMode] = useState(false)
+  const [useSignature, setUseSignature] = useState(false)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [scheduleLoading, setScheduleLoading] = useState(false)
   const [scheduleUsers, setScheduleUsers] = useState<UserOption[]>([])
@@ -133,6 +177,12 @@ export default function MessageInput({
   const [scheduleContactSearch, setScheduleContactSearch] = useState('')
   const [loadingScheduleContacts, setLoadingScheduleContacts] = useState(false)
   const [selectedScheduleContact, setSelectedScheduleContact] = useState<ContactOption | null>(null)
+  const [contactModalOpen, setContactModalOpen] = useState(false)
+  const [contactOptions, setContactOptions] = useState<ContactOption[]>([])
+  const [contactSearch, setContactSearch] = useState('')
+  const [loadingContacts, setLoadingContacts] = useState(false)
+  const [selectedContactToShare, setSelectedContactToShare] = useState<ContactOption | null>(null)
+  const [sendingContact, setSendingContact] = useState(false)
   const [scheduleFile, setScheduleFile] = useState<File | null>(null)
   const [scheduleForm, setScheduleForm] = useState({
     body: '',
@@ -155,9 +205,24 @@ export default function MessageInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
+  const scheduleBodyRef = useRef<HTMLTextAreaElement>(null)
+  const canManageSignature = user?.profile === 'admin'
+  const signatureLockedOn = Boolean(user && !canManageSignature)
+  const signatureStorageKey = user?.id ? `chat-signature-enabled-${user.id}` : 'chat-signature-enabled'
+  const isWhatsAppChannel = _ticketChannel === 'whatsapp'
 
   // Solo permite escribir cuando el ticket está abierto o es grupo
-  const isDisabled = loading || (ticketStatus !== 'open' && ticketStatus !== 'group')
+  // `isDisabled` se usa para bloqueos por estado del ticket (cerrado, etc.).
+  // NO incluye `loading` para que el textarea conserve el foco durante el envío
+  // y el operador pueda seguir escribiendo el siguiente mensaje sin re-clickear.
+  // El botón "Enviar" y la tecla Enter ya consultan `loading` por separado para
+  // evitar doble click / doble Enter durante un envío en curso.
+  const isDisabled = ticketStatus !== 'open' && ticketStatus !== 'group'
+
+  const getContactOptionLabel = (option: ContactOption) => {
+    const connectionName = option.whatsapp?.name
+    return `${option.name} - ${option.number}${connectionName ? ` · ${connectionName}` : ''}`
+  }
 
   // Fetch quick messages solo cuando se necesita (al escribir "/")
   const fetchQuickMessages = async () => {
@@ -179,12 +244,22 @@ export default function MessageInput({
     }
   }
 
-  // Handle dropped files
+  const appendSelectedFiles = useCallback((files: File[]) => {
+    const validFiles = files.filter((file) => file.size > 0)
+    if (validFiles.length === 0) return
+
+    setSelectedFiles((prev) => [...prev, ...validFiles])
+    setSelectedQuickMessage(null)
+    inputRef.current?.focus()
+  }, [])
+
+  // Handle files dropped from the chat area
   useEffect(() => {
-    if (droppedFiles && droppedFiles.length > 0) {
-      setSelectedFiles(droppedFiles)
-    }
-  }, [droppedFiles])
+    if (!droppedFiles || droppedFiles.length === 0) return
+
+    appendSelectedFiles(droppedFiles)
+    onDroppedFilesHandled?.()
+  }, [appendSelectedFiles, droppedFiles, onDroppedFilesHandled])
 
   // Filter quick messages when typing /
   useEffect(() => {
@@ -207,6 +282,29 @@ export default function MessageInput({
       setSelectedQuickMessage(null)
     }
   }, [message, selectedQuickMessage])
+
+  useEffect(() => {
+    if (signatureLockedOn) {
+      setUseSignature(true)
+      return
+    }
+
+    // Firma ACTIVADA por defecto: si el usuario nunca eligió (sin valor guardado)
+    // arranca en ON. Solo queda OFF si lo apagó explícitamente antes (= 'false').
+    const saved = localStorage.getItem(signatureStorageKey)
+    setUseSignature(saved === null ? true : saved === 'true')
+  }, [signatureLockedOn, signatureStorageKey])
+
+  const handleToggleSignature = () => {
+    if (!canManageSignature) return
+
+    setUseSignature((current) => {
+      const next = !current
+      localStorage.setItem(signatureStorageKey, String(next))
+      return next
+    })
+    inputRef.current?.focus()
+  }
 
   // Close emoji picker on click outside
   useEffect(() => {
@@ -237,7 +335,7 @@ export default function MessageInput({
     setScheduleFile(null)
     setScheduleForm({
       body: message,
-      sendAt: '',
+      sendAt: buildDefaultSendAt(15),
       contactId: defaultContact?.id || 0,
       whatsappId: whatsappId || 0,
       openTicket: 'disabled',
@@ -272,6 +370,19 @@ export default function MessageInput({
     loadScheduleOptions()
   }, [scheduleModalOpen, contactId, contactName, contactNumber, whatsappId, message])
 
+  // Asegura que cuando las conexiones cargan después, el whatsappId precargado
+  // siga apareciendo seleccionado en el Select (MUI Joy hace match por value exacto).
+  useEffect(() => {
+    if (!scheduleModalOpen) return
+    if (!whatsappId || scheduleWhatsapps.length === 0) return
+    setScheduleForm(prev => {
+      if (prev.whatsappId === whatsappId) return prev
+      const exists = scheduleWhatsapps.some(w => w.id === whatsappId)
+      if (!exists) return prev
+      return { ...prev, whatsappId }
+    })
+  }, [scheduleModalOpen, scheduleWhatsapps, whatsappId])
+
   useEffect(() => {
     if (!scheduleModalOpen) return
     if (scheduleContactSearch.length < 2 || (selectedScheduleContact && scheduleContactSearch === selectedScheduleContact.name)) return
@@ -293,56 +404,151 @@ export default function MessageInput({
     return () => clearTimeout(timeout)
   }, [scheduleModalOpen, scheduleContactSearch, selectedScheduleContact])
 
+  useEffect(() => {
+    if (!contactModalOpen) return
+
+    setContactSearch('')
+    setContactOptions([])
+    setSelectedContactToShare(null)
+  }, [contactModalOpen, ticketId])
+
+  useEffect(() => {
+    if (!contactModalOpen) return
+    if (contactSearch.length < 2 || (selectedContactToShare && contactSearch === selectedContactToShare.name)) return
+
+    const timeout = setTimeout(async () => {
+      try {
+        setLoadingContacts(true)
+        const response = await api.get('/contacts', {
+          params: { searchParam: contactSearch, pageNumber: 1 },
+        })
+        setContactOptions(response.data.contacts || response.data || [])
+      } catch (error) {
+        console.error('Error searching contacts to share:', error)
+      } finally {
+        setLoadingContacts(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timeout)
+  }, [contactModalOpen, contactSearch, selectedContactToShare])
+
   const handleSendMessage = async () => {
     if (message.trim() === '' && selectedFiles.length === 0) return
+
+    // Optimistic UI: capturamos los datos y limpiamos input + restauramos foco INMEDIATAMENTE
+    // para que el operador pueda seguir escribiendo el siguiente mensaje sin esperar la red.
+    const messageToSend = message
+    const filesToSend = selectedFiles
+    const quickMessageToSend = selectedQuickMessage
+    const replyingToSend = replyingTo
+    const wasPrivateMode = isPrivateMode
+    const shouldSignMessage = useSignature && !wasPrivateMode
+
+    setMessage('')
+    setSelectedFiles([])
+    setSelectedQuickMessage(null)
+    if (onCancelReply) onCancelReply()
+    // Devolver el foco al textarea en el siguiente tick (después del re-render)
+    setTimeout(() => inputRef.current?.focus(), 0)
+
     setLoading(true)
+
+    // IDs de los placeholders optimistas de media en vuelo (para retirarlos al terminar)
+    let uploadTempIds: string[] = []
 
     try {
       const shouldSendQuickMessageWithMedia =
-        Boolean(selectedQuickMessage?.hasMedia) &&
-        selectedFiles.length === 0 &&
-        !isPrivateMode &&
-        !replyingTo &&
+        Boolean(quickMessageToSend?.hasMedia) &&
+        filesToSend.length === 0 &&
+        !wasPrivateMode &&
+        !replyingToSend &&
         _ticketChannel === 'whatsapp' &&
-        message === selectedQuickMessage?.value
+        messageToSend === quickMessageToSend?.value
 
-      if (shouldSendQuickMessageWithMedia && selectedQuickMessage) {
+      if (shouldSendQuickMessageWithMedia && quickMessageToSend) {
         await api.post(`/messages/quick/${ticketId}`, {
-          quickMessageId: selectedQuickMessage.id,
+          quickMessageId: quickMessageToSend.id,
+          ...(shouldSignMessage && { signMessage: true }),
         })
-      } else if (selectedFiles.length > 0) {
+      } else if (filesToSend.length > 0) {
         // Send files
         const formData = new FormData()
         formData.append('fromMe', 'true')
-        if (isPrivateMode) formData.append('isPrivate', 'true')
-        if (replyingTo) formData.append('quotedMsgId', String(replyingTo.id))
-        selectedFiles.forEach((file) => {
+        if (wasPrivateMode) formData.append('isPrivate', 'true')
+        if (shouldSignMessage) formData.append('signMessage', 'true')
+        if (replyingToSend) formData.append('quotedMsgId', String(replyingToSend.id))
+        filesToSend.forEach((file) => {
           formData.append('medias', file)
-          formData.append('body', message || file.name)
+          formData.append('body', messageToSend || file.name)
         })
-        await api.post(`/messages/${ticketId}`, formData)
-        setSelectedFiles([])
+
+        // ── UI optimista: pintar placeholders con preview local + "enviando" ──
+        // (no para notas privadas, que no se renderizan en la conversación)
+        if (!wasPrivateMode) {
+          const placeholders: OptimisticMediaMessage[] = filesToSend.map((file, i) => {
+            const t = file.type || ''
+            const category = t.startsWith('video')
+              ? 'video'
+              : t.startsWith('image')
+                ? 'image'
+                : t.startsWith('audio')
+                  ? 'audio'
+                  : 'application'
+            return {
+              id: `pending_${Date.now()}_${i}`,
+              tempId: `pending_${Date.now()}_${i}`,
+              body: messageToSend || file.name,
+              fromMe: true,
+              mediaType: category,
+              mediaUrl: URL.createObjectURL(file),
+              ack: 0,
+              createdAt: new Date().toISOString(),
+              isUploading: true,
+            }
+          })
+          uploadTempIds = placeholders.map((p) => p.id)
+          onMediaSendStart?.(placeholders)
+        }
+
+        await api.post(`/messages/${ticketId}`, formData, {
+          onUploadProgress: (evt) => {
+            if (uploadTempIds.length === 0 || !evt.total) return
+            const percent = Math.min(99, Math.round((evt.loaded / evt.total) * 100))
+            onMediaSendProgress?.(uploadTempIds, percent)
+          },
+        })
       } else {
         // Send text message
         await api.post(`/messages/${ticketId}`, {
-          body: message,
+          body: messageToSend,
           fromMe: true,
-          ...(isPrivateMode && { isPrivate: 'true' }),
-          ...(replyingTo && { quotedMsg: { id: replyingTo.id } }),
+          ...(shouldSignMessage && { signMessage: true }),
+          ...(wasPrivateMode && { isPrivate: 'true' }),
+          ...(replyingToSend && { quotedMsg: { id: replyingToSend.id } }),
         })
       }
 
       if (onSendMessage) {
-        onSendMessage(message)
+        onSendMessage(messageToSend)
       }
-
-      if (onCancelReply) onCancelReply()
-      setMessage('')
-      setSelectedQuickMessage(null)
+      // Subida OK: retiramos los placeholders; el mensaje real ya llegó (o llega
+      // en milisegundos) por socket. success=true.
+      if (uploadTempIds.length > 0) onMediaSendEnd?.(uploadTempIds, true)
     } catch (error) {
       console.error('Error sending message:', error)
+      toast.error('No se pudo enviar el mensaje. Revisa tu conexión e intenta de nuevo.')
+      // Rollback optimistic: solo restauramos el texto si el textarea está vacío
+      // (si el usuario ya empezó a escribir el siguiente mensaje, NO pisamos su input)
+      setMessage((current) => (current.trim() === '' ? messageToSend : current))
+      // Si había archivos seleccionados, los devolvemos para que el operador reintente
+      if (filesToSend.length > 0) setSelectedFiles(filesToSend)
+      // Retiramos los placeholders fallidos del chat. success=false.
+      if (uploadTempIds.length > 0) onMediaSendEnd?.(uploadTempIds, false)
     } finally {
       setLoading(false)
+      // Re-asegurar foco después de que loading vuelva a false
+      setTimeout(() => inputRef.current?.focus(), 0)
     }
   }
 
@@ -374,8 +580,131 @@ export default function MessageInput({
     setAnchorEl(null)
   }
 
+  const handleOpenContactModal = () => {
+    setAnchorEl(null)
+
+    if (isPrivateMode) {
+      toast.error('No se puede enviar una tarjeta de contacto como nota interna')
+      return
+    }
+
+    if (!isWhatsAppChannel) {
+      toast.error('El envío de contacto está disponible solo para WhatsApp')
+      return
+    }
+
+    setContactModalOpen(true)
+  }
+
+  const handleCloseContactModal = () => {
+    if (sendingContact) return
+    setContactModalOpen(false)
+  }
+
+  const handleSendContactCard = async () => {
+    if (!selectedContactToShare) {
+      toast.error('Selecciona un contacto')
+      return
+    }
+
+    try {
+      setSendingContact(true)
+      await api.post(`/messages/${ticketId}`, {
+        vCardId: selectedContactToShare.id,
+        fromMe: true,
+        ...(replyingTo && { quotedMsg: { id: replyingTo.id } }),
+      })
+
+      setContactModalOpen(false)
+      if (onCancelReply) onCancelReply()
+      if (onSendMessage) onSendMessage(`Contacto: ${selectedContactToShare.name}`)
+      setTimeout(() => inputRef.current?.focus(), 0)
+    } catch (error) {
+      console.error('Error sending contact card:', error)
+      toast.error(getApiErrorMessage(error, 'No se pudo enviar el contacto'))
+    } finally {
+      setSendingContact(false)
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (isDisabled) return
+
+    const clipboard = e.clipboardData
+    const directFiles = Array.from(clipboard.files || [])
+    const itemFiles = Array.from(clipboard.items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+
+    const files = directFiles.length > 0 ? directFiles : itemFiles
+    if (files.length === 0) return
+
+    e.preventDefault()
+    appendSelectedFiles(files)
+  }
+
   const handleRemoveFile = (index: number) => {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const formatFileSize = (size: number) => {
+    if (!size) return '0 KB'
+    if (size < 1024 * 1024) return Math.max(1, Math.round(size / 1024)) + ' KB'
+    return (size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0) + ' MB'
+  }
+
+  const getSelectedFileMeta = (file: File) => {
+    const type = file.type.toLowerCase()
+    const name = file.name.toLowerCase()
+
+    if (type.startsWith('image/')) {
+      return {
+        label: 'Imagen lista para enviar',
+        icon: <ImageIcon sx={{ fontSize: 20 }} />,
+        color: '#0EA5E9',
+        bg: 'rgba(14,165,233,0.10)',
+        border: 'rgba(14,165,233,0.35)',
+      }
+    }
+
+    if (type.startsWith('video/')) {
+      return {
+        label: 'Video listo para enviar',
+        icon: <VideoIcon sx={{ fontSize: 20 }} />,
+        color: '#7C3AED',
+        bg: 'rgba(124,58,237,0.10)',
+        border: 'rgba(124,58,237,0.35)',
+      }
+    }
+
+    if (type.startsWith('audio/')) {
+      return {
+        label: 'Audio listo para enviar',
+        icon: <AudioFileIcon sx={{ fontSize: 20 }} />,
+        color: '#059669',
+        bg: 'rgba(5,150,105,0.10)',
+        border: 'rgba(5,150,105,0.35)',
+      }
+    }
+
+    if (type.includes('pdf') || name.endsWith('.pdf')) {
+      return {
+        label: 'PDF listo para enviar',
+        icon: <PdfIcon sx={{ fontSize: 20 }} />,
+        color: '#DC2626',
+        bg: 'rgba(220,38,38,0.10)',
+        border: 'rgba(220,38,38,0.35)',
+      }
+    }
+
+    return {
+      label: 'Archivo listo para enviar',
+      icon: <GenericFileIcon sx={{ fontSize: 20 }} />,
+      color: '#64748B',
+      bg: 'rgba(100,116,139,0.10)',
+      border: 'rgba(100,116,139,0.35)',
+    }
   }
 
   // Audio recording
@@ -458,6 +787,10 @@ export default function MessageInput({
 
   const handleOpenScheduleModal = () => {
     setScheduleModalOpen(true)
+    // Foco automático en el textarea del mensaje (espera el render del Modal)
+    setTimeout(() => {
+      scheduleBodyRef.current?.focus()
+    }, 80)
   }
 
   const handleCloseScheduleModal = () => {
@@ -472,6 +805,15 @@ export default function MessageInput({
     }
     if (!scheduleForm.sendAt) {
       toast.error('Selecciona la fecha y hora de envío')
+      return false
+    }
+    const sendAtDate = new Date(scheduleForm.sendAt)
+    if (Number.isNaN(sendAtDate.getTime())) {
+      toast.error('La fecha de envío no es válida')
+      return false
+    }
+    if (sendAtDate.getTime() <= Date.now()) {
+      toast.error('La fecha debe ser futura')
       return false
     }
     if (!scheduleForm.contactId) {
@@ -494,9 +836,11 @@ export default function MessageInput({
 
     try {
       setScheduleLoading(true)
+      // Convertir 'YYYY-MM-DDTHH:mm' local a ISO 8601 UTC para evitar ambigüedades
+      const sendAtIso = new Date(scheduleForm.sendAt).toISOString()
       const payload = {
         body: scheduleForm.body.trim(),
-        sendAt: scheduleForm.sendAt,
+        sendAt: sendAtIso,
         contactId: scheduleForm.contactId,
         ticketId,
         userId: user?.id,
@@ -592,30 +936,89 @@ export default function MessageInput({
       {/* Selected Files Preview */}
       {selectedFiles.length > 0 && (
         <Box
-          sx={{
-            p: 1,
+          sx={(theme) => ({
+            px: 1.25,
+            py: 1,
+            borderTop: '1px solid',
             borderBottom: '1px solid',
-            borderColor: 'divider',
-            display: 'flex',
-            gap: 1,
-            flexWrap: 'wrap',
-          }}
+            borderColor: theme.palette.mode === 'dark' ? 'rgba(91,194,210,0.24)' : 'rgba(91,194,210,0.28)',
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(91,194,210,0.08)' : 'rgba(91,194,210,0.06)',
+          })}
         >
-          {selectedFiles.map((file, index) => (
-            <Chip
-              key={index}
-              size="sm"
-              variant="soft"
-              endDecorator={
-                <CloseIcon
-                  sx={{ fontSize: 16, cursor: 'pointer' }}
-                  onClick={() => handleRemoveFile(index)}
-                />
-              }
-            >
-              {file.name.length > 20 ? file.name.substring(0, 20) + '...' : file.name}
-            </Chip>
-          ))}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75, gap: 1 }}>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+              <UploadFileIcon sx={{ fontSize: 18, color: '#3B8E9A' }} />
+              <Typography level="body-xs" sx={{ fontWeight: 700, color: '#3B8E9A' }}>
+                {selectedFiles.length === 1 ? 'Adjunto preparado' : selectedFiles.length + ' adjuntos preparados'}
+              </Typography>
+            </Stack>
+            <Typography level="body-xs" sx={{ color: 'text.tertiary', whiteSpace: 'nowrap' }}>
+              Presiona enviar para compartir
+            </Typography>
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 0.75 }}>
+            {selectedFiles.map((file, index) => {
+              const meta = getSelectedFileMeta(file)
+              return (
+                <Box
+                  key={file.name + '-' + file.lastModified + '-' + index}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    minWidth: 220,
+                    maxWidth: { xs: '100%', sm: 360 },
+                    px: 1,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    border: '1px solid',
+                    borderColor: meta.border,
+                    bgcolor: meta.bg,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: meta.color,
+                      bgcolor: 'rgba(255,255,255,0.72)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {meta.icon}
+                  </Box>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography level="body-xs" sx={{ fontWeight: 700, color: meta.color, lineHeight: 1.2 }}>
+                      {meta.label}
+                    </Typography>
+                    <Typography level="body-xs" noWrap sx={{ color: 'text.secondary', lineHeight: 1.25 }}>
+                      {file.name}
+                    </Typography>
+                    <Typography level="body-xs" sx={{ color: 'text.tertiary', lineHeight: 1.2 }}>
+                      {formatFileSize(file.size)}
+                    </Typography>
+                  </Box>
+                  <Tooltip title="Quitar adjunto">
+                    <IconButton
+                      size="sm"
+                      variant="plain"
+                      color="neutral"
+                      onClick={() => handleRemoveFile(index)}
+                      aria-label="Quitar adjunto"
+                      sx={{ minWidth: 28, minHeight: 28, flexShrink: 0 }}
+                    >
+                      <CloseIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              )
+            })}
+          </Stack>
         </Box>
       )}
 
@@ -643,7 +1046,7 @@ export default function MessageInput({
               {replyingTo.body}
             </Typography>
           </Box>
-          <IconButton size="sm" onClick={onCancelReply}>
+          <IconButton size="sm" onClick={onCancelReply} aria-label="Cancelar respuesta">
             <CloseIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Box>
@@ -678,7 +1081,7 @@ export default function MessageInput({
         {recording ? (
           // Recording UI
           <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
-            <IconButton color="danger" onClick={cancelRecording}>
+            <IconButton color="danger" onClick={cancelRecording} aria-label="Cancelar grabación">
               <CancelIcon />
             </IconButton>
             <Box
@@ -707,18 +1110,18 @@ export default function MessageInput({
               />
               <Typography level="body-sm">{formatTime(recordingTime)}</Typography>
             </Box>
-            <IconButton color="success" onClick={stopRecording}>
+            <IconButton color="success" onClick={stopRecording} aria-label="Detener grabación">
               <StopIcon />
             </IconButton>
           </Stack>
         ) : audioChunks.length > 0 ? (
           // Audio Preview UI
           <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
-            <IconButton color="danger" onClick={() => setAudioChunks([])}>
+            <IconButton color="danger" onClick={() => setAudioChunks([])} aria-label="Descartar audio">
               <CancelIcon />
             </IconButton>
             <Typography level="body-sm">Audio grabado - {formatTime(recordingTime)}</Typography>
-            <IconButton color="success" onClick={sendAudio} disabled={loading}>
+            <IconButton color="success" onClick={sendAudio} disabled={loading} aria-label="Enviar audio">
               {loading ? <CircularProgress size="sm" /> : <SendIcon />}
             </IconButton>
           </Stack>
@@ -732,8 +1135,9 @@ export default function MessageInput({
                 variant="plain"
                 disabled={isDisabled}
                 onClick={() => setShowEmoji(!showEmoji)}
+                aria-label="Emojis"
                 sx={{
-                  color: 'text.secondary',
+                  color: 'text.icon',
                   '&:hover': { bgcolor: 'transparent', color: 'primary.500' },
                 }}
               >
@@ -748,14 +1152,52 @@ export default function MessageInput({
                 variant="plain"
                 disabled={isDisabled}
                 onClick={() => setIsPrivateMode(!isPrivateMode)}
+                aria-label={isPrivateMode ? 'Nota interna activa' : 'Nota interna'}
                 sx={{
-                  color: isPrivateMode ? '#FFC107' : 'text.secondary',
+                  color: isPrivateMode ? '#FFC107' : 'text.icon',
                   '&:hover': { bgcolor: 'transparent', color: '#FFC107' },
                 }}
               >
                 {isPrivateMode ? <LockIcon /> : <LockOpenIcon />}
               </IconButton>
             </Tooltip>
+
+            {/* Signature Button — solo admin puede cambiar la firma */}
+            {canManageSignature && (
+              <Tooltip
+                title={
+                  useSignature
+                    ? `Firma activa: se enviará "*${user?.name || 'Usuario'}:*" al inicio del mensaje. Click para desactivar.`
+                    : 'Activar firma del agente al inicio del mensaje'
+                }
+              >
+                <IconButton
+                  size="sm"
+                  variant="plain"
+                  disabled={isDisabled || isPrivateMode}
+                  onClick={handleToggleSignature}
+                  sx={{
+                    color: useSignature && !isPrivateMode ? '#10b981' : 'text.secondary',
+                    bgcolor: useSignature && !isPrivateMode
+                      ? 'rgba(16,185,129,0.12)'
+                      : 'transparent',
+                    border: '1px solid',
+                    borderColor: useSignature && !isPrivateMode
+                      ? 'rgba(16,185,129,0.45)'
+                      : 'transparent',
+                    '&:hover': {
+                      bgcolor: useSignature && !isPrivateMode
+                        ? 'rgba(16,185,129,0.18)'
+                        : 'transparent',
+                      color: '#10b981'
+                    },
+                  }}
+                  aria-label={useSignature ? 'Desactivar firma' : 'Activar firma'}
+                >
+                  <SignatureIcon />
+                </IconButton>
+              </Tooltip>
+            )}
 
             {/* Attach Button */}
             <Tooltip title="Adjuntar">
@@ -764,8 +1206,9 @@ export default function MessageInput({
                 variant="plain"
                 disabled={isDisabled}
                 onClick={(e) => setAnchorEl((prev) => (prev ? null : e.currentTarget))}
+                aria-label="Adjuntar"
                 sx={{
-                  color: 'text.secondary',
+                  color: 'text.icon',
                   '&:hover': { bgcolor: 'transparent', color: 'primary.500' },
                 }}
               >
@@ -808,7 +1251,7 @@ export default function MessageInput({
                 </ListItemDecorator>
                 Camara
               </MenuItem>
-              <MenuItem onClick={() => setAnchorEl(null)}>
+              <MenuItem onClick={handleOpenContactModal} disabled={isPrivateMode || !isWhatsAppChannel}>
                 <ListItemDecorator>
                   <PersonIcon />
                 </ListItemDecorator>
@@ -842,6 +1285,7 @@ export default function MessageInput({
               }
               value={message}
               onChange={(e) => setMessage(e.target.value)}
+              onPaste={handlePaste}
               onKeyPress={handleKeyPress}
               minRows={1}
               maxRows={4}
@@ -872,8 +1316,9 @@ export default function MessageInput({
                 variant="plain"
                 disabled={isDisabled}
                 onClick={() => setMessage('/')}
+                aria-label="Respuestas rápidas"
                 sx={{
-                  color: 'text.secondary',
+                  color: 'text.icon',
                   '&:hover': { bgcolor: 'transparent', color: 'primary.500' },
                 }}
               >
@@ -888,8 +1333,9 @@ export default function MessageInput({
                 variant="plain"
                 disabled={isDisabled}
                 onClick={handleOpenScheduleModal}
+                aria-label="Programar mensaje"
                 sx={{
-                  color: 'text.secondary',
+                  color: 'text.icon',
                   '&:hover': { bgcolor: 'transparent', color: 'primary.500' },
                 }}
               >
@@ -904,6 +1350,7 @@ export default function MessageInput({
                 color="primary"
                 onClick={handleSendMessage}
                 disabled={loading || isDisabled}
+                aria-label="Enviar mensaje"
                 sx={{
                   borderRadius: '50%',
                   width: 36,
@@ -922,6 +1369,8 @@ export default function MessageInput({
                   variant="plain"
                   disabled={isDisabled}
                   onClick={startRecording}
+                  aria-label="Grabar audio"
+                  sx={{ color: 'text.icon' }}
                 >
                   <MicIcon />
                 </IconButton>
@@ -931,17 +1380,97 @@ export default function MessageInput({
         )}
       </Box>
 
+      <Modal open={contactModalOpen} onClose={handleCloseContactModal}>
+        <ModalDialog sx={{ width: 'min(460px, calc(100vw - 32px))' }}>
+          <ModalClose />
+          <Typography level="h4" sx={{ mb: 1 }}>
+            Enviar contacto
+          </Typography>
+
+          <Stack spacing={2}>
+            <FormControl>
+              <FormLabel>Contacto</FormLabel>
+              <Autocomplete
+                placeholder="Buscar por nombre o número..."
+                options={contactOptions}
+                value={selectedContactToShare}
+                onChange={(_event, value) => setSelectedContactToShare(value)}
+                inputValue={contactSearch}
+                onInputChange={(_event, value) => setContactSearch(value)}
+                getOptionLabel={getContactOptionLabel}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                loading={loadingContacts}
+                startDecorator={<PersonIcon />}
+                endDecorator={loadingContacts ? <CircularProgress size="sm" /> : null}
+                noOptionsText={contactSearch.length < 2 ? 'Escribe al menos 2 caracteres' : 'No se encontraron contactos'}
+              />
+            </FormControl>
+
+            {selectedContactToShare && (
+              <Box sx={{ p: 1.25, borderRadius: 'sm', bgcolor: 'background.level1' }}>
+                <Stack direction="row" spacing={1.25} alignItems="center">
+                  <Box
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      bgcolor: '#25D366',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <PersonIcon sx={{ fontSize: 20 }} />
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography level="title-sm" noWrap>
+                      {selectedContactToShare.name}
+                    </Typography>
+                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                      {selectedContactToShare.number}
+                    </Typography>
+                  </Box>
+                </Stack>
+              </Box>
+            )}
+
+            <Stack direction="row" spacing={1} justifyContent="flex-end">
+              <Button variant="plain" color="neutral" onClick={handleCloseContactModal} disabled={sendingContact}>
+                Cancelar
+              </Button>
+              <Button
+                color="primary"
+                loading={sendingContact}
+                disabled={!selectedContactToShare}
+                onClick={handleSendContactCard}
+                startDecorator={<PersonIcon />}
+              >
+                Enviar
+              </Button>
+            </Stack>
+          </Stack>
+        </ModalDialog>
+      </Modal>
+
       <Modal open={scheduleModalOpen} onClose={handleCloseScheduleModal}>
         <ModalDialog sx={{ width: 'min(920px, calc(100vw - 32px))', maxHeight: '90vh', overflowY: 'auto' }}>
           <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Nuevo Mensaje Programado
+          <Typography level="h4" sx={{ mb: 0.5 }}>
+            {contactName ? `Programar mensaje para ${contactName}` : 'Nuevo Mensaje Programado'}
           </Typography>
+          {whatsappName && (
+            <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
+              Conexión: {whatsappName}
+            </Typography>
+          )}
 
           <Stack spacing={2}>
             <FormControl>
               <FormLabel>Mensaje</FormLabel>
               <Textarea
+                slotProps={{ textarea: { ref: scheduleBodyRef } }}
                 value={scheduleForm.body}
                 onChange={(e) => setScheduleForm(prev => ({ ...prev, body: e.target.value }))}
                 placeholder="Escribe el mensaje a enviar..."
@@ -963,7 +1492,7 @@ export default function MessageInput({
                   }}
                   inputValue={scheduleContactSearch}
                   onInputChange={(_event, value) => setScheduleContactSearch(value)}
-                  getOptionLabel={(option) => `${option.name} - ${option.number}`}
+                  getOptionLabel={getContactOptionLabel}
                   isOptionEqualToValue={(option, value) => option.id === value.id}
                   loading={loadingScheduleContacts}
                   startDecorator={<PersonIcon />}

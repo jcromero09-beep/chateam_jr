@@ -1,32 +1,25 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  CircularProgress,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Divider,
-  Sheet,
-} from '@mui/joy'
-import {
-  Email as EmailIcon,
-  ShoppingCart as CartIcon,
-  TrendingUp as TrendingUpIcon,
-  Campaign as CampaignIcon,
-  Inventory as InventoryIcon,
-  CheckCircle as CheckCircleIcon,
-  Refresh as RefreshIcon,
-  LocalOffer as OfferIcon,
-} from '@mui/icons-material'
+  Envelope,
+  ShoppingCart,
+  TrendUp,
+  Megaphone,
+  Package,
+  CheckCircle,
+  ArrowClockwise,
+  Tag as OfferIcon,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import api from '../services/api'
 
 // ---------------------------------------------------------------------------
@@ -119,54 +112,36 @@ function formatPricePerEmail(n: number): string {
 // Stat Card sub-component
 // ---------------------------------------------------------------------------
 
+type StatTone = 'primary' | 'success' | 'warning'
+
+const statIconTone: Record<StatTone, string> = {
+  primary: 'bg-primary/12 text-primary',
+  success: 'bg-success/14 text-success-text',
+  warning: 'bg-warning/16 text-warning-text',
+}
+
 interface StatCardProps {
   icon: React.ReactNode
   label: string
   value: string | number
-  iconBg: string
-  iconColor: string
+  tone: StatTone
 }
 
-function StatCard({ icon, label, value, iconBg, iconColor }: StatCardProps) {
+function StatCard({ icon, label, value, tone }: StatCardProps) {
   return (
-    <Card
-      variant="outlined"
-      sx={{
-        height: '100%',
-        borderRadius: 'lg',
-        boxShadow: 'sm',
-        transition: 'box-shadow 0.2s',
-        '&:hover': { boxShadow: 'md' },
-      }}
-    >
-      <CardContent>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: 'md',
-              bgcolor: iconBg,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              color: iconColor,
-            }}
-          >
-            {icon}
-          </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography level="h3" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-              {typeof value === 'number' ? formatNumber(value) : value}
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary', mt: 0.25 }}>
-              {label}
-            </Typography>
-          </Box>
-        </Stack>
-      </CardContent>
-    </Card>
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] transition-shadow hover:shadow-md">
+      <span
+        className={`flex size-12 shrink-0 items-center justify-center rounded-lg ${statIconTone[tone]}`}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-2xl font-semibold leading-tight tracking-tight tabular-nums text-foreground">
+          {typeof value === 'number' ? formatNumber(value) : value}
+        </p>
+        <p className="mt-0.5 text-sm text-muted-foreground">{label}</p>
+      </div>
+    </div>
   )
 }
 
@@ -291,372 +266,239 @@ export default function EmailCreditPacks() {
   // -------------------------------------------------------------------------
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ShoppingCart className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Packs de Envio de Email
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Compra creditos adicionales para tus campanas de email marketing
+              </p>
+            </div>
+          </div>
 
-      {/* Header */}
-      <Stack
-        direction="row"
-        spacing={2}
-        alignItems="center"
-        justifyContent="space-between"
-        flexWrap="wrap"
-        sx={{ mb: 3, gap: 1.5 }}
-      >
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 'md',
-              bgcolor: 'primary.softBg',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchStats}
+            disabled={loading}
           >
-            <CartIcon sx={{ color: 'primary.plainColor', fontSize: 24 }} />
-          </Box>
-          <Box>
-            <Typography level="h3" sx={{ fontWeight: 700 }}>
-              Packs de Envio de Email
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Compra creditos adicionales para tus campanas de email marketing
-            </Typography>
-          </Box>
-        </Stack>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar
+          </Button>
+        </div>
 
-        <Button
-          variant="outlined"
-          color="neutral"
-          size="sm"
-          startDecorator={<RefreshIcon fontSize="small" />}
-          onClick={fetchStats}
-          disabled={loading}
-        >
-          Actualizar
-        </Button>
-      </Stack>
-
-      {/* Loading state */}
-      {loading ? (
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: 320,
-          }}
-        >
-          <Stack spacing={2} alignItems="center">
-            <CircularProgress size="lg" />
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Cargando datos...
-            </Typography>
-          </Stack>
-        </Box>
-      ) : error ? (
-        /* Error state */
-        <Card variant="outlined" sx={{ borderRadius: 'lg', textAlign: 'center', py: 6 }}>
-          <CardContent>
-            <EmailIcon sx={{ fontSize: 52, color: 'text.tertiary', mb: 2 }} />
-            <Typography level="body-md" sx={{ color: 'text.secondary', mb: 2 }}>
-              {error}
-            </Typography>
-            <Button
-              variant="outlined"
-              color="neutral"
-              size="sm"
-              onClick={fetchStats}
-              startDecorator={<RefreshIcon fontSize="small" />}
-            >
+        {/* Loading state */}
+        {loading ? (
+          <div className="flex min-h-80 items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <CircularProgress size="lg" />
+              <p className="text-sm text-muted-foreground">Cargando datos...</p>
+            </div>
+          </div>
+        ) : error ? (
+          /* Error state */
+          <div className="rounded-xl border border-border bg-card px-6 py-12 text-center shadow-sm shadow-black/[0.02]">
+            <Envelope className="mx-auto mb-3 size-12 text-muted-foreground" aria-hidden />
+            <p className="mb-4 text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={fetchStats}>
+              <ArrowClockwise className="size-4" aria-hidden />
               Reintentar
             </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          {/* Stats cards */}
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid xs={12} sm={4}>
+          </div>
+        ) : (
+          <>
+            {/* Stats cards */}
+            <div className="grid gap-4 sm:grid-cols-3">
               <StatCard
-                icon={<TrendingUpIcon fontSize="small" />}
+                icon={<TrendUp className="size-6" aria-hidden />}
                 label="Emails Enviados Este Mes"
                 value={stats.emailsSentThisMonth}
-                iconBg="primary.softBg"
-                iconColor="primary.plainColor"
+                tone="primary"
               />
-            </Grid>
-            <Grid xs={12} sm={4}>
               <StatCard
-                icon={<InventoryIcon fontSize="small" />}
+                icon={<Package className="size-6" aria-hidden />}
                 label="Creditos Disponibles"
                 value={stats.creditsAvailable}
-                iconBg="success.softBg"
-                iconColor="success.plainColor"
+                tone="success"
               />
-            </Grid>
-            <Grid xs={12} sm={4}>
               <StatCard
-                icon={<CampaignIcon fontSize="small" />}
+                icon={<Megaphone className="size-6" aria-hidden />}
                 label="Campanas Activas"
                 value={stats.activeCampaigns}
-                iconBg="warning.softBg"
-                iconColor="warning.plainColor"
+                tone="warning"
               />
-            </Grid>
-          </Grid>
+            </div>
 
-          {/* Current balance card */}
-          <Card
-            variant="soft"
-            color="primary"
-            sx={{ borderRadius: 'lg', mb: 3 }}
-          >
-            <CardContent>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={2}
-                alignItems={{ xs: 'flex-start', sm: 'center' }}
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography level="title-lg" sx={{ fontWeight: 700 }}>
-                    Tu Balance Actual
-                  </Typography>
-                  <Typography level="body-sm">
-                    Creditos de envio de email disponibles en tu cuenta
-                  </Typography>
-                </Box>
-                <Stack direction="row" spacing={3} alignItems="center">
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography level="h2" sx={{ fontWeight: 800 }}>
-                      {formatNumber(stats.creditsAvailable)}
-                    </Typography>
-                    <Typography level="body-xs">
-                      creditos email_send
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Stack>
-            </CardContent>
-          </Card>
+            {/* Current balance card */}
+            <div className="flex flex-col gap-4 rounded-xl border border-border bg-accent p-6 text-accent-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-lg font-semibold">Tu Balance Actual</p>
+                <p className="text-sm text-accent-foreground/80">
+                  Creditos de envio de email disponibles en tu cuenta
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-4xl font-bold tabular-nums">
+                  {formatNumber(stats.creditsAvailable)}
+                </p>
+                <p className="text-xs text-accent-foreground/80">creditos email_send</p>
+              </div>
+            </div>
 
-          {/* Pack cards grid */}
-          <Typography level="title-lg" sx={{ fontWeight: 700, mb: 2 }}>
-            Selecciona un Pack
-          </Typography>
+            {/* Pack cards grid */}
+            <h2 className="text-lg font-semibold text-foreground">Selecciona un Pack</h2>
 
-          <Grid container spacing={2}>
-            {EMAIL_PACKS.map((pack) => (
-              <Grid xs={12} sm={6} md={4} lg key={pack.id}>
-                <Card
-                  variant="outlined"
-                  sx={{
-                    height: '100%',
-                    borderRadius: 'lg',
-                    boxShadow: 'sm',
-                    position: 'relative',
-                    overflow: 'visible',
-                    transition: 'box-shadow 0.2s, transform 0.2s',
-                    borderColor: pack.popular ? 'primary.outlinedBorder' : 'divider',
-                    borderWidth: pack.popular ? 2 : 1,
-                    '&:hover': {
-                      boxShadow: 'lg',
-                      transform: 'translateY(-2px)',
-                    },
-                  }}
+            <div className="grid gap-4 pt-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              {EMAIL_PACKS.map((pack) => (
+                <div
+                  key={pack.id}
+                  className={`relative flex flex-col rounded-xl bg-card p-6 text-center shadow-sm shadow-black/[0.02] transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-lg ${
+                    pack.popular
+                      ? 'border-2 border-primary'
+                      : 'border border-border'
+                  }`}
                 >
                   {pack.popular && (
-                    <Chip
-                      size="sm"
-                      variant="solid"
-                      color="primary"
-                      startDecorator={<OfferIcon sx={{ fontSize: 14 }} />}
-                      sx={{
-                        position: 'absolute',
-                        top: -12,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        zIndex: 1,
-                        fontWeight: 600,
-                      }}
+                    <Badge
+                      variant="primary"
+                      className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground shadow-sm"
                     >
+                      <OfferIcon className="size-3.5" aria-hidden />
                       Mas Popular
-                    </Chip>
+                    </Badge>
                   )}
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Box
-                      sx={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: '50%',
-                        bgcolor: pack.popular ? 'primary.softBg' : 'neutral.softBg',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mx: 'auto',
-                        mb: 1.5,
-                      }}
-                    >
-                      <EmailIcon
-                        sx={{
-                          fontSize: 28,
-                          color: pack.popular ? 'primary.plainColor' : 'neutral.plainColor',
-                        }}
-                      />
-                    </Box>
 
-                    <Typography level="title-md" sx={{ fontWeight: 700, mb: 0.5 }}>
-                      {pack.name}
-                    </Typography>
+                  <span
+                    className={`mx-auto mb-3 flex size-14 items-center justify-center rounded-full ${
+                      pack.popular
+                        ? 'bg-primary/12 text-primary'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    <Envelope className="size-7" aria-hidden />
+                  </span>
 
-                    <Typography
-                      level="h2"
-                      sx={{
-                        fontWeight: 800,
-                        color: 'primary.plainColor',
-                        my: 1,
-                      }}
-                    >
-                      {formatCurrency(pack.price)}
-                    </Typography>
+                  <p className="text-base font-semibold text-foreground">{pack.name}</p>
 
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 0.5 }}>
-                      {formatNumber(pack.emailCount)} emails
-                    </Typography>
+                  <p className="my-2 text-3xl font-bold tracking-tight text-primary">
+                    {formatCurrency(pack.price)}
+                  </p>
 
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color="neutral"
-                      sx={{ mb: 2 }}
-                    >
+                  <p className="text-sm text-muted-foreground">
+                    {formatNumber(pack.emailCount)} emails
+                  </p>
+
+                  <div className="mb-4 mt-1 flex justify-center">
+                    <Badge variant="neutral">
                       {formatPricePerEmail(pack.pricePerEmail)} / email
-                    </Chip>
+                    </Badge>
+                  </div>
 
-                    <Button
-                      variant={pack.popular ? 'solid' : 'outlined'}
-                      color="primary"
-                      fullWidth
-                      startDecorator={<CartIcon fontSize="small" />}
-                      onClick={() => handlePurchaseClick(pack)}
-                    >
-                      Comprar
-                    </Button>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
+                  <Button
+                    variant={pack.popular ? 'primary' : 'outline'}
+                    size="sm"
+                    className="mt-auto w-full"
+                    onClick={() => handlePurchaseClick(pack)}
+                  >
+                    <ShoppingCart className="size-4" aria-hidden />
+                    Comprar
+                  </Button>
+                </div>
+              ))}
+            </div>
 
-          {/* Empty state when no credits at all */}
-          {stats.creditsAvailable === 0 && stats.emailsSentThisMonth === 0 && (
-            <Sheet
-              variant="soft"
-              color="neutral"
-              sx={{
-                borderRadius: 'lg',
-                p: 3,
-                mt: 3,
-                textAlign: 'center',
-              }}
-            >
-              <EmailIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 1 }} />
-              <Typography level="body-md" sx={{ color: 'text.secondary' }}>
-                Aun no tienes creditos de envio. Compra un pack para comenzar
-                a enviar campanas de email marketing.
-              </Typography>
-            </Sheet>
-          )}
-        </>
-      )}
+            {/* Empty state when no credits at all */}
+            {stats.creditsAvailable === 0 && stats.emailsSentThisMonth === 0 && (
+              <div className="rounded-xl border border-border bg-muted/40 p-6 text-center">
+                <Envelope className="mx-auto mb-2 size-12 text-muted-foreground" aria-hidden />
+                <p className="text-sm text-muted-foreground">
+                  Aun no tienes creditos de envio. Compra un pack para comenzar a enviar
+                  campanas de email marketing.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Confirmation Modal */}
-      <Modal open={confirmModalOpen} onClose={() => !processingPurchase && setConfirmModalOpen(false)}>
-        <ModalDialog
-          variant="outlined"
-          sx={{ maxWidth: 420, borderRadius: 'lg' }}
-        >
-          <ModalClose disabled={processingPurchase} />
-          <Typography level="h4" sx={{ fontWeight: 700, mb: 1 }}>
-            Confirmar Compra
-          </Typography>
-          <Divider />
+      <Dialog
+        open={confirmModalOpen}
+        onOpenChange={(open) => {
+          if (!open && !processingPurchase) setConfirmModalOpen(false)
+        }}
+      >
+        <DialogContent className="max-w-md" hideClose={processingPurchase}>
+          <DialogHeader>
+            <DialogTitle>Confirmar Compra</DialogTitle>
+          </DialogHeader>
 
           {purchasingPack && (
-            <Box sx={{ py: 2 }}>
-              <Stack spacing={2}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                    Pack
-                  </Typography>
-                  <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                    {purchasingPack.name}
-                  </Typography>
-                </Stack>
+            <div className="space-y-3 border-t border-border pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Pack</span>
+                <span className="text-sm font-semibold text-foreground">
+                  {purchasingPack.name}
+                </span>
+              </div>
 
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                    Cantidad de emails
-                  </Typography>
-                  <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                    {formatNumber(purchasingPack.emailCount)}
-                  </Typography>
-                </Stack>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Cantidad de emails</span>
+                <span className="text-sm font-semibold text-foreground">
+                  {formatNumber(purchasingPack.emailCount)}
+                </span>
+              </div>
 
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                    Precio por email
-                  </Typography>
-                  <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                    {formatPricePerEmail(purchasingPack.pricePerEmail)}
-                  </Typography>
-                </Stack>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Precio por email</span>
+                <span className="text-sm font-semibold text-foreground">
+                  {formatPricePerEmail(purchasingPack.pricePerEmail)}
+                </span>
+              </div>
 
-                <Divider />
+              <div className="h-px bg-border" />
 
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography level="title-md" sx={{ fontWeight: 700 }}>
-                    Total
-                  </Typography>
-                  <Typography level="title-md" sx={{ fontWeight: 700, color: 'primary.plainColor' }}>
-                    {formatCurrency(purchasingPack.price)}
-                  </Typography>
-                </Stack>
-              </Stack>
-            </Box>
+              <div className="flex items-center justify-between">
+                <span className="text-base font-semibold text-foreground">Total</span>
+                <span className="text-base font-semibold text-primary">
+                  {formatCurrency(purchasingPack.price)}
+                </span>
+              </div>
+            </div>
           )}
 
-          <Stack direction="row" spacing={1.5} sx={{ mt: 1 }}>
+          <DialogFooter>
             <Button
-              variant="outlined"
-              color="neutral"
-              fullWidth
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
               onClick={() => setConfirmModalOpen(false)}
               disabled={processingPurchase}
             >
               Cancelar
             </Button>
             <Button
-              variant="solid"
-              color="primary"
-              fullWidth
-              startDecorator={
-                processingPurchase ? (
-                  <CircularProgress size="sm" />
-                ) : (
-                  <CheckCircleIcon fontSize="small" />
-                )
-              }
-              onClick={handleConfirmPurchase}
+              variant="primary"
+              size="sm"
+              className="w-full sm:w-auto"
+              loading={processingPurchase}
               disabled={processingPurchase}
+              onClick={handleConfirmPurchase}
             >
+              {!processingPurchase && <CheckCircle className="size-4" aria-hidden />}
               {processingPurchase ? 'Procesando...' : 'Confirmar Compra'}
             </Button>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

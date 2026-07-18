@@ -13,9 +13,9 @@ import axios from "axios";
 import logger from "../../utils/logger";
 import Whatsapp from "../../models/Whatsapp";
 import { getWhatsAppSubscribedApps } from "../FacebookServices/graphAPI";
+import CompaniesSettings from "../../models/CompaniesSettings";
+import { getCompanyFacebookCredentials } from "../FacebookServices/getCompanyFBConfig";
 
-const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
-const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
 const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION || "v24.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "whaticket";
@@ -26,7 +26,24 @@ const WEBHOOK_CALLBACK_URL =
   `${process.env.BACKEND_URL || "https://appro.chateam.ws"}/webhook/metaws`;
 
 // App Token = "{app_id}|{app_secret}"
-const getAppToken = () => `${FACEBOOK_APP_ID}|${FACEBOOK_APP_SECRET}`;
+const getAppToken = (appId: string, appSecret: string) => `${appId}|${appSecret}`;
+
+async function getCompanyMetaAppConfig(companyId: number): Promise<{
+  appId: string;
+  appSecret: string;
+  configId: string | null;
+}> {
+  const [{ facebookAppId, facebookAppSecret }, settings] = await Promise.all([
+    getCompanyFacebookCredentials(companyId),
+    CompaniesSettings.findOne({ where: { companyId } })
+  ]);
+
+  return {
+    appId: facebookAppId,
+    appSecret: facebookAppSecret,
+    configId: settings?.metaEmbeddedSignupConfigId || null
+  };
+}
 
 interface SetupResult {
   success: boolean;
@@ -63,7 +80,10 @@ interface SetupResult {
  * Endpoint: POST /{app-id}/subscriptions
  * Requiere App Token (no user token)
  */
-async function subscribeAppToWhatsAppWebhooks(): Promise<{
+async function subscribeAppToWhatsAppWebhooks(
+  appId: string,
+  appSecret: string
+): Promise<{
   configured: boolean;
   callbackUrl: string;
   fields: string[];
@@ -85,7 +105,7 @@ async function subscribeAppToWhatsAppWebhooks(): Promise<{
 
   try {
     const { data } = await axios.post(
-      `${GRAPH_BASE}/${FACEBOOK_APP_ID}/subscriptions`,
+      `${GRAPH_BASE}/${appId}/subscriptions`,
       {
         object: "whatsapp_business_account",
         callback_url: WEBHOOK_CALLBACK_URL,
@@ -93,7 +113,7 @@ async function subscribeAppToWhatsAppWebhooks(): Promise<{
         fields: fields.join(","),
       },
       {
-        params: { access_token: getAppToken() },
+        params: { access_token: getAppToken(appId, appSecret) },
       }
     );
 
@@ -134,12 +154,12 @@ async function subscribeAppToWhatsAppWebhooks(): Promise<{
 /**
  * Obtiene las suscripciones actuales de la App
  */
-async function getAppSubscriptions(): Promise<any[]> {
+async function getAppSubscriptions(appId: string, appSecret: string): Promise<any[]> {
   try {
     const { data } = await axios.get(
-      `${GRAPH_BASE}/${FACEBOOK_APP_ID}/subscriptions`,
+      `${GRAPH_BASE}/${appId}/subscriptions`,
       {
-        params: { access_token: getAppToken() },
+        params: { access_token: getAppToken(appId, appSecret) },
       }
     );
     return data?.data || [];
@@ -215,38 +235,39 @@ async function verifyWabaSubscriptions(
  * Intenta detectar el config_id de Embedded Signup desde las propiedades de la App
  * El config_id se genera en Meta Business Manager > WhatsApp > Embedded Signup Configuration
  */
-async function detectConfigId(): Promise<{
+async function detectConfigId(
+  companyId: number,
+  appId: string,
+  appSecret: string,
+  configuredConfigId: string | null
+): Promise<{
   detected: boolean;
   value: string | null;
   instructions: string;
 }> {
-  // El config_id NO se puede crear vía API — se configura en Meta Business Manager
-  // Pero podemos verificar si está en las variables de entorno del frontend
-  const envConfigId = process.env.VITE_META_CONFIG_ID || "";
-
-  if (envConfigId) {
+  if (configuredConfigId) {
     return {
       detected: true,
-      value: envConfigId,
+      value: configuredConfigId,
       instructions:
-        "Config ID detectado en variables de entorno. El Embedded Signup está configurado.",
+        "Config ID detectado en CompaniesSettings. El Embedded Signup usara la configuracion de esta company.",
     };
   }
 
   // Intentar obtener info de la App para guiar al usuario
   try {
     // Solo pedir campos basicos de la App (whatsapp_business_accounts requiere user token, no app token)
-    const { data } = await axios.get(`${GRAPH_BASE}/${FACEBOOK_APP_ID}`, {
+    const { data } = await axios.get(`${GRAPH_BASE}/${appId}`, {
       params: {
-        access_token: getAppToken(),
+        access_token: getAppToken(appId, appSecret),
         fields: "name,category,link",
       },
     });
 
     const appName = data?.name || "Tu App";
-    // Contar WABAs desde nuestras conexiones locales en vez de desde la API
+    // Contar WABAs desde nuestras conexiones locales de esta company.
     const localMetaConnections = await Whatsapp.count({
-      where: { provider: "meta", channel: "meta" },
+      where: { companyId, provider: "meta", channel: "meta" },
     });
     const wabaCount = localMetaConnections;
 
@@ -262,7 +283,7 @@ async function detectConfigId(): Promise<{
         "3. Crea una nueva configuración o copia el ID existente",
         "4. El config_id se mostrará como 'Configuration ID'",
         "",
-        "Luego configúralo en: frontend/.env → VITE_META_CONFIG_ID=<tu_config_id>",
+        "Luego configúralo en Chateam: Configuracion > Facebook/Instagram > Embedded Signup Configuration ID.",
         "",
         "NOTA: El Embedded Signup funciona SIN config_id (flujo genérico).",
         "El config_id solo personaliza el flujo con tu branding y configuración.",
@@ -277,10 +298,10 @@ async function detectConfigId(): Promise<{
         `Error: ${err.response?.data?.error?.message || err.message}`,
         "",
         "Para obtener el config_id manualmente:",
-        "1. Ve a https://developers.facebook.com/apps/" + FACEBOOK_APP_ID,
+        "1. Ve a https://developers.facebook.com/apps/" + appId,
         "2. Navega a WhatsApp > Embedded Signup",
         "3. Crea una configuración y copia el Configuration ID",
-        "4. Configúralo en: frontend/.env → VITE_META_CONFIG_ID=<tu_config_id>",
+        "4. Configúralo en Chateam: Configuracion > Facebook/Instagram > Embedded Signup Configuration ID.",
       ].join("\n"),
     };
   }
@@ -294,19 +315,24 @@ export async function runMetaAppSetup(companyId: number): Promise<SetupResult> {
     `[MetaAppSetup] Iniciando setup automático para company ${companyId}`
   );
 
+  const { appId, appSecret, configId: configuredConfigId } = await getCompanyMetaAppConfig(companyId);
+
   // 1. Suscribir App a webhooks de whatsapp_business_account
-  const webhookSubscription = await subscribeAppToWhatsAppWebhooks();
+  const webhookSubscription = await subscribeAppToWhatsAppWebhooks(
+    appId,
+    appSecret
+  );
 
   // 2. Verificar WABAs existentes
   const existingWabas = await verifyWabaSubscriptions(companyId);
 
   // 3. Detectar config_id
-  const configId = await detectConfigId();
+  const configId = await detectConfigId(companyId, appId, appSecret, configuredConfigId);
 
   // 4. Estado del entorno
   const envStatus = {
-    FACEBOOK_APP_ID: !!FACEBOOK_APP_ID,
-    FACEBOOK_APP_SECRET: !!FACEBOOK_APP_SECRET,
+    FACEBOOK_APP_ID: !!appId,
+    FACEBOOK_APP_SECRET: !!appSecret,
     FB_GRAPH_VERSION: GRAPH_API_VERSION,
     VERIFY_TOKEN: !!VERIFY_TOKEN,
     META_WEBHOOK_URL: WEBHOOK_CALLBACK_URL,
@@ -331,12 +357,13 @@ export async function runMetaAppSetup(companyId: number): Promise<SetupResult> {
 /**
  * Obtiene un resumen rápido del estado de la configuración
  */
-export async function getMetaAppStatus(): Promise<{
+export async function getMetaAppStatus(companyId: number): Promise<{
   appConfigured: boolean;
   subscriptions: any[];
   webhookUrl: string;
 }> {
-  const subscriptions = await getAppSubscriptions();
+  const { appId, appSecret } = await getCompanyMetaAppConfig(companyId);
+  const subscriptions = await getAppSubscriptions(appId, appSecret);
   const whatsappSub = subscriptions.find(
     (s: any) => s.object === "whatsapp_business_account"
   );

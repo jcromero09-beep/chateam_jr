@@ -28,7 +28,7 @@ const LOG_PREFIX = "[CampaignRuleController]";
 // ============================================================
 export const getRules = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const { limit = 50, offset = 0, status } = req.query;
 
     const result = await CampaignRuleService.getRules(companyId, {
@@ -54,7 +54,7 @@ export const getRules = async (req: Request, res: Response): Promise<Response> =
 // ============================================================
 export const createRule = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId, id: userId } = (req as any).user;
+    const { companyId, id: userId } = req.user;
     const {
       name,
       description,
@@ -125,7 +125,7 @@ export const getTemplates = async (req: Request, res: Response): Promise<Respons
 // ============================================================
 export const getRuleById = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
 
     const rule = await CampaignRuleService.getRuleById(ruleId, companyId);
@@ -148,7 +148,7 @@ export const getRuleById = async (req: Request, res: Response): Promise<Response
 // ============================================================
 export const updateRule = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
     const {
       name,
@@ -192,7 +192,7 @@ export const updateRule = async (req: Request, res: Response): Promise<Response>
 // ============================================================
 export const deleteRule = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
 
     await CampaignRuleService.deleteRule(ruleId, companyId);
@@ -215,7 +215,7 @@ export const deleteRule = async (req: Request, res: Response): Promise<Response>
 // ============================================================
 export const pauseRule = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
 
     const rule = await CampaignRuleService.pauseRule(ruleId, companyId);
@@ -238,7 +238,7 @@ export const pauseRule = async (req: Request, res: Response): Promise<Response> 
 // ============================================================
 export const activateRule = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
 
     const rule = await CampaignRuleService.activateRule(ruleId, companyId);
@@ -261,7 +261,7 @@ export const activateRule = async (req: Request, res: Response): Promise<Respons
 // ============================================================
 export const getRuleLogs = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
     const { limit = 50, offset = 0 } = req.query;
 
@@ -288,7 +288,7 @@ export const getRuleLogs = async (req: Request, res: Response): Promise<Response
 // ============================================================
 export const dryRun = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ruleId = Number(req.params.id);
     const { whatsappId } = req.query;
 

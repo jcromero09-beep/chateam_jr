@@ -131,7 +131,7 @@ function generateRecommendations(
 
   // Check expensive models usage
   const expensiveModels = modelCosts.filter((m: any) =>
-    m.model && (m.model.includes('gpt-4.1') || m.model.includes('claude-3.5-sonnet'))
+    m.model && (m.model.includes('gpt-5.5') || m.model.includes('gpt-4.1') || m.model.includes('claude-3.5-sonnet'))
   );
   if (expensiveModels.length > 0) {
     const expensiveCost = expensiveModels.reduce((s: number, m: any) => s + parseFloat(m.cost), 0);

@@ -14,6 +14,7 @@
  * NO se renderiza si el ticket no es de canal whatsapp/meta.
  */
 import { useEffect, useState } from 'react'
+import ClickAwayListener from '@mui/material/ClickAwayListener'
 import {
   Box,
   Chip,
@@ -107,8 +108,10 @@ export default function RoutingPolicySelector({
 
   if (!isApplicable || (!data && !loading)) return null
 
-  const handleOpen = (e: React.MouseEvent<HTMLElement>) =>
-    setMenuAnchor(e.currentTarget)
+  const handleOpen = (e: React.MouseEvent<HTMLElement>) => {
+    e.stopPropagation()
+    setMenuAnchor((prev) => (prev ? null : e.currentTarget))
+  }
   const handleClose = () => setMenuAnchor(null)
 
   const handleSelect = async (mode: RoutingMode) => {
@@ -121,10 +124,23 @@ export default function RoutingPolicySelector({
         `/coexistence/tickets/${ticketId}/routing-policy`,
         { mode }
       )
+      // Si se fuerza un transporte concreto, cambiar TAMBIÉN el owner real del
+      // ticket (whatsappId + channel) — NO crea otro ticket, es el mismo canónico.
+      if (mode === 'force_meta' || mode === 'force_baileys') {
+        try {
+          await api.post(`/coexistence/tickets/${ticketId}/switch-owner`, {
+            provider: mode === 'force_meta' ? 'meta' : 'baileys'
+          })
+        } catch (_e) {
+          // El backend ya persistió la política; el owner-switch es best-effort.
+        }
+      }
       setData((prev) =>
         prev ? { ...prev, routingPolicy: res.routingPolicy, preview: res.preview } : prev
       )
       if (onChange) onChange(res.routingPolicy)
+      // Refrescar para reflejar el nuevo canal efectivo/owner.
+      load()
     } catch (err: any) {
       setError(err?.response?.data?.detail || err?.message || 'error')
     } finally {
@@ -144,123 +160,140 @@ export default function RoutingPolicySelector({
     ? 'neutral'
     : 'primary'
 
-  return (
-    <>
-      <Chip
-        size="sm"
-        variant="soft"
-        color={chipColor}
-        onClick={handleOpen}
-        startDecorator={
-          saving || loading ? (
-            <CircularProgress size="sm" sx={{ '--CircularProgress-size': '12px' }} />
-          ) : fallback ? (
-            <WarningAmberIcon sx={{ fontSize: 14 }} />
-          ) : (
-            <SwapHorizIcon sx={{ fontSize: 14 }} />
-          )
-        }
-        sx={{
-          cursor: 'pointer',
-          fontSize: '10px',
-          height: 20,
-          fontWeight: 600,
-          ml: 0.5
-        }}
-        title={
-          preview
-            ? `Saliendo por: ${preview.provider.toUpperCase()} (${preview.whatsappName}) — ${previewReason}${fallback ? ' — FALLBACK' : ''}`
-            : 'Política de routing saliente'
-        }
-      >
-        {MODE_LABELS[currentMode]?.short || currentMode}
-        {preview && (
-          <Typography
-            component="span"
-            sx={{
-              ml: 0.5,
-              fontSize: '9px',
-              opacity: 0.75,
-              fontWeight: 500
-            }}
-          >
-            → {preview.provider.toUpperCase()}
-          </Typography>
-        )}
-      </Chip>
+  const showProviderHint =
+    !!preview && (fallback || currentMode === 'auto' || currentMode === 'sticky_inbound')
 
-      <Menu
-        anchorEl={menuAnchor}
-        open={!!menuAnchor}
-        onClose={handleClose}
-        placement="bottom-start"
-      >
-        <Box sx={{ px: 1.5, py: 0.5, minWidth: 240 }}>
-          <Typography level="body-xs" sx={{ fontWeight: 700, opacity: 0.8 }}>
-            Canal de salida
-          </Typography>
-          {preview && (
-            <Typography level="body-xs" sx={{ fontSize: '10px', color: fallback ? 'warning.plainColor' : 'text.tertiary', mt: 0.25 }}>
-              Actual: <strong>{preview.provider.toUpperCase()}</strong> ({preview.whatsappName})
-              {fallback && ' — FALLBACK'}
-            </Typography>
-          )}
-          {data?.availability && (
-            <Stack direction="row" spacing={0.5} mt={0.5}>
-              <Chip
-                size="sm"
-                variant="soft"
-                color={data.availability.meta.available ? 'success' : 'danger'}
-                sx={{ fontSize: '9px', height: 18 }}
-              >
-                Meta {data.availability.meta.available ? '✓' : '✗'}
-              </Chip>
-              <Chip
-                size="sm"
-                variant="soft"
-                color={data.availability.baileys.available ? 'success' : 'danger'}
-                sx={{ fontSize: '9px', height: 18 }}
-              >
-                Baileys {data.availability.baileys.available ? '✓' : '✗'}
-              </Chip>
-            </Stack>
-          )}
-        </Box>
-        {(['auto', 'force_meta', 'force_baileys', 'sticky_inbound'] as RoutingMode[]).map(
-          (m) => {
-            const notAvailable =
-              (m === 'force_meta' && !data?.availability?.meta?.available) ||
-              (m === 'force_baileys' && !data?.availability?.baileys?.available)
-            return (
-              <MenuItem
-                key={m}
-                onClick={() => handleSelect(m)}
-                disabled={notAvailable || saving}
-                selected={m === currentMode}
-              >
-                <ListItemDecorator>
-                  {m === currentMode ? <CheckIcon sx={{ fontSize: 16 }} /> : null}
-                </ListItemDecorator>
-                <Stack>
-                  <Typography level="body-sm">{MODE_LABELS[m].long}</Typography>
-                  {notAvailable && (
-                    <Typography level="body-xs" sx={{ color: 'danger.plainColor', fontSize: '10px' }}>
-                      No disponible (conexión offline)
-                    </Typography>
-                  )}
-                </Stack>
-              </MenuItem>
+  return (
+    <ClickAwayListener onClickAway={handleClose}>
+      <Box>
+        <Chip
+          size="sm"
+          variant="soft"
+          color={chipColor}
+          onClick={handleOpen}
+          startDecorator={
+            saving || loading ? (
+              <CircularProgress size="sm" sx={{ '--CircularProgress-size': '12px' }} />
+            ) : fallback ? (
+              <WarningAmberIcon sx={{ fontSize: 14 }} />
+            ) : (
+              <SwapHorizIcon sx={{ fontSize: 14 }} />
             )
           }
-        )}
-        {error && (
-          <Box sx={{ px: 1.5, py: 0.5 }}>
-            <Typography level="body-xs" sx={{ color: 'danger.plainColor', fontSize: '10px' }}>
-              {error}
+          sx={{
+            cursor: 'pointer',
+            fontSize: '10px',
+            height: 20,
+            fontWeight: 600,
+            ml: 0.5,
+            // height fija + contenido que envuelve = texto solapado dentro del chip
+            // (se veia "Baileys" encima de "BAILEYS"). Nunca envolver.
+            whiteSpace: 'nowrap',
+            maxWidth: 180,
+            '& > *': { whiteSpace: 'nowrap' }
+          }}
+          title={
+            preview
+              ? `Saliendo por: ${preview.provider.toUpperCase()} (${preview.whatsappName}) — ${previewReason}${fallback ? ' — FALLBACK' : ''}`
+              : 'Política de routing saliente'
+          }
+        >
+          {MODE_LABELS[currentMode]?.short || currentMode}
+          {/* El sufijo "→ PROVEEDOR" solo informa si el modo NO nombra ya al proveedor
+              (auto/sticky) o si hubo fallback (salio por otro sitio del pedido). Con
+              force_baileys mostraba "Baileys → BAILEYS": la misma palabra dos veces. */}
+          {showProviderHint && (
+            <Typography
+              component="span"
+              sx={{
+                // display inline OBLIGATORIO: el Typography de Joy es display:block por
+                // defecto aunque el component sea "span", asi que caia a una segunda
+                // linea dentro de un chip de height:20 fijo => texto solapado.
+                display: 'inline',
+                ml: 0.5,
+                fontSize: '9px',
+                opacity: 0.75,
+                fontWeight: 500
+              }}
+            >
+              → {preview.provider.toUpperCase()}
             </Typography>
+          )}
+        </Chip>
+
+        <Menu
+          anchorEl={menuAnchor}
+          open={!!menuAnchor}
+          onClose={handleClose}
+          placement="bottom-start"
+        >
+          <Box sx={{ px: 1.5, py: 0.5, minWidth: 240 }}>
+            <Typography level="body-xs" sx={{ fontWeight: 700, opacity: 0.8 }}>
+              Canal de salida
+            </Typography>
+            {preview && (
+              <Typography level="body-xs" sx={{ fontSize: '10px', color: fallback ? 'warning.plainColor' : 'text.tertiary', mt: 0.25 }}>
+                Actual: <strong>{preview.provider.toUpperCase()}</strong> ({preview.whatsappName})
+                {fallback && ' — FALLBACK'}
+              </Typography>
+            )}
+            {data?.availability && (
+              <Stack direction="row" spacing={0.5} mt={0.5}>
+                <Chip
+                  size="sm"
+                  variant="soft"
+                  color={data.availability.meta.available ? 'success' : 'danger'}
+                  sx={{ fontSize: '9px', height: 18 }}
+                >
+                  Meta {data.availability.meta.available ? '✓' : '✗'}
+                </Chip>
+                <Chip
+                  size="sm"
+                  variant="soft"
+                  color={data.availability.baileys.available ? 'success' : 'danger'}
+                  sx={{ fontSize: '9px', height: 18 }}
+                >
+                  Baileys {data.availability.baileys.available ? '✓' : '✗'}
+                </Chip>
+              </Stack>
+            )}
           </Box>
-        )}
-      </Menu>
-    </>
+          {(['auto', 'force_meta', 'force_baileys', 'sticky_inbound'] as RoutingMode[]).map(
+            (m) => {
+              const notAvailable =
+                (m === 'force_meta' && !data?.availability?.meta?.available) ||
+                (m === 'force_baileys' && !data?.availability?.baileys?.available)
+              return (
+                <MenuItem
+                  key={m}
+                  onClick={() => handleSelect(m)}
+                  disabled={notAvailable || saving}
+                  selected={m === currentMode}
+                >
+                  <ListItemDecorator>
+                    {m === currentMode ? <CheckIcon sx={{ fontSize: 16 }} /> : null}
+                  </ListItemDecorator>
+                  <Stack>
+                    <Typography level="body-sm">{MODE_LABELS[m].long}</Typography>
+                    {notAvailable && (
+                      <Typography level="body-xs" sx={{ color: 'danger.plainColor', fontSize: '10px' }}>
+                        No disponible (conexión offline)
+                      </Typography>
+                    )}
+                  </Stack>
+                </MenuItem>
+              )
+            }
+          )}
+          {error && (
+            <Box sx={{ px: 1.5, py: 0.5 }}>
+              <Typography level="body-xs" sx={{ color: 'danger.plainColor', fontSize: '10px' }}>
+                {error}
+              </Typography>
+            </Box>
+          )}
+        </Menu>
+      </Box>
+    </ClickAwayListener>
   )
 }

@@ -23,6 +23,9 @@ import Company from "../../models/Company";
 import sequelize from "../../database";
 import AppError from "../../errors/AppError";
 import path from "path";
+// 💳 NOTA LEGACY: este servicio aun cobra contra Company.aiTokenBalance.
+// No se registra debito paralelo en AICreditTransaction para evitar doble cobro
+// cuando la company ya tenga balance "image" en AICreditBalances.
 import { Transaction } from "sequelize";
 import { getDefaultProviderForCapability } from "../AIProviderService";
 
@@ -278,6 +281,10 @@ const GenerateImagesWithOpenAIService = async ({
     }, { transaction: reserveTransaction });
 
     creditTransactionId = creditTransaction.id;
+
+    // TODO: migrar el debito real de imagenes a AICreditBalance en una fase
+    // dedicada. Hasta entonces, AIImageCreditTransaction es la fuente de cobro
+    // para imagenes y evita doble descuento contra AICreditBalances.
 
     // ============================================================================
     // PASO 4.6: Crear registro de generación (dentro de transacción)

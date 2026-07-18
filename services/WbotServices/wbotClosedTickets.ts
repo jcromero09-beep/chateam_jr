@@ -11,7 +11,8 @@ import TicketTraking from "../../models/TicketTraking";
 import CreateLogTicketService from "../TicketServices/CreateLogTicketService";
 import Company from "../../models/Company";
 import logger from "../../utils/logger";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import { sub } from "date-fns";
 
 const closeTicket = async (ticket: any, body: string) => {
@@ -34,7 +35,7 @@ const handleOpenTickets = async (companyId: number, whatsapp: Whatsapp) => {
   const brazilTimeZoneOffset = -3 * 60; // Fuso horário do Brasil é UTC-3
   const currentTimeBrazil = new Date(currentTime.getTime() + brazilTimeZoneOffset * 60000); // Adiciona o offset ao tempo atual
 
-  let timeInactiveMessage = Number(whatsapp.timeInactiveMessage || 0);
+  const timeInactiveMessage = Number(whatsapp.timeInactiveMessage || 0);
   let expiresTime = Number(whatsapp.expiresTicket || 0);
 
   if (!isNil(expiresTime) && expiresTime > 0) {
@@ -141,7 +142,6 @@ const handleOpenTickets = async (companyId: number, whatsapp: Whatsapp) => {
           whatsappId: ticket.whatsappId,
           userId: ticket.userId,
         });
-        // console.log("emitiu socket 144", ticket.id)
 
         const io = getIO();
         io.of(companyId.toString()).emit(`company-${companyId}-ticket`, {

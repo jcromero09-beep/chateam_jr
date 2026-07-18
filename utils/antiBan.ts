@@ -12,7 +12,7 @@
  * @author JR Chateam Development Team
  */
 
-import { delay as baileysDelay } from "@whiskeysockets/baileys";
+import { delay as baileysDelay } from "baileys";
 import NodeCache from "node-cache";
 import logger, { logDebug, logError, logInfo, logWarn } from "./logger";
 
@@ -414,7 +414,6 @@ export class AntiBanManager {
  * 🌟 Instancia singleton del AntiBan Manager
  */
 export const antiBanManager = new AntiBanManager();
-// console.log("🛡️ AntiBan module fully loaded");
 
 /**
  * 📤 Export default para compatibilidad

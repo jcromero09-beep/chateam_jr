@@ -59,9 +59,9 @@ export async function saveInboundAndEmit({
         unreadMessages: 1
       });
 
-    // 4) emitir a front (ajusta canal a tu convención)
+    // 4) emitir a front en el mismo namespace/evento que escuchan web y móvil.
     const io = getIO();
-    io.to(`company-${companyId}`).emit("appMessage", {
+    io.of(String(companyId)).emit(`company-${companyId}-appMessage`, {
       action: "create",
       message: {
         id: msg.id,

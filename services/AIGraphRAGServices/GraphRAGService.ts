@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { QueryTypes } from "sequelize";
 import sequelize from "../../database";
 import logger from "../../utils/logger";
@@ -46,7 +50,7 @@ Return ONLY the JSON array:`;
 
     const response = await AIClientService.generateText({
       prompt,
-      modelKey: 'gpt-4.1-mini',
+      modelKey: 'gpt-5.5',
       maxTokens: 512,
       temperature: 0.1,
       responseFormat: 'json'

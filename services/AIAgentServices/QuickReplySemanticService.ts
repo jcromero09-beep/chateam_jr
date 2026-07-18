@@ -29,10 +29,50 @@ export interface RelevantQuickReply {
   shortcode: string;
   message: string;
   intent: string;
+  intentKey?: string;
   similarity: number;
   mediaPath?: string;
   mediaName?: string;
 }
+
+const buildEmbeddingText = (qm: QuickMessage): string => {
+  return [
+    qm.intentKey ? `key:${qm.intentKey}` : "",
+    qm.intent ? `intent:${qm.intent}` : "",
+    qm.shortcode ? `shortcode:${qm.shortcode}` : "",
+    qm.message ? `message:${qm.message}` : "",
+    qm.mediaName ? `media:${qm.mediaName}` : ""
+  ].filter(Boolean).join("\n");
+};
+
+const buildSupervisorBlockFromCandidates = (
+  relevant: RelevantQuickReply[]
+): string => {
+  if (!relevant || relevant.length === 0) {
+    return "";
+  }
+
+  const lines = [
+    `## RESPUESTAS RAPIDAS DISPONIBLES`,
+    `Estas fichas son MATERIAL OPCIONAL para apoyar la respuesta.`,
+    `Solo consideralas cuando en ESTE turno ya corresponda compartir una ficha o contenido concreto.`,
+    `Si aun estas calificando al cliente (presupuesto, tipo de vehiculo, uso, etc.), NO las menciones ni asumas que se enviaran.`,
+    `Si eliges una, debe coincidir claramente con el contexto actual y con lo que ya decidiste responder.`,
+    ``
+  ];
+
+  relevant.forEach((qr, i) => {
+    const matchLabel = qr.similarity >= 0.9 ? "[alto]" : qr.similarity >= 0.75 ? "[medio]" : "[bajo]";
+    const mediaTag = qr.mediaPath ? " [tiene imagen]" : "";
+    lines.push(
+      `${matchLabel} opcion ${i + 1}: /${qr.shortcode} - key: "${qr.intentKey || "sin_key"}" - intencion: "${qr.intent}"${mediaTag}`,
+      `contenido: ${qr.message}`,
+      ``
+    );
+  });
+
+  return lines.join("\n");
+};
 
 /**
  * Genera / regenera el embedding del campo intent de un QuickMessage
@@ -58,8 +98,9 @@ const syncEmbedding = async (quickMessageId: number): Promise<void> => {
       return;
     }
 
-    // Generar embedding del intent
-    const embedding = await EmbeddingService.generateEmbedding(qm.intent, qm.companyId);
+    // Generar embedding con señales estructuradas, no solo con intent.
+    const embeddingText = buildEmbeddingText(qm);
+    const embedding = await EmbeddingService.generateEmbedding(embeddingText, qm.companyId);
 
     await sequelize.query(
       `UPDATE "QuickMessages" SET "intentEmbedding" = :embedding::vector WHERE id = :id`,
@@ -72,7 +113,10 @@ const syncEmbedding = async (quickMessageId: number): Promise<void> => {
       }
     );
 
-    logger.info(`${SERVICE_PREFIX} Embedding generado para QuickMessage ${quickMessageId}: "${qm.intent}"`);
+    logger.info(
+      `${SERVICE_PREFIX} Embedding generado para QuickMessage ${quickMessageId}: ` +
+      `key="${qm.intentKey || ""}", intent="${qm.intent}"`
+    );
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error(`${SERVICE_PREFIX} Error generando embedding: ${msg}`);
@@ -104,6 +148,7 @@ const findRelevant = async (
         shortcode,
         message,
         intent,
+        "intentKey",
         "mediaPath",
         "mediaName",
         (1 - ("intentEmbedding" <=> :embedding::vector)) AS similarity
@@ -122,6 +167,7 @@ const findRelevant = async (
       shortcode: string;
       message: string;
       intent: string;
+      intentKey: string | null;
       similarity: number;
       mediaPath: string | null;
       mediaName: string | null;
@@ -145,6 +191,7 @@ const findRelevant = async (
       shortcode: r.shortcode,
       message: r.message,
       intent: r.intent,
+      intentKey: r.intentKey || undefined,
       similarity: parseFloat(String(r.similarity)),
       mediaPath: r.mediaPath || undefined,
       mediaName: r.mediaName || undefined
@@ -165,29 +212,7 @@ const buildSupervisorBlock = async (
   companyId: number
 ): Promise<string> => {
   const relevant = await findRelevant(currentMessage, companyId);
-
-  if (relevant.length === 0) {
-    return "";
-  }
-
-  const lines = [
-    `## ⚡ RESPUESTAS RÁPIDAS DISPONIBLES`,
-    `La respuesta rápida más relevante se enviará automáticamente como imagen al cliente.`,
-    `Tu respuesta debe COMPLEMENTAR esa imagen, NO repetir lo mismo. Sé breve y ofrece el siguiente paso (precio, agenda, etc).`,
-    ``
-  ];
-
-  relevant.forEach((qr, i) => {
-    const matchLabel = qr.similarity >= 0.90 ? "🔴" : qr.similarity >= 0.80 ? "🟡" : "🟢";
-    const mediaTag = qr.mediaPath ? " [📷 Tiene imagen adjunta]" : "";
-    lines.push(
-      `[${matchLabel} Opción ${i + 1}] /${qr.shortcode} — intención: "${qr.intent}"${mediaTag}`,
-      `→ ${qr.message}`,
-      ``
-    );
-  });
-
-  return lines.join("\n");
+  return buildSupervisorBlockFromCandidates(relevant);
 };
 
 /**
@@ -209,5 +234,6 @@ export default {
   syncEmbedding,
   findRelevant,
   buildSupervisorBlock,
+  buildSupervisorBlockFromCandidates,
   removeEmbedding
 };

@@ -1,9 +1,15 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import winston from "winston";
 import path from "path";
 import fs from "fs";
 
 // Crear directorio de logs si no existe
-const logDir = path.join(__dirname, "../../logs/tickets");
+const logDir = path.join(currentDir, "../../logs/tickets");
 if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true });
 }

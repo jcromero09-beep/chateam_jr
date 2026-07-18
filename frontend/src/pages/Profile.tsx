@@ -1,44 +1,36 @@
 import { useState, useEffect, useRef } from 'react'
+// [Fase2·G] Conservado como MUI: LinearProgress (sin equivalente en el design system).
+import { LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Avatar,
-  Divider,
-  Chip,
-  Alert,
-  LinearProgress,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-} from '@mui/joy'
-import {
-  Person as PersonIcon,
-  Edit as EditIcon,
-  Save as SaveIcon,
+  User as PersonIcon,
+  PencilSimple as EditIcon,
+  FloppyDisk as SaveIcon,
   Lock as LockIcon,
-  PhotoCamera as CameraIcon,
-  Email as EmailIcon,
-  Badge as BadgeIcon,
-  Business as BusinessIcon,
-  CalendarMonth as CalendarIcon,
+  Camera as CameraIcon,
+  Envelope as EmailIcon,
+  IdentificationBadge as BadgeIcon,
+  Buildings as BusinessIcon,
+  CalendarBlank as CalendarIcon,
   CheckCircle as CheckIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
-} from '@mui/icons-material'
+  Eye as VisibilityIcon,
+  EyeSlash as VisibilityOffIcon,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import { useAuth } from '../hooks/useAuth'
 import api from '../services/api'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
+
+const alertStyles: Record<'success' | 'danger' | 'warning', string> = {
+  success: 'border-success/30 bg-success/14 text-success-text',
+  danger: 'border-destructive/30 bg-destructive/12 text-destructive-text',
+  warning: 'border-warning/30 bg-warning/16 text-warning-text',
+}
 
 export default function Profile() {
   const { user } = useAuth()
@@ -223,329 +215,308 @@ export default function Profile() {
     }
   }
 
+  const roleVariant: BadgeProps['variant'] =
+    user?.profile === 'admin' ? 'primary' : user?.profile === 'supervisor' ? 'warning' : 'neutral'
+
   if (loading) {
     return (
-      <Container maxWidth="lg">
+      <div className="mx-auto max-w-[1200px] p-5 sm:p-6 lg:p-8">
         <LinearProgress />
-      </Container>
+      </div>
     )
   }
 
+  const profileImageUrl = getProfileImageUrl()
+
   return (
-    <Container maxWidth="lg">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1200px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Notification */}
         {notification && (
-          <Alert
-            color={notification.type}
-            variant="soft"
-            endDecorator={
-              <Button
-                variant="plain"
-                size="sm"
-                color={notification.type}
-                onClick={() => setNotification(null)}
-              >
-                Cerrar
-              </Button>
-            }
+          <div
+            role="alert"
+            className={cn(
+              'flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm',
+              alertStyles[notification.type]
+            )}
           >
-            {notification.message}
-          </Alert>
+            <span>{notification.message}</span>
+            <button
+              type="button"
+              onClick={() => setNotification(null)}
+              className="shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-current dark:hover:bg-white/10"
+            >
+              Cerrar
+            </button>
+          </div>
         )}
 
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center">
-          <PersonIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-          <Box>
-            <Typography level="h2">Mi Perfil</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <PersonIcon className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Mi Perfil</h1>
+            <p className="text-sm text-muted-foreground">
               Gestiona tu información personal y seguridad
-            </Typography>
-          </Box>
-        </Stack>
+            </p>
+          </div>
+        </div>
 
         {/* Profile Card */}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="center">
-              {/* Avatar with upload */}
-              <Box sx={{ position: 'relative' }}>
-                <Avatar
-                  src={getProfileImageUrl()}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col items-center gap-6 sm:flex-row">
+            {/* Avatar with upload */}
+            <div className="relative">
+              {profileImageUrl ? (
+                <img
+                  src={profileImageUrl}
                   alt={name}
-                  sx={{ width: 120, height: 120, fontSize: '2.5rem' }}
-                >
-                  {name?.charAt(0)?.toUpperCase() || 'U'}
-                </Avatar>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={handleImageUpload}
+                  width={120}
+                  height={120}
+                  className="size-30 rounded-full object-cover ring-1 ring-inset ring-border"
                 />
-                <Button
-                  size="sm"
-                  variant="solid"
-                  color="primary"
-                  loading={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  sx={{
-                    position: 'absolute',
-                    bottom: 0,
-                    right: -8,
-                    minWidth: 36,
-                    minHeight: 36,
-                    borderRadius: '50%',
-                    p: 0,
-                  }}
-                >
-                  {!uploading && <CameraIcon sx={{ fontSize: 18 }} />}
-                </Button>
-              </Box>
+              ) : (
+                <span className="flex size-30 select-none items-center justify-center rounded-full bg-primary/12 text-[2.5rem] font-semibold text-primary">
+                  {name?.charAt(0)?.toUpperCase() || 'U'}
+                </span>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageUpload}
+              />
+              <Button
+                type="button"
+                variant="primary"
+                aria-label="Cambiar imagen de perfil"
+                loading={uploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute bottom-0 -right-2 size-9 rounded-full p-0"
+              >
+                {!uploading && <CameraIcon className="size-[18px]" aria-hidden />}
+              </Button>
+            </div>
 
-              {/* Basic info */}
-              <Box sx={{ flex: 1 }}>
-                <Typography level="h3">{name || 'Usuario'}</Typography>
-                <Typography level="body-md" sx={{ color: 'text.secondary' }}>
-                  {email}
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color="primary"
-                    startDecorator={<BadgeIcon sx={{ fontSize: 14 }} />}
-                  >
-                    {getRoleName(user?.profile || '')}
-                  </Chip>
-                  {user?.company?.name && (
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color="neutral"
-                      startDecorator={<BusinessIcon sx={{ fontSize: 14 }} />}
-                    >
-                      {user.company.name}
-                    </Chip>
-                  )}
-                  {user?.super && (
-                    <Chip size="sm" variant="soft" color="warning">
-                      Super Admin
-                    </Chip>
-                  )}
-                </Stack>
-              </Box>
-            </Stack>
-          </CardContent>
-        </Card>
+            {/* Basic info */}
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <h2 className="text-xl font-semibold text-foreground">{name || 'Usuario'}</h2>
+              <p className="text-sm text-muted-foreground">{email}</p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <Badge variant="primary">
+                  <BadgeIcon className="size-3.5" aria-hidden />
+                  {getRoleName(user?.profile || '')}
+                </Badge>
+                {user?.company?.name && (
+                  <Badge variant="neutral">
+                    <BusinessIcon className="size-3.5" aria-hidden />
+                    {user.company.name}
+                  </Badge>
+                )}
+                {user?.super && <Badge variant="warning">Super Admin</Badge>}
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Tabs */}
-        <Card>
-          <Tabs defaultValue={0}>
-            <TabList>
-              <Tab>Información Personal</Tab>
-              <Tab>Cambiar Contraseña</Tab>
-              <Tab>Cuenta</Tab>
-            </TabList>
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+          <Tabs defaultValue="personal">
+            <TabsList>
+              <TabsTrigger value="personal">Información Personal</TabsTrigger>
+              <TabsTrigger value="password">Cambiar Contraseña</TabsTrigger>
+              <TabsTrigger value="account">Cuenta</TabsTrigger>
+            </TabsList>
 
             {/* Tab 1: Personal Info */}
-            <TabPanel value={0}>
-              <Stack spacing={3}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography level="title-lg">Datos Personales</Typography>
+            <TabsContent value="personal" className="mt-6">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-foreground">Datos Personales</h3>
                   {!editMode ? (
                     <Button
-                      variant="outlined"
+                      type="button"
+                      variant="outline"
                       size="sm"
-                      startDecorator={<EditIcon />}
                       onClick={() => setEditMode(true)}
                     >
+                      <EditIcon className="size-4" aria-hidden />
                       Editar
                     </Button>
                   ) : (
-                    <Stack direction="row" spacing={1}>
+                    <div className="flex gap-2">
                       <Button
-                        variant="outlined"
+                        type="button"
+                        variant="outline"
                         size="sm"
-                        color="neutral"
                         onClick={handleCancelEdit}
                       >
                         Cancelar
                       </Button>
                       <Button
+                        type="button"
                         size="sm"
-                        startDecorator={<SaveIcon />}
                         onClick={handleSaveProfile}
                         loading={saving}
                       >
+                        <SaveIcon className="size-4" aria-hidden />
                         Guardar
                       </Button>
-                    </Stack>
+                    </div>
                   )}
-                </Stack>
+                </div>
 
-                <Divider />
+                <div className="h-px w-full bg-border" role="separator" />
 
-                <Grid container spacing={3}>
-                  <Grid xs={12} md={6}>
-                    <FormControl>
-                      <FormLabel>Nombre completo</FormLabel>
-                      <Input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        disabled={!editMode}
-                        startDecorator={<PersonIcon />}
-                        placeholder="Tu nombre completo"
-                      />
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} md={6}>
-                    <FormControl>
-                      <FormLabel>Correo electrónico</FormLabel>
-                      <Input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        disabled={!editMode}
-                        startDecorator={<EmailIcon />}
-                        placeholder="tu@email.com"
-                      />
-                    </FormControl>
-                  </Grid>
-                </Grid>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="profile-name">Nombre completo</Label>
+                    <Input
+                      id="profile-name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={!editMode}
+                      leftIcon={<PersonIcon aria-hidden />}
+                      placeholder="Tu nombre completo"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="profile-email">Correo electrónico</Label>
+                    <Input
+                      id="profile-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={!editMode}
+                      leftIcon={<EmailIcon aria-hidden />}
+                      placeholder="tu@email.com"
+                    />
+                  </div>
+                </div>
 
-                <Divider />
-                <Typography level="title-md">Información Adicional</Typography>
-                <Grid container spacing={3}>
-                  <Grid xs={12} md={6}>
-                    <FormControl>
-                      <FormLabel>Rol</FormLabel>
-                      <Input
-                        value={getRoleName(user?.profile || '')}
-                        disabled
-                        startDecorator={<BadgeIcon />}
-                      />
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} md={6}>
-                    <FormControl>
-                      <FormLabel>Empresa</FormLabel>
-                      <Input
-                        value={user?.company?.name || 'Sin empresa'}
-                        disabled
-                        startDecorator={<BusinessIcon />}
-                      />
-                    </FormControl>
-                  </Grid>
-                </Grid>
-              </Stack>
-            </TabPanel>
+                <div className="h-px w-full bg-border" role="separator" />
+                <h4 className="text-base font-semibold text-foreground">Información Adicional</h4>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="profile-role">Rol</Label>
+                    <Input
+                      id="profile-role"
+                      value={getRoleName(user?.profile || '')}
+                      disabled
+                      leftIcon={<BadgeIcon aria-hidden />}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="profile-company">Empresa</Label>
+                    <Input
+                      id="profile-company"
+                      value={user?.company?.name || 'Sin empresa'}
+                      disabled
+                      leftIcon={<BusinessIcon aria-hidden />}
+                    />
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
 
             {/* Tab 2: Change Password */}
-            <TabPanel value={1}>
-              <Stack spacing={3} sx={{ maxWidth: 500 }}>
-                <Typography level="title-lg">Cambiar Contraseña</Typography>
-                <Divider />
+            <TabsContent value="password" className="mt-6">
+              <div className="max-w-[500px] space-y-6">
+                <h3 className="text-lg font-semibold text-foreground">Cambiar Contraseña</h3>
+                <div className="h-px w-full bg-border" role="separator" />
 
-                <Alert color="primary" variant="soft">
+                <div className="rounded-lg border border-primary/25 bg-primary/8 px-4 py-3 text-sm text-foreground">
                   La contraseña debe tener al menos 6 caracteres. Elige una contraseña segura
                   combinando letras, números y símbolos.
-                </Alert>
+                </div>
 
-                <FormControl>
-                  <FormLabel>Contraseña actual</FormLabel>
+                <div className="space-y-1.5">
+                  <Label htmlFor="current-password">Contraseña actual</Label>
                   <Input
+                    id="current-password"
                     type={showCurrentPw ? 'text' : 'password'}
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
-                    startDecorator={<LockIcon />}
-                    endDecorator={
-                      <Button
-                        variant="plain"
-                        size="sm"
+                    leftIcon={<LockIcon aria-hidden />}
+                    placeholder="Ingresa tu contraseña actual"
+                    rightSlot={
+                      <button
+                        type="button"
                         onClick={() => setShowCurrentPw(!showCurrentPw)}
-                        sx={{ minWidth: 'auto' }}
+                        aria-label={showCurrentPw ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                        aria-pressed={showCurrentPw}
+                        className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {showCurrentPw ? (
-                          <VisibilityOffIcon sx={{ fontSize: 18 }} />
+                          <VisibilityOffIcon className="size-[18px]" aria-hidden />
                         ) : (
-                          <VisibilityIcon sx={{ fontSize: 18 }} />
+                          <VisibilityIcon className="size-[18px]" aria-hidden />
                         )}
-                      </Button>
+                      </button>
                     }
-                    placeholder="Ingresa tu contraseña actual"
                   />
-                </FormControl>
+                </div>
 
-                <FormControl>
-                  <FormLabel>Nueva contraseña</FormLabel>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-password">Nueva contraseña</Label>
                   <Input
+                    id="new-password"
                     type={showNewPw ? 'text' : 'password'}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    startDecorator={<LockIcon />}
-                    endDecorator={
-                      <Button
-                        variant="plain"
-                        size="sm"
+                    leftIcon={<LockIcon aria-hidden />}
+                    placeholder="Mínimo 6 caracteres"
+                    rightSlot={
+                      <button
+                        type="button"
                         onClick={() => setShowNewPw(!showNewPw)}
-                        sx={{ minWidth: 'auto' }}
+                        aria-label={showNewPw ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                        aria-pressed={showNewPw}
+                        className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {showNewPw ? (
-                          <VisibilityOffIcon sx={{ fontSize: 18 }} />
+                          <VisibilityOffIcon className="size-[18px]" aria-hidden />
                         ) : (
-                          <VisibilityIcon sx={{ fontSize: 18 }} />
+                          <VisibilityIcon className="size-[18px]" aria-hidden />
                         )}
-                      </Button>
+                      </button>
                     }
-                    placeholder="Mínimo 6 caracteres"
                   />
                   {newPassword && newPassword.length < 6 && (
-                    <Typography level="body-xs" sx={{ color: 'danger.500', mt: 0.5 }}>
+                    <p className="text-xs text-destructive-text">
                       La contraseña debe tener al menos 6 caracteres
-                    </Typography>
+                    </p>
                   )}
-                </FormControl>
+                </div>
 
-                <FormControl>
-                  <FormLabel>Confirmar nueva contraseña</FormLabel>
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirm-password">Confirmar nueva contraseña</Label>
                   <Input
+                    id="confirm-password"
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    startDecorator={<LockIcon />}
+                    leftIcon={<LockIcon aria-hidden />}
                     placeholder="Repite la nueva contraseña"
-                    color={
-                      confirmPassword && confirmPassword !== newPassword ? 'danger' : undefined
-                    }
+                    invalid={Boolean(confirmPassword && confirmPassword !== newPassword)}
                   />
                   {confirmPassword && confirmPassword !== newPassword && (
-                    <Typography level="body-xs" sx={{ color: 'danger.500', mt: 0.5 }}>
-                      Las contraseñas no coinciden
-                    </Typography>
+                    <p className="text-xs text-destructive-text">Las contraseñas no coinciden</p>
                   )}
                   {confirmPassword &&
                     confirmPassword === newPassword &&
                     newPassword.length >= 6 && (
-                      <Typography
-                        level="body-xs"
-                        sx={{
-                          color: 'success.500',
-                          mt: 0.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.5,
-                        }}
-                      >
-                        <CheckIcon sx={{ fontSize: 14 }} /> Las contraseñas coinciden
-                      </Typography>
+                      <p className="flex items-center gap-1 text-xs text-success-text">
+                        <CheckIcon className="size-3.5" aria-hidden /> Las contraseñas coinciden
+                      </p>
                     )}
-                </FormControl>
+                </div>
 
                 <Button
-                  startDecorator={<LockIcon />}
+                  type="button"
                   onClick={handleChangePassword}
                   loading={changingPassword}
                   disabled={
@@ -554,136 +525,79 @@ export default function Profile() {
                     newPassword.length < 6 ||
                     newPassword !== confirmPassword
                   }
-                  sx={{ alignSelf: 'flex-start' }}
+                  className="self-start"
                 >
+                  <LockIcon className="size-4" aria-hidden />
                   Cambiar Contraseña
                 </Button>
-              </Stack>
-            </TabPanel>
+              </div>
+            </TabsContent>
 
             {/* Tab 3: Account Info */}
-            <TabPanel value={2}>
-              <Stack spacing={3}>
-                <Typography level="title-lg">Información de Cuenta</Typography>
-                <Divider />
+            <TabsContent value="account" className="mt-6">
+              <div className="space-y-6">
+                <h3 className="text-lg font-semibold text-foreground">Información de Cuenta</h3>
+                <div className="h-px w-full bg-border" role="separator" />
 
-                <Grid container spacing={3}>
-                  <Grid xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack spacing={1}>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            ID de Usuario
-                          </Typography>
-                          <Typography level="title-md">{user?.id || '—'}</Typography>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack spacing={1}>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Rol del Sistema
-                          </Typography>
-                          <Chip
-                            color={
-                              user?.profile === 'admin'
-                                ? 'primary'
-                                : user?.profile === 'supervisor'
-                                  ? 'warning'
-                                  : 'neutral'
-                            }
-                            variant="soft"
-                          >
-                            {getRoleName(user?.profile || '')}
-                          </Chip>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack spacing={1}>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Empresa
-                          </Typography>
-                          <Typography level="title-md">
-                            {user?.company?.name || '—'}
-                          </Typography>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack spacing={1}>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Plan Actual
-                          </Typography>
-                          <Typography level="title-md">
-                            {user?.company?.plan?.name || '—'}
-                          </Typography>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack spacing={1}>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Estado de Cuenta
-                          </Typography>
-                          <Chip
-                            color={user?.company?.status ? 'success' : 'danger'}
-                            variant="soft"
-                          >
-                            {user?.company?.status ? 'Activa' : 'Suspendida'}
-                          </Chip>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack spacing={1}>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Vencimiento
-                          </Typography>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <CalendarIcon sx={{ fontSize: 18, color: 'text.tertiary' }} />
-                            <Typography level="title-md">
-                              {user?.company?.dueDate
-                                ? new Date(user.company.dueDate).toLocaleDateString('es-ES', {
-                                    day: 'numeric',
-                                    month: 'long',
-                                    year: 'numeric',
-                                  })
-                                : '—'}
-                            </Typography>
-                          </Stack>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-sm text-muted-foreground">ID de Usuario</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">{user?.id || '—'}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-sm text-muted-foreground">Rol del Sistema</p>
+                    <div className="mt-1">
+                      <Badge variant={roleVariant}>{getRoleName(user?.profile || '')}</Badge>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-sm text-muted-foreground">Empresa</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">
+                      {user?.company?.name || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-sm text-muted-foreground">Plan Actual</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">
+                      {user?.company?.plan?.name || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-sm text-muted-foreground">Estado de Cuenta</p>
+                    <div className="mt-1">
+                      <Badge variant={user?.company?.status ? 'success' : 'destructive'}>
+                        {user?.company?.status ? 'Activa' : 'Suspendida'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-sm text-muted-foreground">Vencimiento</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <CalendarIcon className="size-[18px] text-muted-foreground" aria-hidden />
+                      <p className="text-base font-semibold text-foreground">
+                        {user?.company?.dueDate
+                          ? new Date(user.company.dueDate).toLocaleDateString('es-ES', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                            })
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-                <Divider />
+                <div className="h-px w-full bg-border" role="separator" />
 
-                <Alert color="neutral" variant="soft">
+                <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
                   Para cambios en tu rol, empresa o plan, contacta al administrador de tu
                   organización.
-                </Alert>
-              </Stack>
-            </TabPanel>
+                </div>
+              </div>
+            </TabsContent>
           </Tabs>
-        </Card>
-      </Stack>
-    </Container>
+        </div>
+      </div>
+    </div>
   )
 }

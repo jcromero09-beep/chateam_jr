@@ -15,13 +15,11 @@ const ShowTicketService = async (
   id: string | number,
   companyId: number | string
 ): Promise<Ticket> => {
-  // console.log("  🔸 [ShowTicketService] Buscando ticket:", { id, idType: typeof id, companyId, companyIdType: typeof companyId });
 
   // Asegurar que id sea número
   const ticketId = typeof id === 'string' ? parseInt(id, 10) : id;
   // Asegurar que companyId sea número
   const numericCompanyId = typeof companyId === 'string' ? parseInt(companyId, 10) : companyId;
-  // console.log("  📝 IDs convertidos a número:", { ticketId, numericCompanyId });
 
   try {
     const ticket = await Ticket.findOne({
@@ -130,16 +128,13 @@ const ShowTicketService = async (
     });
 
     if (ticket?.companyId !== numericCompanyId) {
-      // console.log("  ❌ [ShowTicketService] Ticket de otra empresa", { ticketCompanyId: ticket?.companyId, numericCompanyId });
       throw new AppError("Não é possível consultar registros de outra empresa");
     }
 
     if (!ticket) {
-      // console.log("  ❌ [ShowTicketService] Ticket no encontrado");
       throw new AppError("ERR_NO_TICKET_FOUND", 404);
     }
 
-    // console.log("  ✅ [ShowTicketService] Ticket encontrado:", {
     //   id: ticket.id,
     //   status: ticket.status,
     //   contactId: ticket.contactId
@@ -147,10 +142,7 @@ const ShowTicketService = async (
 
     return ticket;
   } catch (error) {
-    // console.log("  ❌ [ShowTicketService] ERROR en la consulta:");
-    // console.log("  📄 Error completo:", error);
     // if (error.sql) {
-    //   console.log("  📝 SQL que falló:", error.sql);
     // }
     throw error;
   }

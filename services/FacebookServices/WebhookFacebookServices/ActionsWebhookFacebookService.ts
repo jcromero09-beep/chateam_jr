@@ -1,3 +1,13 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import Chatbot from "../../../models/Chatbot";
 import Contact from "../../../models/Contact";
 import Queue from "../../../models/Queue";
@@ -70,7 +80,7 @@ export const ActionsWebhookFacebookService = async (
 
     const io = getIO()
     let next = nextStage;
-    let createFieldJsonName = "";
+    const createFieldJsonName = "";
     const connectStatic = connects;
 
 
@@ -109,7 +119,7 @@ export const ActionsWebhookFacebookService = async (
 
     let selectedQueueid = null;
 
-    for (var i = 0; i < lengthLoop; i++) {
+    for (let i = 0; i < lengthLoop; i++) {
         let nodeSelected: any;
         let ticketInit: Ticket;
         if (idTicket) {
@@ -157,21 +167,16 @@ export const ActionsWebhookFacebookService = async (
             const queue = await ShowQueueService(nodeSelected.data.data.id, companyId)
 
             console.clear()
-            //console.log("====================================")
-            //console.log("              TICKET                ")
-            //console.log("====================================")
 
             selectedQueueid = queue.id;
-            //console.log({ selectedQueueid })
             //await updateQueueId(ticket, companyId, queue.id)
 
         }
 
         if (nodeSelected.type === "singleBlock") {
 
-            for (var iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
+            for (let iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
                 const elementNowSelected = nodeSelected.data.seq[iLoc];
-                //console.log(elementNowSelected, "elementNowSelected")
 
                 if (elementNowSelected.includes("message")) {
                     // await SendMessageFlow(whatsapp, {
@@ -247,11 +252,11 @@ export const ActionsWebhookFacebookService = async (
 
                 if (elementNowSelected.includes("img")) {
                     const mediaPath = process.env.BACKEND_URL === "https://localhost:8090"
-                        ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                        ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                             item => item.number === elementNowSelected
                         )[0].value
                         }`
-                        : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                        : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                             item => item.number === elementNowSelected
                         )[0].value
                         }`
@@ -307,11 +312,11 @@ export const ActionsWebhookFacebookService = async (
                 if (elementNowSelected.includes("audio")) {
                     const mediaDirectory =
                         process.env.BACKEND_URL === "https://localhost:8090"
-                            ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                            ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                                 item => item.number === elementNowSelected
                             )[0].value
                             }`
-                            : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                            : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                                 item => item.number === elementNowSelected
                             )[0].value
                             }`;
@@ -329,10 +334,10 @@ export const ActionsWebhookFacebookService = async (
                     //Obtendo o tipo do arquivo
                     const mimeType = mime.lookup(mediaDirectory);
 
-                    const fileNotExists = path.resolve(__dirname, "..", "..", "..", "..", "public", fileNameWithoutExtension + ".mp4");
+                    const fileNotExists = path.resolve(currentDir, "..", "..", "..", "..", "public", fileNameWithoutExtension + ".mp4");
 
                     if (fileNotExists) {
-                        const folder = path.resolve(__dirname, "..", "..", "..", "..", "public", fileNameWithoutExtension + fileExtension);
+                        const folder = path.resolve(currentDir, "..", "..", "..", "..", "public", fileNameWithoutExtension + fileExtension);
                         await convertAudio(folder)
                     }
 
@@ -384,11 +389,11 @@ export const ActionsWebhookFacebookService = async (
                 if (elementNowSelected.includes("video")) {
                     const mediaDirectory =
                         process.env.BACKEND_URL === "https://localhost:8090"
-                            ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                            ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                                 item => item.number === elementNowSelected
                             )[0].value
                             }`
-                            : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                            : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                                 item => item.number === elementNowSelected
                             )[0].value
                             }`;
@@ -453,9 +458,9 @@ export const ActionsWebhookFacebookService = async (
 
         if (nodeSelected.type === "img") {
             const mediaPath = process.env.BACKEND_URL === "https://localhost:8090"
-                ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.url
+                ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.url
                 }`
-                : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.url
+                : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.url
                 }`
 
 
@@ -517,9 +522,9 @@ export const ActionsWebhookFacebookService = async (
         if (nodeSelected.type === "audio") {
             const mediaDirectory =
                 process.env.BACKEND_URL === "https://localhost:8090"
-                    ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.url
+                    ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.url
                     }`
-                    : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.url
+                    : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.url
                     }`;
 
             const contact = await Contact.findOne({
@@ -571,9 +576,9 @@ export const ActionsWebhookFacebookService = async (
         if (nodeSelected.type === "video") {
             const mediaDirectory =
                 process.env.BACKEND_URL === "https://localhost:8090"
-                    ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.url
+                    ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.url
                     }`
-                    : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.url
+                    : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.url
                     }`;
 
 
@@ -765,7 +770,7 @@ export const ActionsWebhookFacebookService = async (
 
         if (pressKey === "999" && execCount > 0) {
             pressKey = undefined;
-            let result = connects.filter(connect => connect.source === execFn)[0];
+            const result = connects.filter(connect => connect.source === execFn)[0];
             if (typeof result === "undefined") {
                 next = "";
             } else {
@@ -787,15 +792,12 @@ export const ActionsWebhookFacebookService = async (
                 result = next;
             } else {
                 result = connects.filter(connect => connect.source === next)[0];
-                //console.log(512, "ActionsWebhookFacebookService")
             }
 
             if (typeof result === "undefined") {
-                //console.log(517, "ActionsWebhookFacebookService")
                 next = "";
             } else {
                 if (!noAlterNext) {
-                    //console.log(520, "ActionsWebhookFacebookService")
                     next = result.target;
                 }
             }
@@ -805,9 +807,7 @@ export const ActionsWebhookFacebookService = async (
             const nextNode = connects.filter(
                 connect => connect.source === nodeSelected.id
             ).length;
-            //console.log(530, "ActionsWebhookFacebookService")
             if (nextNode === 0) {
-                //console.log(532, "ActionsWebhookFacebookService")
 
                 const ticket = await Ticket.findOne({
                     where: { id: idTicket, companyId: companyId }
@@ -828,21 +828,15 @@ export const ActionsWebhookFacebookService = async (
 
                 break;
             }
-            //console.log(535, "ActionsWebhookFacebookService")
         }
-        //console.log(isContinue, "isContinue")
         isContinue = false;
-        //console.log(isContinue, "isContinue")
         if (next === "") {
-            //console.log(next, "next")
             break;
         }
 
-        //console.log(ticket, "ticket")
         ticket = await Ticket.findOne({
             where: { id: idTicket, companyId: companyId }
         });
-        //console.log(ticket, "ticket")
         await ticket.update({
             queueId: null,
             userId: null,
@@ -853,7 +847,6 @@ export const ActionsWebhookFacebookService = async (
             hashFlowId: hashWebhookId,
             flowStopped: idFlowDb?.toString()
         });
-        //console.log(ticket, "ticket")
 
         noAlterNext = false;
         execCount++;
@@ -968,7 +961,6 @@ function convertAudio(inputFile: string): Promise<string> {
         outputFile = inputFile.replace(".mp3", ".mp4");
     }
 
-    //console.log("output", outputFile);
 
 
     return new Promise((resolve, reject) => {

@@ -19,6 +19,12 @@ interface ChannelBadgeProps {
   sourceChannel?: MessageSourceChannel
   isDark?: boolean
   compact?: boolean
+  /**
+   * FASE 7 — Si true, agrega sufijo "Fallback" indicando que el
+   * mensaje se envió por un canal alternativo al solicitado
+   * (típicamente meta→baileys por ventana cerrada).
+   */
+  fallback?: boolean
 }
 
 interface BadgeSpec {
@@ -129,12 +135,13 @@ export default function ChannelBadge({
   provider,
   sourceChannel,
   isDark = false,
-  compact = false
+  compact = false,
+  fallback = false
 }: ChannelBadgeProps) {
   const spec = buildBadge(provider, sourceChannel)
   if (!spec) return null
 
-  const text = compact ? spec.short : spec.label
+  const text = (compact ? spec.short : spec.label) + (fallback ? ' (Fallback)' : '')
 
   return (
     <Box

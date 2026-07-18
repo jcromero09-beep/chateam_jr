@@ -78,7 +78,7 @@ function loadFBSDK(appId: string): Promise<void> {
     // Si ya está cargado e inicializado, solo re-init con el appId correcto
     if (window.FB) {
       try {
-        window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version: 'v24.0' })
+        window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version: 'v25.0' })
       } catch { /* ya inicializado */ }
       resolve()
       return
@@ -89,7 +89,7 @@ function loadFBSDK(appId: string): Promise<void> {
         appId,
         autoLogAppEvents: true,
         xfbml: false,
-        version: 'v24.0',
+        version: 'v25.0',
       })
       resolve()
     }
@@ -136,6 +136,7 @@ export default function MetaConnectModal({ open, onClose, onSuccess }: MetaConne
   const [embeddedError, setEmbeddedError] = useState<string | null>(null)
   const [embeddedConnectionName, setEmbeddedConnectionName] = useState('')
   const [facebookAppId, setFacebookAppId] = useState<string | null>(null)
+  const [metaConfigId, setMetaConfigId] = useState<string | null>(null)
 
   // ── Estado Manual (conservado 1:1) ──
   const [manualStep, setManualStep] = useState<ManualStep>('token')
@@ -156,14 +157,19 @@ export default function MetaConnectModal({ open, onClose, onSuccess }: MetaConne
   const needsVerification = selectedPhone &&
     (selectedPhone.platformType === 'ON_PREMISE' || selectedPhone.codeVerificationStatus !== 'VERIFIED')
 
-  // ── Cargar facebookAppId de CompaniesSettings (BD) ──
+  // ── Cargar configuracion Meta de CompaniesSettings (BD) ──
   useEffect(() => {
     if (!open || facebookAppId) return
-    api.get('/companySettingOne', { params: { column: 'facebookAppId' } })
-      .then(res => {
-        // GET /companySettingOne?column=facebookAppId → { facebookAppId: "..." }
-        const appId = res.data?.facebookAppId || null
+
+    Promise.all([
+      api.get('/companySettingOne', { params: { column: 'facebookAppId' } }),
+      api.get('/companySettingOne', { params: { column: 'metaEmbeddedSignupConfigId' } }),
+    ])
+      .then(([appRes, configRes]) => {
+        const appId = appRes.data?.facebookAppId || null
+        const configId = configRes.data?.metaEmbeddedSignupConfigId || null
         if (appId && typeof appId === 'string') setFacebookAppId(appId)
+        if (configId && typeof configId === 'string') setMetaConfigId(configId)
       })
       .catch(() => { /* silencioso — el botón quedará deshabilitado */ })
   }, [open, facebookAppId])
@@ -191,11 +197,15 @@ export default function MetaConnectModal({ open, onClose, onSuccess }: MetaConne
     }
 
     console.log('🔵 [EMBEDDED] ===== INICIO EMBEDDED SIGNUP (Business App Onboarding) =====')
+    console.log('🔵 [EMBEDDED] build: token-fallback-no-config-id-v2')
     console.log('🔵 [EMBEDDED] facebookAppId:', facebookAppId)
+    console.log('🔵 [EMBEDDED] config_id:', metaConfigId || '(sin config_id)')
     console.log('🔵 [EMBEDDED] featureType: whatsapp_business_app_onboarding')
     console.log('🔵 [EMBEDDED] sessionInfoVersion: 3')
-    // Para Embedded Signup con JS SDK, el token llega via postMessage (response_type: token).
-    console.log('🔵 [EMBEDDED] response_type: token (accessToken directo, evita error xd_arbiter)')
+    console.log(
+      '🔵 [EMBEDDED] response_type:',
+      metaConfigId ? 'code (Facebook Login for Business)' : 'token (legacy sin config_id)'
+    )
 
     setEmbeddedStep('loading_sdk')
     setEmbeddedError(null)
@@ -208,66 +218,110 @@ export default function MetaConnectModal({ open, onClose, onSuccess }: MetaConne
 
       // 2. Abrir diálogo de Facebook Login
       setEmbeddedStep('waiting_fb')
+      const loginOptions: Record<string, any> = {
+        ...(metaConfigId ? { config_id: metaConfigId } : {}),
+        // Con config_id, Facebook Login for Business exige code.
+        // Sin config_id, el flujo legacy es mas estable devolviendo accessToken.
+        response_type: metaConfigId ? 'code' : 'token',
+        override_default_response_type: true,
+        extras: {
+          // featureType: 'whatsapp_business_app_onboarding' → flujo de coexistencia Meta
+          // Muestra QR code pairing para migrar ON_PREMISE → CLOUD_API automáticamente.
+          // Docs: developers.facebook.com/docs/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+          featureType: 'whatsapp_business_app_onboarding',
+          // sessionInfoVersion: '3' → requerido para el flujo de coexistencia con Business App
+          sessionInfoVersion: '3',
+          setup: {},
+        },
+        // [Fase2·A1.1] Con config_id Meta IGNORA este scope: los permisos los define la
+        // configuración de Facebook Login for Business en el panel de la app. Añadir
+        // ads_read/ads_management ahí es una acción manual en Meta, no de código.
+        ...(!metaConfigId
+          ? {
+              scope:
+                'whatsapp_business_management,whatsapp_business_messaging,business_management,ads_read,ads_management'
+            }
+          : {}),
+      }
+
+      const debugUrl = new URL('https://www.facebook.com/v25.0/dialog/oauth')
+      debugUrl.searchParams.set('app_id', facebookAppId)
+      debugUrl.searchParams.set('client_id', facebookAppId)
+      if (metaConfigId) debugUrl.searchParams.set('config_id', metaConfigId)
+      debugUrl.searchParams.set('redirect_uri', window.location.href)
+      debugUrl.searchParams.set('response_type', loginOptions.response_type)
+      debugUrl.searchParams.set('override_default_response_type', String(loginOptions.override_default_response_type))
+      debugUrl.searchParams.set('extras', JSON.stringify(loginOptions.extras))
+      if (loginOptions.scope) debugUrl.searchParams.set('scope', loginOptions.scope)
+
       console.log('🔵 [EMBEDDED] Llamando window.FB.login()...')
+      console.log('🔵 [EMBEDDED] FB.login options:', JSON.stringify(loginOptions, null, 2))
+      console.log('🔵 [EMBEDDED] URL OAuth aproximada (debug, FB.login puede usar redirect interno):', debugUrl.toString())
+      console.log('🔵 [EMBEDDED] window.location.href:', window.location.href)
 
       const authResponse = await new Promise<any>((resolve, reject) => {
+        const embeddedMessages: any[] = []
+        const messageHandler = (event: MessageEvent) => {
+          if (!event.origin.endsWith('facebook.com')) return
+
+          let payload = event.data
+          if (typeof payload === 'string') {
+            try {
+              payload = JSON.parse(payload)
+            } catch {
+              // Facebook tambien emite mensajes internos no JSON; no son utiles aqui.
+              return
+            }
+          }
+
+          const isEmbeddedSignupMessage =
+            payload?.type === 'WA_EMBEDDED_SIGNUP' ||
+            payload?.event === 'WA_EMBEDDED_SIGNUP' ||
+            payload?.data?.event === 'WA_EMBEDDED_SIGNUP' ||
+            payload?.data?.type === 'WA_EMBEDDED_SIGNUP'
+
+          if (!isEmbeddedSignupMessage) return
+
+          embeddedMessages.push(payload)
+        }
+
+        window.addEventListener('message', messageHandler)
+
         window.FB.login(
           (response: any) => {
-            console.log('🔵 [EMBEDDED] FB.login() respuesta COMPLETA:', JSON.stringify(response, null, 2))
-            console.log('🔵 [EMBEDDED] response.status:', response.status)
-            console.log('🔵 [EMBEDDED] response.authResponse:', JSON.stringify(response.authResponse, null, 2))
-            console.log('🔵 [EMBEDDED] authResponse.code:', response.authResponse?.code)
-            console.log('🔵 [EMBEDDED] authResponse.accessToken:', response.authResponse?.accessToken)
-            console.log('🔵 [EMBEDDED] authResponse.grantedScopes:', response.authResponse?.grantedScopes)
+            window.removeEventListener('message', messageHandler)
 
-            if (response.status === 'connected' && response.authResponse?.accessToken) {
-              // response_type: 'token' — el SDK devuelve el accessToken directamente
-              // Evita el problema de redirect_uri del flujo code (xd_arbiter dinámico)
-              console.log('✅ [EMBEDDED] accessToken obtenido del SDK:', response.authResponse.accessToken.substring(0, 30) + '...')
+            // NUNCA loguear response/authResponse: contienen el authorization code
+            // y el accessToken de Meta (credenciales de la WABA del cliente).
+            if (response.status === 'connected' && response.authResponse?.code) {
+              // Facebook Login for Business exige response_type='code' cuando se usa config_id.
+              resolve({ ...response.authResponse, _isAccessToken: false })
+            } else if (response.status === 'connected' && response.authResponse?.accessToken) {
+              // Fallback legacy para dialogs que todavía retornen accessToken directo.
               resolve({ ...response.authResponse, code: response.authResponse.accessToken, _isAccessToken: true })
             } else if (response.status === 'not_authorized' || response.status === 'unknown') {
               reject(new Error('El usuario canceló el proceso o no otorgó los permisos requeridos.'))
             } else {
-              reject(new Error(`Respuesta inesperada de Facebook: ${response.status} | authResponse: ${JSON.stringify(response.authResponse)}`))
+              reject(new Error(`Respuesta inesperada de Facebook: ${response.status}`))
             }
           },
-          {
-            // response_type: 'token' → el SDK devuelve accessToken directamente (evita error 100/36008)
-            // El flujo 'code' vincula el código al xd_arbiter dinámico del SDK,
-            // que no se puede reproducir en el intercambio servidor → Meta.
-            response_type: 'token',
-            override_default_response_type: true,
-            extras: {
-              // featureType: 'whatsapp_business_app_onboarding' → flujo de coexistencia Meta
-              // Muestra QR code pairing para migrar ON_PREMISE → CLOUD_API automáticamente.
-              // Docs: developers.facebook.com/docs/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
-              featureType: 'whatsapp_business_app_onboarding',
-              // sessionInfoVersion: '3' → requerido para el flujo de coexistencia con Business App
-              sessionInfoVersion: '3',
-              setup: {},
-            },
-            scope: 'whatsapp_business_management,whatsapp_business_messaging,business_management',
-          }
+          loginOptions
         )
       })
-
-      console.log('🔵 [EMBEDDED] authResponse final:', JSON.stringify(authResponse, null, 2))
 
       // 3. Intercambiar code con backend
       setEmbeddedStep('exchanging')
 
       const payload = {
         code: authResponse.code,
-        // ⚠️ NO enviamos redirectUri — el código viene del JS SDK vía postMessage (xd_arbiter)
-        // El backend omitirá redirect_uri en el intercambio con Meta Graph API
+        // Embedded Signup con FB JS SDK devuelve un code de Business Login.
+        // En este endpoint no enviamos redirectUri; Meta valida ese code contra
+        // el flujo del SDK/config_id, no contra un redirect OAuth clásico.
         connectionName: embeddedConnectionName.trim() || undefined,
         _isAccessToken: authResponse._isAccessToken || false,
       }
-      console.log('🔵 [EMBEDDED] Enviando al backend:', JSON.stringify(payload, null, 2))
-
+      // payload contiene el authorization code de Meta: no loguear.
       const { data } = await api.post('/webhook/meta/embedded-signup', payload)
-
-      console.log('✅ [EMBEDDED] Respuesta backend:', JSON.stringify(data, null, 2))
 
       setResult({
         whatsappId: data.whatsapp?.id,
@@ -282,16 +336,13 @@ export default function MetaConnectModal({ open, onClose, onSuccess }: MetaConne
       onSuccess?.()
     } catch (err: any) {
       const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Error en Embedded Signup'
-      console.error('❌ [EMBEDDED] ===== ERROR EMBEDDED SIGNUP =====')
-      console.error('❌ [EMBEDDED] mensaje:', msg)
-      console.error('❌ [EMBEDDED] err.response?.status:', err.response?.status)
-      console.error('❌ [EMBEDDED] err.response?.data completo:', JSON.stringify(err.response?.data, null, 2))
-      console.error('❌ [EMBEDDED] err.message:', err.message)
+      // Sin volcado de err.response.data: el backend puede reflejar el authorization code.
+      console.error(`[EMBEDDED] Error en Embedded Signup (HTTP ${err.response?.status ?? '?'}): ${msg}`)
       setEmbeddedError(msg)
       setEmbeddedStep('error')
       toast.error(msg)
     }
-  }, [facebookAppId, embeddedConnectionName, onSuccess])
+  }, [facebookAppId, metaConfigId, embeddedConnectionName, onSuccess])
 
   // ────────────────────────────────────────────────────────────────────────────
   // FLUJO B — TOKEN MANUAL (conservado 1:1 del original)

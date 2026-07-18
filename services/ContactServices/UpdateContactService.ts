@@ -2,6 +2,7 @@ import AppError from "../../errors/AppError";
 import Contact from "../../models/Contact";
 import ContactCustomField from "../../models/ContactCustomField";
 import ContactWallet from "../../models/ContactWallet";
+import { Op } from "sequelize";
 
 interface ExtraInfo {
   id?: number;
@@ -94,6 +95,20 @@ const UpdateContactService = async ({
     });
 
     await ContactWallet.bulkCreate(contactWallets as any);
+  }
+
+  if (number && number !== contact.number) {
+    const duplicatedContact = await Contact.findOne({
+      where: {
+        companyId,
+        number,
+        id: { [Op.ne]: contact.id }
+      }
+    });
+
+    if (duplicatedContact) {
+      throw new AppError("ERR_DUPLICATED_CONTACT", 400);
+    }
   }
 
   await contact.update({

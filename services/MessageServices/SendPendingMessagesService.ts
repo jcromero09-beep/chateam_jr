@@ -84,14 +84,24 @@ const SendPendingMessagesService = async ({ messageId }: Request): Promise<void>
 
     // 6. Éxito: actualizar status a sent y guardar el wid real
     const wid = sentMessageResult?.key?.id || message.wid;
+    const remoteJid =
+      sentMessageResult?.key?.remoteJid ||
+      message.remoteJid ||
+      message.ticket?.contact?.remoteJid ||
+      null;
 
     await message.update({
       messageStatus: "sent",
       sentAt: new Date(),
       ack: 1, // Marcamos como enviado (recibido por servidor)
-      wid: wid
+      wid: wid,
+      remoteJid,
+      dataJson: JSON.stringify(sentMessageResult)
     });
 
+    console.log(
+      `[OutboundDeliveryTrace] accepted source=SendPendingMessages messageId=${message.id} ticketId=${message.ticketId} whatsappId=${message.ticket?.whatsappId} wid=${wid} remoteJid=${remoteJid}`
+    );
     console.log(`[SendPendingMessages] Mensaje ${messageId} enviado exitosamente, wid: ${wid}`);
 
     // 7. Emitir evento de actualización por socket

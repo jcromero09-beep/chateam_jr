@@ -1,7 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 /* eslint-disable camelcase */
 import { QueryTypes } from "sequelize";
-import * as _ from "lodash";
+import _ from "lodash"; // [Fase A] default import: `import * as _` daba "_.has is not a function" bajo ESM/tsx
 import sequelize from "../../database";
 
 export interface DashboardData {
@@ -67,7 +67,7 @@ export default async function ListTicketsServiceReport(
   from "Tickets" t
   LEFT JOIN (
         SELECT DISTINCT ON ("ticketId") *
-        FROM "TicketTraking"
+        FROM "TicketTrakings"
         WHERE "companyId" = ${companyId}
         ORDER BY "ticketId", "id" DESC
     ) tt ON t.id = tt."ticketId"
@@ -112,7 +112,7 @@ export default async function ListTicketsServiceReport(
   from "Tickets" t
   LEFT JOIN (
         SELECT DISTINCT ON ("ticketId") *
-        FROM "TicketTraking"
+        FROM "TicketTrakings"
         WHERE "companyId" = ${companyId}
         ORDER BY "ticketId", "id" DESC
     ) tt ON t.id = tt."ticketId"

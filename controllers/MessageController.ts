@@ -1,3 +1,14 @@
+import { createRequire } from "node:module";
+import { maskPhone } from "../utils/redact";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import { Request, Response } from "express";
 import AppError from "../errors/AppError";
 import fs from "fs";
@@ -10,19 +21,21 @@ import Ticket from "../models/Ticket";
 import Queue from "../models/Queue";
 import User from "../models/User";
 import Whatsapp from "../models/Whatsapp";
-import { verify } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+const { verify } = jwt;
 import authConfig from "../config/auth";
 import path from "path";
 import mime from "mime-types";
 import formatBody from "../helpers/Mustache";
-import { isNil, isNull } from "lodash";
+import lodash from "lodash";
+const { isNil, isNull } = lodash;
 import { Mutex } from "async-mutex";
 import { sendIgMessageMedia } from "../services/FacebookServices/igMessageListener";
 import ListMessagesService from "../services/MessageServices/ListMessagesService";
 import ShowTicketService from "../services/TicketServices/ShowTicketService";
 import DeleteWhatsAppMessage from "../services/WbotServices/DeleteWhatsAppMessage";
 import SendWhatsAppMedia from "../services/WbotServices/SendWhatsAppMedia";
-import SendWhatsAppMessage from "../services/WbotServices/SendWhatsAppMessage";
+import SendWhatsAppMessage, { buildContactVCard } from "../services/WbotServices/SendWhatsAppMessage";
 import CreateMessageService from "../services/MessageServices/CreateMessageService";
 import ProcessPendingMessagesService from "../services/MessageServices/ProcessPendingMessagesService";
 import { sendInstagramAttachment } from "../services/FacebookServices/graphAPI";
@@ -42,6 +55,9 @@ import {
   logCoexError as coexLogError
 } from "../utils/coexistenceLogger";
 import { updateTraceContext } from "../utils/traceContext";
+// FASE 7 Coexistencia — router unificado outbound
+import { routeAndSendOutbound } from "../services/CoexistenceServices/CoexistenceOutboundRouterService";
+import OutboundDispatchService from "../services/CoexistenceServices/OutboundDispatchService";
 import ShowContactService from "../services/ContactServices/ShowContactService";
 import FindOrCreateTicketService from "../services/TicketServices/FindOrCreateTicketService";
 
@@ -52,11 +68,11 @@ import UpdateTicketService from "../services/TicketServices/UpdateTicketService"
 import ListSettingsService from "../services/SettingServices/ListSettingsService";
 import ShowMessageService, { GetWhatsAppFromMessage } from "../services/MessageServices/ShowMessageService";
 import CompaniesSettings from "../models/CompaniesSettings";
-import { verifyMessageFace, verifyMessageMedia } from "../services/FacebookServices/facebookMessageListener";
+import { verifyMessageMediaPersistence } from "../services/FacebookServices/facebookMessagePersistence";
 import EditWhatsAppMessage from "../services/MessageServices/EditWhatsAppMessage";
 import CheckContactNumber from "../services/WbotServices/CheckNumber";
 import TranscribeAudioMessageToText from "../services/MessageServices/TranscribeAudioMessageService";
-import { generateWAMessageFromContent, generateWAMessageContent } from "@whiskeysockets/baileys";
+import { generateWAMessageFromContent, generateWAMessageContent } from "baileys";
 
 type IndexQuery = {
     pageNumber: string;
@@ -82,6 +98,7 @@ type MessageData = {
     number?: string;
     isPrivate?: string;
     vCard?: Contact;
+    vCardId?: number | string;
 };
 
 // adicionar funções de botões, pix, etc.
@@ -111,7 +128,7 @@ export const sendListMessage = async (req: Request, res: Response): Promise<Resp
         };
 
         const number = `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`;
-        console.log('Numero do cliente:', number);
+        console.log('Numero do cliente:', maskPhone(number));
 
         const sendMsg = await wbot.sendMessage(number, listMessage);
         await verifyMessage(sendMsg, ticket, contact);
@@ -541,13 +558,13 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 };
 
 function obterNomeEExtensaoDoArquivo(url) {
-    var urlObj = new URL(url);
-    var pathname = urlObj.pathname;
-    var filename = pathname.split('/').pop();
-    var parts = filename.split('.');
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const filename = pathname.split('/').pop();
+    const parts = filename.split('.');
 
-    var nomeDoArquivo = parts[0];
-    var extensao = parts[1];
+    const nomeDoArquivo = parts[0];
+    const extensao = parts[1];
 
     return `${nomeDoArquivo}.${extensao}`;
 }
@@ -565,11 +582,50 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
     try {
         const { ticketId } = req.params;
-        const { body, quotedMsg, vCard, isPrivate = "false" }: MessageData = req.body;
+        const {
+            body: rawBody,
+            quotedMsg,
+            vCard,
+            vCardId,
+            isPrivate = "false",
+            signMessage = false
+        }: MessageData & { signMessage?: boolean | string; body: any } = req.body;
         const medias = req.files as Express.Multer.File[];
         const { companyId } = req.user;
 
         const ticket = await ShowTicketService(ticketId, companyId);
+        const sharedContactId = vCardId || (vCard as any)?.id;
+        const sharedContact = sharedContactId
+            ? await ShowContactService(sharedContactId, companyId)
+            : null;
+
+        if (sharedContact && ticket.channel !== "whatsapp") {
+            throw new AppError("ERR_CONTACT_CARD_ONLY_WHATSAPP", 400);
+        }
+
+        if (sharedContact && isPrivate === "true") {
+            throw new AppError("ERR_CONTACT_CARD_PRIVATE_NOT_SUPPORTED", 400);
+        }
+
+        const shouldSignMessage =
+            (signMessage === true || signMessage === "true") &&
+            isPrivate !== "true" &&
+            !sharedContact;
+        let body = sharedContact ? buildContactVCard(sharedContact) : rawBody;
+
+        if (shouldSignMessage && typeof rawBody === "string" && rawBody.trim()) {
+            const requestUser = await User.findByPk(req.user.id);
+            const signatureName = requestUser?.name || "Usuario";
+            body = `*${signatureName}:*\n${rawBody}`;
+        } else if (shouldSignMessage && Array.isArray(rawBody)) {
+            const requestUser = await User.findByPk(req.user.id);
+            const signatureName = requestUser?.name || "Usuario";
+            body = rawBody.map((item) =>
+                typeof item === "string" && item.trim()
+                    ? `*${signatureName}:*\n${item}`
+                    : item
+            );
+        }
 
         // FASE 1 Coexistencia — propagar ticketId al trace context
         updateTraceContext({ companyId, ticketId: ticket.id });
@@ -627,7 +683,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
                             if (ticket.channel === "facebook") {
                                 console.log('2sentMedia fa', sentMedia)
-                                await verifyMessageMedia(sentMedia, ticket, ticket.contact, true);
+                                await verifyMessageMediaPersistence(sentMedia, ticket, ticket.contact, true);
                             }
                         } catch (error) {
                             console.log(error);
@@ -644,7 +700,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
                             if (ticket.channel === "instagram") {
                                 console.log('2 sentMedia ig', sentMedia)
-                                await verifyMessageMedia(sentMedia, ticket, ticket.contact, true);
+                                await verifyMessageMediaPersistence(sentMedia, ticket, ticket.contact, true);
                             }
                         } catch (error) {
                             console.log(error);
@@ -652,7 +708,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                     }
                     if (["telegram"].includes(ticket.channel)) {
                         try {
-                            const SendTelegramMessage = require("../services/TelegramService/SendTelegramMessage").default;
                             console.log('sentMedia telegram', media)
                             const sentMedia = await SendTelegramMessage({
                                 body: Array.isArray(body) ? body[index] : body,
@@ -680,7 +735,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                             //     mediaPath: media.path
                             // });
 
-                            // console.log('Enviando media por Telegram:', media.filename);
                             await SendTelegramMessage({
                                 body: Array.isArray(body) ? body[index] : body,
                                 ticket,
@@ -693,14 +747,12 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                             //     ticketId,
                             //     filename: media.filename
                             // });
-                            // console.log('Media de Telegram enviada exitosamente');
                         } catch (err) {
                             // messageLogger.error('Error enviando media por Telegram', err, {
                             //     requestId,
                             //     ticketId,
                             //     filename: media.filename
                             // });
-                            // console.error('Error enviando media por Telegram:', err);
                         }
                     }
 
@@ -716,6 +768,79 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
         } else {
             console.log('[MessageController] isPrivate:', isPrivate, 'ticket.channel:', ticket.channel, 'ticket.status:', ticket.status);
             if (ticket.channel === "whatsapp" && isPrivate === "false") {
+                const flagOn = OutboundDispatchService.isUnifiedDispatchEnabled(companyId);
+                const reverseMetaWa = flagOn && ticket.whatsappId
+                    ? await Whatsapp.findOne({
+                        where: {
+                            companyId: ticket.companyId,
+                            linkedWhatsappId: ticket.whatsappId,
+                            channel: "meta",
+                            coexistenceEnabled: true
+                        } as any
+                    })
+                    : null;
+
+                if (reverseMetaWa && !sharedContact) {
+                    try {
+                        const requestedMode = (req.body?.routingMode as any) || undefined;
+                        const out = await routeAndSendOutbound({
+                            ticket,
+                            body,
+                            quotedMsg,
+                            requestedMode,
+                            userId: req.user?.id,
+                            companyId: ticket.companyId,
+                            requestedBy: "agent"
+                        });
+
+                        if (out.ok) {
+                            console.log(
+                                `✅ [COEX-ROUTER:WHATSAPP] ticket=${ticket.id} provider=${out.provider} fallback=${out.fallbackApplied} wid=${out.providerMessageId}`
+                            );
+                            return res.status(200).json({
+                                success: true,
+                                provider: out.provider,
+                                fallbackApplied: out.fallbackApplied,
+                                providerMessageId: out.providerMessageId,
+                                messageId: out.messageId,
+                                dispatchId: out.dispatchId,
+                                reason: out.reason
+                            });
+                        }
+
+                        const errCode = out.error?.code || "DISPATCH_FAILED";
+                        const httpStatus =
+                            errCode === "META_WINDOW_CLOSED_NO_BAILEYS"
+                                ? 412
+                                : errCode === "META_WINDOW_CLOSED"
+                                ? 503
+                                : 502;
+                        return res.status(httpStatus).json({
+                            success: false,
+                            error: errCode,
+                            message: out.error?.message,
+                            metaErrorCode: out.error?.metaErrorCode,
+                            metaErrorSubcode: out.error?.metaErrorSubcode,
+                            needsTemplate: out.error?.needsTemplate,
+                            metaClosedWindow: out.metaClosedWindow,
+                            provider: out.provider,
+                            reason: out.reason
+                        });
+                    } catch (routerErr: any) {
+                        console.error(
+                            "[COEX-ROUTER:WHATSAPP] crash, falling back to legacy:",
+                            routerErr?.message
+                        );
+                        coexLogError({
+                            provider: "mixed",
+                            companyId: ticket.companyId,
+                            ticketId: ticket.id,
+                            stage: "MessageController.whatsapp_coex_router",
+                            err: { message: routerErr?.message, name: routerErr?.name }
+                        });
+                    }
+                }
+
                 // NUEVO: Guardar mensaje en BD primero con estado "pending", luego enviar directamente
                 const messageData = {
                     wid: `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`,
@@ -723,7 +848,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                     contactId: undefined,
                     body,
                     fromMe: true,
-                    mediaType: 'extendedTextMessage',
+                    mediaType: sharedContact ? 'contactMessage' : 'extendedTextMessage',
                     read: true,
                     quotedMsgId: quotedMsg?.id || null,
                     ack: 0, // 0 = pending (no confirmado aún)
@@ -746,21 +871,32 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 // Enviar directamente si la sesión está conectada
                 // IMPORTANTE: Usar GetTicketWbot para soportar routing entre nodos
                 try {
-                    const SendWhatsAppMessage = require("../services/WbotServices/SendWhatsAppMessage").default;
                     const wbot = await GetTicketWbot(ticket);
                     console.log('[MessageController] Intentando enviar mensaje...');
-                    await SendWhatsAppMessage({
+                    const sentMessage = await SendWhatsAppMessage({
                         body: body,
                         ticket: ticket,
+                        vCard: sharedContact || undefined,
                         wbot // Pasar el wbot obtenido
                     });
+                    const sentWid = sentMessage?.key?.id || createdMessage.wid;
+                    const sentRemoteJid =
+                        sentMessage?.key?.remoteJid ||
+                        ticket.contact?.remoteJid ||
+                        createdMessage.remoteJid;
 
                     // Actualizar mensaje como enviado
                     await createdMessage.update({
+                        wid: sentWid,
+                        remoteJid: sentRemoteJid,
+                        dataJson: JSON.stringify(sentMessage),
                         messageStatus: 'sent',
                         sentAt: new Date(),
                         ack: 1
                     });
+                    console.log(
+                        `[OutboundDeliveryTrace] accepted source=MessageController messageId=${createdMessage.id} ticketId=${ticket.id} whatsappId=${ticket.whatsappId} wid=${sentWid} remoteJid=${sentRemoteJid}`
+                    );
                     console.log('[MessageController] ✅ Mensaje enviado directamente, ID:', createdMessage.id);
 
                     // Emitir socket para actualizar mensaje en tiempo real (evita duplicados en frontend)
@@ -810,8 +946,92 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 console.log('msj', sendTextig)
             }
             else if (["meta"].includes(ticket.channel)) {
+                // ────────────────────────────────────────────────────────
+                // FASE 7 Coexistencia — Router unificado (feature flag).
+                // Si la conexión tiene coexistenceEnabled=true Y el flag
+                // COEX_UNIFIED_DISPATCH está activo (global o por
+                // company), usamos el router que decide Meta/Baileys
+                // según ventana 24h y aplica fallback runtime.
+                // Si el router falla → caer al path legacy.
+                // ────────────────────────────────────────────────────────
+                const seedWa = await Whatsapp.findOne({
+                    where: { id: ticket.whatsappId, companyId: ticket.companyId }
+                });
+                const coexEnabled = !!(seedWa as any)?.coexistenceEnabled;
+                const flagOn = OutboundDispatchService.isUnifiedDispatchEnabled(companyId);
+
+                if (coexEnabled && flagOn) {
+                    try {
+                        const requestedMode = (req.body?.routingMode as any) || undefined;
+                        const out = await routeAndSendOutbound({
+                            ticket,
+                            body,
+                            quotedMsg,
+                            requestedMode,
+                            userId: req.user?.id,
+                            companyId: ticket.companyId,
+                            requestedBy: "agent"
+                        });
+
+                        if (out.ok) {
+                            console.log(
+                                `✅ [COEX-ROUTER] ticket=${ticket.id} provider=${out.provider} fallback=${out.fallbackApplied} wid=${out.providerMessageId}`
+                            );
+                            return res.status(200).json({
+                                success: true,
+                                provider: out.provider,
+                                fallbackApplied: out.fallbackApplied,
+                                providerMessageId: out.providerMessageId,
+                                messageId: out.messageId,
+                                dispatchId: out.dispatchId,
+                                reason: out.reason
+                            });
+                        }
+
+                        // Si el router falló por ventana cerrada SIN baileys,
+                        // devolvemos error claro al frontend (NO seguimos al
+                        // legacy — sería el mismo error). Para otros errores,
+                        // devolvemos detalle estructurado.
+                        const errCode = out.error?.code || "DISPATCH_FAILED";
+                        const httpStatus =
+                            errCode === "META_WINDOW_CLOSED_NO_BAILEYS"
+                                ? 412 // Precondition Failed — necesita template
+                                : errCode === "META_WINDOW_CLOSED"
+                                ? 503
+                                : 502;
+                        return res.status(httpStatus).json({
+                            success: false,
+                            error: errCode,
+                            message: out.error?.message,
+                            metaErrorCode: out.error?.metaErrorCode,
+                            metaErrorSubcode: out.error?.metaErrorSubcode,
+                            needsTemplate: out.error?.needsTemplate,
+                            metaClosedWindow: out.metaClosedWindow,
+                            provider: out.provider,
+                            reason: out.reason
+                        });
+                    } catch (routerErr: any) {
+                        // Router crash inesperado → fail-open al legacy.
+                        console.error(
+                            "[COEX-ROUTER] crash, falling back to legacy:",
+                            routerErr?.message
+                        );
+                        coexLogError({
+                            provider: "meta",
+                            companyId: ticket.companyId,
+                            ticketId: ticket.id,
+                            stage: "MessageController.coex_router",
+                            err: { message: routerErr?.message, name: routerErr?.name }
+                        });
+                    }
+                }
+
+                // ─── PATH LEGACY (sin coexistencia o flag off) ───
                 // Obtener la conexión WhatsApp del ticket para credenciales META
-                const whatsapp = await Whatsapp.findByPk(ticket.whatsappId);
+                // Multi-tenant: filtrar por companyId del ticket (defensa en profundidad)
+                const whatsapp = seedWa || await Whatsapp.findOne({
+                    where: { id: ticket.whatsappId, companyId: ticket.companyId }
+                });
                 // facebookPageUserId contiene el Phone Number ID de Meta (necesario para enviar)
                 const phoneNumberId = whatsapp?.phoneNumberId || whatsapp?.facebookPageUserId || whatsapp?.number;
 
@@ -823,7 +1043,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 console.log("📤 [META-SEND] phoneNumberId (facebookPageUserId):", whatsapp?.facebookPageUserId || "undefined");
                 console.log("📤 [META-SEND] phoneNumberId (number):", whatsapp?.number || "undefined");
                 console.log("📤 [META-SEND] phoneNumberId resuelto:", phoneNumberId || "undefined ❌");
-                console.log("📤 [META-SEND] tokenMeta existe:", whatsapp?.tokenMeta ? `SI (${whatsapp.tokenMeta.substring(0, 20)}...)` : "NO ❌");
+                console.log("📤 [META-SEND] tokenMeta:", !!whatsapp?.tokenMeta);
                 console.log("📤 [META-SEND] coexistenceEnabled:", (whatsapp as any)?.coexistenceEnabled);
                 console.log("📤 [META-SEND] coexistenceStatus:", (whatsapp as any)?.coexistenceStatus);
                 // ─────────────────────────────────────────────────────────
@@ -840,7 +1060,46 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                 console.log("📤 [META-SEND] URL destino Graph API:", `https://graph.facebook.com/v24.0/${phoneNumberId}/messages`);
 
                 try {
-                    await metaSendTextDynamic(to, msgBody, phoneNumberId, whatsapp.tokenMeta);
+                    const metaResponse = await metaSendTextDynamic(to, msgBody, phoneNumberId, whatsapp.tokenMeta);
+                    const metaMessageId = metaResponse?.data?.messages?.[0]?.id;
+
+                    if (!metaMessageId) {
+                        console.warn("[META-SEND] ⚠️ Meta no devolvió messages[0].id; se usará wid local de respaldo");
+                    }
+
+                    const messageData = {
+                        wid: metaMessageId || `meta_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                        ticketId: ticket.id,
+                        contactId: ticket.contactId,
+                        body: msgBody,
+                        fromMe: true,
+                        mediaType: "extendedTextMessage",
+                        read: true,
+                        quotedMsgId: quotedMsg?.id || null,
+                        ack: 1,
+                        remoteJid: ticket.contact?.remoteJid || `${to}@s.whatsapp.net`,
+                        participant: null,
+                        dataJson: JSON.stringify(metaResponse?.data || {}),
+                        ticketTrakingId: null,
+                        isPrivate: false,
+                        provider: "meta",
+                        sourceChannel: "cloud_api",
+                        externalId: metaMessageId || undefined,
+                        messageStatus: "sent",
+                        sentAt: new Date(),
+                        whatsappId: ticket.whatsappId
+                    };
+
+                    const createdMessage = await CreateMessageService({
+                        messageData,
+                        companyId: ticket.companyId
+                    });
+
+                    await ticket.update({ lastMessage: msgBody });
+
+                    console.log(
+                      `✅ [META-SEND] Mensaje guardado localmente id=${createdMessage.id} wid=${createdMessage.wid}`
+                    );
                     console.log(`✅ [META-SEND] ¡Mensaje enviado exitosamente! ticketId=${ticket.id} to=${to}`);
                 } catch (error: any) {
                     const metaError = error.response?.data?.error;
@@ -867,7 +1126,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                     //     bodyLength: body?.length || 0
                     // });
 
-                    // console.log('Enviando mensaje de texto por Telegram:', body);
 
                     // Validar que hay contenido para enviar
                     if (!body || body.trim() === "") {
@@ -875,7 +1133,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                         //     requestId,
                         //     ticketId
                         // });
-                        // console.log('No hay contenido para enviar por Telegram, omitiendo...');
                         return res.status(200).json({ message: "No content to send" });
                     }
 
@@ -889,13 +1146,11 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
                     //     requestId,
                     //     ticketId
                     // });
-                    // console.log('Mensaje de Telegram enviado exitosamente');
                 } catch (err) {
                     // messageLogger.error('Error enviando mensaje por Telegram', err, {
                     //     requestId,
                     //     ticketId
                     // });
-                    // console.error('Error enviando mensaje por Telegram:', err);
                     return res.status(400).json({
                         error: "Error enviando mensaje",
                         details: err.message
@@ -940,7 +1195,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
         //     requestId,
         //     ticketId: req.params.ticketId
         // });
-        // console.log(err);
         return res.status(400).json({ error: err.message });
     }
 };
@@ -989,9 +1243,6 @@ export const forwardMessage = async (
 
         if (!originalMessage) {
             return res.status(404).send("Message not found");
-        }
-        if (!originalMessage.fromMe) {
-            throw new AppError("Solo se pueden reenviar mensajes propios", 403);
         }
         if ((originalMessage as any).isDeleted) {
             throw new AppError("No se puede reenviar un mensaje eliminado", 400);
@@ -1060,7 +1311,7 @@ export const forwardMessage = async (
 
         let body = message.body;
         if (message.mediaType === 'conversation' || message.mediaType === 'extendedTextMessage') {
-            await SendWhatsAppMessage({ body, ticket: createTicket, quotedMsg, isForwarded: message.fromMe ? false : true });
+            await SendWhatsAppMessage({ body, ticket: createTicket, quotedMsg, isForwarded: true });
         } else {
 
             const mediaUrl = message.mediaUrl.replace(`:${process.env.PORT}`, '');
@@ -1070,7 +1321,7 @@ export const forwardMessage = async (
                 body = "";
             }
 
-            const publicFolder = path.join(__dirname, '..', '..', '..', 'backend', 'public');
+            const publicFolder = path.join(currentDir, '..', '..', '..', 'backend', 'public');
 
             const filePath = path.join(publicFolder, `company${createTicket.companyId}`, fileName)
 
@@ -1083,7 +1334,7 @@ export const forwardMessage = async (
                 path: filePath
             } as Express.Multer.File
 
-            await SendWhatsAppMedia({ media: mediaSrc, ticket: createTicket, body, isForwarded: message.fromMe ? false : true });
+            await SendWhatsAppMedia({ media: mediaSrc, ticket: createTicket, body, isForwarded: true });
         }
 
         // Crear registro BD para el mensaje reenviado con isForwarded=true
@@ -1287,7 +1538,6 @@ export const send = async (req: Request, res: Response): Promise<Response> => {
         //     number: messageData.number
         // });
 
-        // console.log(err);
         if (Object.keys(err).length === 0) {
             throw new AppError(
                 "No hemos podido enviar el mensaje, inténtelo de nuevo en unos instantes."
@@ -1340,25 +1590,33 @@ export const sendMessageFlow = async (
     body: any,
     req: Request,
     files?: Express.Multer.File[]
-): Promise<String> => {
+): Promise<string> => {
     const messageData = body;
     const medias = files;
 
     try {
-        const whatsapp = await Whatsapp.findByPk(whatsappId);
+        if (messageData.number === undefined) {
+            throw new Error("El número es obligatorio");
+        }
+
+        const companyIdFromBody = messageData.companyId;
+        if (!companyIdFromBody) {
+            throw new Error("companyId es obligatorio en el body");
+        }
+
+        // Multi-tenant: filtrar por companyId — evita uso cruzado de credenciales
+        const whatsapp = await Whatsapp.findOne({
+            where: { id: whatsappId, companyId: companyIdFromBody }
+        });
 
         if (!whatsapp) {
             throw new Error("La operación no pudo llevarse a cabo");
         }
 
-        if (messageData.number === undefined) {
-            throw new Error("El número es obligatorio");
-        }
-
         const numberToTest = messageData.number;
         const body = messageData.body;
 
-        const companyId = messageData.companyId;
+        const companyId = companyIdFromBody;
 
         const CheckValidNumber = await CheckContactNumber(numberToTest, companyId);
         const number = CheckValidNumber.replace(/\D/g, "");
@@ -1410,7 +1668,7 @@ export const sendMessageFlow = async (
 // Nueva función para enviar mensaje rápido por ID
 export const sendQuickMessage = async (req: Request, res: Response): Promise<Response> => {
     const { ticketId } = req.params;
-    const { quickMessageId } = req.body;
+    const { quickMessageId, signMessage = false } = req.body;
     const { companyId } = req.user;
 
     try {
@@ -1443,6 +1701,14 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
         }
 
         const storedFilename = quickMessage.getDataValue("mediaPath");
+        const shouldSignMessage = signMessage === true || signMessage === "true";
+        let quickMessageBody = quickMessage.message || "";
+
+        if (shouldSignMessage && quickMessageBody.trim()) {
+            const requestUser = await User.findByPk(req.user.id);
+            const signatureName = requestUser?.name || "Usuario";
+            quickMessageBody = `*${signatureName}:*\n${quickMessageBody}`;
+        }
 
         // Si el mensaje rápido tiene media (archivo adjunto)
         if (storedFilename) {
@@ -1473,7 +1739,7 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
                     await SendWhatsAppMedia({
                         media: mediaSrc,
                         ticket,
-                        body: quickMessage.message || "",
+                        body: quickMessageBody,
                         isPrivate: false,
                         isForwarded: false
                     });
@@ -1485,7 +1751,7 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
                 // Si el archivo no existe, solo enviar el texto
                 if (ticket.channel === "whatsapp") {
                     await SendWhatsAppMessage({
-                        body: quickMessage.message,
+                        body: quickMessageBody,
                         ticket,
                         quotedMsg: null,
                         vCard: null
@@ -1496,7 +1762,7 @@ export const sendQuickMessage = async (req: Request, res: Response): Promise<Res
             // Solo enviar texto
             if (ticket.channel === "whatsapp") {
                 await SendWhatsAppMessage({
-                    body: quickMessage.message,
+                    body: quickMessageBody,
                     ticket,
                     quotedMsg: null,
                     vCard: null
@@ -1554,6 +1820,46 @@ export const retryDecrypt = async (req: Request, res: Response): Promise<Respons
     return res.status(statusCode).json({
       success: false,
       decrypted: false,
+      message
+    });
+  }
+};
+
+/**
+ * Recupera mensajes faltantes/cifrados de un ticket.
+ * POST /messages/ticket/:ticketId/recover
+ */
+export const recoverTicketMessages = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { ticketId } = req.params;
+    const { companyId, id: userId } = req.user;
+    const requestedLimit = Number(req.body?.limit || req.query?.limit || 20);
+
+    if (!ticketId || isNaN(Number(ticketId))) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de ticket inválido"
+      });
+    }
+
+    const RecoverTicketMessagesService = (
+      await import("../services/MessageServices/RecoverTicketMessagesService")
+    ).default;
+
+    const result = await RecoverTicketMessagesService({
+      ticketId: Number(ticketId),
+      companyId,
+      userId: Number(userId),
+      limit: requestedLimit
+    });
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    const statusCode = err.statusCode || 500;
+    const message = err.message || "Error recuperando mensajes";
+    console.error("[recoverTicketMessages] Error:", message);
+    return res.status(statusCode).json({
+      success: false,
       message
     });
   }

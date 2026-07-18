@@ -1,5 +1,6 @@
 import Queue from "../models/Queue";
 import Company from "../models/Company";
+import Role from "../models/Role";
 import User from "../models/User";
 import jwt from "jsonwebtoken";
 
@@ -10,6 +11,8 @@ interface SerializedUser {
   profile: string;
   companyId: number;
   company: Company | null;
+  roleId: number | null;
+  role: Role | null;
   super: boolean;
   queues: Queue[];
   startWork: string;
@@ -45,6 +48,8 @@ export const SerializeUser = async (user: User): Promise<SerializedUser> => {
     profile: user.profile,
     companyId: user.companyId,
     company: user.company,
+    roleId: user.roleId,
+    role: (user as any).role ?? null,
     super: user.super,
     queues: user.queues,
     startWork: user.startWork,

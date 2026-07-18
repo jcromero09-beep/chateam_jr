@@ -1,4 +1,5 @@
-import { verify } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+const { verify } = jwt;
 import authConfig from "../../config/auth";
 import * as Yup from "yup";
 import { Request, Response } from "express";

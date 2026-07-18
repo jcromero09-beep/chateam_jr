@@ -9,7 +9,8 @@ import User from "../../models/User";
 import ShowUserService from "../UserServices/ShowUserService";
 import Tag from "../../models/Tag";
 
-import { intersection } from "lodash";
+import lodash from "lodash";
+const { intersection } = lodash;
 import Whatsapp from "../../models/Whatsapp";
 import ContactTag from "../../models/ContactTag";
 import CustomerOrigin from "../../models/CustomerOrigin";
@@ -17,6 +18,7 @@ import CustomerOrigin from "../../models/CustomerOrigin";
 import removeAccents from "remove-accents";
 
 import FindCompanySettingOneService from "../CompaniesSettings/FindCompanySettingOneService";
+import logger from "../../utils/logger";
 
 interface Request {
   searchParam?: string;
@@ -78,7 +80,28 @@ const ListTicketsService = async ({
   limit = 20
 }: Request): Promise<Response> => {
   try {
-  const user = await ShowUserService(userId, companyId);
+  // Impersonación: el super entra a una empresa con su propio userId (para que la
+  // sesión valide), pero NO existe como usuario en esa companyId → ShowUserService
+  // lanzaría ERR_NO_USER_FOUND y (sin catch) tumbaría el proceso. Se trata como
+  // super con acceso total: ve todos los tickets de la empresa.
+  let user: any;
+  try {
+    user = await ShowUserService(userId, companyId);
+  } catch (err: any) {
+    if (err?.message === "ERR_NO_USER_FOUND") {
+      user = {
+        profile: "super",
+        allHistoric: "enabled",
+        allTicket: "enabled",
+        allUserChat: "enabled",
+        allowGroup: true,
+        queues: [],
+        whatsappId: null
+      };
+    } else {
+      throw err;
+    }
+  }
 
   // Soportar tanto boolean como string para estos campos (la DB puede tener ambos tipos)
   const showTicketAllQueues = user.allHistoric === "enabled" || (user.allHistoric as unknown) === true;
@@ -93,6 +116,7 @@ const ListTicketsService = async ({
   const isPrivilegedUser = user.profile === "admin" || user.profile === "super";
   const requestedQueueIds = Array.isArray(queueIds) ? queueIds : [];
   const userQueueIds = user.queues.map(queue => queue.id);
+  const shouldRestrictByAssignedWhatsapp = user.profile === "user" && user.whatsappId !== undefined && user.whatsappId !== null;
   const hasQueueFilter = requestedQueueIds.length > 0;
   const restrictedQueueIds = hasQueueFilter
     ? intersection(userQueueIds, requestedQueueIds)
@@ -265,13 +289,19 @@ const ListTicketsService = async ({
   if (status === "closed") {
     let latestTickets;
 
+    // Determinar SIEMPRE si debemos restringir por userId para "closed".
+    // "Mis cerrados" debe ser estrictamente por userId (sin ampliar por cola).
+    // Bug fix 2026-05-22: antes la rama del else NO añadía userId aunque
+    // showAll fuera "false" para usuarios no privilegiados.
+    const restrictClosedToOwn = showAll !== "true" || !(isPrivilegedUser || showAllUserChat);
+
     if (!showTicketAllQueues) {
       let whereCondition2: Filterable["where"] = {
         companyId,
         status: "closed",
       }
 
-      if (showAll === "false" && isPrivilegedUser) {
+      if (restrictClosedToOwn) {
         const closedQueueCondition = getQueueVisibilityCondition({
           includeWithoutQueue: false,
           allowAllQueues: false
@@ -314,7 +344,7 @@ const ListTicketsService = async ({
         status: "closed",
       }
 
-      if (showAll === "false" && (isPrivilegedUser || showAllUserChat)) {
+      if (restrictClosedToOwn) {
         const closedQueueCondition = getQueueVisibilityCondition({
           includeWithoutQueue: false,
           allowAllQueues: false
@@ -531,50 +561,12 @@ const ListTicketsService = async ({
 
       }
 
-      if (Array.isArray(tags) && tags.length > 0) {
-        const contactTagFilter: any[] | null = [];
-        // for (let tag of tags) {
-        const contactTags = await ContactTag.findAll({
-          where: { tagId: tags }
-        });
-        if (contactTags) {
-          contactTagFilter.push(contactTags.map(t => t.contactId));
-        }
-        // }
-
-        const contactsIntersection: number[] = intersection(...contactTagFilter);
-
-        whereCondition = {
-          ...whereCondition,
-          contactId: contactsIntersection
-        };
-      }
-
-      if (Array.isArray(users) && users.length > 0) {
-        whereCondition = {
-          ...whereCondition,
-          userId: users
-        };
-      }
-
-
-      if (Array.isArray(whatsappIds) && whatsappIds.length > 0) {
-        whereCondition = {
-          ...whereCondition,
-          whatsappId: whatsappIds
-        };
-      }
-
-      if (Array.isArray(statusFilters) && statusFilters.length > 0) {
-        whereCondition = {
-          ...whereCondition,
-          status: { [Op.in]: statusFilters }
-        };
-      }
+      // Los filtros tags/users/whatsappIds/statusFilters se aplican abajo de
+      // forma global (fuera de las ramas de status) para que funcionen también
+      // en open/pending/closed, no solo en search. Fix: 2026-05-29.
 
     } else
       if (withUnreadMessages === "true") {
-        // console.log(showNotificationPendingValue)
         const unreadQueueCondition = getQueueVisibilityCondition({
           includeWithoutQueue: showTicketWithoutQueue,
           allowAllQueues: false
@@ -625,6 +617,103 @@ const ListTicketsService = async ({
     ...whereCondition,
     companyId
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FILTROS GLOBALES (bug fix 2026-05-29)
+  // Antes vivían dentro del bloque `status === "search"`, por lo que solo
+  // funcionaban al buscar. Ahora se aplican siempre, sin importar el status,
+  // para que el usuario pueda filtrar por conexión / agente / cola / tag /
+  // multi-status en cualquier vista (open/pending/closed/search/etc.).
+  // ─────────────────────────────────────────────────────────────────────────
+  if (Array.isArray(tags) && tags.length > 0) {
+    const contactTagFilter: number[][] = [];
+    const contactTags = await ContactTag.findAll({ where: { tagId: tags } });
+    if (contactTags && contactTags.length > 0) {
+      contactTagFilter.push(contactTags.map(t => t.contactId));
+    }
+    if (contactTagFilter.length > 0) {
+      const contactsIntersection: number[] = intersection(...contactTagFilter);
+      whereCondition = {
+        ...whereCondition,
+        contactId: contactsIntersection
+      };
+    }
+  }
+
+  if (Array.isArray(users) && users.length > 0) {
+    whereCondition = {
+      ...whereCondition,
+      userId: users
+    };
+  }
+
+  if (Array.isArray(whatsappIds) && whatsappIds.length > 0) {
+    whereCondition = {
+      ...whereCondition,
+      whatsappId: whatsappIds
+    };
+  }
+
+  if (Array.isArray(statusFilters) && statusFilters.length > 0) {
+    whereCondition = {
+      ...whereCondition,
+      status: { [Op.in]: statusFilters }
+    };
+  }
+
+  if (shouldRestrictByAssignedWhatsapp) {
+    whereCondition = {
+      ...whereCondition,
+      whatsappId: user.whatsappId
+    };
+    logger.info(
+      `[ListTicketsService] restrictAssignedWhatsapp aplicado userId=${userId} whatsappId=${user.whatsappId} status=${status || "n/a"}`
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GUARD FINAL DE PRIVACIDAD (bug fix 2026-05-22)
+  // Cuando showAll !== "true", o cuando el usuario NO es privilegiado
+  // (admin/super/allUserChat), forzamos SIEMPRE el filtro por userId del
+  // request, sin importar el status (open / pending / closed / group / search /
+  // withUnreadMessages). Esto evita que ramas que arman where con solo
+  // { companyId, status } expongan tickets de otros agentes.
+  //
+  // Excepciones:
+  //   - status === "pending": en la rama de "user" ya existe lógica para
+  //     mostrar pendientes sin asignar (userId: null) en las colas del agente,
+  //     así que respetamos { Op.or: [user.id, null] } para no romper colas.
+  //   - status === "group": grupos se filtran por whatsappId del usuario, no
+  //     por userId; se omite el guard para no romper grupos.
+  //
+  // Cualquier otro status: userId del agente actual queda fijo.
+  // ─────────────────────────────────────────────────────────────────────────
+  const isShowAll = showAll === "true";
+  const isPrivilegedForShowAll = isPrivilegedUser || showAllUserChat;
+  const enforceOwnUserFilter = !isShowAll || !isPrivilegedForShowAll;
+
+  if (enforceOwnUserFilter && status !== "group") {
+    if (status === "pending") {
+      // Pending puede estar sin asignar (userId null) y visible en colas del agente.
+      // No sobreescribir si ya hay un filtro userId más específico de la rama "user".
+      const existingUserId = (whereCondition as any)?.userId;
+      if (existingUserId === undefined) {
+        whereCondition = {
+          ...whereCondition,
+          userId: { [Op.or]: [userId, null] }
+        };
+      }
+    } else {
+      // open / closed / search / withUnreadMessages / sin status → solo mis tickets
+      whereCondition = {
+        ...whereCondition,
+        userId
+      };
+    }
+    logger.info(
+      `[ListTicketsService] enforceOwnUserFilter aplicado userId=${userId} status=${status || "n/a"} showAll=${showAll} privileged=${isPrivilegedForShowAll}`
+    );
+  }
 
   // Si limit es 0, retornar todos los registros (para contadores)
   const effectiveLimit = (limit === 0) ? undefined : limit;

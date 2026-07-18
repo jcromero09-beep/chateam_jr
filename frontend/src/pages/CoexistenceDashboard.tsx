@@ -8,44 +8,31 @@
  * - Setup automático de la App
  * - Métricas de tokens y expiración
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
+// [Fase2·G] Progress se conserva en MUI Joy a propósito (no hay equivalente en el DS).
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  Chip,
-  Alert,
-  CircularProgress,
-  Divider,
-  Sheet,
-  Table,
-  LinearProgress,
-  IconButton,
-  Tooltip,
-  AspectRatio,
-} from '@mui/joy'
-import {
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Refresh as RefreshIcon,
-  Settings as SettingsIcon,
-  CloudDone as CloudDoneIcon,
-  Sync as SyncIcon,
-  PhoneAndroid as PhoneIcon,
-  Timer as TimerIcon,
-  Shield as ShieldIcon,
-  TrendingUp as TrendingUpIcon,
+  ArrowsClockwise,
+  ArrowClockwise,
+  CheckCircle,
+  WarningCircle,
+  Warning,
+  Gear,
+  CloudCheck,
+  DeviceMobile,
+  Timer,
+  ShieldCheck,
+  TrendUp,
   Link as LinkIcon,
-  LinkOff as LinkOffIcon,
-  Webhook as WebhookIcon,
-  PlayArrow as PlayIcon,
-  Info as InfoIcon,
-} from '@mui/icons-material'
+  LinkBreak,
+  Broadcast,
+  Play,
+  Info,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 import api from '../services/api'
 import EmbeddedSignupModal from '../components/EmbeddedSignupModal'
 import CoexistenceConfigModal from '../components/CoexistenceConfigModal'
@@ -136,6 +123,57 @@ interface AppStatusData {
   webhookUrl: string
 }
 
+const columns = [
+  'ID',
+  'Nombre',
+  'Numero',
+  'Estado',
+  'Coexistencia',
+  'Recibir',
+  'Enviar',
+  'Business App',
+  '',
+]
+
+/** KPI tile con icono — mismas superficies/tokens que `StatTile` del DS. */
+function KpiTile({
+  label,
+  value,
+  icon,
+  tone = 'neutral',
+}: {
+  label: string
+  value: number
+  icon: ReactNode
+  tone?: 'primary' | 'success' | 'warning' | 'destructive' | 'neutral'
+}) {
+  const iconTone: Record<string, string> = {
+    primary: 'bg-primary/12 text-primary',
+    success: 'bg-success/14 text-success-text',
+    warning: 'bg-warning/16 text-warning-text',
+    destructive: 'bg-destructive/12 text-destructive-text',
+    neutral: 'bg-muted text-muted-foreground',
+  }
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="min-w-0">
+        <p className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+        <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+          {value}
+        </p>
+      </div>
+      <span
+        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${iconTone[tone]}`}
+        aria-hidden
+      >
+        {icon}
+      </span>
+    </div>
+  )
+}
+
 export default function CoexistenceDashboard() {
   const [loading, setLoading] = useState(true)
   const [statusData, setStatusData] = useState<CoexistenceStatusData | null>(null)
@@ -193,14 +231,12 @@ export default function CoexistenceDashboard() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <Stack spacing={2} alignItems="center">
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
           <CircularProgress size="lg" />
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Cargando panel de coexistencia...
-          </Typography>
-        </Stack>
-      </Box>
+          <p className="text-sm text-muted-foreground">Cargando panel de coexistencia...</p>
+        </div>
+      </div>
     )
   }
 
@@ -208,583 +244,517 @@ export default function CoexistenceDashboard() {
   const alerts = statusData?.alerts || []
   const connections = statusData?.connections || []
 
+  const statusBadge = (status: string): { label: string; variant: BadgeProps['variant'] } => {
+    if (status === 'CONNECTED') return { label: 'Conectado', variant: 'success' }
+    if (status === 'DISCONNECTED') return { label: 'Desconectado', variant: 'destructive' }
+    return { label: status, variant: 'warning' }
+  }
+
+  const coexBadge = (
+    status: string | null,
+  ): { label: string; variant: BadgeProps['variant'] } => {
+    if (status === 'active') return { label: 'Activa', variant: 'success' }
+    if (status === 'disabled') return { label: 'Desactivada', variant: 'destructive' }
+    if (status === 'syncing') return { label: 'Sincronizando', variant: 'primary' }
+    return { label: 'Pendiente', variant: 'warning' }
+  }
+
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto' }}>
-      {/* Header */}
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, #1877f2, #42b72a)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <SyncIcon sx={{ color: 'white', fontSize: 28 }} />
-          </Box>
-          <Box>
-            <Typography level="h3">Coexistencia WhatsApp</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Business App + Cloud API — Monitoreo y Configuracion
-            </Typography>
-          </Box>
-        </Stack>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <ArrowsClockwise className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Coexistencia WhatsApp
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Business App + Cloud API — Monitoreo y Configuracion
+                </p>
+              </div>
+            </div>
 
-        <Stack direction="row" spacing={1}>
-          <Tooltip title="Actualizar datos">
-            <IconButton variant="outlined" color="neutral" onClick={fetchData}>
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-          <Button
-            variant="solid"
-            color="primary"
-            startDecorator={<PlayIcon />}
-            onClick={() => setEmbeddedSignupOpen(true)}
-          >
-            Nueva Conexion
-          </Button>
-        </Stack>
-      </Stack>
-
-      {/* Alertas de Liveness */}
-      {alerts.length > 0 && (
-        <Stack spacing={1} sx={{ mb: 3 }}>
-          {alerts.map((alert) => (
-            <Alert
-              key={alert.whatsappId}
-              variant="soft"
-              color={alert.level === 'disabled' ? 'danger' : alert.level === 'critical' ? 'warning' : 'neutral'}
-              startDecorator={
-                alert.level === 'disabled' ? <ErrorIcon /> : <WarningIcon />
-              }
-            >
-              <Box>
-                <Typography level="body-sm" fontWeight={600}>
-                  {alert.name} — {alert.level === 'disabled' ? 'DESACTIVADA' : alert.level === 'critical' ? 'CRITICO' : 'ADVERTENCIA'}
-                </Typography>
-                <Typography level="body-xs">
-                  {alert.message} ({alert.daysSinceOpen} dias sin abrir la Business App)
-                </Typography>
-              </Box>
-            </Alert>
-          ))}
-        </Stack>
-      )}
-
-      {/* KPI Cards */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Card variant="soft" color="primary">
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Box>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Conexiones Meta
-                </Typography>
-                <Typography level="h2" sx={{ mt: 0.5 }}>
-                  {summary?.totalMetaConnections || 0}
-                </Typography>
-              </Box>
-              <AspectRatio ratio="1" sx={{ width: 44, borderRadius: '50%', bgcolor: 'primary.softBg' }}>
-                <Box><LinkIcon sx={{ color: 'primary.500' }} /></Box>
-              </AspectRatio>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        <Card variant="soft" color="success">
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Box>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Coex Activas
-                </Typography>
-                <Typography level="h2" sx={{ mt: 0.5 }}>
-                  {summary?.coexistenceActive || 0}
-                </Typography>
-              </Box>
-              <AspectRatio ratio="1" sx={{ width: 44, borderRadius: '50%', bgcolor: 'success.softBg' }}>
-                <Box><CheckIcon sx={{ color: 'success.500' }} /></Box>
-              </AspectRatio>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        <Card variant="soft" color="warning">
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Box>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Pendientes
-                </Typography>
-                <Typography level="h2" sx={{ mt: 0.5 }}>
-                  {summary?.coexistencePending || 0}
-                </Typography>
-              </Box>
-              <AspectRatio ratio="1" sx={{ width: 44, borderRadius: '50%', bgcolor: 'warning.softBg' }}>
-                <Box><TimerIcon sx={{ color: 'warning.500' }} /></Box>
-              </AspectRatio>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        <Card variant="soft" color={alerts.length > 0 ? 'danger' : 'neutral'}>
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Box>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Alertas
-                </Typography>
-                <Typography level="h2" sx={{ mt: 0.5 }}>
-                  {summary?.alertsCount || 0}
-                </Typography>
-              </Box>
-              <AspectRatio ratio="1" sx={{ width: 44, borderRadius: '50%', bgcolor: alerts.length > 0 ? 'danger.softBg' : 'neutral.softBg' }}>
-                <Box>{alerts.length > 0 ? <WarningIcon sx={{ color: 'danger.500' }} /> : <ShieldIcon sx={{ color: 'neutral.500' }} />}</Box>
-              </AspectRatio>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Box>
-
-      {/* Main Content Grid */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' }, gap: 3 }}>
-        {/* Left: Tabla de Conexiones */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography level="title-md" startDecorator={<PhoneIcon />}>
-                Conexiones con Coexistencia
-              </Typography>
-              <Chip size="sm" variant="outlined" color="neutral">
-                {connections.length} registros
-              </Chip>
-            </Stack>
-
-            {connections.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 6 }}>
-                <LinkOffIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 1 }} />
-                <Typography level="body-md" sx={{ color: 'text.tertiary' }}>
-                  No hay conexiones Meta configuradas
-                </Typography>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 2 }}>
-                  Usa "Nueva Conexion" para configurar Embedded Signup
-                </Typography>
+            <div className="flex items-center gap-2">
+              <Tooltip title="Actualizar datos">
                 <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={() => setEmbeddedSignupOpen(true)}
-                  startDecorator={<CloudDoneIcon />}
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Actualizar datos"
+                  className="text-muted-foreground"
+                  onClick={fetchData}
                 >
-                  Conectar WhatsApp Business
+                  <ArrowClockwise className="size-5" aria-hidden />
                 </Button>
-              </Box>
-            ) : (
-              <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-                <Table size="sm" stickyHeader stripe="even">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 50 }}>ID</th>
-                      <th>Nombre</th>
-                      <th>Numero</th>
-                      <th style={{ width: 100 }}>Estado</th>
-                      <th style={{ width: 110 }}>Coexistencia</th>
-                      <th style={{ width: 100 }}>Recibir</th>
-                      <th style={{ width: 100 }}>Enviar</th>
-                      <th style={{ width: 120 }}>Business App</th>
-                      <th style={{ width: 60 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {connections.map((conn) => {
-                      const daysSinceOpen = conn.coexistence.lastAppOpenedAt
-                        ? Math.floor(
-                            (Date.now() - new Date(conn.coexistence.lastAppOpenedAt).getTime()) /
-                              (1000 * 60 * 60 * 24)
-                          )
-                        : null
+              </Tooltip>
+              <Button size="sm" onClick={() => setEmbeddedSignupOpen(true)}>
+                <Play className="size-4" weight="fill" aria-hidden />
+                Nueva Conexion
+              </Button>
+            </div>
+          </div>
 
-                      return (
-                        <tr key={conn.id}>
-                          <td>
-                            <Typography level="body-xs" fontWeight={600}>
-                              #{conn.id}
-                            </Typography>
-                          </td>
-                          <td>
-                            <Stack>
-                              <Typography level="body-sm" fontWeight={500}>
-                                {conn.name}
-                              </Typography>
-                              {conn.wabaId && (
-                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                  WABA: {conn.wabaId}
-                                </Typography>
-                              )}
-                            </Stack>
-                          </td>
-                          <td>
-                            <Typography level="body-sm">
-                              {conn.displayPhoneNumber || conn.number || '—'}
-                            </Typography>
-                          </td>
-                          <td>
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={conn.status === 'CONNECTED' ? 'success' : conn.status === 'DISCONNECTED' ? 'danger' : 'warning'}
-                            >
-                              {conn.status === 'CONNECTED' ? 'Conectado' : conn.status === 'DISCONNECTED' ? 'Desconectado' : conn.status}
-                            </Chip>
-                          </td>
-                          <td>
-                            {conn.coexistence.enabled ? (
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color={
-                                  conn.coexistence.status === 'active'
-                                    ? 'success'
-                                    : conn.coexistence.status === 'disabled'
-                                    ? 'danger'
-                                    : conn.coexistence.status === 'syncing'
-                                    ? 'primary'
-                                    : 'warning'
-                                }
-                              >
-                                {conn.coexistence.status === 'active'
-                                  ? 'Activa'
-                                  : conn.coexistence.status === 'disabled'
-                                  ? 'Desactivada'
-                                  : conn.coexistence.status === 'syncing'
-                                  ? 'Sincronizando'
-                                  : 'Pendiente'}
-                              </Chip>
-                            ) : (
-                              <Chip size="sm" variant="plain" color="neutral">
-                                No
-                              </Chip>
-                            )}
-                          </td>
-                          <td>
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={
-                                conn.coexistence.receiveChannel === 'both' ? 'primary' :
-                                conn.coexistence.receiveChannel === 'meta' ? 'success' : 'warning'
-                              }
-                            >
-                              {conn.coexistence.receiveChannel === 'both' ? 'Ambos' :
-                               conn.coexistence.receiveChannel === 'meta' ? 'Meta' : 'Baileys'}
-                            </Chip>
-                          </td>
-                          <td>
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={conn.coexistence.sendChannel === 'meta' ? 'success' : 'warning'}
-                            >
-                              {conn.coexistence.sendChannel === 'meta' ? 'Meta API' : 'Baileys'}
-                            </Chip>
-                          </td>
-                          <td>
-                            {daysSinceOpen !== null ? (
-                              <Stack>
-                                <Typography
-                                  level="body-xs"
-                                  fontWeight={600}
-                                  sx={{
-                                    color:
-                                      daysSinceOpen >= 13
-                                        ? 'danger.600'
-                                        : daysSinceOpen >= 11
-                                        ? 'warning.600'
-                                        : 'success.600',
-                                  }}
-                                >
-                                  {daysSinceOpen === 0 ? 'Hoy' : `Hace ${daysSinceOpen}d`}
-                                </Typography>
-                                {daysSinceOpen >= 11 && (
-                                  <LinearProgress
-                                    determinate
-                                    value={Math.min((daysSinceOpen / 14) * 100, 100)}
-                                    color={daysSinceOpen >= 13 ? 'danger' : 'warning'}
-                                    sx={{ height: 4, borderRadius: 2 }}
-                                  />
-                                )}
-                              </Stack>
-                            ) : (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Sin datos
-                              </Typography>
-                            )}
-                          </td>
-                          <td>
-                            <Tooltip title="Configurar coexistencia">
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="neutral"
-                                onClick={() => openConfigModal(conn)}
-                              >
-                                <SettingsIcon sx={{ fontSize: 18 }} />
-                              </IconButton>
-                            </Tooltip>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </Table>
-              </Sheet>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Right: Panel de Configuración */}
-        <Stack spacing={2}>
-          {/* Estado de la App */}
-          <Card>
-            <CardContent>
-              <Typography level="title-md" startDecorator={<SettingsIcon />} sx={{ mb: 2 }}>
-                Configuracion de la App
-              </Typography>
-
-              <Stack spacing={1.5}>
-                {/* Webhook Status */}
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <WebhookIcon sx={{ fontSize: 18, color: 'text.tertiary' }} />
-                    <Typography level="body-sm">Webhooks WBA</Typography>
-                  </Stack>
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={appStatus?.appConfigured ? 'success' : 'danger'}
+          {/* Alertas de Liveness */}
+          {alerts.length > 0 && (
+            <div className="space-y-2">
+              {alerts.map((alert) => {
+                const isDisabled = alert.level === 'disabled'
+                const isCritical = alert.level === 'critical'
+                const tone = isDisabled
+                  ? 'border-destructive/30 bg-destructive/12 text-destructive-text'
+                  : isCritical
+                    ? 'border-warning/30 bg-warning/16 text-warning-text'
+                    : 'border-border bg-muted text-muted-foreground'
+                return (
+                  <div
+                    key={alert.whatsappId}
+                    role="status"
+                    className={`flex items-start gap-3 rounded-lg border p-3 ${tone}`}
                   >
-                    {appStatus?.appConfigured ? 'Activo' : 'Inactivo'}
-                  </Chip>
-                </Stack>
-
-                {/* Env Variables */}
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <ShieldIcon sx={{ fontSize: 18, color: 'text.tertiary' }} />
-                    <Typography level="body-sm">App ID</Typography>
-                  </Stack>
-                  <Chip size="sm" variant="soft" color={statusData?.envCheck.FACEBOOK_APP_ID ? 'success' : 'danger'}>
-                    {statusData?.envCheck.FACEBOOK_APP_ID ? 'OK' : 'Falta'}
-                  </Chip>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <ShieldIcon sx={{ fontSize: 18, color: 'text.tertiary' }} />
-                    <Typography level="body-sm">App Secret</Typography>
-                  </Stack>
-                  <Chip size="sm" variant="soft" color={statusData?.envCheck.FACEBOOK_APP_SECRET ? 'success' : 'danger'}>
-                    {statusData?.envCheck.FACEBOOK_APP_SECRET ? 'OK' : 'Falta'}
-                  </Chip>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <TrendingUpIcon sx={{ fontSize: 18, color: 'text.tertiary' }} />
-                    <Typography level="body-sm">Graph API</Typography>
-                  </Stack>
-                  <Chip size="sm" variant="outlined" color="neutral">
-                    {statusData?.envCheck.FB_GRAPH_VERSION || 'N/A'}
-                  </Chip>
-                </Stack>
-
-                {/* Webhook URL */}
-                {appStatus?.webhookUrl && (
-                  <Box sx={{ mt: 1 }}>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                      Webhook URL:
-                    </Typography>
-                    <Typography
-                      level="body-xs"
-                      sx={{
-                        fontFamily: 'monospace',
-                        bgcolor: 'background.level1',
-                        p: 0.5,
-                        borderRadius: 'xs',
-                        wordBreak: 'break-all',
-                      }}
-                    >
-                      {appStatus.webhookUrl}
-                    </Typography>
-                  </Box>
-                )}
-
-                <Divider />
-
-                {/* Setup Button */}
-                <Button
-                  variant="solid"
-                  color="primary"
-                  fullWidth
-                  onClick={handleSetup}
-                  loading={setupLoading}
-                  startDecorator={<SettingsIcon />}
-                  sx={{ mt: 1 }}
-                >
-                  {appStatus?.appConfigured ? 'Re-configurar App' : 'Configurar App Automaticamente'}
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          {/* Setup Result */}
-          {setupResult && (
-            <Card variant="outlined" color={setupResult.success ? 'success' : 'warning'}>
-              <CardContent>
-                <Typography
-                  level="title-sm"
-                  startDecorator={setupResult.success ? <CheckIcon /> : <WarningIcon />}
-                  sx={{ mb: 1 }}
-                >
-                  Resultado del Setup
-                </Typography>
-
-                <Stack spacing={1}>
-                  {/* Webhook */}
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography level="body-xs">Webhook suscripcion</Typography>
-                    <Chip size="sm" variant="soft" color={setupResult.webhookSubscription.configured ? 'success' : 'danger'}>
-                      {setupResult.webhookSubscription.configured ? 'OK' : 'Error'}
-                    </Chip>
-                  </Stack>
-
-                  {setupResult.webhookSubscription.error && (
-                    <Alert variant="soft" color="danger" size="sm">
-                      <Typography level="body-xs">{setupResult.webhookSubscription.error}</Typography>
-                    </Alert>
-                  )}
-
-                  {/* Campos suscritos */}
-                  <Box>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                      Campos webhook:
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {setupResult.webhookSubscription.fields.map((field) => (
-                        <Chip key={field} size="sm" variant="outlined" color="neutral">
-                          {field}
-                        </Chip>
-                      ))}
-                    </Box>
-                  </Box>
-
-                  {/* WABAs */}
-                  {setupResult.existingWabas.length > 0 && (
-                    <Box>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                        WABAs verificados:
-                      </Typography>
-                      {setupResult.existingWabas.map((waba) => (
-                        <Stack
-                          key={waba.whatsappId}
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="center"
-                          sx={{ py: 0.5 }}
-                        >
-                          <Typography level="body-xs">{waba.name}</Typography>
-                          <Chip size="sm" variant="soft" color={waba.subscribed ? 'success' : 'danger'}>
-                            {waba.subscribed ? 'Suscrito' : 'No suscrito'}
-                          </Chip>
-                        </Stack>
-                      ))}
-                    </Box>
-                  )}
-
-                  <Divider />
-
-                  {/* Config ID */}
-                  <Box>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
-                      <Typography level="body-xs" fontWeight={600}>Config ID (Embedded Signup)</Typography>
-                      <Chip size="sm" variant="soft" color={setupResult.configId.detected ? 'success' : 'neutral'}>
-                        {setupResult.configId.detected ? 'Detectado' : 'No configurado'}
-                      </Chip>
-                    </Stack>
-                    {setupResult.configId.value && (
-                      <Typography
-                        level="body-xs"
-                        sx={{ fontFamily: 'monospace', bgcolor: 'background.level1', p: 0.5, borderRadius: 'xs' }}
-                      >
-                        {setupResult.configId.value}
-                      </Typography>
-                    )}
-                    <Typography
-                      level="body-xs"
-                      sx={{ color: 'text.tertiary', mt: 0.5, whiteSpace: 'pre-line' }}
-                    >
-                      {setupResult.configId.instructions}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </CardContent>
-            </Card>
+                    <span className="mt-0.5 shrink-0" aria-hidden>
+                      {isDisabled ? (
+                        <WarningCircle className="size-5" weight="fill" />
+                      ) : (
+                        <Warning className="size-5" weight="fill" />
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">
+                        {alert.name} —{' '}
+                        {isDisabled ? 'DESACTIVADA' : isCritical ? 'CRITICO' : 'ADVERTENCIA'}
+                      </p>
+                      <p className="text-xs">
+                        {alert.message} ({alert.daysSinceOpen} dias sin abrir la Business App)
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
 
-          {/* Info Card */}
-          <Card variant="soft" color="primary">
-            <CardContent>
-              <Typography level="title-sm" startDecorator={<InfoIcon />} sx={{ mb: 1 }}>
-                Sobre la Coexistencia
-              </Typography>
-              <Stack spacing={1}>
-                <Typography level="body-xs">
-                  La coexistencia permite usar la WhatsApp Business App y la Cloud API
-                  simultaneamente en el mismo numero de telefono.
-                </Typography>
-                <Typography level="body-xs">
-                  <strong>Requisito:</strong> Abrir la Business App al menos cada 14 dias
-                  para mantener la coexistencia activa.
-                </Typography>
-                <Typography level="body-xs">
-                  <strong>Tokens:</strong> Se renuevan automaticamente cada 50 dias
-                  (antes de la expiracion de 60 dias).
-                </Typography>
-                <Typography level="body-xs">
-                  <strong>Historial:</strong> Se sincroniza automaticamente via webhooks
-                  cuando se activa la coexistencia.
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Stack>
-      </Box>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <KpiTile
+              label="Conexiones Meta"
+              value={summary?.totalMetaConnections || 0}
+              tone="primary"
+              icon={<LinkIcon className="size-5" weight="bold" />}
+            />
+            <KpiTile
+              label="Coex Activas"
+              value={summary?.coexistenceActive || 0}
+              tone="success"
+              icon={<CheckCircle className="size-5" weight="fill" />}
+            />
+            <KpiTile
+              label="Pendientes"
+              value={summary?.coexistencePending || 0}
+              tone="warning"
+              icon={<Timer className="size-5" weight="fill" />}
+            />
+            <KpiTile
+              label="Alertas"
+              value={summary?.alertsCount || 0}
+              tone={alerts.length > 0 ? 'destructive' : 'neutral'}
+              icon={
+                alerts.length > 0 ? (
+                  <Warning className="size-5" weight="fill" />
+                ) : (
+                  <ShieldCheck className="size-5" weight="fill" />
+                )
+              }
+            />
+          </div>
 
-      {/* Embedded Signup Modal */}
-      <EmbeddedSignupModal
-        open={embeddedSignupOpen}
-        onClose={() => setEmbeddedSignupOpen(false)}
-        onSuccess={fetchData}
-      />
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Left: Tabla de Conexiones */}
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] lg:col-span-2">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <DeviceMobile className="size-5 text-muted-foreground" aria-hidden />
+                  Conexiones con Coexistencia
+                </h2>
+                <Badge variant="outline">{connections.length} registros</Badge>
+              </div>
 
-      {/* Coexistence Config Modal */}
-      <CoexistenceConfigModal
-        open={configModalOpen}
-        onClose={() => setConfigModalOpen(false)}
-        connection={selectedConnection}
-        onSaved={fetchData}
-      />
-    </Box>
+              {connections.length === 0 ? (
+                <div className="py-12 text-center">
+                  <LinkBreak className="mx-auto mb-2 size-12 text-muted-foreground" aria-hidden />
+                  <p className="text-sm text-muted-foreground">
+                    No hay conexiones Meta configuradas
+                  </p>
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    Usa "Nueva Conexion" para configurar Embedded Signup
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => setEmbeddedSignupOpen(true)}>
+                    <CloudCheck className="size-4" aria-hidden />
+                    Conectar WhatsApp Business
+                  </Button>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[860px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40 text-left">
+                          {columns.map((c, i) => (
+                            <th
+                              key={i}
+                              className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                            >
+                              {c}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {connections.map((conn) => {
+                          const daysSinceOpen = conn.coexistence.lastAppOpenedAt
+                            ? Math.floor(
+                                (Date.now() -
+                                  new Date(conn.coexistence.lastAppOpenedAt).getTime()) /
+                                  (1000 * 60 * 60 * 24)
+                              )
+                            : null
+                          const st = statusBadge(conn.status)
+                          const coex = coexBadge(conn.coexistence.status)
+
+                          return (
+                            <tr key={conn.id} className="transition-colors hover:bg-accent/40">
+                              <td className="px-3 py-3">
+                                <span className="text-xs font-semibold tabular-nums text-foreground">
+                                  #{conn.id}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="block text-sm font-medium text-foreground">
+                                  {conn.name}
+                                </span>
+                                {conn.wabaId && (
+                                  <span className="block text-xs text-muted-foreground">
+                                    WABA: {conn.wabaId}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 tabular-nums text-muted-foreground">
+                                {conn.displayPhoneNumber || conn.number || '—'}
+                              </td>
+                              <td className="px-3 py-3">
+                                <Badge variant={st.variant} dot>
+                                  {st.label}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-3">
+                                {conn.coexistence.enabled ? (
+                                  <Badge variant={coex.variant}>{coex.label}</Badge>
+                                ) : (
+                                  <Badge variant="neutral">No</Badge>
+                                )}
+                              </td>
+                              <td className="px-3 py-3">
+                                <Badge
+                                  variant={
+                                    conn.coexistence.receiveChannel === 'both'
+                                      ? 'primary'
+                                      : conn.coexistence.receiveChannel === 'meta'
+                                        ? 'success'
+                                        : 'warning'
+                                  }
+                                >
+                                  {conn.coexistence.receiveChannel === 'both'
+                                    ? 'Ambos'
+                                    : conn.coexistence.receiveChannel === 'meta'
+                                      ? 'Meta'
+                                      : 'Baileys'}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-3">
+                                <Badge
+                                  variant={
+                                    conn.coexistence.sendChannel === 'meta' ? 'success' : 'warning'
+                                  }
+                                >
+                                  {conn.coexistence.sendChannel === 'meta' ? 'Meta API' : 'Baileys'}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-3">
+                                {daysSinceOpen !== null ? (
+                                  <div className="flex flex-col gap-1">
+                                    <span
+                                      className={`text-xs font-semibold ${
+                                        daysSinceOpen >= 13
+                                          ? 'text-destructive-text'
+                                          : daysSinceOpen >= 11
+                                            ? 'text-warning-text'
+                                            : 'text-success-text'
+                                      }`}
+                                    >
+                                      {daysSinceOpen === 0 ? 'Hoy' : `Hace ${daysSinceOpen}d`}
+                                    </span>
+                                    {daysSinceOpen >= 11 && (
+                                      <LinearProgress
+                                        determinate
+                                        value={Math.min((daysSinceOpen / 14) * 100, 100)}
+                                        color={daysSinceOpen >= 13 ? 'danger' : 'warning'}
+                                        sx={{ height: 4, borderRadius: 2 }}
+                                      />
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Sin datos</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-3">
+                                <div className="flex items-center justify-end">
+                                  <Tooltip title="Configurar coexistencia">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="size-8"
+                                      aria-label={`Configurar coexistencia de ${conn.name}`}
+                                      onClick={() => openConfigModal(conn)}
+                                    >
+                                      <Gear className="size-[18px]" aria-hidden />
+                                    </Button>
+                                  </Tooltip>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Panel de Configuración */}
+            <div className="space-y-4">
+              {/* Estado de la App */}
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Gear className="size-5 text-muted-foreground" aria-hidden />
+                  Configuracion de la App
+                </h2>
+
+                <div className="space-y-3">
+                  {/* Webhook Status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm text-foreground">
+                      <Broadcast className="size-[18px] text-muted-foreground" aria-hidden />
+                      Webhooks WBA
+                    </span>
+                    <Badge variant={appStatus?.appConfigured ? 'success' : 'destructive'}>
+                      {appStatus?.appConfigured ? 'Activo' : 'Inactivo'}
+                    </Badge>
+                  </div>
+
+                  {/* Env Variables */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm text-foreground">
+                      <ShieldCheck className="size-[18px] text-muted-foreground" aria-hidden />
+                      App ID
+                    </span>
+                    <Badge variant={statusData?.envCheck.FACEBOOK_APP_ID ? 'success' : 'destructive'}>
+                      {statusData?.envCheck.FACEBOOK_APP_ID ? 'OK' : 'Falta'}
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm text-foreground">
+                      <ShieldCheck className="size-[18px] text-muted-foreground" aria-hidden />
+                      App Secret
+                    </span>
+                    <Badge
+                      variant={statusData?.envCheck.FACEBOOK_APP_SECRET ? 'success' : 'destructive'}
+                    >
+                      {statusData?.envCheck.FACEBOOK_APP_SECRET ? 'OK' : 'Falta'}
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm text-foreground">
+                      <TrendUp className="size-[18px] text-muted-foreground" aria-hidden />
+                      Graph API
+                    </span>
+                    <Badge variant="outline">{statusData?.envCheck.FB_GRAPH_VERSION || 'N/A'}</Badge>
+                  </div>
+
+                  {/* Webhook URL */}
+                  {appStatus?.webhookUrl && (
+                    <div className="pt-1">
+                      <p className="mb-1 text-xs text-muted-foreground">Webhook URL:</p>
+                      <p className="break-all rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground">
+                        {appStatus.webhookUrl}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="border-t border-border" />
+
+                  {/* Setup Button */}
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={handleSetup}
+                    loading={setupLoading}
+                  >
+                    {!setupLoading && <Gear className="size-4" aria-hidden />}
+                    {appStatus?.appConfigured
+                      ? 'Re-configurar App'
+                      : 'Configurar App Automaticamente'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Setup Result */}
+              {setupResult && (
+                <div
+                  className={`rounded-xl border bg-card p-5 shadow-sm shadow-black/[0.02] ${
+                    setupResult.success ? 'border-success/40' : 'border-warning/40'
+                  }`}
+                >
+                  <h3
+                    className={`mb-3 flex items-center gap-2 text-sm font-semibold ${
+                      setupResult.success ? 'text-success-text' : 'text-warning-text'
+                    }`}
+                  >
+                    {setupResult.success ? (
+                      <CheckCircle className="size-[18px]" weight="fill" aria-hidden />
+                    ) : (
+                      <Warning className="size-[18px]" weight="fill" aria-hidden />
+                    )}
+                    Resultado del Setup
+                  </h3>
+
+                  <div className="space-y-3">
+                    {/* Webhook */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-foreground">Webhook suscripcion</span>
+                      <Badge
+                        variant={
+                          setupResult.webhookSubscription.configured ? 'success' : 'destructive'
+                        }
+                      >
+                        {setupResult.webhookSubscription.configured ? 'OK' : 'Error'}
+                      </Badge>
+                    </div>
+
+                    {setupResult.webhookSubscription.error && (
+                      <p
+                        role="alert"
+                        className="rounded-lg border border-destructive/30 bg-destructive/12 p-2 text-xs text-destructive-text"
+                      >
+                        {setupResult.webhookSubscription.error}
+                      </p>
+                    )}
+
+                    {/* Campos suscritos */}
+                    <div>
+                      <p className="mb-1 text-xs text-muted-foreground">Campos webhook:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {setupResult.webhookSubscription.fields.map((field) => (
+                          <Badge key={field} variant="outline">
+                            {field}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* WABAs */}
+                    {setupResult.existingWabas.length > 0 && (
+                      <div>
+                        <p className="mb-1 text-xs text-muted-foreground">WABAs verificados:</p>
+                        {setupResult.existingWabas.map((waba) => (
+                          <div
+                            key={waba.whatsappId}
+                            className="flex items-center justify-between gap-2 py-1"
+                          >
+                            <span className="truncate text-xs text-foreground">{waba.name}</span>
+                            <Badge variant={waba.subscribed ? 'success' : 'destructive'}>
+                              {waba.subscribed ? 'Suscrito' : 'No suscrito'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="border-t border-border" />
+
+                    {/* Config ID */}
+                    <div>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-foreground">
+                          Config ID (Embedded Signup)
+                        </span>
+                        <Badge variant={setupResult.configId.detected ? 'success' : 'neutral'}>
+                          {setupResult.configId.detected ? 'Detectado' : 'No configurado'}
+                        </Badge>
+                      </div>
+                      {setupResult.configId.value && (
+                        <p className="break-all rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground">
+                          {setupResult.configId.value}
+                        </p>
+                      )}
+                      <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">
+                        {setupResult.configId.instructions}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Info Card */}
+              <div className="rounded-xl border border-border bg-accent/60 p-5">
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Info className="size-[18px] text-muted-foreground" weight="fill" aria-hidden />
+                  Sobre la Coexistencia
+                </h3>
+                <div className="space-y-2 text-xs text-muted-foreground">
+                  <p>
+                    La coexistencia permite usar la WhatsApp Business App y la Cloud API
+                    simultaneamente en el mismo numero de telefono.
+                  </p>
+                  <p>
+                    <strong className="font-semibold text-foreground">Requisito:</strong> Abrir la
+                    Business App al menos cada 14 dias para mantener la coexistencia activa.
+                  </p>
+                  <p>
+                    <strong className="font-semibold text-foreground">Tokens:</strong> Se renuevan
+                    automaticamente cada 50 dias (antes de la expiracion de 60 dias).
+                  </p>
+                  <p>
+                    <strong className="font-semibold text-foreground">Historial:</strong> Se
+                    sincroniza automaticamente via webhooks cuando se activa la coexistencia.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Embedded Signup Modal */}
+        <EmbeddedSignupModal
+          open={embeddedSignupOpen}
+          onClose={() => setEmbeddedSignupOpen(false)}
+          onSuccess={fetchData}
+        />
+
+        {/* Coexistence Config Modal */}
+        <CoexistenceConfigModal
+          open={configModalOpen}
+          onClose={() => setConfigModalOpen(false)}
+          connection={selectedConnection}
+          onSaved={fetchData}
+        />
+      </div>
+    </TooltipProvider>
   )
 }

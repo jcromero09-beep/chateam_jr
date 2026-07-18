@@ -131,7 +131,9 @@ class UGCSocialAccount extends Model<UGCSocialAccount> {
   @BelongsTo(() => Company)
   company!: Company;
 
-  // HasMany UGCSocialPost se registra via lazy import para evitar circular
+  // OJO: NO hay HasMany UGCSocialPost registrado (el "lazy import" nunca existio).
+  // Un include con alias "posts" fallaria con 500. El import circular NO es
+  // impedimento: el thunk de @HasMany difiere la resolucion hasta addModels.
   // La relacion se declara en el init del modelo
 
   // --- Metodos auxiliares ---

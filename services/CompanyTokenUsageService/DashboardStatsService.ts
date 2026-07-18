@@ -42,6 +42,7 @@ interface DashboardStatsResponse {
 
 // Colores para los modelos
 const MODEL_COLORS: Record<string, string> = {
+  "gpt-5.5": "#8b5cf6",
   "gpt-4o": "#10b981",
   "gpt-4o-mini": "#3b82f6",
   "gpt-3.5-turbo-0125": "#f59e0b",

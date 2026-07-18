@@ -1,42 +1,40 @@
 import { useState, useEffect } from 'react'
+// [Fase2·G] Conservado como MUI a propósito: no hay equivalente Radix para el
+// indicador de progreso circular en el design system.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Container,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Sheet,
-  Chip,
-  Button,
-  IconButton,
-  Input,
+  CalendarCheck,
+  MagnifyingGlass,
+  FunnelSimple,
+  DownloadSimple,
+  Plus,
+  PencilSimple,
+  Trash,
+  CheckCircle,
+  Clock,
+  Phone,
+  Envelope,
+  WhatsappLogo,
+  Eye,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Avatar } from '@/components/ui/avatar'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Select,
-  Option,
-  Table,
-  Avatar,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Divider,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  Download as DownloadIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as _CancelIcon,
-  Schedule as ScheduleIcon,
-  Phone as PhoneIcon,
-  Email as EmailIcon,
-  WhatsApp as WhatsAppIcon,
-  Visibility as VisibilityIcon,
-  EventNote as _EventNoteIcon,
-} from '@mui/icons-material'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import { toast } from 'react-toastify'
 import appointmentService, { Appointment, AppointmentServiceType } from '../services/appointmentService'
 import NewAppointmentModal from '../components/NewAppointmentModal'
@@ -52,6 +50,46 @@ interface Contact {
   name: string
   email: string
   phone: string
+}
+
+const columns = ['Cliente', 'Servicio', 'Agente', 'Fecha/Hora', 'Estado', 'Precio', 'Acciones']
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Campo de solo lectura del modal de detalle
+function DetailField({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className={cn('text-sm text-foreground', strong && 'font-medium')}>{value}</p>
+    </div>
+  )
 }
 
 export default function AppointmentsBookings() {
@@ -146,14 +184,16 @@ export default function AppointmentsBookings() {
     return matchesSearch && matchesStatus && matchesDate
   })
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): BadgeProps['variant'] => {
     switch (status) {
+      case 'scheduled':
+        return 'warning'
       case 'confirmed':
         return 'success'
       case 'pending':
         return 'warning'
       case 'cancelled':
-        return 'danger'
+        return 'destructive'
       case 'completed':
         return 'primary'
       case 'no-show':
@@ -165,6 +205,8 @@ export default function AppointmentsBookings() {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
+      case 'scheduled':
+        return 'Programada'
       case 'confirmed':
         return 'Confirmada'
       case 'pending':
@@ -173,8 +215,10 @@ export default function AppointmentsBookings() {
         return 'Cancelada'
       case 'completed':
         return 'Completada'
+      case 'rescheduled':
+        return 'Reprogramada'
       case 'no-show':
-        return 'No Show'
+        return 'No asistió'
       default:
         return status
     }
@@ -248,422 +292,401 @@ export default function AppointmentsBookings() {
   const upcomingBookings = appointments.filter((b) => new Date(b.startTime) >= new Date() && b.status !== 'cancelled')
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 0.5 }}>
-            Gestión de Reservas
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Administra todas las citas agendadas
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<DownloadIcon />}>
-            Exportar
-          </Button>
-          <Button startDecorator={<AddIcon />} onClick={() => setOpenNewModal(true)}>Nueva Cita</Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <CalendarCheck className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Gestión de Reservas
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Administra todas las citas agendadas
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm">
+              <DownloadSimple className="size-4" aria-hidden />
+              Exportar
+            </Button>
+            <Button size="sm" onClick={() => setOpenNewModal(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva Cita
+            </Button>
+          </div>
+        </div>
 
-      {/* Stats */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={2}>
-          <Card variant="soft" color="neutral">
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography level="h3">{stats.total}</Typography>
-              <Typography level="body-sm">Total</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2}>
-          <Card variant="soft" color="success">
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography level="h3">{stats.confirmed}</Typography>
-              <Typography level="body-sm">Confirmadas</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2}>
-          <Card variant="soft" color="warning">
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography level="h3">{stats.scheduled}</Typography>
-              <Typography level="body-sm">Programadas</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2}>
-          <Card variant="soft" color="primary">
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography level="h3">{stats.completed}</Typography>
-              <Typography level="body-sm">Completadas</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2}>
-          <Card variant="soft" color="danger">
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography level="h3">{stats.cancelled}</Typography>
-              <Typography level="body-sm">Canceladas</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2}>
-          <Card variant="soft" color="neutral">
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography level="h3">{stats.noShow}</Typography>
-              <Typography level="body-sm">No Show</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <StatTile label="Total" value={String(stats.total)} />
+          <StatTile label="Confirmadas" value={String(stats.confirmed)} tone="success" />
+          <StatTile label="Programadas" value={String(stats.scheduled)} tone="warning" />
+          <StatTile label="Completadas" value={String(stats.completed)} tone="primary" />
+          <StatTile label="Canceladas" value={String(stats.cancelled)} tone="destructive" />
+          <StatTile label="No Show" value={String(stats.noShow)} />
+        </div>
 
-      {/* Filters */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Input
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[280px] flex-1">
+            <MagnifyingGlass
+              className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
               placeholder="Buscar por nombre, email o servicio..."
-              startDecorator={<SearchIcon />}
+              aria-label="Buscar reservas"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              sx={{ minWidth: 300, flexGrow: 1 }}
+              className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             />
-            <Select
-              value={statusFilter}
-              onChange={(_, value) => setStatusFilter(value as string)}
-              sx={{ minWidth: 150 }}
-              startDecorator={<FilterIcon />}
-            >
-              <Option value="all">Todos los estados</Option>
-              <Option value="confirmed">Confirmadas</Option>
-              <Option value="pending">Pendientes</Option>
-              <Option value="completed">Completadas</Option>
-              <Option value="cancelled">Canceladas</Option>
-              <Option value="no-show">No Show</Option>
-            </Select>
-            <Select
-              value={dateFilter}
-              onChange={(_, value) => setDateFilter(value as string)}
-              sx={{ minWidth: 150 }}
-              startDecorator={<ScheduleIcon />}
-            >
-              <Option value="all">Todas las fechas</Option>
-              <Option value="today">Hoy</Option>
-              <Option value="upcoming">Próximas</Option>
-              <Option value="past">Pasadas</Option>
-            </Select>
-          </Box>
-        </CardContent>
-      </Card>
+          </div>
 
-      <Grid container spacing={2}>
-        {/* Bookings Table */}
-        <Grid xs={12} md={8}>
-          <Card>
-            <Sheet sx={{ overflow: 'auto' }}>
-              {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                  <CircularProgress />
-                </Box>
-              ) : (
-                <Table>
-                <thead>
-                  <tr>
-                    <th>Cliente</th>
-                    <th>Servicio</th>
-                    <th>Agente</th>
-                    <th>Fecha/Hora</th>
-                    <th>Estado</th>
-                    <th>Precio</th>
-                    <th style={{ width: 180 }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBookings.map((appointment) => (
-                    <tr key={appointment.id}>
-                      <td>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar size="sm" />
-                          <Box>
-                            <Typography level="body-sm" fontWeight="md">
-                              {appointment.attendeeName || appointment.contact?.name || 'Sin nombre'}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {appointment.attendeePhone || appointment.contact?.phone || 'Sin teléfono'}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{appointment.service?.name || 'N/A'}</Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{appointment.assignedUser?.name || 'N/A'}</Typography>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Box>
-                            <Typography level="body-sm">
-                              {new Date(appointment.startTime).toLocaleDateString('es-ES', {
-                                day: '2-digit',
-                                month: 'short',
-                              })}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {new Date(appointment.startTime).toLocaleTimeString('es-ES', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })} ({appointment.duration}min)
-                            </Typography>
-                          </Box>
-                          {simultaneousCounts[new Date(appointment.startTime).toISOString()] > 1 && (
-                            <Chip
-                              size="sm"
-                              color="warning"
-                              variant="soft"
-                              sx={{ minWidth: 32 }}
-                              title={`${simultaneousCounts[new Date(appointment.startTime).toISOString()]} citas simultáneas`}
-                            >
-                              {simultaneousCounts[new Date(appointment.startTime).toISOString()]}
-                            </Chip>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-10 w-[190px]" aria-label="Filtrar por estado">
+              <span className="flex items-center gap-2 truncate">
+                <FunnelSimple className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <SelectValue />
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los estados</SelectItem>
+              <SelectItem value="scheduled">Programadas</SelectItem>
+              <SelectItem value="confirmed">Confirmadas</SelectItem>
+              <SelectItem value="pending">Pendientes</SelectItem>
+              <SelectItem value="completed">Completadas</SelectItem>
+              <SelectItem value="cancelled">Canceladas</SelectItem>
+              <SelectItem value="no-show">No Show</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={dateFilter} onValueChange={setDateFilter}>
+            <SelectTrigger className="h-10 w-[180px]" aria-label="Filtrar por fecha">
+              <span className="flex items-center gap-2 truncate">
+                <Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <SelectValue />
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las fechas</SelectItem>
+              <SelectItem value="today">Hoy</SelectItem>
+              <SelectItem value="upcoming">Próximas</SelectItem>
+              <SelectItem value="past">Pasadas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Bookings Table */}
+          <div className="lg:col-span-2">
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className={cn(
+                            'whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+                            i === columns.length - 1 && 'w-[180px] text-right',
                           )}
-                        </Box>
-                      </td>
-                      <td>
-                        <Chip size="sm" color={getStatusColor(appointment.status)}>
-                          {getStatusLabel(appointment.status)}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="md">
-                          ${appointment.service?.price || 0}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <IconButton size="sm" variant="soft" color="primary" onClick={() => handleViewBooking(appointment)}>
-                            <VisibilityIcon />
-                          </IconButton>
-                          <IconButton size="sm" variant="soft" color="neutral" onClick={() => handleEditBooking(appointment)}>
-                            <EditIcon />
-                          </IconButton>
-                          {appointment.status === 'scheduled' && (
-                            <IconButton
-                              size="sm"
-                              variant="soft"
-                              color="success"
-                              onClick={() => handleStatusChange(appointment.id, 'confirmed')}
-                            >
-                              <CheckCircleIcon />
-                            </IconButton>
-                          )}
-                          <IconButton
-                            size="sm"
-                            variant="soft"
-                            color="danger"
-                            onClick={() => handleDeleteBooking(appointment.id)}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Box>
-                      </td>
+                        >
+                          {c}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-              )}
-            </Sheet>
-          </Card>
-        </Grid>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-10 text-center">
+                          <div className="flex items-center justify-center">
+                            <CircularProgress />
+                          </div>
+                        </td>
+                      </tr>
+                    ) : filteredBookings.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                          No se encontraron reservas
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredBookings.map((appointment) => {
+                        const clientName =
+                          appointment.attendeeName || appointment.contact?.name || 'Sin nombre'
+                        const simultaneous =
+                          simultaneousCounts[new Date(appointment.startTime).toISOString()]
+                        return (
+                          <tr key={appointment.id} className="transition-colors hover:bg-accent/40">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <Avatar name={clientName} size="sm" />
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-foreground">
+                                    {clientName}
+                                  </p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {appointment.attendeePhone || appointment.contact?.phone || 'Sin teléfono'}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {appointment.service?.name || 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {appointment.assignedUser?.name || 'N/A'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <p className="whitespace-nowrap text-foreground">
+                                    {new Date(appointment.startTime).toLocaleDateString('es-ES', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                    })}
+                                  </p>
+                                  <p className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                                    {new Date(appointment.startTime).toLocaleTimeString('es-ES', {
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })} ({appointment.duration}min)
+                                  </p>
+                                </div>
+                                {simultaneous > 1 && (
+                                  <Badge
+                                    variant="warning"
+                                    title={`${simultaneous} citas simultáneas`}
+                                  >
+                                    {simultaneous}
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant={getStatusColor(appointment.status)} dot>
+                                {getStatusLabel(appointment.status)}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 font-medium tabular-nums text-foreground">
+                              ${appointment.service?.price || 0}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-0.5">
+                                <ActionBtn
+                                  label="Ver detalles"
+                                  onClick={() => handleViewBooking(appointment)}
+                                  className="hover:bg-primary/10 hover:text-primary"
+                                >
+                                  <Eye className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                                <ActionBtn label="Editar" onClick={() => handleEditBooking(appointment)}>
+                                  <PencilSimple className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                                {appointment.status === 'scheduled' && (
+                                  <ActionBtn
+                                    label="Confirmar cita"
+                                    onClick={() => handleStatusChange(appointment.id, 'confirmed')}
+                                    className="text-success-text hover:bg-success/10 hover:text-success-text"
+                                  >
+                                    <CheckCircle className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                )}
+                                <ActionBtn
+                                  label="Eliminar"
+                                  onClick={() => handleDeleteBooking(appointment.id)}
+                                  className="hover:bg-destructive/10 hover:text-destructive-text"
+                                >
+                                  <Trash className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
 
-        {/* Upcoming Bookings Sidebar */}
-        <Grid xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Próximas Citas
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {upcomingBookings.slice(0, 5).map((appointment) => (
-                  <Card key={appointment.id} variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <Avatar size="sm" />
-                        <Box sx={{ flexGrow: 1 }}>
-                          <Typography level="body-sm" fontWeight="md">
-                            {appointment.attendeeName || appointment.contact?.name || 'Sin nombre'}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {appointment.service?.name || 'N/A'}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <Divider sx={{ my: 1 }} />
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography level="body-xs">
-                          {new Date(appointment.startTime).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} {new Date(appointment.startTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                        </Typography>
-                        <Chip size="sm" color={getStatusColor(appointment.status)} variant="soft">
-                          {getStatusLabel(appointment.status)}
-                        </Chip>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          {/* Upcoming Bookings Sidebar */}
+          <div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-base font-semibold text-foreground">Próximas Citas</h2>
+              <div className="flex flex-col gap-3">
+                {upcomingBookings.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No hay citas próximas
+                  </p>
+                ) : (
+                  upcomingBookings.slice(0, 5).map((appointment) => {
+                    const clientName =
+                      appointment.attendeeName || appointment.contact?.name || 'Sin nombre'
+                    return (
+                      <div
+                        key={appointment.id}
+                        className="rounded-lg border border-border p-3 transition-colors hover:bg-accent/40"
+                      >
+                        <div className="mb-2 flex items-center gap-2">
+                          <Avatar name={clientName} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {clientName}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {appointment.service?.name || 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="my-2 border-t border-border" />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {new Date(appointment.startTime).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} {new Date(appointment.startTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <Badge variant={getStatusColor(appointment.status)}>
+                            {getStatusLabel(appointment.status)}
+                          </Badge>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* View Booking Modal */}
-      <Modal open={openViewModal} onClose={() => setOpenViewModal(false)}>
-        <ModalDialog sx={{ minWidth: 600 }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Detalles de la Cita
-          </Typography>
+      <Dialog open={openViewModal} onOpenChange={setOpenViewModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Detalles de la Cita</DialogTitle>
+          </DialogHeader>
 
           {selectedAppointment && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar size="lg" />
-                <Box sx={{ flexGrow: 1 }}>
-                  <Typography level="title-lg">{selectedAppointment.attendeeName || selectedAppointment.contact?.name || 'Sin nombre'}</Typography>
-                  <Chip size="sm" color={getStatusColor(selectedAppointment.status)}>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <Avatar
+                  name={selectedAppointment.attendeeName || selectedAppointment.contact?.name || 'Sin nombre'}
+                  size="lg"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-semibold text-foreground">
+                    {selectedAppointment.attendeeName || selectedAppointment.contact?.name || 'Sin nombre'}
+                  </p>
+                  <Badge variant={getStatusColor(selectedAppointment.status)} dot className="mt-1">
                     {getStatusLabel(selectedAppointment.status)}
-                  </Chip>
-                </Box>
-              </Box>
+                  </Badge>
+                </div>
+              </div>
 
-              <Divider />
+              <div className="border-t border-border" />
 
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Email
-                  </Typography>
-                  <Typography level="body-md">{selectedAppointment.attendeeEmail || selectedAppointment.contact?.email || 'N/A'}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Teléfono
-                  </Typography>
-                  <Typography level="body-md">{selectedAppointment.attendeePhone || selectedAppointment.contact?.phone || 'N/A'}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Servicio
-                  </Typography>
-                  <Typography level="body-md">{selectedAppointment.service?.name || 'N/A'}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Agente
-                  </Typography>
-                  <Typography level="body-md">{selectedAppointment.assignedUser?.name || 'N/A'}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Fecha
-                  </Typography>
-                  <Typography level="body-md">
-                    {new Date(selectedAppointment.startTime).toLocaleDateString('es-ES', {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Hora
-                  </Typography>
-                  <Typography level="body-md">
-                    {new Date(selectedAppointment.startTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} ({selectedAppointment.duration} min)
-                  </Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Precio
-                  </Typography>
-                  <Typography level="body-md" fontWeight="md">
-                    ${selectedAppointment.service?.price || 0}
-                  </Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Creada
-                  </Typography>
-                  <Typography level="body-md">
-                    {new Date(selectedAppointment.createdAt).toLocaleDateString('es-ES')}
-                  </Typography>
-                </Grid>
-              </Grid>
+              <div className="grid grid-cols-2 gap-4">
+                <DetailField
+                  label="Email"
+                  value={selectedAppointment.attendeeEmail || selectedAppointment.contact?.email || 'N/A'}
+                />
+                <DetailField
+                  label="Teléfono"
+                  value={selectedAppointment.attendeePhone || selectedAppointment.contact?.phone || 'N/A'}
+                />
+                <DetailField label="Servicio" value={selectedAppointment.service?.name || 'N/A'} />
+                <DetailField label="Agente" value={selectedAppointment.assignedUser?.name || 'N/A'} />
+                <DetailField
+                  label="Fecha"
+                  value={new Date(selectedAppointment.startTime).toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                />
+                <DetailField
+                  label="Hora"
+                  value={`${new Date(selectedAppointment.startTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} (${selectedAppointment.duration} min)`}
+                />
+                <DetailField
+                  label="Precio"
+                  value={`$${selectedAppointment.service?.price || 0}`}
+                  strong
+                />
+                <DetailField
+                  label="Creada"
+                  value={new Date(selectedAppointment.createdAt).toLocaleDateString('es-ES')}
+                />
+              </div>
 
-              <Divider />
+              <div className="border-t border-border" />
 
-              <Box>
-                <Typography level="title-md" sx={{ mb: 1 }}>
-                  Notas
-                </Typography>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">Notas</h3>
 
                 {/* Notas públicas */}
-                <Card variant="soft" sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography level="body-sm" sx={{ mb: 1, fontWeight: 'md', color: 'primary.plainColor' }}>
-                      📝 Notas públicas
-                    </Typography>
-                    <Typography level="body-sm" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {selectedAppointment.notes || 'Sin notas públicas'}
-                    </Typography>
-                  </CardContent>
-                </Card>
+                <div className="mb-3 rounded-lg bg-muted/50 p-3">
+                  <p className="mb-1 text-sm font-medium text-primary">📝 Notas públicas</p>
+                  <p className="whitespace-pre-wrap text-sm text-foreground">
+                    {selectedAppointment.notes || 'Sin notas públicas'}
+                  </p>
+                </div>
 
                 {/* Notas internas */}
                 {selectedAppointment.internalNotes && (
-                  <Card variant="soft" color="warning">
-                    <CardContent>
-                      <Typography level="body-sm" sx={{ mb: 1, fontWeight: 'md' }}>
-                        🔒 Notas internas (privadas)
-                      </Typography>
-                      <Typography level="body-sm" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {selectedAppointment.internalNotes}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                  <div className="rounded-lg bg-warning/12 p-3">
+                    <p className="mb-1 text-sm font-medium text-warning-text">
+                      🔒 Notas internas (privadas)
+                    </p>
+                    <p className="whitespace-pre-wrap text-sm text-foreground">
+                      {selectedAppointment.internalNotes}
+                    </p>
+                  </div>
                 )}
-              </Box>
+              </div>
 
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Chip size="sm" variant="outlined" color={selectedAppointment.confirmationSent ? 'success' : 'neutral'}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={selectedAppointment.confirmationSent ? 'success' : 'outline'}>
                   {selectedAppointment.confirmationSent ? 'Confirmación enviada' : 'Sin confirmar'}
-                </Chip>
-                <Chip size="sm" variant="outlined" color={selectedAppointment.reminderSent ? 'success' : 'neutral'}>
+                </Badge>
+                <Badge variant={selectedAppointment.reminderSent ? 'success' : 'outline'}>
                   {selectedAppointment.reminderSent ? 'Recordatorio enviado' : 'Sin recordatorio'}
-                </Chip>
-              </Box>
+                </Badge>
+              </div>
 
               {/* Historial de Cambios */}
               {appointmentHistory && appointmentHistory.timeline && appointmentHistory.timeline.length > 0 && (
                 <>
-                  <Divider />
-                  <Box>
-                    <Typography level="title-md" sx={{ mb: 2 }}>
+                  <div className="border-t border-border" />
+                  <div>
+                    <h3 className="mb-3 text-sm font-semibold text-foreground">
                       📅 Historial de Cambios
-                    </Typography>
+                    </h3>
 
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    <div className="flex flex-col gap-2">
                       {appointmentHistory.timeline.map((event: any, idx: number) => {
-                        const eventColors: { [key: string]: any } = {
+                        const eventVariants: { [key: string]: BadgeProps['variant'] } = {
                           created: 'primary',
                           confirmed: 'success',
                           rescheduled: 'warning',
-                          cancelled: 'danger',
+                          cancelled: 'destructive',
                           completed: 'primary'
+                        };
+
+                        const eventDots: { [key: string]: string } = {
+                          created: 'bg-primary',
+                          confirmed: 'bg-success',
+                          rescheduled: 'bg-warning',
+                          cancelled: 'bg-destructive',
+                          completed: 'bg-primary'
                         };
 
                         const eventLabels: { [key: string]: string } = {
@@ -675,98 +698,92 @@ export default function AppointmentsBookings() {
                         };
 
                         return (
-                          <Card key={idx} variant="outlined" size="sm">
-                            <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                              <Box sx={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                bgcolor: `${eventColors[event.type] || 'neutral'}.500`,
-                                mt: 0.5,
-                                flexShrink: 0
-                              }} />
+                          <div
+                            key={idx}
+                            className="flex items-start gap-3 rounded-lg border border-border p-3"
+                          >
+                            <span
+                              className={cn(
+                                'mt-1.5 size-2 shrink-0 rounded-full',
+                                eventDots[event.type] || 'bg-muted-foreground',
+                              )}
+                              aria-hidden
+                            />
 
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography level="body-sm" fontWeight="md">
-                                  {event.details}
-                                </Typography>
-                                <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                                  {new Date(event.timestamp).toLocaleString('es-ES', {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    year: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })}
-                                </Typography>
-                              </Box>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground">
+                                {event.details}
+                              </p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {new Date(event.timestamp).toLocaleString('es-ES', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                            </div>
 
-                              <Chip
-                                size="sm"
-                                color={eventColors[event.type] || 'neutral'}
-                                variant="soft"
-                              >
-                                {eventLabels[event.type] || event.type}
-                              </Chip>
-                            </CardContent>
-                          </Card>
+                            <Badge variant={eventVariants[event.type] || 'neutral'}>
+                              {eventLabels[event.type] || event.type}
+                            </Badge>
+                          </div>
                         );
                       })}
-                    </Box>
-                  </Box>
+                    </div>
+                  </div>
                 </>
               )}
 
               {/* Loading state para historial */}
               {appointmentHistory === null && (
                 <>
-                  <Divider />
-                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                  <div className="border-t border-border" />
+                  <div className="flex items-center justify-center gap-3 py-2">
                     <CircularProgress size="sm" />
-                    <Typography level="body-sm" sx={{ ml: 2 }}>
-                      Cargando historial...
-                    </Typography>
-                  </Box>
+                    <span className="text-sm text-muted-foreground">Cargando historial...</span>
+                  </div>
                 </>
               )}
 
-              <Divider />
+              <div className="border-t border-border" />
 
-              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-between' }}>
-                <Box sx={{ display: 'flex', gap: 1 }}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     size="sm"
-                    variant="outlined"
-                    startDecorator={<WhatsAppIcon />}
+                    variant="outline"
                     onClick={() => handleSendReminder(selectedAppointment.id, 'whatsapp')}
                   >
+                    <WhatsappLogo className="size-4" weight="fill" aria-hidden />
                     WhatsApp
                   </Button>
                   <Button
                     size="sm"
-                    variant="outlined"
-                    startDecorator={<EmailIcon />}
+                    variant="outline"
                     onClick={() => handleSendReminder(selectedAppointment.id, 'email')}
                   >
+                    <Envelope className="size-4" aria-hidden />
                     Email
                   </Button>
                   <Button
                     size="sm"
-                    variant="outlined"
-                    startDecorator={<PhoneIcon />}
+                    variant="outline"
                     onClick={() => handleSendReminder(selectedAppointment.id, 'sms')}
                   >
+                    <Phone className="size-4" aria-hidden />
                     SMS
                   </Button>
-                </Box>
-                <Button variant="soft" onClick={() => setOpenViewModal(false)}>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setOpenViewModal(false)}>
                   Cerrar
                 </Button>
-              </Box>
-            </Box>
+              </div>
+            </div>
           )}
-        </ModalDialog>
-      </Modal>
+        </DialogContent>
+      </Dialog>
 
       {/* New Appointment Modal */}
       <NewAppointmentModal
@@ -794,6 +811,6 @@ export default function AppointmentsBookings() {
         users={users}
         contacts={contacts}
       />
-    </Container>
+    </div>
   )
 }

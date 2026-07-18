@@ -9,6 +9,14 @@ interface ReceiptData {
   comprobante: string;
   descripcion?: string;
   estado: number;
+  purchaseType?: "subscription" | "ai_subplan";
+  planId?: number;
+  planName?: string;
+  totalPrice?: number;
+  duration?: string;
+  aiSubplanId?: number;
+  aiTokens?: number;
+  amountUsd?: number;
 }
 
 const CreateReceiptService = async (receiptData: ReceiptData): Promise<Receipt> => {

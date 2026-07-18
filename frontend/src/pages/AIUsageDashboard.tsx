@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react'
+// [conservado como MUI] No hay equivalente Radix para estos indicadores de progreso.
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Box, Typography, Card, CardContent, Grid, CircularProgress, Alert, LinearProgress, Select, Option, Chip
-} from '@mui/joy'
+  Lightning, CreditCard, CurrencyDollar, Pulse, ChartLineUp
+} from '@phosphor-icons/react'
 import {
-  Zap, CreditCard, DollarSign, Activity
-} from 'lucide-react'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -28,42 +36,46 @@ interface UsageData {
   transactionCount: number
 }
 
+type KpiTone = 'primary' | 'warning' | 'destructive' | 'success'
+
+const kpiToneClasses: Record<KpiTone, string> = {
+  primary: 'bg-primary/10 text-primary',
+  warning: 'bg-warning/16 text-warning-text',
+  destructive: 'bg-destructive/12 text-destructive-text',
+  success: 'bg-success/14 text-success-text',
+}
+
 const KPICard = ({
-  title, value, icon, color, subtitle
+  title, value, icon, tone, subtitle
 }: {
   title: string
   value: string | number
   icon: React.ReactNode
-  color: string
+  tone: KpiTone
   subtitle?: string
 }) => (
-  <Card variant="outlined" sx={{ height: '100%' }}>
-    <CardContent>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Box>
-          <Typography level="body-sm" sx={{ color: 'neutral.500', mb: 0.5 }}>
-            {title}
-          </Typography>
-          <Typography level="h3" sx={{ fontWeight: 700 }}>
-            {value}
-          </Typography>
-          {subtitle && (
-            <Typography level="body-xs" sx={{ color: 'neutral.400', mt: 0.5 }}>
-              {subtitle}
-            </Typography>
-          )}
-        </Box>
-        <Box sx={{
-          p: 1, borderRadius: 'md',
-          bgcolor: `${color}15`,
-          color: color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}>
-          {icon}
-        </Box>
-      </Box>
-    </CardContent>
-  </Card>
+  <div className="h-full rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="mb-0.5 text-sm text-muted-foreground">{title}</p>
+        <p className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+          {value}
+        </p>
+        {subtitle && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
+      <span
+        className={cn(
+          'flex size-11 shrink-0 items-center justify-center rounded-lg',
+          kpiToneClasses[tone],
+        )}
+        aria-hidden
+      >
+        {icon}
+      </span>
+    </div>
+  </div>
 )
 
 export default function AIUsageDashboard() {
@@ -98,17 +110,20 @@ export default function AIUsageDashboard() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     )
   }
 
   if (error) {
     return (
-      <Alert color="danger" sx={{ m: 2 }}>
+      <div
+        role="alert"
+        className="m-6 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+      >
         {error}
-      </Alert>
+      </div>
     )
   }
 
@@ -119,113 +134,133 @@ export default function AIUsageDashboard() {
   const usagePercent = totalCredits > 0 ? ((creditsUsed || 0) / totalCredits) * 100 : 0
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography level="h2">Mi Consumo de IA</Typography>
-        <Select value={period} onChange={(_, v) => v && setPeriod(v)} sx={{ minWidth: 150 }}>
-          <Option value="daily">Hoy</Option>
-          <Option value="weekly">Última semana</Option>
-          <Option value="monthly">Último mes</Option>
-          <Option value="yearly">Último año</Option>
-        </Select>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ChartLineUp className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Mi Consumo de IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Resumen de uso de tokens, créditos y costos
+              </p>
+            </div>
+          </div>
+          <Select value={period} onValueChange={(v) => v && setPeriod(v)}>
+            <SelectTrigger className="w-[170px]" aria-label="Período">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="daily">Hoy</SelectItem>
+              <SelectItem value="weekly">Última semana</SelectItem>
+              <SelectItem value="monthly">Último mes</SelectItem>
+              <SelectItem value="yearly">Último año</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
+        {/* KPIs */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             title="Tokens Consumidos"
             value={(tokensConsumed || 0).toLocaleString()}
-            icon={<Zap size={24} />}
-            color="#3b82f6"
+            icon={<Lightning className="size-6" weight="fill" aria-hidden />}
+            tone="primary"
             subtitle={`${transactionCount || 0} transacciones`}
           />
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
           <KPICard
             title="Créditos Usados"
             value={creditsUsed?.toLocaleString() || 0}
-            icon={<CreditCard size={24} />}
-            color="#f59e0b"
+            icon={<CreditCard className="size-6" weight="fill" aria-hidden />}
+            tone="warning"
           />
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
           <KPICard
             title="Costo Este Mes"
             value={`$${(costThisMonth || 0).toFixed(2)}`}
-            icon={<DollarSign size={24} />}
-            color="#f85149"
+            icon={<CurrencyDollar className="size-6" weight="fill" aria-hidden />}
+            tone="destructive"
           />
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
           <KPICard
             title="Créditos Restantes"
             value={creditsRemaining?.toLocaleString() || 0}
-            icon={<Activity size={24} />}
-            color="#52b788"
+            icon={<Pulse className="size-6" weight="fill" aria-hidden />}
+            tone="success"
             subtitle={`${usagePercent.toFixed(1)}% usado`}
           />
-        </Grid>
-      </Grid>
+        </div>
 
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="h4" sx={{ mb: 2 }}>Uso de Créditos</Typography>
-          <Box sx={{ mb: 1 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-              <Typography level="body-sm">Progreso</Typography>
-              <Typography level="body-sm">{usagePercent.toFixed(1)}%</Typography>
-            </Box>
-            <LinearProgress
-              value={usagePercent}
-              color={usagePercent > 80 ? 'danger' : usagePercent > 50 ? 'warning' : 'success'}
-              sx={{ height: 8, borderRadius: 4 }}
-            />
-          </Box>
-        </CardContent>
-      </Card>
+        {/* Uso de Créditos */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">Uso de Créditos</h2>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Progreso</span>
+            <span className="text-sm tabular-nums text-foreground">{usagePercent.toFixed(1)}%</span>
+          </div>
+          {/* [conservado como MUI] LinearProgress sin equivalente Radix */}
+          <LinearProgress
+            value={usagePercent}
+            color={usagePercent > 80 ? 'danger' : usagePercent > 50 ? 'warning' : 'success'}
+            sx={{ height: 8, borderRadius: 4 }}
+          />
+        </div>
 
-      <Card variant="outlined">
-        <CardContent>
-          <Typography level="h4" sx={{ mb: 2 }}>Uso por Agente</Typography>
-          <Box sx={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {/* Uso por Agente */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-lg font-semibold text-foreground">Uso por Agente</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Agente/Fuente</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Tokens</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Créditos</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Costo</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Agente/Fuente
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Tokens
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Créditos
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Costo
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {(usageByAgent || []).map((agent) => (
-                  <tr key={agent.source}>
-                    <td style={{ padding: '8px', borderBottom: '1px solid #f0f0f0' }}>
-                      <Chip size="sm" variant="soft">{agent.source}</Chip>
+                  <tr key={agent.source} className="transition-colors hover:bg-accent/40">
+                    <td className="px-4 py-3">
+                      <Badge variant="neutral">{agent.source}</Badge>
                     </td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0' }}>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                       {agent.tokens.toLocaleString()}
                     </td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0' }}>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                       {agent.credits.toLocaleString()}
                     </td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0', color: '#f85149' }}>
+                    <td className="px-4 py-3 text-right tabular-nums text-destructive-text">
                       ${agent.cost.toFixed(2)}
                     </td>
                   </tr>
                 ))}
                 {(!usageByAgent || usageByAgent.length === 0) && (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: '#999' }}>
+                    <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
                       No hay datos de uso para este período
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-          </Box>
-        </CardContent>
-      </Card>
-    </Box>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -1,33 +1,32 @@
 import { useState, useEffect, useCallback } from 'react'
+// [Fase2·G] Se conserva CircularProgress de MUI Joy a propósito (no hay equivalente
+// en el design system Tailwind/shadcn). El resto de la pantalla usa tokens + wrappers ui/.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Sheet,
-  Card,
-  Chip,
-  Button,
-  CircularProgress,
-  Divider,
-  IconButton,
-  Select,
-  Option,
-  Stack,
-} from '@mui/joy'
-import {
-  AutoFixHigh as OptimizeIcon,
-  Refresh,
-  PlayArrow as RunIcon,
-  AccountBalance as BudgetIcon,
-  EmojiObjects as LearningIcon,
-  TrendingUp,
-  TrendingDown,
-  AccessTime as ClockIcon,
-  Campaign as CampaignIcon,
+  MagicWand,
+  ArrowClockwise,
+  Play,
+  Bank,
+  Lightbulb,
+  TrendUp,
+  TrendDown,
+  Clock,
+  Megaphone,
   CheckCircle,
-  Schedule as ScheduleIcon,
-  Psychology as PsychologyIcon,
-  FiberManualRecord as DotIcon,
-} from '@mui/icons-material'
+  CalendarCheck,
+  Brain,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -95,25 +94,38 @@ interface OptimizationStats {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const LEARNING_TYPE_CONFIG: Record<LearningType, { label: string; emoji: string; color: 'primary' | 'success' | 'warning' | 'danger' | 'neutral' }> = {
-  content_style:    { label: 'Estilo de Contenido',  emoji: 'CS', color: 'primary' },
-  posting_time:     { label: 'Horario de Publicacion', emoji: 'HO', color: 'success' },
-  audience_segment: { label: 'Segmento de Audiencia', emoji: 'AU', color: 'warning' },
-  hook_pattern:     { label: 'Patron de Hook',        emoji: 'HP', color: 'danger' },
-  cta_pattern:      { label: 'Patron CTA',            emoji: 'CT', color: 'neutral' },
-  format:           { label: 'Formato',               emoji: 'FM', color: 'primary' },
-  hashtag:          { label: 'Hashtag',               emoji: 'HT', color: 'success' },
-  tone:             { label: 'Tono',                  emoji: 'TN', color: 'warning' },
+type Tone = 'primary' | 'success' | 'warning' | 'destructive' | 'neutral'
+
+// Tinte de superficie + texto accesible por tono (mismos ratios que ui/badge).
+const TONE_TILE: Record<Tone, string> = {
+  primary:     'bg-primary/12 text-primary',
+  success:     'bg-success/14 text-success-text',
+  warning:     'bg-warning/16 text-warning-text',
+  destructive: 'bg-destructive/12 text-destructive-text',
+  neutral:     'bg-muted text-muted-foreground',
 }
 
-const IMPACT_CONFIG: Record<ImpactLevel, {
-  label: string
-  color: 'danger' | 'warning' | 'success'
-  dot: string
-}> = {
-  high:   { label: 'Alto',  color: 'danger',  dot: '#C41C1C' },
-  medium: { label: 'Medio', color: 'warning', dot: '#9A5B13' },
-  low:    { label: 'Bajo',  color: 'success', dot: '#1F7A1F' },
+const TONE_BAR: Record<'success' | 'warning' | 'destructive', string> = {
+  success:     'bg-success',
+  warning:     'bg-warning',
+  destructive: 'bg-destructive',
+}
+
+const LEARNING_TYPE_CONFIG: Record<LearningType, { label: string; emoji: string; tone: Tone }> = {
+  content_style:    { label: 'Estilo de Contenido',    emoji: 'CS', tone: 'primary' },
+  posting_time:     { label: 'Horario de Publicacion', emoji: 'HO', tone: 'success' },
+  audience_segment: { label: 'Segmento de Audiencia',  emoji: 'AU', tone: 'warning' },
+  hook_pattern:     { label: 'Patron de Hook',         emoji: 'HP', tone: 'destructive' },
+  cta_pattern:      { label: 'Patron CTA',             emoji: 'CT', tone: 'neutral' },
+  format:           { label: 'Formato',                emoji: 'FM', tone: 'primary' },
+  hashtag:          { label: 'Hashtag',                emoji: 'HT', tone: 'success' },
+  tone:             { label: 'Tono',                   emoji: 'TN', tone: 'warning' },
+}
+
+const IMPACT_CONFIG: Record<ImpactLevel, { label: string; tone: Tone }> = {
+  high:   { label: 'Alto',  tone: 'destructive' },
+  medium: { label: 'Medio', tone: 'warning' },
+  low:    { label: 'Bajo',  tone: 'success' },
 }
 
 const SOURCE_LABELS: Record<LearningSource, string> = {
@@ -147,25 +159,37 @@ function formatNumber(n: number): string {
 // ─── Stats Strip ──────────────────────────────────────────────────────────────
 
 function StatsStrip({ stats, loading }: { stats: OptimizationStats | null; loading: boolean }) {
-  const items = [
-    { label: 'Ciclos Ejecutados',          value: stats ? String(stats.totalCycles) : '—',                           color: 'primary' as const },
-    { label: 'Learnings Generados',        value: stats ? String(stats.learningsGenerated) : '—',                    color: 'success' as const },
-    { label: 'Budget Optimizado',          value: stats ? `$${stats.budgetOptimized.toFixed(0)}` : '—',             color: 'warning' as const },
-    { label: 'Mejora Engagement Promedio', value: stats ? `+${stats.avgEngagementImprovement.toFixed(1)}%` : '—',   color: 'neutral' as const },
+  const items: { label: string; value: string; tone: 'neutral' | 'success' | 'warning' }[] = [
+    { label: 'Ciclos Ejecutados',          value: stats ? String(stats.totalCycles) : '—',                        tone: 'neutral' },
+    { label: 'Learnings Generados',        value: stats ? String(stats.learningsGenerated) : '—',                 tone: 'success' },
+    { label: 'Budget Optimizado',          value: stats ? `$${stats.budgetOptimized.toFixed(0)}` : '—',           tone: 'warning' },
+    { label: 'Mejora Engagement Promedio', value: stats ? `+${stats.avgEngagementImprovement.toFixed(1)}%` : '—', tone: 'neutral' },
   ]
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {items.map(item => (
+          <div
+            key={item.label}
+            className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+          >
+            <p className="text-sm text-muted-foreground">{item.label}</p>
+            <div className="mt-1.5 flex h-9 items-center">
+              <CircularProgress size="sm" />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {items.map(item => (
-        <Card key={item.label} variant="soft" color={item.color} sx={{ flex: 1, minWidth: 150, py: 1.5, px: 2 }}>
-          {loading ? (
-            <CircularProgress size="sm" />
-          ) : (
-            <Typography level="h3" fontWeight={700}>{item.value}</Typography>
-          )}
-          <Typography level="body-xs" sx={{ opacity: 0.8 }}>{item.label}</Typography>
-        </Card>
+        <StatTile key={item.label} label={item.label} value={item.value} tone={item.tone} />
       ))}
-    </Box>
+    </div>
   )
 }
 
@@ -173,30 +197,24 @@ function StatsStrip({ stats, loading }: { stats: OptimizationStats | null; loadi
 
 function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(100, value))
-  const color = pct >= 75 ? '#1F7A1F' : pct >= 50 ? '#9A5B13' : '#C41C1C'
+  const bar = pct >= 75 ? TONE_BAR.success : pct >= 50 ? TONE_BAR.warning : TONE_BAR.destructive
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <Box
-        sx={{
-          flex: 1,
-          height: 6,
-          borderRadius: 4,
-          bgcolor: 'neutral.200',
-          overflow: 'hidden',
-        }}
+    <div className="flex items-center gap-2">
+      <div
+        className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-label="Nivel de confianza"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
       >
-        <Box
-          sx={{
-            width: `${pct}%`,
-            height: '100%',
-            bgcolor: color,
-            borderRadius: 4,
-            transition: 'width 0.3s',
-          }}
+        <div
+          className={cn('h-full rounded-full transition-[width] duration-300', bar)}
+          style={{ width: `${pct}%` }}
         />
-      </Box>
-      <Typography level="body-xs" sx={{ minWidth: 32, textAlign: 'right' }}>{pct}%</Typography>
-    </Box>
+      </div>
+      <span className="min-w-8 text-right text-xs tabular-nums text-muted-foreground">{pct}%</span>
+    </div>
   )
 }
 
@@ -207,92 +225,67 @@ function LearningCard({ learning }: { learning: Learning }) {
   const impactCfg = IMPACT_CONFIG[learning.impact]
 
   return (
-    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+    <div className="flex flex-col gap-2.5 rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-        <Box
-          sx={{
-            width: 36,
-            height: 36,
-            borderRadius: 'sm',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            bgcolor: typeCfg.color + '.softBg',
-          }}
+      <div className="flex items-start gap-2">
+        <span
+          className={cn(
+            'flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold',
+            TONE_TILE[typeCfg.tone],
+          )}
+          aria-hidden
         >
-          <Typography level="body-xs" fontWeight="lg" sx={{ color: typeCfg.color + '.600' }}>
-            {typeCfg.emoji}
-          </Typography>
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 0.25 }}>
-            <Chip size="sm" variant="soft" color={typeCfg.color}>{typeCfg.label}</Chip>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-              <DotIcon sx={{ fontSize: 10, color: impactCfg.dot }} />
-              <Chip size="sm" variant="soft" color={impactCfg.color}>{impactCfg.label}</Chip>
-            </Box>
+          {typeCfg.emoji}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+            <Badge variant={typeCfg.tone}>{typeCfg.label}</Badge>
+            <Badge variant={impactCfg.tone} dot>{impactCfg.label}</Badge>
             {learning.applied && (
-              <Chip
-                size="sm"
-                variant="solid"
-                color="success"
-                startDecorator={<CheckCircle sx={{ fontSize: 11 }} />}
-              >
+              <Badge variant="success">
+                <CheckCircle className="size-3" weight="fill" aria-hidden />
                 Aplicada
-              </Chip>
+              </Badge>
             )}
-          </Box>
-          <Typography level="body-sm" fontWeight="lg">{learning.title}</Typography>
-        </Box>
-      </Box>
+          </div>
+          <p className="text-sm font-semibold text-foreground">{learning.title}</p>
+        </div>
+      </div>
 
       {/* Descripcion */}
-      <Typography level="body-xs" color="neutral">{learning.description}</Typography>
+      <p className="text-xs text-muted-foreground">{learning.description}</p>
 
       {/* Confidence */}
-      <Box>
-        <Typography level="body-xs" color="neutral" sx={{ mb: 0.5 }}>
-          Confianza
-        </Typography>
+      <div>
+        <p className="mb-1 text-xs text-muted-foreground">Confianza</p>
         <ConfidenceBar value={learning.confidence} />
-      </Box>
+      </div>
 
       {/* Recomendacion */}
-      <Box
-        sx={{
-          bgcolor: 'primary.softBg',
-          borderRadius: 'sm',
-          p: 1,
-          borderLeft: '3px solid',
-          borderColor: 'primary.400',
-        }}
-      >
-        <Typography level="body-xs" sx={{ fontStyle: 'italic' }}>{learning.recommendation}</Typography>
-      </Box>
+      <div className="rounded-md border-l-[3px] border-primary/50 bg-primary/8 p-2">
+        <p className="text-xs italic text-foreground">{learning.recommendation}</p>
+      </div>
 
       {/* Footer */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
-        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-          <Chip size="sm" variant="plain" color="neutral">{SOURCE_LABELS[learning.source]}</Chip>
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline">{SOURCE_LABELS[learning.source]}</Badge>
           {learning.campaignName && (
-            <Chip size="sm" variant="plain" color="neutral"
-              startDecorator={<CampaignIcon sx={{ fontSize: 11 }} />}
-            >
+            <Badge variant="outline">
+              <Megaphone className="size-3" aria-hidden />
               {learning.campaignName}
-            </Chip>
+            </Badge>
           )}
-        </Box>
+        </div>
         {learning.applied && learning.appliedAt ? (
-          <Typography level="body-xs" color="success">
+          <span className="text-xs text-success-text">
             Aplicada el {formatDate(learning.appliedAt)}
-          </Typography>
+          </span>
         ) : (
-          <Typography level="body-xs" color="neutral">{formatDate(learning.createdAt)}</Typography>
+          <span className="text-xs text-muted-foreground">{formatDate(learning.createdAt)}</span>
         )}
-      </Box>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -327,86 +320,89 @@ function CampaignOptRow({
   const isSelected   = selectedMetricsId === campaign.id
 
   return (
-    <Card
-      variant={isSelected ? 'soft' : 'outlined'}
-      color={isSelected ? 'primary' : 'neutral'}
-      sx={{ mb: 1.5 }}
+    <div
+      className={cn(
+        'mb-3 rounded-xl border p-4 transition-colors',
+        isSelected ? 'border-primary/50 bg-primary/8' : 'border-border bg-card',
+      )}
     >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap items-start gap-3">
         {/* Info */}
-        <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-            <CampaignIcon sx={{ fontSize: 18, color: 'primary.500' }} />
-            <Typography level="title-sm" fontWeight="lg">{campaign.name}</Typography>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <ClockIcon sx={{ fontSize: 14, color: 'text.tertiary' }} />
-              <Typography level="body-xs" color="neutral">
-                Ultimo ciclo: {campaign.lastCycleAt ? formatDateTime(campaign.lastCycleAt) : 'Nunca'}
-              </Typography>
-            </Box>
+        <div className="min-w-[200px] flex-1">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Megaphone className="size-[18px] shrink-0 text-primary" weight="fill" aria-hidden />
+            <p className="text-sm font-semibold text-foreground">{campaign.name}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="size-3.5 shrink-0" aria-hidden />
+              Ultimo ciclo: {campaign.lastCycleAt ? formatDateTime(campaign.lastCycleAt) : 'Nunca'}
+            </span>
             {campaign.nextCycleAt && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <ScheduleIcon sx={{ fontSize: 14, color: 'text.tertiary' }} />
-                <Typography level="body-xs" color="neutral">
-                  Proximo: {formatDateTime(campaign.nextCycleAt)}
-                </Typography>
-              </Box>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CalendarCheck className="size-3.5 shrink-0" aria-hidden />
+                Proximo: {formatDateTime(campaign.nextCycleAt)}
+              </span>
             )}
-            <Chip size="sm" variant="soft" color="neutral">
-              {campaign.totalCycles} ciclos
-            </Chip>
-          </Box>
-        </Box>
+            <Badge variant="neutral">{campaign.totalCycles} ciclos</Badge>
+          </div>
+        </div>
 
         {/* Acciones */}
-        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            variant="soft"
-            color="primary"
-            startDecorator={isRunning ? undefined : <RunIcon sx={{ fontSize: 14 }} />}
+            variant="primary"
             loading={isRunning}
             onClick={() => onRun(campaign.id)}
           >
+            {!isRunning && <Play className="size-3.5" weight="fill" aria-hidden />}
             Ejecutar Ahora
           </Button>
           <Button
             size="sm"
-            variant="outlined"
-            color="success"
-            startDecorator={isOptimizing ? undefined : <BudgetIcon sx={{ fontSize: 14 }} />}
+            variant="outline"
+            className="text-success-text hover:bg-success/10 hover:text-success-text"
             loading={isOptimizing}
             onClick={() => onOptimizeBudget(campaign.id)}
           >
+            {!isOptimizing && <Bank className="size-3.5" aria-hidden />}
             Optimizar Budget
           </Button>
           <Button
             size="sm"
-            variant="outlined"
-            color="warning"
-            startDecorator={isExtracting ? undefined : <LearningIcon sx={{ fontSize: 14 }} />}
+            variant="outline"
+            className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
             loading={isExtracting}
             onClick={() => onExtractLearnings(campaign.id)}
           >
+            {!isExtracting && <Lightbulb className="size-3.5" aria-hidden />}
             Extraer Learnings
           </Button>
           <Button
             size="sm"
-            variant={isSelected ? 'solid' : 'plain'}
-            color={isSelected ? 'primary' : 'neutral'}
+            variant={isSelected ? 'primary' : 'ghost'}
+            aria-expanded={isSelected}
             onClick={() => onSelectMetrics(campaign.id)}
           >
             {isSelected ? 'Ocultar Metricas' : 'Ver Metricas'}
           </Button>
-        </Box>
-      </Box>
-    </Card>
+        </div>
+      </div>
+    </div>
   )
 }
 
 // ─── Metrics Table ────────────────────────────────────────────────────────────
+
+function TrendIcon({ current, previous }: { current: number; previous?: number }) {
+  if (previous === undefined) return null
+  return current >= previous
+    ? <TrendUp className="size-3.5 shrink-0 text-success-text" aria-label="Al alza" />
+    : <TrendDown className="size-3.5 shrink-0 text-destructive-text" aria-label="A la baja" />
+}
+
+const METRIC_COLS = ['Fecha', 'Views', 'Likes', 'Comentarios', 'Engagement', 'Purchase Intents', 'ROAS']
 
 interface MetricsTableProps {
   campaignId: number
@@ -431,108 +427,84 @@ function MetricsTable({ campaignId }: MetricsTableProps) {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+      <div className="flex justify-center py-8">
         <CircularProgress size="sm" />
-      </Box>
+      </div>
     )
   }
 
   if (error) {
     return (
-      <Sheet variant="soft" color="danger" sx={{ p: 1.5, borderRadius: 'sm' }}>
-        <Typography level="body-sm" color="danger">{error}</Typography>
-      </Sheet>
+      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+        <p className="text-sm text-destructive-text">{error}</p>
+      </div>
     )
   }
 
   if (metrics.length === 0) {
     return (
-      <Box sx={{ textAlign: 'center', py: 4 }}>
-        <TrendingUp sx={{ fontSize: 36, color: 'text.tertiary' }} />
-        <Typography level="body-sm" color="neutral" sx={{ mt: 1 }}>Sin snapshots de metricas</Typography>
-      </Box>
+      <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <TrendUp className="size-9 text-muted-foreground" aria-hidden />
+        <p className="text-sm text-muted-foreground">Sin snapshots de metricas</p>
+      </div>
     )
   }
 
-  const COLS = ['Fecha', 'Views', 'Likes', 'Comentarios', 'Engagement', 'Purchase Intents', 'ROAS']
-
-  function TrendIcon({ current, previous }: { current: number; previous?: number }) {
-    if (previous === undefined) return null
-    const up = current >= previous
-    return up
-      ? <TrendingUp sx={{ fontSize: 13, color: 'success.500' }} />
-      : <TrendingDown sx={{ fontSize: 13, color: 'danger.500' }} />
-  }
-
   return (
-    <Box sx={{ overflowX: 'auto' }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: `1.5fr repeat(${COLS.length - 1}, 1fr)`,
-          gap: 1,
-          px: 1.5,
-          py: 1,
-          bgcolor: 'background.level1',
-          borderRadius: 'sm',
-          mb: 0.5,
-          minWidth: 700,
-        }}
-      >
-        {COLS.map(col => (
-          <Typography key={col} level="body-xs" fontWeight="lg" color="neutral">{col}</Typography>
-        ))}
-      </Box>
-
-      {metrics.map((m, idx) => {
-        const prev = idx < metrics.length - 1 ? metrics[idx + 1] : undefined
-        return (
-          <Box
-            key={m.id}
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: `1.5fr repeat(${COLS.length - 1}, 1fr)`,
-              gap: 1,
-              px: 1.5,
-              py: 1.25,
-              alignItems: 'center',
-              borderBottom: '1px solid',
-              borderColor: 'divider',
-              '&:last-child': { borderBottom: 0 },
-              '&:hover': { bgcolor: 'neutral.softBg' },
-              minWidth: 700,
-            }}
-          >
-            <Typography level="body-xs">{formatDate(m.date)}</Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Typography level="body-xs">{formatNumber(m.views)}</Typography>
-              <TrendIcon current={m.views} previous={prev?.views} />
-            </Box>
-            <Typography level="body-xs">{formatNumber(m.likes)}</Typography>
-            <Typography level="body-xs">{formatNumber(m.comments)}</Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Chip
-                size="sm"
-                variant="soft"
-                color={m.engagementRate >= 5 ? 'success' : m.engagementRate >= 2 ? 'warning' : 'danger'}
-              >
-                {m.engagementRate.toFixed(1)}%
-              </Chip>
-              <TrendIcon current={m.engagementRate} previous={prev?.prevEngagementRate} />
-            </Box>
-            <Typography level="body-xs">{m.purchaseIntents}</Typography>
-            <Chip
-              size="sm"
-              variant="soft"
-              color={m.roas >= 3 ? 'success' : m.roas >= 1 ? 'warning' : 'danger'}
-            >
-              {m.roas.toFixed(2)}x
-            </Chip>
-          </Box>
-        )
-      })}
-    </Box>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[700px] text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/40 text-left">
+              {METRIC_COLS.map(col => (
+                <th
+                  key={col}
+                  className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {metrics.map((m, idx) => {
+              const prev = idx < metrics.length - 1 ? metrics[idx + 1] : undefined
+              return (
+                <tr key={m.id} className="transition-colors hover:bg-accent/40">
+                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDate(m.date)}</td>
+                  <td className="px-4 py-3">
+                    <span className="flex items-center gap-1.5 tabular-nums text-foreground">
+                      {formatNumber(m.views)}
+                      <TrendIcon current={m.views} previous={prev?.views} />
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-foreground">{formatNumber(m.likes)}</td>
+                  <td className="px-4 py-3 tabular-nums text-foreground">{formatNumber(m.comments)}</td>
+                  <td className="px-4 py-3">
+                    <span className="flex items-center gap-1.5">
+                      <Badge
+                        variant={
+                          m.engagementRate >= 5 ? 'success' : m.engagementRate >= 2 ? 'warning' : 'destructive'
+                        }
+                      >
+                        {m.engagementRate.toFixed(1)}%
+                      </Badge>
+                      <TrendIcon current={m.engagementRate} previous={prev?.prevEngagementRate} />
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-foreground">{m.purchaseIntents}</td>
+                  <td className="px-4 py-3">
+                    <Badge variant={m.roas >= 3 ? 'success' : m.roas >= 1 ? 'warning' : 'destructive'}>
+                      {m.roas.toFixed(2)}x
+                    </Badge>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
@@ -657,204 +629,206 @@ export default function UGCOptimization() {
   }, [])
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: 'auto' }}>
-      {/* ── Header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <PsychologyIcon sx={{ fontSize: 28, color: 'primary.500' }} />
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography level="h3">Optimizacion Autonoma</Typography>
-              <Chip
-                size="sm"
-                variant="solid"
-                color={hasAutoOptimize ? 'success' : 'neutral'}
-                startDecorator={
-                  <DotIcon sx={{ fontSize: 8 }} />
-                }
-              >
-                {hasAutoOptimize ? 'Activo' : 'Inactivo'}
-              </Chip>
-            </Box>
-            <Typography level="body-sm" color="neutral">
-              Ciclos de optimizacion IA + learnings automaticos
-            </Typography>
-          </Box>
-        </Box>
-        <IconButton
-          variant="outlined"
-          color="neutral"
-          size="sm"
-          onClick={() => { fetchStats(); fetchLearnings() }}
-          disabled={loadingStats}
-        >
-          <Refresh />
-        </IconButton>
-      </Box>
-
-      {/* ── Stats strip ── */}
-      <StatsStrip stats={stats} loading={loadingStats} />
-
-      {/* ── Error state ── */}
-      {error && (
-        <Sheet variant="soft" color="danger" sx={{ p: 2, borderRadius: 'md', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography level="body-sm" color="danger">{error}</Typography>
-            <Button size="sm" variant="plain" color="danger" onClick={fetchStats}>Reintentar</Button>
-          </Box>
-        </Sheet>
-      )}
-
-      {/* ── Action Feedback ── */}
-      {actionFeedback && (
-        <Sheet variant="soft" color="success" sx={{ p: 1.5, borderRadius: 'md', mb: 2 }}>
-          <Typography level="body-sm" color="success">{actionFeedback}</Typography>
-        </Sheet>
-      )}
-
-      {/* ── Campanas con Optimizacion ── */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <OptimizeIcon sx={{ fontSize: 20, color: 'primary.500' }} />
-          <Typography level="title-md">Campanas con Optimizacion</Typography>
-        </Box>
-        <Divider sx={{ mb: 2 }} />
-
-        {loadingStats ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size="sm" />
-          </Box>
-        ) : campaigns.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 6 }}>
-            <OptimizeIcon sx={{ fontSize: 48, color: 'text.tertiary' }} />
-            <Typography level="title-sm" sx={{ mt: 1 }}>Sin campanas con optimizacion activa</Typography>
-            <Typography level="body-sm" color="neutral" sx={{ mt: 0.5, maxWidth: 340, mx: 'auto' }}>
-              Activa la optimizacion automatica en una campana para comenzar.
-            </Typography>
-          </Box>
-        ) : (
-          <Box>
-            {campaigns.map(c => (
-              <CampaignOptRow
-                key={c.id}
-                campaign={c}
-                runningId={runningId}
-                optimizingId={optimizingId}
-                extractingId={extractingId}
-                onRun={handleRun}
-                onOptimizeBudget={handleOptimizeBudget}
-                onExtractLearnings={handleExtractLearnings}
-                onSelectMetrics={handleSelectMetrics}
-                selectedMetricsId={selectedMetricsId}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* ── Metrics inline ── */}
-        {selectedMetricsId !== null && (
-          <Box sx={{ mt: 2 }}>
-            <Divider sx={{ mb: 2 }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <TrendingUp sx={{ fontSize: 18, color: 'primary.500' }} />
-              <Typography level="title-sm">
-                Historial de Metricas — {campaigns.find(c => c.id === selectedMetricsId)?.name}
-              </Typography>
-            </Box>
-            <MetricsTable campaignId={selectedMetricsId} />
-          </Box>
-        )}
-      </Card>
-
-      {/* ── Learnings ── */}
-      <Card variant="outlined">
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <LearningIcon sx={{ fontSize: 20, color: 'warning.500' }} />
-            <Typography level="title-md">Learnings</Typography>
-          </Box>
-          <Typography level="body-xs" color="neutral">
-            {filteredLearnings.length} de {learnings.length} learnings
-          </Typography>
-        </Box>
-
-        {/* Filtros learnings */}
-        <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
-          <Select
-            size="sm"
-            value={learningTypeFilter}
-            onChange={(_, v) => v && setLearningTypeFilter(v as LearningType | 'all')}
-            sx={{ minWidth: 180 }}
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1200px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* ── Header ── */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Brain className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Optimizacion Autonoma
+                </h1>
+                <Badge variant={hasAutoOptimize ? 'success' : 'neutral'} dot>
+                  {hasAutoOptimize ? 'Activo' : 'Inactivo'}
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Ciclos de optimizacion IA + learnings automaticos
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+            onClick={() => { fetchStats(); fetchLearnings() }}
+            disabled={loadingStats}
           >
-            <Option value="all">Todos los tipos</Option>
-            {(Object.entries(LEARNING_TYPE_CONFIG) as [LearningType, typeof LEARNING_TYPE_CONFIG[LearningType]][]).map(([key, cfg]) => (
-              <Option key={key} value={key}>{cfg.label}</Option>
-            ))}
-          </Select>
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-          <Select
-            size="sm"
-            value={impactFilter}
-            onChange={(_, v) => v && setImpactFilter(v as ImpactLevel | 'all')}
-            sx={{ minWidth: 130 }}
-          >
-            <Option value="all">Todos los impactos</Option>
-            <Option value="high">Alto</Option>
-            <Option value="medium">Medio</Option>
-            <Option value="low">Bajo</Option>
-          </Select>
+        {/* ── Stats strip ── */}
+        <StatsStrip stats={stats} loading={loadingStats} />
 
-          {uniqueCampaignOptions.length > 0 && (
-            <Select
+        {/* ── Error state ── */}
+        {error && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+            <p className="text-sm text-destructive-text">{error}</p>
+            <Button
               size="sm"
-              value={campaignFilter}
-              onChange={(_, v) => v && setCampaignFilter(v as string)}
-              sx={{ minWidth: 160 }}
+              variant="ghost"
+              className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+              onClick={fetchStats}
             >
-              <Option value="all">Todas las campanas</Option>
-              {uniqueCampaignOptions.map(c => (
-                <Option key={c.id} value={c.id}>{c.name}</Option>
+              Reintentar
+            </Button>
+          </div>
+        )}
+
+        {/* ── Action Feedback ── */}
+        {actionFeedback && (
+          <div className="rounded-lg border border-success/30 bg-success/10 p-3" role="status" aria-live="polite">
+            <p className="text-sm text-success-text">{actionFeedback}</p>
+          </div>
+        )}
+
+        {/* ── Campanas con Optimizacion ── */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2">
+            <MagicWand className="size-5 shrink-0 text-primary" aria-hidden />
+            <h2 className="text-base font-semibold text-foreground">Campanas con Optimizacion</h2>
+          </div>
+          <div className="my-4 border-t border-border" />
+
+          {loadingStats ? (
+            <div className="flex justify-center py-8">
+              <CircularProgress size="sm" />
+            </div>
+          ) : campaigns.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-center">
+              <MagicWand className="size-12 text-muted-foreground" aria-hidden />
+              <p className="text-sm font-semibold text-foreground">Sin campanas con optimizacion activa</p>
+              <p className="max-w-[340px] text-sm text-muted-foreground">
+                Activa la optimizacion automatica en una campana para comenzar.
+              </p>
+            </div>
+          ) : (
+            <div>
+              {campaigns.map(c => (
+                <CampaignOptRow
+                  key={c.id}
+                  campaign={c}
+                  runningId={runningId}
+                  optimizingId={optimizingId}
+                  extractingId={extractingId}
+                  onRun={handleRun}
+                  onOptimizeBudget={handleOptimizeBudget}
+                  onExtractLearnings={handleExtractLearnings}
+                  onSelectMetrics={handleSelectMetrics}
+                  selectedMetricsId={selectedMetricsId}
+                />
               ))}
-            </Select>
+            </div>
           )}
-        </Box>
 
-        <Divider sx={{ mb: 2 }} />
+          {/* ── Metrics inline ── */}
+          {selectedMetricsId !== null && (
+            <div className="mt-4">
+              <div className="mb-4 border-t border-border" />
+              <div className="mb-4 flex items-center gap-2">
+                <TrendUp className="size-[18px] shrink-0 text-primary" aria-hidden />
+                <h3 className="text-sm font-semibold text-foreground">
+                  Historial de Metricas — {campaigns.find(c => c.id === selectedMetricsId)?.name}
+                </h3>
+              </div>
+              <MetricsTable campaignId={selectedMetricsId} />
+            </div>
+          )}
+        </section>
 
-        {loadingLearnings ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-            <CircularProgress size="md" />
-          </Box>
-        ) : filteredLearnings.length === 0 ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8, gap: 1.5 }}>
-            <LearningIcon sx={{ fontSize: 56, color: 'text.tertiary' }} />
-            <Typography level="h4" textAlign="center">Sin learnings</Typography>
-            <Typography level="body-md" color="neutral" textAlign="center" sx={{ maxWidth: 360 }}>
-              {learnings.length === 0
-                ? 'Los learnings se generan automaticamente al ejecutar ciclos de optimizacion.'
-                : 'No hay learnings que coincidan con los filtros seleccionados.'}
-            </Typography>
-          </Box>
-        ) : (
-          <Stack spacing={1.5}>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, 1fr)',
-                  lg: 'repeat(3, 1fr)',
-                },
-                gap: 2,
-              }}
+        {/* ── Learnings ── */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="size-5 shrink-0 text-warning-text" weight="fill" aria-hidden />
+              <h2 className="text-base font-semibold text-foreground">Learnings</h2>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {filteredLearnings.length} de {learnings.length} learnings
+            </span>
+          </div>
+
+          {/* Filtros learnings */}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Select
+              value={learningTypeFilter}
+              onValueChange={(v) => v && setLearningTypeFilter(v as LearningType | 'all')}
             >
+              <SelectTrigger className="w-[200px]" aria-label="Filtrar por tipo de learning">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los tipos</SelectItem>
+                {(Object.entries(LEARNING_TYPE_CONFIG) as [LearningType, typeof LEARNING_TYPE_CONFIG[LearningType]][]).map(([key, cfg]) => (
+                  <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={impactFilter}
+              onValueChange={(v) => v && setImpactFilter(v as ImpactLevel | 'all')}
+            >
+              <SelectTrigger className="w-[170px]" aria-label="Filtrar por impacto">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los impactos</SelectItem>
+                <SelectItem value="high">Alto</SelectItem>
+                <SelectItem value="medium">Medio</SelectItem>
+                <SelectItem value="low">Bajo</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {uniqueCampaignOptions.length > 0 && (
+              <Select
+                value={campaignFilter}
+                onValueChange={(v) => v && setCampaignFilter(v)}
+              >
+                <SelectTrigger className="w-[190px]" aria-label="Filtrar por campana">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las campanas</SelectItem>
+                  {uniqueCampaignOptions.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="my-4 border-t border-border" />
+
+          {loadingLearnings ? (
+            <div className="flex justify-center py-12">
+              <CircularProgress size="md" />
+            </div>
+          ) : filteredLearnings.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <Lightbulb className="size-14 text-muted-foreground" aria-hidden />
+              <p className="text-xl font-semibold text-foreground">Sin learnings</p>
+              <p className="max-w-[360px] text-sm text-muted-foreground">
+                {learnings.length === 0
+                  ? 'Los learnings se generan automaticamente al ejecutar ciclos de optimizacion.'
+                  : 'No hay learnings que coincidan con los filtros seleccionados.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredLearnings.map(l => (
                 <LearningCard key={l.id} learning={l} />
               ))}
-            </Box>
-          </Stack>
-        )}
-      </Card>
-    </Box>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
   )
 }

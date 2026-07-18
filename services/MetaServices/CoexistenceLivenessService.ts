@@ -62,7 +62,13 @@ const CoexistenceLivenessService = async (): Promise<LivenessResult> => {
     }
 
     const now = new Date();
-    const io = getIO();
+    let io: ReturnType<typeof getIO> | null = null;
+
+    try {
+      io = getIO();
+    } catch (error: any) {
+      logger.warn(`[Liveness] Socket.IO no disponible en este proceso; se omiten alertas realtime: ${error.message}`);
+    }
 
     for (const conn of connections) {
       const lastOpened = conn.lastAppOpenedAt ? new Date(conn.lastAppOpenedAt) : null;
@@ -89,7 +95,7 @@ const CoexistenceLivenessService = async (): Promise<LivenessResult> => {
         );
 
         // Emitir alerta crítica al frontend
-        io.of(String(conn.companyId)).emit(`company-${conn.companyId}-coexistence-alert`, {
+        io?.of(String(conn.companyId)).emit(`company-${conn.companyId}-coexistence-alert`, {
           level: "disabled",
           whatsappId: conn.id,
           whatsappName: conn.name,
@@ -105,7 +111,7 @@ const CoexistenceLivenessService = async (): Promise<LivenessResult> => {
           `[Liveness] 🔴 CRÍTICO: ${conn.name} (ID: ${conn.id}) — ${daysSinceOpen} días sin abrir Business App (quedan ${14 - daysSinceOpen} día(s))`
         );
 
-        io.of(String(conn.companyId)).emit(`company-${conn.companyId}-coexistence-alert`, {
+        io?.of(String(conn.companyId)).emit(`company-${conn.companyId}-coexistence-alert`, {
           level: "critical",
           whatsappId: conn.id,
           whatsappName: conn.name,
@@ -121,7 +127,7 @@ const CoexistenceLivenessService = async (): Promise<LivenessResult> => {
           `[Liveness] ⚠️ AVISO: ${conn.name} (ID: ${conn.id}) — ${daysSinceOpen} días sin abrir Business App (quedan ${14 - daysSinceOpen} días)`
         );
 
-        io.of(String(conn.companyId)).emit(`company-${conn.companyId}-coexistence-alert`, {
+        io?.of(String(conn.companyId)).emit(`company-${conn.companyId}-coexistence-alert`, {
           level: "warning",
           whatsappId: conn.id,
           whatsappName: conn.name,

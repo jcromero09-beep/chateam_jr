@@ -1,7 +1,12 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Job } from "bull";
 import logger, { logError, logInfo, logWarn, logDebug } from "../utils/logger";
 import XLSX from "xlsx";
-import { has } from "lodash";
+import lodash from "lodash";
+const { has } = lodash;
 import Contact from "../models/Contact";
 import { getIO } from "../libs/socket";
 import fs from "fs";

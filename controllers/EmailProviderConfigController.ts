@@ -235,3 +235,43 @@ export const testConnection = async (req: Request, res: Response): Promise<Respo
     });
   }
 };
+
+// Prueba de conexion con datos AD-HOC (sin configuracion guardada todavia)
+export const testConnectionAdHoc = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { provider, apiKey, apiSecret, domain, region, settings } = req.body;
+
+  try {
+    const result = await EmailProviderConfigService.testConnectionAdHoc(companyId, {
+      provider,
+      apiKey,
+      apiSecret,
+      domain,
+      region,
+      settings
+    });
+
+    return res.status(200).json({
+      success: result.success,
+      message: result.message,
+      data: {
+        provider: result.provider,
+        connectionValid: result.success
+      }
+    });
+  } catch (error: unknown) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`[EmailProviderConfigController.testConnectionAdHoc] Error: ${errorMessage}`);
+    return res.status(500).json({
+      success: false,
+      message: "Error interno al probar conexion del proveedor"
+    });
+  }
+};

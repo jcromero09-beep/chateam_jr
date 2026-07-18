@@ -56,7 +56,8 @@ interface CommentData {
 // Configuracion
 // ---------------------------------------------------------------------------
 
-const FB_API_BASE = "https://graph.facebook.com/v22.0";
+import { GRAPH_BASE_URL } from "../../config/metaGraph"; // [Fase2·A2.1] fuente única versión
+const FB_API_BASE = GRAPH_BASE_URL;
 const TIMEOUT_SUBMIT = 30_000;
 const TIMEOUT_UPLOAD = 120_000; // 2 min para video uploads
 const TIMEOUT_QUERY = 15_000;

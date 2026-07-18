@@ -1,32 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Sheet,
-  Table,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Email as EmailIcon,
-  Campaign as CampaignIcon,
-  People as PeopleIcon,
-  TrendingUp as TrendingUpIcon,
-  PlayArrow as PlayArrowIcon,
-  Pause as PauseIcon,
-  Delete as DeleteIcon,
-  Add as AddIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  EnvelopeSimple,
+  Megaphone,
+  Users,
+  TrendUp,
+  Play,
+  Pause,
+  Trash,
+  Plus,
+  ArrowClockwise,
+} from '@phosphor-icons/react'
+// [migración] CircularProgress se conserva como MUI (no hay equivalente Radix).
+import { CircularProgress } from '@mui/joy'
 import { useNavigate } from 'react-router-dom'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import * as emailService from '../services/emailCampaignService'
 
 // ---------------------------------------------------------------------------
@@ -61,9 +50,7 @@ interface Stats {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type ChipColor = 'neutral' | 'warning' | 'primary' | 'danger' | 'success'
-
-function statusColor(status: string | undefined): ChipColor {
+function statusVariant(status: string | undefined): BadgeProps['variant'] {
   switch (status) {
     case 'INACTIVA':
       return 'neutral'
@@ -72,7 +59,7 @@ function statusColor(status: string | undefined): ChipColor {
     case 'EN_ANDAMENTO':
       return 'primary'
     case 'CANCELADA':
-      return 'danger'
+      return 'destructive'
     case 'FINALIZADA':
       return 'success'
     default:
@@ -111,57 +98,79 @@ function formatDate(dateStr: string | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Row action button (mismo look que RowAction del prototipo, con onClick)
+// ---------------------------------------------------------------------------
+
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Stat Card sub-component
 // ---------------------------------------------------------------------------
+
+type StatTone = 'primary' | 'success' | 'neutral' | 'warning'
+
+const statToneClasses: Record<StatTone, string> = {
+  primary: 'bg-brand-teal/10 text-brand-teal',
+  success: 'bg-success/14 text-success-text',
+  neutral: 'bg-muted text-muted-foreground',
+  warning: 'bg-warning/16 text-warning-text',
+}
 
 interface StatCardProps {
   icon: React.ReactNode
   label: string
   value: number
-  iconBg: string
-  iconColor: string
+  tone: StatTone
 }
 
-function StatCard({ icon, label, value, iconBg, iconColor }: StatCardProps) {
+function StatCard({ icon, label, value, tone }: StatCardProps) {
   return (
-    <Card
-      variant="outlined"
-      sx={{
-        height: '100%',
-        borderRadius: 'lg',
-        boxShadow: 'sm',
-        transition: 'box-shadow 0.2s',
-        '&:hover': { boxShadow: 'md' },
-      }}
-    >
-      <CardContent>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: 'md',
-              bgcolor: iconBg,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              color: iconColor,
-            }}
-          >
-            {icon}
-          </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography level="h3" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-              {value}
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary', mt: 0.25 }}>
-              {label}
-            </Typography>
-          </Box>
-        </Stack>
-      </CardContent>
-    </Card>
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] transition-shadow hover:shadow-md">
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            'flex size-12 shrink-0 items-center justify-center rounded-lg',
+            statToneClasses[tone],
+          )}
+        >
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <p className="text-2xl font-bold leading-tight tabular-nums text-foreground">
+            {value}
+          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{label}</p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -276,385 +285,264 @@ export default function EmailMarketing() {
   // -------------------------------------------------------------------------
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Header                                                               */}
-      {/* ------------------------------------------------------------------ */}
-      <Stack
-        direction="row"
-        spacing={2}
-        alignItems="center"
-        justifyContent="space-between"
-        flexWrap="wrap"
-        sx={{ mb: 3, gap: 1.5 }}
-      >
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 'md',
-              bgcolor: 'primary.softBg',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <EmailIcon sx={{ color: 'primary.plainColor', fontSize: 24 }} />
-          </Box>
-          <Box>
-            <Typography level="h3" sx={{ fontWeight: 700 }}>
-              Email Marketing
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Dashboard de campanas de email
-            </Typography>
-          </Box>
-        </Stack>
+        {/* ---------------------------------------------------------------- */}
+        {/* Header                                                             */}
+        {/* ---------------------------------------------------------------- */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <EnvelopeSimple className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Email Marketing
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Dashboard de campanas de email
+              </p>
+            </div>
+          </div>
 
-        <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ gap: 1 }}>
-          <Tooltip title="Actualizar datos">
-            <IconButton
-              variant="outlined"
-              color="neutral"
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar datos"
+              title="Actualizar datos"
+              className="text-muted-foreground"
               onClick={fetchData}
               disabled={loading}
-              size="sm"
             >
-              <RefreshIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Button
-            variant="outlined"
-            color="neutral"
-            size="sm"
-            startDecorator={<PeopleIcon fontSize="small" />}
-            onClick={() => navigate('/email-marketing/templates')}
-          >
-            Ver Listas
-          </Button>
-          <Button
-            variant="solid"
-            color="primary"
-            size="sm"
-            startDecorator={<AddIcon fontSize="small" />}
-            onClick={() => navigate('/email-marketing/campaigns')}
-          >
-            Nueva Campana
-          </Button>
-        </Stack>
-      </Stack>
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/email-marketing/templates')}
+            >
+              <Users className="size-4" aria-hidden />
+              Ver Listas
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => navigate('/email-marketing/campaigns')}
+            >
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva Campana
+            </Button>
+          </div>
+        </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Loading state                                                        */}
-      {/* ------------------------------------------------------------------ */}
-      {loading ? (
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: 320,
-          }}
-        >
-          <Stack spacing={2} alignItems="center">
-            <CircularProgress size="lg" />
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Cargando datos...
-            </Typography>
-          </Stack>
-        </Box>
-      ) : (
-        <>
-          {/* -------------------------------------------------------------- */}
-          {/* Stat cards                                                       */}
-          {/* -------------------------------------------------------------- */}
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid xs={12} sm={6} md={3}>
+        {/* ---------------------------------------------------------------- */}
+        {/* Loading state                                                      */}
+        {/* ---------------------------------------------------------------- */}
+        {loading ? (
+          <div className="flex min-h-[320px] items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <CircularProgress size="lg" />
+              <p className="text-sm text-muted-foreground">Cargando datos...</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* ------------------------------------------------------------ */}
+            {/* Stat cards                                                     */}
+            {/* ------------------------------------------------------------ */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard
-                icon={<CampaignIcon fontSize="small" />}
+                icon={<Megaphone className="size-5" weight="fill" aria-hidden />}
                 label="Total Campanas"
                 value={stats.totalCampaigns}
-                iconBg="primary.softBg"
-                iconColor="primary.plainColor"
+                tone="primary"
               />
-            </Grid>
-            <Grid xs={12} sm={6} md={3}>
               <StatCard
-                icon={<TrendingUpIcon fontSize="small" />}
+                icon={<TrendUp className="size-5" weight="fill" aria-hidden />}
                 label="Activas"
                 value={stats.active}
-                iconBg="success.softBg"
-                iconColor="success.plainColor"
+                tone="success"
               />
-            </Grid>
-            <Grid xs={12} sm={6} md={3}>
               <StatCard
-                icon={<EmailIcon fontSize="small" />}
+                icon={<EnvelopeSimple className="size-5" weight="fill" aria-hidden />}
                 label="Completadas"
                 value={stats.completed}
-                iconBg="neutral.softBg"
-                iconColor="neutral.plainColor"
+                tone="neutral"
               />
-            </Grid>
-            <Grid xs={12} sm={6} md={3}>
               <StatCard
-                icon={<PeopleIcon fontSize="small" />}
+                icon={<Users className="size-5" weight="fill" aria-hidden />}
                 label="Listas de Email"
                 value={stats.totalLists}
-                iconBg="warning.softBg"
-                iconColor="warning.plainColor"
+                tone="warning"
               />
-            </Grid>
-          </Grid>
+            </div>
 
-          {/* -------------------------------------------------------------- */}
-          {/* Recent campaigns table                                           */}
-          {/* -------------------------------------------------------------- */}
-          <Card variant="outlined" sx={{ borderRadius: 'lg', boxShadow: 'sm' }}>
-            <CardContent sx={{ p: 0 }}>
-              <Box
-                sx={{
-                  px: 3,
-                  py: 2,
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
-                }}
-              >
-                <Typography level="title-md" sx={{ fontWeight: 600 }}>
+            {/* ------------------------------------------------------------ */}
+            {/* Recent campaigns table                                         */}
+            {/* ------------------------------------------------------------ */}
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="border-b border-border px-5 py-4 sm:px-6">
+                <h2 className="text-base font-semibold text-foreground">
                   Campanas Recientes
-                </Typography>
-                <Typography level="body-xs" sx={{ color: 'text.secondary', mt: 0.25 }}>
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Mostrando las ultimas {recentCampaigns.length} campanas
-                </Typography>
-              </Box>
+                </p>
+              </div>
 
               {recentCampaigns.length === 0 ? (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    py: 8,
-                    gap: 2,
-                  }}
-                >
-                  <CampaignIcon sx={{ fontSize: 52, color: 'text.tertiary' }} />
-                  <Typography level="body-md" sx={{ color: 'text.secondary' }}>
+                <div className="flex flex-col items-center justify-center gap-4 py-16">
+                  <Megaphone
+                    className="size-12 text-muted-foreground/60"
+                    aria-hidden
+                  />
+                  <p className="text-sm text-muted-foreground">
                     No hay campanas creadas aun
-                  </Typography>
+                  </p>
                   <Button
-                    variant="solid"
-                    color="primary"
                     size="sm"
-                    startDecorator={<AddIcon fontSize="small" />}
                     onClick={() => navigate('/email-marketing/campaigns')}
                   >
+                    <Plus className="size-4" weight="bold" aria-hidden />
                     Crear primera campana
                   </Button>
-                </Box>
+                </div>
               ) : (
-                <Sheet
-                  sx={{
-                    overflow: 'auto',
-                    borderRadius: '0 0 var(--Card-radius) var(--Card-radius)',
-                  }}
-                >
-                  <Table
-                    borderAxis="xBetween"
-                    hoverRow
-                    sx={{
-                      '& thead th': {
-                        fontWeight: 600,
-                        fontSize: '0.75rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        color: 'text.secondary',
-                        py: 1.5,
-                        px: 2,
-                        bgcolor: 'background.level1',
-                        whiteSpace: 'nowrap',
-                      },
-                      '& tbody td': {
-                        py: 1.5,
-                        px: 2,
-                        fontSize: '0.875rem',
-                      },
-                    }}
-                  >
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[820px] text-sm">
                     <thead>
-                      <tr>
-                        <th style={{ width: '22%' }}>Nombre</th>
-                        <th style={{ width: '22%' }}>Asunto</th>
-                        <th style={{ width: '16%' }}>Lista</th>
-                        <th style={{ width: '13%' }}>Estado</th>
-                        <th style={{ width: '13%' }}>Fecha</th>
-                        <th style={{ width: '14%' }}>Acciones</th>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Nombre
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Asunto
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Lista
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Estado
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Fecha
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Acciones
+                        </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-border">
                       {recentCampaigns.map((campaign) => (
-                        <tr key={campaign.id}>
-
+                        <tr
+                          key={campaign.id}
+                          className="transition-colors hover:bg-accent/40"
+                        >
                           {/* Nombre */}
-                          <td>
-                            <Typography
-                              level="body-sm"
-                              sx={{
-                                fontWeight: 500,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                maxWidth: 190,
-                              }}
-                            >
+                          <td className="px-4 py-3">
+                            <span className="block max-w-[190px] truncate font-medium text-foreground">
                               {campaign.name}
-                            </Typography>
+                            </span>
                           </td>
 
                           {/* Asunto */}
-                          <td>
-                            <Typography
-                              level="body-sm"
-                              sx={{
-                                color: 'text.secondary',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                maxWidth: 190,
-                              }}
-                            >
+                          <td className="px-4 py-3">
+                            <span className="block max-w-[190px] truncate text-muted-foreground">
                               {campaign.subject ?? '-'}
-                            </Typography>
+                            </span>
                           </td>
 
                           {/* Lista */}
-                          <td>
-                            <Typography
-                              level="body-sm"
-                              sx={{
-                                color: 'text.secondary',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                maxWidth: 140,
-                              }}
-                            >
+                          <td className="px-4 py-3">
+                            <span className="block max-w-[140px] truncate text-muted-foreground">
                               {campaign.contactList?.name ?? '-'}
-                            </Typography>
+                            </span>
                           </td>
 
                           {/* Estado */}
-                          <td>
-                            <Chip
-                              size="sm"
-                              color={statusColor(campaign.status)}
-                              variant="soft"
-                              sx={{ fontWeight: 500 }}
-                            >
+                          <td className="px-4 py-3">
+                            <Badge variant={statusVariant(campaign.status)}>
                               {statusLabel(campaign.status)}
-                            </Chip>
+                            </Badge>
                           </td>
 
                           {/* Fecha */}
-                          <td>
-                            <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                              {formatDate(
-                                campaign.run_at ?? campaign.scheduledAt ?? campaign.createdAt
-                              )}
-                            </Typography>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {formatDate(
+                              campaign.run_at ?? campaign.scheduledAt ?? campaign.createdAt,
+                            )}
                           </td>
 
                           {/* Acciones */}
-                          <td>
-                            <Stack direction="row" spacing={0.5} alignItems="center">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-0.5">
                               {actionLoading === campaign.id ? (
                                 <CircularProgress size="sm" sx={{ mx: 1 }} />
                               ) : (
                                 <>
-                                  <Tooltip title="Reiniciar campana" placement="top">
-                                    <span>
-                                      <IconButton
-                                        size="sm"
-                                        variant="plain"
-                                        color="success"
-                                        onClick={() => handleRestart(campaign.id)}
-                                        disabled={campaign.status === 'EN_ANDAMENTO'}
-                                      >
-                                        <PlayArrowIcon fontSize="small" />
-                                      </IconButton>
-                                    </span>
-                                  </Tooltip>
-                                  <Tooltip title="Cancelar campana" placement="top">
-                                    <span>
-                                      <IconButton
-                                        size="sm"
-                                        variant="plain"
-                                        color="warning"
-                                        onClick={() => handleCancel(campaign.id)}
-                                        disabled={
-                                          campaign.status === 'CANCELADA' ||
-                                          campaign.status === 'FINALIZADA' ||
-                                          campaign.status === 'INACTIVA'
-                                        }
-                                      >
-                                        <PauseIcon fontSize="small" />
-                                      </IconButton>
-                                    </span>
-                                  </Tooltip>
-                                  <Tooltip title="Eliminar campana" placement="top">
-                                    <IconButton
-                                      size="sm"
-                                      variant="plain"
-                                      color="danger"
-                                      onClick={() => handleDelete(campaign.id)}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
+                                  <ActionBtn
+                                    label="Reiniciar campana"
+                                    onClick={() => handleRestart(campaign.id)}
+                                    disabled={campaign.status === 'EN_ANDAMENTO'}
+                                    className="text-success-text hover:bg-success/10 hover:text-success-text"
+                                  >
+                                    <Play className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                  <ActionBtn
+                                    label="Cancelar campana"
+                                    onClick={() => handleCancel(campaign.id)}
+                                    disabled={
+                                      campaign.status === 'CANCELADA' ||
+                                      campaign.status === 'FINALIZADA' ||
+                                      campaign.status === 'INACTIVA'
+                                    }
+                                    className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
+                                  >
+                                    <Pause className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                  <ActionBtn
+                                    label="Eliminar campana"
+                                    onClick={() => handleDelete(campaign.id)}
+                                    className="hover:bg-destructive/10 hover:text-destructive-text"
+                                  >
+                                    <Trash className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
                                 </>
                               )}
-                            </Stack>
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                  </Table>
-                </Sheet>
+                  </table>
+                </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* -------------------------------------------------------------- */}
-          {/* Footer navigation                                                */}
-          {/* -------------------------------------------------------------- */}
-          <Stack
-            direction="row"
-            spacing={2}
-            justifyContent="flex-end"
-            sx={{ mt: 2 }}
-          >
-            <Button
-              variant="plain"
-              color="neutral"
-              size="sm"
-              onClick={() => navigate('/email-marketing/templates')}
-            >
-              Administrar listas de contactos
-            </Button>
-            <Button
-              variant="plain"
-              color="primary"
-              size="sm"
-              onClick={() => navigate('/email-marketing/campaigns')}
-            >
-              Ver todas las campanas
-            </Button>
-          </Stack>
-        </>
-      )}
-    </Container>
+            {/* ------------------------------------------------------------ */}
+            {/* Footer navigation                                              */}
+            {/* ------------------------------------------------------------ */}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/email-marketing/templates')}
+              >
+                Administrar listas de contactos
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-primary hover:text-primary"
+                onClick={() => navigate('/email-marketing/campaigns')}
+              >
+                Ver todas las campanas
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   )
 }

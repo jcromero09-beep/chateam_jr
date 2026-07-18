@@ -1,32 +1,17 @@
 import { useState, useEffect } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-} from '@mui/joy'
-import {
-  Label as TagIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  Tag as TagIcon,
+  ArrowClockwise,
+  Plus,
+  MagnifyingGlass,
+  PencilSimple,
+  Trash,
+  X,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { RowAction } from '@/components/ui/row-action'
 import api from '../services/api'
 
 interface Tag {
@@ -37,6 +22,8 @@ interface Tag {
   createdAt: string
   description?: string
 }
+
+const columns = ['Color', 'Etiqueta', 'Usos', 'Creado', '']
 
 export default function Tags() {
   const [tags, setTags] = useState<Tag[]>([])
@@ -120,7 +107,7 @@ export default function Tags() {
       name: tag.name,
       color: tag.color,
       kanban: 0,
-      description: (tag as any).description || '',
+      description: tag.description || '',
     })
     setOpenModal(true)
   }
@@ -140,227 +127,269 @@ export default function Tags() {
     })
   }
 
+  const closeModal = () => {
+    setOpenModal(false)
+    resetForm()
+    setSelectedTag(null)
+  }
+
   const filteredTags = tags.filter((tag) =>
     tag.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const stats = {
     total: tags.length,
-    used: tags.reduce((sum, tag) => sum + (tag.uses || 0), 0),
-    mostUsed: tags.sort((a, b) => (b.uses || 0) - (a.uses || 0))[0]?.name || '-',
+    mostUsed:
+      [...tags].sort((a, b) => (b.uses || 0) - (a.uses || 0))[0]?.name || '-',
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <TagIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Etiquetas</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <TagIcon className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Etiquetas
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Gestión de etiquetas para clasificación
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchTags}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
-              Nueva Etiqueta
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchTags}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
             </Button>
-          </Stack>
-        </Stack>
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva etiqueta
+            </Button>
+          </div>
+        </div>
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Total Etiquetas
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Más Usada
-                </Typography>
-                <Typography level="body-sm" fontWeight="bold">
-                  {stats.mostUsed}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Usos Totales
-                </Typography>
-                <Typography level="h2">{stats.used}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Activas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.total}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+          <StatTile label="Total etiquetas" value={String(stats.total)} />
+          <StatTile label="Más usada" value={stats.mostUsed} />
+          <StatTile label="Activas" value={String(stats.total)} tone="success" />
+        </div>
 
         {/* Search */}
-        <Card>
-          <CardContent>
-            <Input
-              placeholder="Buscar etiquetas..."
-              startDecorator={<SearchIcon />}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </CardContent>
-        </Card>
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            placeholder="Buscar etiquetas"
+            aria-label="Buscar etiquetas"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
 
         {/* Tags Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 60 }}>Color</th>
-                  <th style={{ width: 200 }}>Etiqueta</th>
-                  <th style={{ width: 100 }}>Usos</th>
-                  <th style={{ width: 180 }}>Fecha Creación</th>
-                  <th style={{ width: 150 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando etiquetas...</Typography>
+                    <td
+                      colSpan={5}
+                      className="px-4 py-10 text-center text-muted-foreground"
+                    >
+                      Cargando etiquetas...
                     </td>
                   </tr>
                 ) : filteredTags.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron etiquetas</Typography>
+                    <td
+                      colSpan={5}
+                      className="px-4 py-10 text-center text-muted-foreground"
+                    >
+                      No se encontraron etiquetas
                     </td>
                   </tr>
                 ) : (
                   filteredTags.map((tag) => (
-                    <tr key={tag.id}>
-                      <td>
-                        <Box
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            bgcolor: tag.color,
-                            borderRadius: 'sm',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                          }}
+                    <tr
+                      key={tag.id}
+                      className="transition-colors hover:bg-accent/40"
+                    >
+                      <td className="px-4 py-3">
+                        <span
+                          className="block size-6 rounded-md ring-1 ring-inset ring-black/10"
+                          style={{ backgroundColor: tag.color }}
+                          aria-hidden
                         />
                       </td>
-                      <td>
-                        <Chip size="sm" sx={{ bgcolor: tag.color, color: 'white' }}>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+                          <span
+                            className="size-2 rounded-full"
+                            style={{ backgroundColor: tag.color }}
+                            aria-hidden
+                          />
                           {tag.name}
-                        </Chip>
+                        </span>
                       </td>
-                      <td>
-                        <Typography level="body-sm">{tag.uses || 0}</Typography>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {tag.uses || 0}
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {new Date(tag.createdAt).toLocaleDateString('es-ES')}
-                        </Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {new Date(tag.createdAt).toLocaleDateString('es-ES')}
                       </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
-                            onClick={() => openEditModal(tag)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <RowAction label="Editar">
+                            <button
+                              type="button"
+                              aria-label="Editar"
+                              onClick={() => openEditModal(tag)}
+                              className="flex size-full items-center justify-center"
+                            >
+                              <PencilSimple className="size-[18px]" aria-hidden />
+                            </button>
+                          </RowAction>
+                          <button
+                            type="button"
+                            aria-label="Eliminar"
+                            title="Eliminar"
                             onClick={() => handleDelete(tag.id)}
+                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Stack>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Create/Edit */}
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ minWidth: 500 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              {selectedTag ? 'Editar Etiqueta' : 'Nueva Etiqueta'}
-            </Typography>
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>Nombre</FormLabel>
-                <Input
+      {/* Modal Create/Edit */}
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={closeModal}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                {selectedTag ? 'Editar etiqueta' : 'Nueva etiqueta'}
+              </h2>
+              <RowAction label="Cerrar">
+                <button
+                  type="button"
+                  aria-label="Cerrar"
+                  onClick={closeModal}
+                  className="flex size-full items-center justify-center"
+                >
+                  <X className="size-[18px]" aria-hidden />
+                </button>
+              </RowAction>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="tag-name">Nombre</Label>
+                <input
+                  id="tag-name"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
                   placeholder="Ej: VIP"
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Color</FormLabel>
-                <Input
-                  type="color"
-                  value={formData.color}
-                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                />
-              </FormControl>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                <Typography level="body-sm">Vista Previa:</Typography>
-                <Chip size="sm" sx={{ bgcolor: formData.color, color: 'white' }}>
-                  {formData.name || 'Etiqueta'}
-                </Chip>
-              </Box>
-              <FormControl>
-                <FormLabel>Descripción</FormLabel>
-                <Input
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="tag-color">Color</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="tag-color"
+                    type="color"
+                    value={formData.color}
+                    onChange={(e) =>
+                      setFormData({ ...formData, color: e.target.value })
+                    }
+                    className="h-10 w-16 cursor-pointer rounded-md border border-input bg-card p-1"
+                  />
+                  <span className="text-sm text-muted-foreground">Vista previa:</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: formData.color }}
+                      aria-hidden
+                    />
+                    {formData.name || 'Etiqueta'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="tag-description">Descripción</Label>
+                <input
+                  id="tag-description"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                   placeholder="Descripción de la etiqueta (opcional)"
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                 />
-              </FormControl>
-              <Button color="primary" onClick={selectedTag ? handleUpdate : handleCreate}>
-                {selectedTag ? 'Actualizar' : 'Crear'} Etiqueta
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={closeModal}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={selectedTag ? handleUpdate : handleCreate}
+                >
+                  {selectedTag ? 'Actualizar' : 'Crear'} etiqueta
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

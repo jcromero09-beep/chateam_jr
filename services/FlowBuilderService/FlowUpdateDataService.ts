@@ -30,7 +30,7 @@ interface Request {
 const FlowUpdateDataService = async ({
   companyId,
   bodyData
-}: Request): Promise<String> => {
+}: Request): Promise<string> => {
   try {
     console.log('🔵 [FlowUpdateDataService] Guardando flujo:', {
       idFlow: bodyData.idFlow,

@@ -47,7 +47,7 @@ export const TicketsAttendance = async ({ initialDate, finalDate, companyId }: R
   const data: DataReturn[] = await sequelize.query(sql, { type: QueryTypes.SELECT });
 
   users.map(user => {
-    let indexCreated = data.findIndex((item) => item.nome === user.name);
+    const indexCreated = data.findIndex((item) => item.nome === user.name);
 
     if (indexCreated === -1) {
       data.push({ quantidade: 0, nome: user.name })

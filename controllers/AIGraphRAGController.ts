@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Request, Response } from "express";
 import { Op } from "sequelize";
 import axios from "axios";

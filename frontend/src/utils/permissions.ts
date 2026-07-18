@@ -134,6 +134,8 @@ export type Module =
   | 'ai_heygen'
   | 'ai_ab_testing'
   | 'ai_affiliates'
+  // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+  | 'ai_correction_review'
   // Agentes IA
   | 'agent_comments'
   | 'agent_devices'
@@ -168,6 +170,8 @@ export type Module =
   // Comment Auto-Reply (Auto-Respondedor de Comentarios)
   | 'comment_autoreply'
   | 'comment_autoreply_campaigns'
+  // Social Comments FB/IG
+  | 'social_comments'
 
 // Matriz de permisos por rol y módulo (legacy, se mantiene para compatibilidad)
 // true = acceso completo, false = sin acceso, 'read' = solo lectura
@@ -301,6 +305,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_heygen: true,
     ai_ab_testing: true,
     ai_affiliates: true,
+    // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+    ai_correction_review: true,
     // Agentes IA
     agent_comments: true,
     agent_devices: true,
@@ -335,6 +341,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     // Comment Auto-Reply
     comment_autoreply: true,
     comment_autoreply_campaigns: true,
+    // Social Comments FB/IG
+    social_comments: true,
   },
   // Admin: Gestión completa de empresa (sin algunas configuraciones globales)
   admin: {
@@ -342,7 +350,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     dashboard: true,
     reports: true,
     realtime_chats: true,
-    superadmin: true,
+    superadmin: false,
     // Operativo
     tickets: true,
     quick_replies: true,
@@ -458,6 +466,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_heygen: true,
     ai_ab_testing: true,
     ai_affiliates: true,
+    // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+    ai_correction_review: true,
     // Agentes IA
     agent_comments: true,
     agent_devices: true,
@@ -492,6 +502,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     // Comment Auto-Reply
     comment_autoreply: true,
     comment_autoreply_campaigns: true,
+    // Social Comments FB/IG
+    social_comments: true,
   },
 
   // Supervisor: Como admin pero sin gestión empresarial
@@ -500,7 +512,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     dashboard: true,
     reports: true,
     realtime_chats: true,
-    superadmin: true,
+    superadmin: false,
     // Operativo
     tickets: true,
     quick_replies: true,
@@ -616,6 +628,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_heygen: true,
     ai_ab_testing: true,
     ai_affiliates: true,
+    // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+    ai_correction_review: true,
     // Agentes IA
     agent_comments: true,
     agent_devices: true,
@@ -650,6 +664,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     // Comment Auto-Reply
     comment_autoreply: true,
     comment_autoreply_campaigns: true,
+    // Social Comments FB/IG
+    social_comments: true,
   },
 
   // User: Acceso básico operativo
@@ -774,6 +790,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_heygen: false,
     ai_ab_testing: false,
     ai_affiliates: false,
+    // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+    ai_correction_review: false,
     // Agentes IA
     agent_comments: false,
     agent_devices: false,
@@ -808,6 +826,8 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     // Comment Auto-Reply
     comment_autoreply: false,
     comment_autoreply_campaigns: false,
+    // Social Comments FB/IG
+    social_comments: false,
   },
 }
 
@@ -886,7 +906,7 @@ export const DEFAULT_PLAN_PERMISSIONS: InterfacePermissions = {
   dashboard: true,
   reports: true,
   realtime_chats: true,
-    superadmin: true,
+  superadmin: false,
   // Operativo
   tickets: true,
   quick_replies: true,
@@ -1033,6 +1053,8 @@ export const DEFAULT_PLAN_PERMISSIONS: InterfacePermissions = {
   // Email extras
   email_provider_settings: true,
   email_credit_packs: true,
+  // Social Comments FB/IG
+  social_comments: true,
 }
 
 /**
@@ -1166,4 +1188,10 @@ export function getAccessibleModulesByPlan(
 /**
  * Lista de todos los módulos disponibles
  */
+export const SUPERADMIN_ONLY_MODULES: Module[] = ['superadmin', 'permissions_manager']
+
 export const ALL_MODULES: Module[] = Object.keys(DEFAULT_PLAN_PERMISSIONS) as Module[]
+
+export const PLAN_MANAGED_MODULES: Module[] = ALL_MODULES.filter(
+  module => !SUPERADMIN_ONLY_MODULES.includes(module)
+)

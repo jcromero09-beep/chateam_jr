@@ -61,7 +61,7 @@ const GenerateSeedContentService = async (
       : "Instagram, TikTok";
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5.5",
       messages: [
         {
           role: "system",
@@ -145,7 +145,7 @@ Usa emojis, hashtags y el estilo casual de redes sociales.`
         metadata: {
           platform: post.platform || "instagram",
           generatedAt: new Date().toISOString(),
-          model: "gpt-4o-mini"
+          model: "gpt-5.5"
         }
       } as Partial<AgentMemory> as AgentMemory);
 

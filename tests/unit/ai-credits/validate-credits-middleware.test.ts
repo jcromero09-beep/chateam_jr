@@ -86,7 +86,7 @@ describe('validateAICredits Middleware — Validacion de creditos IA', () => {
     );
   });
 
-  test('should call next() when no balance exists for credit type (not initialized)', async () => {
+  test('should return 402 when no balance exists for credit type (not initialized)', async () => {
     // Arrange
     const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
     mockFindByPk.mockResolvedValue({ id: 10, super: false } as any);
@@ -101,12 +101,20 @@ describe('validateAICredits Middleware — Validacion de creditos IA', () => {
     const middleware = validateAICredits('image', 1);
     await middleware(mockReq, mockRes, mockNext);
 
-    // Assert — sin balance inicializado, deja pasar (next sin bloquear)
-    expect(mockNext).toHaveBeenCalledTimes(1);
-    expect(mockRes.status).not.toHaveBeenCalled();
+    // Assert — sin balance inicializado, bloquea fail-closed
+    expect(mockNext).not.toHaveBeenCalled();
+    expect(mockRes.status).toHaveBeenCalledWith(402);
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errors: expect.objectContaining({
+          code: 'ERR_AI_NO_CREDIT_BALANCE'
+        })
+      })
+    );
   });
 
-  test('should call next() when credit type not found (feature not configured)', async () => {
+  test('should return 402 when credit type not found (feature not configured)', async () => {
     // Arrange
     const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
     mockFindByPk.mockResolvedValue({ id: 10, super: false } as any);
@@ -118,9 +126,17 @@ describe('validateAICredits Middleware — Validacion de creditos IA', () => {
     const middleware = validateAICredits('nonexistent_type', 1);
     await middleware(mockReq, mockRes, mockNext);
 
-    // Assert — tipo de credito no existe, deja pasar
-    expect(mockNext).toHaveBeenCalledTimes(1);
-    expect(mockRes.status).not.toHaveBeenCalled();
+    // Assert — tipo de credito no existe, bloquea fail-closed
+    expect(mockNext).not.toHaveBeenCalled();
+    expect(mockRes.status).toHaveBeenCalledWith(402);
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errors: expect.objectContaining({
+          code: 'ERR_AI_CREDIT_TYPE_NOT_FOUND'
+        })
+      })
+    );
     // No debe consultar balances si el tipo no existe
     expect(AICreditBalance.findOne).not.toHaveBeenCalled();
   });
@@ -176,7 +192,7 @@ describe('validateAICredits Middleware — Validacion de creditos IA', () => {
     expect(AICreditBalance.findOne).not.toHaveBeenCalled();
   });
 
-  test('should call next() on unexpected error (fail-open)', async () => {
+  test('should return 503 on unexpected error (fail-closed)', async () => {
     // Arrange
     const mockFindByPk = User.findByPk as jest.MockedFunction<typeof User.findByPk>;
     mockFindByPk.mockRejectedValue(new Error('DB connection lost'));
@@ -185,9 +201,17 @@ describe('validateAICredits Middleware — Validacion de creditos IA', () => {
     const middleware = validateAICredits('message', 1);
     await middleware(mockReq, mockRes, mockNext);
 
-    // Assert — en caso de error inesperado, no bloquear
-    expect(mockNext).toHaveBeenCalledTimes(1);
-    expect(mockRes.status).not.toHaveBeenCalled();
+    // Assert — en caso de error inesperado, bloquea por seguridad
+    expect(mockNext).not.toHaveBeenCalled();
+    expect(mockRes.status).toHaveBeenCalledWith(503);
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errors: expect.objectContaining({
+          code: 'ERR_AI_CREDIT_VALIDATION_FAILED'
+        })
+      })
+    );
   });
 
   test('should default amount to 1 when not specified', async () => {

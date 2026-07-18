@@ -1,4 +1,5 @@
 import AppError from "../../errors/AppError";
+import RunTicketAutomationRules from "../AutomationServices/RunTicketAutomationRules"; // [Fase E]
 
 import { Op } from "sequelize";
 import GetDefaultWhatsApp from "../../helpers/GetDefaultWhatsApp";
@@ -9,10 +10,10 @@ import { getIO } from "../../libs/socket";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import Queue from "../../models/Queue";
 import User from "../../models/User";
-import CheckContactOpenTickets from "../../helpers/CheckContactOpenTickets";
 
 import CreateLogTicketService from "./CreateLogTicketService";
 import ShowTicketService from "./ShowTicketService";
+import NotifyTicketEventService from "../NotificationServices/NotifyTicketEventService";
 
 interface Request {
   contactId: number;
@@ -38,7 +39,6 @@ const CreateTicketService = async ({
   let defaultWhatsapp
 
   if (whatsappId !== "undefined" && whatsappId !== null && whatsappId !== "") {
-    // console.log("GETTING WHATSAPP CREATE TICKETSERVICE", whatsappId)
     whatsapp = await ShowWhatsAppService(whatsappId, companyId)
   }
 
@@ -53,8 +53,25 @@ const CreateTicketService = async ({
     defaultWhatsapp = await GetDefaultWhatsApp(fallbackId, companyId);
   }
 
-  // console.log("defaultWhatsapp", defaultWhatsapp.id, defaultWhatsapp.channel)
-  await CheckContactOpenTickets(contactId, defaultWhatsapp.id, companyId);
+  // Si el contacto ya tiene un ticket activo en esta conexión, no bloqueamos
+  // el flujo manual: devolvemos ese ticket para que el frontend abra el chat.
+  const existingTicket = await Ticket.findOne({
+    where: {
+      contactId,
+      companyId,
+      whatsappId: defaultWhatsapp.id,
+      status: {
+        [Op.or]: ["open", "pending", "group", "nps", "lgpd"]
+      }
+    },
+    order: [["updatedAt", "DESC"]]
+  });
+
+  if (existingTicket) {
+    const ticket = await ShowTicketService(existingTicket.id, companyId);
+    ticket.setDataValue("alreadyOpen", true);
+    return ticket;
+  }
 
   const { isGroup } = await ShowContactService(contactId, companyId);
 
@@ -82,6 +99,10 @@ const CreateTicketService = async ({
     throw new AppError("ERR_CREATING_TICKET");
   }
 
+  // [Fase E] Motor de reglas: evento ticket_created (aislado — nunca rompe la creación del ticket)
+  await RunTicketAutomationRules({ event: "ticket_created", ticket, companyId });
+  await ticket.reload();
+
   io.of(String(companyId))
     // .to(ticket.status)
     // .to("notification")
@@ -90,6 +111,8 @@ const CreateTicketService = async ({
       action: "create",
       ticket
     });
+
+  await NotifyTicketEventService(ticket, "created");
 
   await CreateLogTicketService({
     userId,

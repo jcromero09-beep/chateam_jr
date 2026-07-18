@@ -9,7 +9,7 @@ interface Request {
 const UpdateActiveWebHookService = async ({
   status,
   webhookId
-}: Request): Promise<String> => {
+}: Request): Promise<string> => {
   try {
 
     const webhook = await WebhookModel.update({ active: status }, {

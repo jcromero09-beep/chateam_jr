@@ -11,6 +11,7 @@
 import { Op } from "sequelize";
 import Whatsapp from "../../models/Whatsapp";
 import { refreshLongLivedToken } from "./metaEmbeddedSignupService";
+import TokenManager from "../MetaMarketingService/TokenManager"; // [Fase2·A3.2] debug_token → expiry real
 import logger from "../../utils/logger";
 
 interface RefreshResult {
@@ -42,7 +43,7 @@ const MetaTokenRefreshService = async (): Promise<RefreshResult> => {
         tokenMeta: { [Op.ne]: null },
         status: "CONNECTED",
       },
-      attributes: ["id", "companyId", "name", "tokenMeta", "coexistenceEnabled", "updatedAt"],
+      attributes: ["id", "companyId", "name", "tokenMeta", "coexistenceEnabled", "updatedAt", "tokenMetaExpiresAt"],
     });
 
     result.tokensChecked = metaConnections.length;
@@ -52,17 +53,42 @@ const MetaTokenRefreshService = async (): Promise<RefreshResult> => {
       return result;
     }
 
-    // Para cada conexión, intentar renovar el token proactivamente
-    // Meta recomienda renovar cada 50 días (antes de los 60 de expiración)
-    const fiftyDaysAgo = new Date();
-    fiftyDaysAgo.setDate(fiftyDaysAgo.getDate() - 50);
+    // [Fase2·A3.2] Expiración REAL vía debug_token de Meta (persistida en
+    // tokenMetaExpiresAt) + alerta a 7 días. Fail-safe: si debug_token falla,
+    // cae al proxy histórico (updatedAt > 50 días).
+    const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const SEVEN_DAYS_MS = 7 * DAY_MS;
+    const fiftyDaysAgo = new Date(now - 50 * DAY_MS);
 
     for (const conn of metaConnections) {
-      // Si la conexión no se ha actualizado en 50+ días, renovar token
-      const lastUpdate = new Date(conn.updatedAt);
-      if (lastUpdate > fiftyDaysAgo) {
-        continue; // Token aún vigente, saltar
+      let realExpiresAt: Date | null = null;
+      try {
+        const info = await TokenManager.debugToken(conn.tokenMeta); // getter descifra tokenMeta
+        if (info && info.expires_at && info.expires_at > 0) {
+          realExpiresAt = new Date(info.expires_at * 1000);
+          await conn.update({ tokenMetaExpiresAt: realExpiresAt });
+        }
+      } catch (e: any) {
+        logger.warn(`[MetaTokenRefresh] debug_token falló para ${conn.name} (#${conn.id}): ${e.message}`);
       }
+
+      let shouldRenew: boolean;
+      if (realExpiresAt) {
+        const daysLeft = Math.floor((realExpiresAt.getTime() - now) / DAY_MS);
+        shouldRenew = realExpiresAt.getTime() - now <= SEVEN_DAYS_MS;
+        if (shouldRenew) {
+          // ALERTA (7 días): visible para monitoreo (warn) — ver spec, integrar Telegram/notif.
+          logger.warn(
+            `[MetaTokenRefresh] ⚠️ ALERTA_EXPIRACION token ${conn.name} (#${conn.id}, company ${conn.companyId}) expira en ${daysLeft} día(s) — ${realExpiresAt.toISOString()}`
+          );
+        }
+      } else {
+        // Fallback proxy: sin expiry real, renovar si no se actualizó en 50+ días.
+        shouldRenew = new Date(conn.updatedAt) <= fiftyDaysAgo;
+      }
+
+      if (!shouldRenew) continue;
 
       logger.info(
         `[MetaTokenRefresh] Renovando token para ${conn.name} (ID: ${conn.id}, Company: ${conn.companyId})`

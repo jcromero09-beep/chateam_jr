@@ -160,6 +160,8 @@ export class MarketingCache {
         return CACHE_TTL.INSIGHTS;
       case "ads":
         return CACHE_TTL.ADS;
+      case "adsets":
+        return CACHE_TTL.ADS;
       case "aggregated":
         return CACHE_TTL.AGGREGATED;
       case "trends":
@@ -197,6 +199,14 @@ export class MarketingCache {
 
   static async setAds(companyId: number, period: string, data: any[], campaignId?: string): Promise<void> {
     await this.set("ads", { companyId, period, campaignId }, data);
+  }
+
+  static async getAdSets(companyId: number, period: string, campaignId?: string): Promise<any[] | null> {
+    return this.get<any[]>("adsets", { companyId, period, campaignId });
+  }
+
+  static async setAdSets(companyId: number, period: string, data: any[], campaignId?: string): Promise<void> {
+    await this.set("adsets", { companyId, period, campaignId }, data);
   }
 
   static async getTrends(companyId: number, period: string): Promise<any[] | null> {

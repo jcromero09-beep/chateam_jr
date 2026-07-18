@@ -1,7 +1,8 @@
 import * as Yup from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import fs from "fs";
 import path from "path";
 
@@ -328,12 +329,15 @@ export const remove = async (
   return res.status(200).json({ message: "Campaña eliminada" });
 };
 
+// [Seguridad C-1/S] `companyId` del token, NUNCA del query: antes leía req.query e ignoraba
+// req.user, así que un usuario autenticado podía listar campañas de OTRA empresa con
+// ?companyId=N, y sin el parámetro reventaba en 500 (companyId undefined).
 export const findList = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
-  const params = req.query as FindParams;
-  const records: Campaign[] = await FindService(params);
+  const { companyId } = req.user;
+  const records: Campaign[] = await FindService({ companyId: String(companyId) });
 
   return res.status(200).json(records);
 };

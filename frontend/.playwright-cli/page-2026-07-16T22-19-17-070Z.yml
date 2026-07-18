@@ -1,0 +1,184 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e67]:
+    - link "Saltar al contenido" [ref=e68] [cursor=pointer]:
+      - /url: "#main-content"
+    - navigation "Navegación principal" [ref=e69]:
+      - generic [ref=e70]:
+        - img "ChatEAM" [ref=e73]
+        - button "Colapsar menú" [ref=e74] [cursor=pointer]
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - paragraph [ref=e79]: INICIO
+          - generic [ref=e81]:
+            - link "Gestión" [ref=e82] [cursor=pointer]:
+              - /url: /
+            - generic:
+              - link "Dashboard" [ref=e92] [cursor=pointer]:
+                - /url: /
+              - link "Leads Kanban" [ref=e99] [cursor=pointer]:
+                - /url: /kanban-lead-conversions
+        - generic [ref=e105]:
+          - paragraph [ref=e106]: OPERATIVO
+          - generic [ref=e107]:
+            - link "Tickets" [ref=e109] [cursor=pointer]:
+              - /url: /tickets
+            - link "Contactos" [ref=e116] [cursor=pointer]:
+              - /url: /contacts
+            - link "Mensajes Rápidos" [ref=e123] [cursor=pointer]:
+              - /url: /quick-replies
+            - link "Conversaciones Web" [ref=e130] [cursor=pointer]:
+              - /url: /webchat/chats
+        - generic [ref=e136]:
+          - paragraph [ref=e137]: ORGANIZACIÓN
+          - generic [ref=e138]:
+            - link "Origen de Clientes" [ref=e140] [cursor=pointer]:
+              - /url: /customer-origins
+            - link "Colas" [ref=e147] [cursor=pointer]:
+              - /url: /queues
+            - link "Etiquetas" [ref=e154] [cursor=pointer]:
+              - /url: /tags
+            - link "Automatizaciones" [ref=e161] [cursor=pointer]:
+              - /url: /automation-rules
+        - generic [ref=e167]:
+          - paragraph [ref=e168]: CANALES
+          - generic [ref=e169]:
+            - generic [ref=e170]:
+              - link "Conexiones" [ref=e171] [cursor=pointer]:
+                - /url: /connections
+              - generic:
+                - link "Lista" [ref=e181] [cursor=pointer]:
+                  - /url: /connections
+                - link "Coexistencia Meta" [ref=e188] [cursor=pointer]:
+                  - /url: /coexistence
+                - link "Plantillas" [ref=e195] [cursor=pointer]:
+                  - /url: /whatsapp/templates
+            - generic [ref=e201]:
+              - link "Comentarios FB/IG" [ref=e202] [cursor=pointer]:
+                - /url: /social-comments
+              - generic:
+                - link "Bandeja" [ref=e212] [cursor=pointer]:
+                  - /url: /social-comments
+                - link "Moderación" [ref=e219] [cursor=pointer]:
+                  - /url: /moderation
+                - link "Configuracion" [ref=e226] [cursor=pointer]:
+                  - /url: /social-comments/settings
+            - generic [ref=e232]:
+              - link "WebChat" [ref=e233] [cursor=pointer]:
+                - /url: /webchat/settings
+              - link "Configuración" [ref=e243] [cursor=pointer]:
+                - /url: /webchat/settings
+        - generic [ref=e249]:
+          - paragraph [ref=e250]: MARKETING & CAMPAÑAS
+          - generic [ref=e252]:
+            - link "Email Marketing" [ref=e253] [cursor=pointer]:
+              - /url: /email-marketing
+            - generic:
+              - link "Dashboard" [ref=e263] [cursor=pointer]:
+                - /url: /email-marketing
+              - link "Campañas" [ref=e270] [cursor=pointer]:
+                - /url: /email-marketing/campaigns
+              - link "Analytics" [ref=e277] [cursor=pointer]:
+                - /url: /email-marketing/analytics
+              - link "Plantillas" [ref=e284] [cursor=pointer]:
+                - /url: /email-marketing/templates
+              - link "Proveedores" [ref=e291] [cursor=pointer]:
+                - /url: /email/provider-settings
+              - link "Packs de Envío" [ref=e299] [cursor=pointer]:
+                - /url: /email/credit-packs
+              - link "Planes de Email" [ref=e306] [cursor=pointer]:
+                - /url: /email-plans
+              - link "Mis Créditos" [ref=e313] [cursor=pointer]:
+                - /url: /email/credits-dashboard
+        - generic [ref=e319]:
+          - paragraph [ref=e320]: CITAS Y FLUJOS
+          - generic [ref=e321]:
+            - generic [ref=e322]:
+              - link "Citas" [ref=e323] [cursor=pointer]:
+                - /url: /appointments/dashboard
+              - generic:
+                - link "Dashboard" [ref=e333] [cursor=pointer]:
+                  - /url: /appointments/dashboard
+                - link "Gestión" [ref=e340] [cursor=pointer]:
+                  - /url: /appointments/bookings
+                - link "Calendario" [ref=e347] [cursor=pointer]:
+                  - /url: /appointments/calendar
+                - link "Servicios" [ref=e354] [cursor=pointer]:
+                  - /url: /appointments/services
+                - link "Disponibilidad" [ref=e361] [cursor=pointer]:
+                  - /url: /appointments/availability
+                - link "Recordatorios" [ref=e369] [cursor=pointer]:
+                  - /url: /appointments/reminders
+                - link "Reportes" [ref=e376] [cursor=pointer]:
+                  - /url: /appointments/reports
+            - generic [ref=e382]:
+              - link "Flowbuilder" [ref=e383] [cursor=pointer]:
+                - /url: /flowbuilder/conversation
+              - generic:
+                - link "Flujos" [ref=e393] [cursor=pointer]:
+                  - /url: /flowbuilder/conversation
+                - link "Palabras Clave" [ref=e400] [cursor=pointer]:
+                  - /url: /flowbuilder/campaign
+        - generic [ref=e406]:
+          - paragraph [ref=e407]: AFILIADOS
+          - generic [ref=e409]:
+            - link "Afiliados" [ref=e410] [cursor=pointer]:
+              - /url: /affiliates
+            - generic:
+              - link "Dashboard" [ref=e420] [cursor=pointer]:
+                - /url: /affiliates
+              - link "Programas" [ref=e427] [cursor=pointer]:
+                - /url: /affiliates/programs
+              - link "Referidos" [ref=e434] [cursor=pointer]:
+                - /url: /affiliates/referrals
+              - link "Links" [ref=e441] [cursor=pointer]:
+                - /url: /affiliates/links
+              - link "Recompensas" [ref=e448] [cursor=pointer]:
+                - /url: /affiliates/wallet
+        - generic [ref=e454]:
+          - paragraph [ref=e455]: INTELIGENCIA ARTIFICIAL
+          - generic [ref=e457]:
+            - link "Costos IA" [ref=e458] [cursor=pointer]:
+              - /url: /ai-rentability
+            - link "Rentabilidad IA" [ref=e468] [cursor=pointer]:
+              - /url: /ai-rentability
+        - generic [ref=e474]:
+          - paragraph [ref=e475]: CONFIGURACIÓN
+          - generic [ref=e476]:
+            - link "Configuración General" [ref=e478] [cursor=pointer]:
+              - /url: /settings
+            - link "Usuarios" [ref=e485] [cursor=pointer]:
+              - /url: /users
+            - link "Roles y Usuarios" [ref=e492] [cursor=pointer]:
+              - /url: /roles-management
+            - link "Facturación" [ref=e499] [cursor=pointer]:
+              - /url: /billing
+        - generic [ref=e505]:
+          - paragraph [ref=e506]: PLATAFORMA
+          - generic [ref=e508]:
+            - link "Desarrollo" [ref=e509] [cursor=pointer]:
+              - /url: /integrations-internal/logs
+            - generic:
+              - link "Logs" [ref=e519] [cursor=pointer]:
+                - /url: /integrations-internal/logs
+              - link "Herramientas Dev" [ref=e526] [cursor=pointer]:
+                - /url: /integrations-internal/testing
+    - generic [ref=e532]:
+      - banner [ref=e533]:
+        - generic "$0.00" [ref=e534]:
+          - generic [ref=e535]: "Plan:"
+          - generic [ref=e536]: Demo Gratuito
+        - button "Notificaciones" [ref=e537] [cursor=pointer]
+        - button "Modo oscuro" [ref=e541] [cursor=pointer]
+        - button "Menú de usuario" [ref=e545] [cursor=pointer]:
+          - generic [ref=e546]: AD
+          - generic [ref=e547]:
+            - generic [ref=e548]: Administrador
+            - generic [ref=e549]: admin
+      - main [ref=e553]:
+        - generic [ref=e554]: Cargando...
+  - region "Notifications Alt+T":
+    - alert [ref=e556] [cursor=pointer]:
+      - text: Inicio de sesión exitoso
+      - button "close" [ref=e560]
+      - progressbar "notification timer" [ref=e565]

@@ -416,8 +416,9 @@ const typographyOverrides = {
 // @param primaryDark   Color hex para modo oscuro (default: palatinateBlue #443df6)
 // ─────────────────────────────────────────────────────────────────────────────
 export function buildChateamTheme(
-  primaryLight = '#3b82f6',
-  primaryDark = '#3b82f6',
+  // [Fase B] Primario canónico teal (#14B8A6) — antes #3b82f6 (azul) chocaba con los fondos teal-navy.
+  primaryLight = '#14B8A6',
+  primaryDark = '#14B8A6',
 ) {
   const lightPalette = generatePalette(primaryLight)
   const darkPalette = generatePalette(primaryDark)
@@ -501,18 +502,22 @@ export function buildChateamTheme(
             outlinedBorder: 'var(--joy-palette-neutral-700)',
           },
 
-          // Fondos — Lotru dark
+          // Fondos — ChatEAM dark (teal profundo)
+          // --dark-bg:      #04222A  (fondo principal / body)
+          // --dark-surface: #08303A  (header, cards y tablas)
+          // Niveles 1-3 derivados en el mismo tinte teal para stripes,
+          // hover y elementos elevados (jerarquía sutil, no gris/negro).
           background: {
-            backdrop: 'rgba(9, 10, 11, 0.9)',
-            body: 'var(--joy-palette-neutral-900)',
-            surface: 'var(--joy-palette-neutral-900)',
-            level1: 'var(--joy-palette-neutral-800)',
-            level2: 'var(--joy-palette-neutral-700)',
-            level3: 'var(--joy-palette-neutral-600)',
+            backdrop: 'rgba(2, 17, 21, 0.9)',
+            body: '#04222A',
+            surface: '#08303A',
+            level1: '#0a3a48',
+            level2: '#0d4756',
+            level3: '#105668',
           },
 
-          // Divisor
-          divider: 'var(--joy-palette-neutral-700)',
+          // Divisor — línea sutil sobre fondo teal (evita el gris frío)
+          divider: 'rgba(255, 255, 255, 0.10)',
 
           // Gradientes Lotru
           gradient: lotruGradients,

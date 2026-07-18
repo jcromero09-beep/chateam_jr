@@ -5,48 +5,42 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  IconButton,
-  Sheet,
-  Table,
-  Chip,
-  Button,
-  Input,
-  Select,
-  Option,
-  Tooltip,
-  Divider,
-} from '@mui/joy'
+// [Fase2·G] CircularProgress se conserva de MUI Joy (no hay equivalente en el DS).
+import { CircularProgress } from '@mui/joy'
 import {
   BookOpen,
   FileText,
-  Layers,
+  Stack,
   Hash,
   X,
-  RefreshCw,
-  Inbox,
-  Search,
-  Upload,
+  ArrowClockwise,
+  Tray,
+  MagnifyingGlass,
+  UploadSimple,
   Eye,
-  Trash2,
-  ChevronLeft,
-  ChevronRight,
+  Trash,
+  CaretLeft,
+  CaretRight,
   Brain,
-  Zap,
-  AlertTriangle,
+  Lightning,
+  Warning,
   Clock,
-  CheckCircle2,
+  CheckCircle,
   XCircle,
-  Filter,
-} from 'lucide-react'
+  Funnel,
+  SpinnerGap,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import UploadDocumentModal from '../components/KnowledgeBase/UploadDocumentModal'
 import DocumentDetailModal from '../components/KnowledgeBase/DocumentDetailModal'
@@ -103,12 +97,12 @@ const STATUS_LABELS: Record<string, string> = {
   error: 'Error',
 }
 
-const STATUS_COLORS: Record<string, 'neutral' | 'warning' | 'success' | 'danger'> = {
+const STATUS_BADGE: Record<string, BadgeProps['variant']> = {
   pending: 'neutral',
   processing: 'warning',
   completed: 'success',
   ready: 'success',
-  error: 'danger',
+  error: 'destructive',
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -139,6 +133,43 @@ function formatDate(dateStr: string): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('es-ES').format(value)
+}
+
+// Botón de acción de fila (mismo look que RowAction del DS, con onClick/loading)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  loading,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  loading?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {loading ? (
+        <SpinnerGap className="size-[18px] animate-spin" aria-hidden />
+      ) : (
+        children
+      )}
+    </button>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -369,468 +400,425 @@ export default function AIKnowledgeBase() {
     {
       label: 'Total Documentos',
       value: stats.totalDocuments,
-      icon: <FileText size={20} color="var(--joy-palette-primary-500)" />,
+      icon: <FileText className="size-5 text-primary" weight="fill" aria-hidden />,
     },
     {
       label: 'Total Chunks',
       value: stats.totalChunks,
-      icon: <Layers size={20} color="var(--joy-palette-success-500)" />,
+      icon: <Stack className="size-5 text-success-text" weight="fill" aria-hidden />,
     },
     {
       label: 'Tokens Procesados',
       value: stats.totalTokens,
-      icon: <Hash size={20} color="var(--joy-palette-warning-500)" />,
+      icon: <Hash className="size-5 text-warning-text" weight="fill" aria-hidden />,
     },
   ]
+
+  const hasFilters = Boolean(searchQuery) || statusFilter !== 'all' || sourceFilter !== 'all'
 
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <BookOpen size={32} color="var(--joy-palette-primary-500)" />
-          <Box>
-            <Typography level="h2">Base de Conocimiento</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Documentos RAG indexados para respuestas contextuales
-            </Typography>
-          </Box>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <BookOpen className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Base de Conocimiento
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Documentos RAG indexados para respuestas contextuales
+              </p>
+            </div>
+          </div>
 
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="solid"
-            color="primary"
-            startDecorator={<Upload size={16} />}
-            onClick={() => setUploadOpen(true)}
-          >
-            Subir Documento
-          </Button>
-          <IconButton
-            variant="outlined"
-            onClick={refresh}
-            disabled={loading}
-            title="Recargar"
-          >
-            <RefreshCw size={18} />
-          </IconButton>
-        </Box>
-      </Box>
-
-      {/* Error */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 3 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
-
-      {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {statCards.map((card) => (
-          <Grid key={card.label} xs={12} sm={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  {card.icon}
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    {card.label}
-                  </Typography>
-                </Box>
-                {loading ? (
-                  <CircularProgress size="sm" />
-                ) : (
-                  <Typography level="h3">{formatNumber(card.value)}</Typography>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Status breakdown */}
-      {stats.byStatus && (
-        <Box sx={{ display: 'flex', gap: 1, mb: 3, flexWrap: 'wrap' }}>
-          {Object.entries(stats.byStatus).map(([status, count]) => (
-            <Chip
-              key={status}
-              size="sm"
-              variant="soft"
-              color={STATUS_COLORS[status] ?? 'neutral'}
-              startDecorator={
-                status === 'completed' || status === 'ready' ? <CheckCircle2 size={12} /> :
-                status === 'processing' ? <Clock size={12} /> :
-                status === 'error' ? <XCircle size={12} /> :
-                <AlertTriangle size={12} />
-              }
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setUploadOpen(true)}>
+              <UploadSimple className="size-4" weight="bold" aria-hidden />
+              Subir Documento
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Recargar"
+              className="text-muted-foreground"
+              disabled={loading}
+              onClick={refresh}
             >
-              {STATUS_LABELS[status] ?? status}: {count}
-            </Chip>
-          ))}
-        </Box>
-      )}
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+          </div>
+        </div>
 
-      {/* Barra de filtros */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: { xs: 'column', md: 'row' },
-              gap: 1.5,
-              alignItems: { md: 'center' },
-            }}
+        {/* Error */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
           >
-            <Input
-              placeholder="Buscar documentos..."
-              startDecorator={<Search size={16} />}
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              sx={{ flex: 1, minWidth: 200 }}
-              size="sm"
-            />
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Filter size={14} color="var(--joy-palette-neutral-500)" />
-              <Select
-                size="sm"
-                value={statusFilter}
-                onChange={(_, val) => handleStatusChange(val as string)}
-                sx={{ minWidth: 140 }}
-              >
-                <Option value="all">Todos los estados</Option>
-                <Option value="pending">Pendiente</Option>
-                <Option value="processing">Procesando</Option>
-                <Option value="completed">Listo</Option>
-                <Option value="error">Error</Option>
-              </Select>
-              <Select
-                size="sm"
-                value={sourceFilter}
-                onChange={(_, val) => handleSourceChange(val as string)}
-                sx={{ minWidth: 140 }}
-              >
-                <Option value="all">Todos los tipos</Option>
-                <Option value="manual">Texto Manual</Option>
-                <Option value="url">URL</Option>
-                <Option value="pdf">PDF</Option>
-                <Option value="txt">Texto</Option>
-                <Option value="csv">CSV</Option>
-                <Option value="docx">Word</Option>
-                <Option value="xlsx">Excel</Option>
-              </Select>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-destructive/15"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* Tabla de documentos */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <FileText size={20} />
-            Documentos indexados
-            {!loading && (
-              <Chip size="sm" variant="soft" color="neutral">
-                {totalCount}
-              </Chip>
-            )}
-          </Typography>
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {statCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+            >
+              <div className="mb-1 flex items-center gap-2">
+                {card.icon}
+                <p className="text-sm text-muted-foreground">{card.label}</p>
+              </div>
+              {loading ? (
+                <CircularProgress size="sm" />
+              ) : (
+                <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {formatNumber(card.value)}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Status breakdown */}
+        {stats.byStatus && (
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(stats.byStatus).map(([status, count]) => (
+              <Badge key={status} variant={STATUS_BADGE[status] ?? 'neutral'}>
+                {status === 'completed' || status === 'ready' ? (
+                  <CheckCircle className="size-3" weight="fill" aria-hidden />
+                ) : status === 'processing' ? (
+                  <Clock className="size-3" weight="fill" aria-hidden />
+                ) : status === 'error' ? (
+                  <XCircle className="size-3" weight="fill" aria-hidden />
+                ) : (
+                  <Warning className="size-3" weight="fill" aria-hidden />
+                )}
+                {STATUS_LABELS[status] ?? status}: {count}
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        {/* Barra de filtros */}
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                placeholder="Buscar documentos..."
+                aria-label="Buscar documentos"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="h-9 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Funnel className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <Select value={statusFilter} onValueChange={handleStatusChange}>
+                <SelectTrigger className="w-[150px]" aria-label="Filtrar por estado">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="pending">Pendiente</SelectItem>
+                  <SelectItem value="processing">Procesando</SelectItem>
+                  <SelectItem value="completed">Listo</SelectItem>
+                  <SelectItem value="error">Error</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sourceFilter} onValueChange={handleSourceChange}>
+                <SelectTrigger className="w-[150px]" aria-label="Filtrar por tipo">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  <SelectItem value="manual">Texto Manual</SelectItem>
+                  <SelectItem value="url">URL</SelectItem>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="txt">Texto</SelectItem>
+                  <SelectItem value="csv">CSV</SelectItem>
+                  <SelectItem value="docx">Word</SelectItem>
+                  <SelectItem value="xlsx">Excel</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabla de documentos */}
+        <div className="rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+            <FileText className="size-5 text-muted-foreground" aria-hidden />
+            <h2 className="text-base font-semibold text-foreground">Documentos indexados</h2>
+            {!loading && <Badge variant="neutral">{totalCount}</Badge>}
+          </div>
 
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+            <div className="flex justify-center py-12">
               <CircularProgress />
-            </Box>
+            </div>
           ) : documents.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <Inbox size={48} color="var(--joy-palette-neutral-400)" style={{ marginBottom: 12 }} />
-              <Typography level="body-md" sx={{ color: 'text.tertiary' }}>
-                {searchQuery || statusFilter !== 'all' || sourceFilter !== 'all'
+            <div className="px-5 py-12 text-center">
+              <Tray className="mx-auto mb-3 size-12 text-muted-foreground/60" aria-hidden />
+              <p className="text-sm text-foreground">
+                {hasFilters
                   ? 'No se encontraron documentos con los filtros aplicados'
                   : 'No hay documentos en la base de conocimiento'}
-              </Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                {searchQuery || statusFilter !== 'all' || sourceFilter !== 'all'
+              </p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {hasFilters
                   ? 'Intenta cambiar los filtros de búsqueda'
                   : 'Sube documentos para empezar a usar el sistema RAG'}
-              </Typography>
-              {!searchQuery && statusFilter === 'all' && sourceFilter === 'all' && (
+              </p>
+              {!hasFilters && (
                 <Button
-                  variant="soft"
-                  color="primary"
+                  variant="outline"
                   size="sm"
-                  startDecorator={<Upload size={14} />}
-                  sx={{ mt: 2 }}
+                  className="mt-4"
                   onClick={() => setUploadOpen(true)}
                 >
+                  <UploadSimple className="size-4" aria-hidden />
                   Subir primer documento
                 </Button>
               )}
-            </Box>
+            </div>
           ) : (
             <>
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table hoverRow>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
                   <thead>
-                    <tr>
-                      <th>Nombre</th>
-                      <th style={{ width: 100 }}>Tipo</th>
-                      <th style={{ width: 110 }}>Estado</th>
-                      <th style={{ width: 90, textAlign: 'right' }}>Chunks</th>
-                      <th style={{ width: 100, textAlign: 'right' }}>Tokens</th>
-                      <th style={{ width: 130 }}>Creado</th>
-                      <th style={{ width: 120, textAlign: 'center' }}>Acciones</th>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Nombre
+                      </th>
+                      <th className="w-[100px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Tipo
+                      </th>
+                      <th className="w-[110px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Estado
+                      </th>
+                      <th className="w-[90px] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Chunks
+                      </th>
+                      <th className="w-[100px] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Tokens
+                      </th>
+                      <th className="w-[130px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Creado
+                      </th>
+                      <th className="w-[120px] whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Acciones
+                      </th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border">
                     {documents.map((doc) => (
-                      <tr key={doc.id}>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <FileText size={16} color="var(--joy-palette-neutral-500)" />
-                            <Box>
-                              <Typography level="body-sm" fontWeight="md">
-                                {doc.title}
-                              </Typography>
+                      <tr key={doc.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-foreground">{doc.title}</p>
                               {doc.sourceUrl && (
-                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }} noWrap>
+                                <p className="truncate text-xs text-muted-foreground">
                                   {doc.sourceUrl.length > 40
                                     ? doc.sourceUrl.substring(0, 40) + '...'
                                     : doc.sourceUrl}
-                                </Typography>
+                                </p>
                               )}
-                            </Box>
-                          </Box>
+                            </div>
+                          </div>
                         </td>
-                        <td>
-                          <Chip size="sm" variant="outlined">
+                        <td className="px-4 py-3">
+                          <Badge variant="outline">
                             {SOURCE_LABELS[doc.sourceType] ?? doc.sourceType}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td>
-                          <Chip
-                            size="sm"
-                            color={STATUS_COLORS[doc.status] ?? 'neutral'}
-                            variant="soft"
-                          >
+                        <td className="px-4 py-3">
+                          <Badge variant={STATUS_BADGE[doc.status] ?? 'neutral'}>
                             {STATUS_LABELS[doc.status] ?? doc.status}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm">
-                            {formatNumber(doc.chunksCount ?? 0)}
-                          </Typography>
+                        <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                          {formatNumber(doc.chunksCount ?? 0)}
                         </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm">
-                            {formatNumber(doc.tokensCount ?? 0)}
-                          </Typography>
+                        <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                          {formatNumber(doc.tokensCount ?? 0)}
                         </td>
-                        <td>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            {formatDate(doc.createdAt)}
-                          </Typography>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {formatDate(doc.createdAt)}
                         </td>
-                        <td>
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            <Tooltip title="Ver detalles">
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="primary"
-                                onClick={() => handleViewDetail(doc.id)}
-                              >
-                                <Eye size={16} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Reindexar">
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="warning"
-                                onClick={() => handleReindex(doc)}
-                                disabled={reindexingId === doc.id || doc.status === 'processing'}
-                                loading={reindexingId === doc.id}
-                              >
-                                <RefreshCw size={16} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Eliminar">
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="danger"
-                                onClick={() => handleDelete(doc)}
-                                disabled={deletingId === doc.id}
-                                loading={deletingId === doc.id}
-                              >
-                                <Trash2 size={16} />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <ActionBtn
+                              label="Ver detalles"
+                              onClick={() => handleViewDetail(doc.id)}
+                              className="hover:bg-primary/10 hover:text-primary"
+                            >
+                              <Eye className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                            <ActionBtn
+                              label="Reindexar"
+                              onClick={() => handleReindex(doc)}
+                              disabled={reindexingId === doc.id || doc.status === 'processing'}
+                              loading={reindexingId === doc.id}
+                              className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
+                            >
+                              <ArrowClockwise className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                            <ActionBtn
+                              label="Eliminar"
+                              onClick={() => handleDelete(doc)}
+                              disabled={deletingId === doc.id}
+                              loading={deletingId === doc.id}
+                              className="hover:bg-destructive/10 hover:text-destructive-text"
+                            >
+                              <Trash className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
-                </Table>
-              </Sheet>
+                </table>
+              </div>
 
               {/* Paginación */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  mt: 2,
-                  pt: 2,
-                  borderTop: '1px solid',
-                  borderColor: 'divider',
-                }}
-              >
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+              <div className="flex items-center justify-between border-t border-border px-5 py-3">
+                <p className="text-sm text-muted-foreground">
                   Mostrando {showingFrom}–{showingTo} de {totalCount}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <IconButton
-                    size="sm"
-                    variant="outlined"
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Página anterior"
+                    className="size-9"
                     disabled={currentPage <= 1}
                     onClick={() => handlePageChange(currentPage - 1)}
                   >
-                    <ChevronLeft size={16} />
-                  </IconButton>
-                  <Typography level="body-sm">
+                    <CaretLeft className="size-4" aria-hidden />
+                  </Button>
+                  <span className="text-sm text-foreground">
                     Página {currentPage} de {totalPages}
-                  </Typography>
-                  <IconButton
-                    size="sm"
-                    variant="outlined"
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Página siguiente"
+                    className="size-9"
                     disabled={currentPage >= totalPages}
                     onClick={() => handlePageChange(currentPage + 1)}
                   >
-                    <ChevronRight size={16} />
-                  </IconButton>
-                </Box>
-              </Box>
+                    <CaretRight className="size-4" aria-hidden />
+                  </Button>
+                </div>
+              </div>
             </>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Búsqueda RAG Semántica */}
-      <Card variant="outlined">
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Brain size={20} color="var(--joy-palette-primary-500)" />
-            Búsqueda Semántica
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
-            Busca en toda la base de conocimiento usando IA. Los resultados se ordenan por relevancia semántica.
-          </Typography>
+        {/* Búsqueda RAG Semántica */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-2 flex items-center gap-2">
+            <Brain className="size-5 text-primary" weight="fill" aria-hidden />
+            <h2 className="text-base font-semibold text-foreground">Búsqueda Semántica</h2>
+          </div>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Busca en toda la base de conocimiento usando IA. Los resultados se ordenan por relevancia
+            semántica.
+          </p>
 
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <Input
-              placeholder="Escribe tu pregunta o búsqueda..."
-              startDecorator={<Search size={16} />}
-              value={ragQuery}
-              onChange={(e) => setRagQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleRagSearch()}
-              sx={{ flex: 1 }}
-              size="sm"
-            />
+          <div className="mb-4 flex gap-2">
+            <div className="relative flex-1">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                placeholder="Escribe tu pregunta o búsqueda..."
+                aria-label="Búsqueda semántica"
+                value={ragQuery}
+                onChange={(e) => setRagQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleRagSearch()}
+                className="h-9 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
             <Button
-              variant="solid"
-              color="primary"
               size="sm"
-              startDecorator={ragSearching ? <CircularProgress size="sm" /> : <Zap size={14} />}
               onClick={handleRagSearch}
               disabled={ragSearching || !ragQuery.trim()}
               loading={ragSearching}
             >
+              <Lightning className="size-4" weight="fill" aria-hidden />
               Buscar
             </Button>
-          </Box>
+          </div>
 
           {/* Resultados RAG */}
           {ragSearched && !ragSearching && ragResults.length === 0 && (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Search size={32} color="var(--joy-palette-neutral-400)" style={{ marginBottom: 8 }} />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                No se encontraron resultados relevantes
-              </Typography>
-            </Box>
+            <div className="py-8 text-center">
+              <MagnifyingGlass className="mx-auto mb-2 size-8 text-muted-foreground/60" aria-hidden />
+              <p className="text-sm text-muted-foreground">No se encontraron resultados relevantes</p>
+            </div>
           )}
 
           {ragResults.length > 0 && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <div className="flex flex-col gap-3">
               {ragResults.map((result, idx) => (
-                <Card key={idx} variant="soft" size="sm">
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <FileText size={14} color="var(--joy-palette-primary-500)" />
-                        <Typography level="body-sm" fontWeight="md">
-                          {result.documentTitle}
-                        </Typography>
-                        <Chip size="sm" variant="outlined">
-                          Chunk #{result.chunkIndex}
-                        </Chip>
-                      </Box>
-                      <Chip size="sm" color="success" variant="soft">
-                        Score: {(result.score * 100).toFixed(1)}%
-                      </Chip>
-                    </Box>
-                    <Typography
-                      level="body-sm"
-                      sx={{
-                        whiteSpace: 'pre-wrap',
-                        maxHeight: 150,
-                        overflow: 'auto',
-                        color: 'text.secondary',
-                      }}
-                    >
-                      {result.content}
-                    </Typography>
-                    {result.topic && (
-                      <Typography level="body-xs" sx={{ mt: 1, color: 'text.tertiary' }}>
-                        Tema: {result.topic}
-                      </Typography>
-                    )}
-                    {result.keywords && result.keywords.length > 0 && (
-                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
-                        {result.keywords.map((kw) => (
-                          <Chip key={kw} size="sm" variant="outlined">
-                            {kw}
-                          </Chip>
-                        ))}
-                      </Box>
-                    )}
-                  </CardContent>
-                </Card>
+                <div key={idx} className="rounded-lg border border-border bg-muted/40 p-4">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="size-4 shrink-0 text-primary" aria-hidden />
+                      <span className="truncate font-medium text-foreground">
+                        {result.documentTitle}
+                      </span>
+                      <Badge variant="outline">Chunk #{result.chunkIndex}</Badge>
+                    </div>
+                    <Badge variant="success">Score: {(result.score * 100).toFixed(1)}%</Badge>
+                  </div>
+                  <p className="max-h-[150px] overflow-auto whitespace-pre-wrap text-sm text-muted-foreground">
+                    {result.content}
+                  </p>
+                  {result.topic && (
+                    <p className="mt-2 text-xs text-muted-foreground">Tema: {result.topic}</p>
+                  )}
+                  {result.keywords && result.keywords.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {result.keywords.map((kw) => (
+                        <Badge key={kw} variant="outline">
+                          {kw}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
-            </Box>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Modales */}
       <UploadDocumentModal
@@ -852,6 +840,6 @@ export default function AIKnowledgeBase() {
         onDelete={refresh}
         onReindex={refresh}
       />
-    </Box>
+    </div>
   )
 }

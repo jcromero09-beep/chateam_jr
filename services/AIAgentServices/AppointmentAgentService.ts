@@ -1,7 +1,14 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { Op } from "sequelize";
 import Appointment from "../../models/Appointments/Appointment";
+import AppointmentAvailability from "../../models/Appointments/AppointmentAvailability";
 import AppointmentService from "../../models/AppointmentService";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
+import User from "../../models/User";
 import logger from "../../utils/logger";
 import AvailabilityService from "../AppointmentServices/AvailabilityService";
 import BookingService from "../AppointmentServices/BookingService";
@@ -78,6 +85,321 @@ const INTENT_KEYWORDS = {
   ]
 };
 
+type ExtractedDateTime = {
+  date?: Date;
+  time?: string;
+  extractedDate?: string;
+  extractedTime?: string;
+};
+
+type SlotMatch = {
+  slot: any;
+  diffMinutes: number;
+  requestedTime: string;
+  requestedDate?: string;
+};
+
+const SLOT_TIME_TOLERANCE_MINUTES = 45;
+const ACTIVE_CREATE_CONTEXT_STEPS = [
+  "awaiting_service_selection",
+  "awaiting_user_selection",
+  "awaiting_date"
+];
+
+const NUMBER_WORDS: Record<string, number> = {
+  un: 1, una: 1, uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+  once: 11,
+  doce: 12
+};
+
+function normalizeAppointmentText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,;]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromKey(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
+}
+
+function buildOptionList(options: Array<{ name: string; duration?: number }>): string {
+  return options
+    .map((option, index) => {
+      const duration = option.duration ? ` (${option.duration} min)` : "";
+      return `${index + 1}. ${option.name}${duration}`;
+    })
+    .join("\n");
+}
+
+function matchOptionByMessage<T extends { id: number; name: string }>(
+  message: string,
+  options: T[]
+): T | null {
+  const normalized = normalizeAppointmentText(message);
+  const plainNumber = normalized.match(/^(\d{1,2})$/);
+  const optionNumber = normalized.match(/(?:opcion|opción|numero|número|servicio|asesor|usuario)\s+(\d{1,2})/);
+  const numericChoice = plainNumber || optionNumber;
+
+  if (numericChoice) {
+    const index = Number(numericChoice[1]) - 1;
+    if (index >= 0 && index < options.length) {
+      return options[index];
+    }
+  }
+
+  for (const option of options) {
+    const optionName = normalizeAppointmentText(option.name);
+    if (optionName && (normalized === optionName || normalized.includes(optionName))) {
+      return option;
+    }
+  }
+
+  return null;
+}
+
+async function loadActiveAppointmentServices(companyId: number): Promise<AppointmentService[]> {
+  return AppointmentService.findAll({
+    where: { companyId, isActive: true },
+    order: [["name", "ASC"]],
+    limit: 10
+  });
+}
+
+async function loadUsersForService(
+  companyId: number,
+  serviceId: number
+): Promise<Array<{ id: number; name: string }>> {
+  const specificRows = await AppointmentAvailability.findAll({
+    where: {
+      companyId,
+      isAvailable: true,
+      serviceId
+    },
+    attributes: ["userId"],
+    order: [["userId", "ASC"]]
+  });
+
+  const availabilityRows = specificRows.length > 0 ? specificRows : await AppointmentAvailability.findAll({
+    where: {
+      companyId,
+      isAvailable: true,
+      serviceId: { [Op.is]: null }
+    } as any,
+    attributes: ["userId"],
+    order: [["userId", "ASC"]]
+  });
+
+  const userIds = Array.from(
+    new Set(
+      availabilityRows
+        .map(row => Number(row.userId))
+        .filter(userId => Number.isFinite(userId) && userId > 0)
+    )
+  );
+
+  if (userIds.length === 0) return [];
+
+  const users = await User.findAll({
+    where: {
+      companyId,
+      id: { [Op.in]: userIds }
+    },
+    attributes: ["id", "name"],
+    order: [["name", "ASC"]]
+  });
+
+  return users.map(user => ({ id: Number(user.id), name: user.name }));
+}
+
+function parseHourToken(token?: string): number | null {
+  if (!token) return null;
+  const normalized = normalizeAppointmentText(token);
+  if (/^\d{1,2}$/.test(normalized)) return parseInt(normalized, 10);
+  return NUMBER_WORDS[normalized] ?? null;
+}
+
+function parseMinuteToken(token?: string): number {
+  if (!token) return 0;
+  const normalized = normalizeAppointmentText(token);
+  if (/^\d{1,2}$/.test(normalized)) return parseInt(normalized, 10);
+  if (normalized === "media" || normalized === "treinta") return 30;
+  if (normalized === "cuarto" || normalized === "quince") return 15;
+  return 0;
+}
+
+function applyTimePeriod(hour: number, period?: string): number {
+  const normalized = period ? normalizeAppointmentText(period) : "";
+  if (!normalized) return hour;
+
+  if ((normalized.includes("pm") || normalized.includes("tarde") || normalized.includes("noche")) && hour < 12) {
+    return hour + 12;
+  }
+
+  if ((normalized.includes("am") || normalized.includes("manana")) && hour === 12) {
+    return 0;
+  }
+
+  return hour;
+}
+
+function formatTime(hour: number, minutes: number): string | undefined {
+  if (hour < 0 || hour > 23 || minutes < 0 || minutes > 59) return undefined;
+  return `${hour.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+}
+
+function parseNaturalTime(message: string, allowBareTime = false): string | undefined {
+  const text = normalizeAppointmentText(message);
+  const hourToken = "(\\d{1,2}|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)";
+  const minuteToken = "(\\d{1,2}|media|treinta|cuarto|quince)";
+  const periodToken = "(am|pm|a m|p m|de la manana|de manana|de la tarde|de la noche|manana|tarde|noche)";
+
+  const lessQuarterMatch = text.match(
+    new RegExp(`(?:a\\s+)?(?:las?|la|para\\s+las?)\\s+${hourToken}\\s+menos\\s+cuarto\\s*(${periodToken})?\\b`)
+  );
+  if (lessQuarterMatch) {
+    const parsedHour = parseHourToken(lessQuarterMatch[1]);
+    if (parsedHour !== null) {
+      const adjustedHour = applyTimePeriod(parsedHour, lessQuarterMatch[2]) - 1;
+      return formatTime(adjustedHour < 0 ? 23 : adjustedHour, 45);
+    }
+  }
+
+  const patterns = [
+    new RegExp(`(?:a\\s+)?(?:las?|la|para\\s+las?|tipo|como\\s+a\\s+las?)\\s+${hourToken}(?:\\s*(?::|y)?\\s*${minuteToken})?\\s*(${periodToken})?\\b`),
+    new RegExp(`\\b${hourToken}\\s*(?::|y)\\s*${minuteToken}\\s*(${periodToken})?\\b`)
+  ];
+
+  if (allowBareTime) {
+    patterns.push(new RegExp(`^\\s*${hourToken}(?::${minuteToken})?\\s*(${periodToken})?\\s*$`));
+  }
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    const parsedHour = parseHourToken(match[1]);
+    if (parsedHour === null) continue;
+
+    const minutes = parseMinuteToken(match[2]);
+    const hour = applyTimePeriod(parsedHour, match[3]);
+    const formatted = formatTime(hour, minutes);
+    if (formatted) return formatted;
+  }
+
+  return undefined;
+}
+
+function sameLocalDate(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+function localDateKey(date: Date): string {
+  return [
+    date.getFullYear(),
+    (date.getMonth() + 1).toString().padStart(2, "0"),
+    date.getDate().toString().padStart(2, "0")
+  ].join("-");
+}
+
+function timeToMinutes(time?: string): number | null {
+  if (!time) return null;
+  const [hh, mm] = time.split(":").map(n => parseInt(n, 10));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function getSlotStart(slot: any): Date | null {
+  if (!slot?.start) return null;
+  const date = new Date(slot.start);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function findClosestSlotByDateTime(
+  slots: any[],
+  requestedDate: Date | undefined,
+  requestedTime: string | undefined,
+  toleranceMinutes = SLOT_TIME_TOLERANCE_MINUTES
+): SlotMatch | null {
+  const requestedMinutes = timeToMinutes(requestedTime);
+  if (requestedMinutes === null) return null;
+
+  const matches = slots
+    .map(slot => {
+      const slotStart = getSlotStart(slot);
+      if (!slotStart) return null;
+      if (requestedDate && !sameLocalDate(slotStart, requestedDate)) return null;
+
+      const slotMinutes = slotStart.getHours() * 60 + slotStart.getMinutes();
+      const diffMinutes = Math.abs(slotMinutes - requestedMinutes);
+      if (diffMinutes > toleranceMinutes) return null;
+
+      return { slot, diffMinutes, slotStart };
+    })
+    .filter((match): match is { slot: any; diffMinutes: number; slotStart: Date } => Boolean(match))
+    .sort((a, b) => a.diffMinutes - b.diffMinutes || a.slotStart.getTime() - b.slotStart.getTime());
+
+  const best = matches[0];
+  if (!best || !requestedTime) return null;
+
+  return {
+    slot: best.slot,
+    diffMinutes: best.diffMinutes,
+    requestedTime,
+    requestedDate: requestedDate ? localDateKey(requestedDate) : undefined
+  };
+}
+
+function findClosestSlotFromMessage(message: string, slots: any[]): SlotMatch | null {
+  const parsed = extractDateTime(message);
+  const requestedTime = parsed?.time || parseNaturalTime(message, true);
+  if (!requestedTime) return null;
+
+  return findClosestSlotByDateTime(slots, parsed?.date, requestedTime);
+}
+
+function prioritizeSlotsByRequest(slots: any[], requestedDate?: Date, requestedTime?: string): any[] {
+  const bestMatch = findClosestSlotByDateTime(slots, requestedDate, requestedTime);
+  if (!bestMatch) return slots;
+
+  const bestStart = getSlotStart(bestMatch.slot)?.getTime();
+  if (!bestStart) return slots;
+
+  return [
+    bestMatch.slot,
+    ...slots.filter(slot => getSlotStart(slot)?.getTime() !== bestStart)
+  ];
+}
+
+function isPositiveSlotConfirmation(message: string): boolean {
+  const normalized = normalizeAppointmentText(message);
+  return /^(si|ok|okay|dale|confirmo|confirmado|perfecto|esta bien|de acuerdo|correcto|listo)\b/.test(normalized);
+}
+
 /**
  * Detecta la intención de cita en el mensaje usando solo keywords inequívocas.
  *
@@ -106,14 +428,15 @@ function detectAppointmentIntent(message: string): string {
 /**
  * Extrae fecha y hora del mensaje con NLP básico
  */
-function extractDateTime(message: string): { date?: Date; time?: string; extractedDate?: string; extractedTime?: string } | null {
+function extractDateTime(message: string): ExtractedDateTime | null {
   const lowerMessage = message.toLowerCase();
+  const normalizedMessage = normalizeAppointmentText(message);
   const now = new Date();
 
   // Mapeo de días de la semana
   const dayMap: Record<string, number> = {
-    'domingo': 0, 'lunes': 1, 'martes': 2, 'miércoles': 3, 'jueves': 4,
-    'viernes': 5, 'sábado': 6, 'sabado': 6
+    'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3, 'jueves': 4,
+    'viernes': 5, 'sabado': 6
   };
 
   // Mapeo de meses
@@ -133,14 +456,14 @@ function extractDateTime(message: string): { date?: Date; time?: string; extract
   }
 
   // 2. "mañana" (manhana sin tilde)
-  else if (/\bmañana\b|\bmanhana\b/.test(lowerMessage)) {
+  else if (/\bmanana\b|\bmanhana\b/.test(normalizedMessage)) {
     extractedDate = new Date(now);
     extractedDate.setDate(extractedDate.getDate() + 1);
   }
 
   // 3. "el lunes/martes/etc." - próximo día de la semana
   else {
-    const dayMatch = lowerMessage.match(/\b(lunes|martes|miércoles|jueves|viernes|sábado|domingo|sabado)\b/i);
+    const dayMatch = normalizedMessage.match(/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/i);
     if (dayMatch) {
       const targetDay = dayMap[dayMatch[1].toLowerCase()];
       if (targetDay !== undefined) {
@@ -153,7 +476,7 @@ function extractDateTime(message: string): { date?: Date; time?: string; extract
     }
 
     // 4. "el 15 de marzo", "15 de marzo"
-    const dateNumMatch = lowerMessage.match(/(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);
+    const dateNumMatch = normalizedMessage.match(/(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);
     if (dateNumMatch && !extractedDate) {
       const day = parseInt(dateNumMatch[1]);
       const month = monthMap[dateNumMatch[2].toLowerCase()];
@@ -167,7 +490,7 @@ function extractDateTime(message: string): { date?: Date; time?: string; extract
     }
 
     // 5. "15/03" o "15/03/2026"
-    const slashMatch = lowerMessage.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+    const slashMatch = normalizedMessage.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
     if (slashMatch && !extractedDate) {
       const day = parseInt(slashMatch[1]);
       const month = parseInt(slashMatch[2]) - 1;
@@ -177,7 +500,7 @@ function extractDateTime(message: string): { date?: Date; time?: string; extract
     }
 
     // 6. "2026-03-15" formato ISO
-    const isoMatch = lowerMessage.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const isoMatch = normalizedMessage.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
     if (isoMatch && !extractedDate) {
       extractedDate = new Date(
         parseInt(isoMatch[1]),
@@ -189,9 +512,12 @@ function extractDateTime(message: string): { date?: Date; time?: string; extract
 
   // ===== EXTRAER HORA =====
 
-  // 1. "a las 3", "a las 3pm", "a las 15:00"
-  let hourMatch = lowerMessage.match(/(?:a\s+)?las\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-  if (hourMatch) {
+  // 1. Lenguaje natural: "8 y media", "ocho y media", "8:30", "8 y cuarto"
+  extractedTime = parseNaturalTime(message);
+
+  // 2. "a las 3", "a las 3pm", "a las 15:00"
+  const hourMatch = normalizedMessage.match(/(?:a\s+)?las\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (!extractedTime && hourMatch) {
     let hour = parseInt(hourMatch[1]);
     const minutes = hourMatch[2] ? parseInt(hourMatch[2]) : 0;
     const period = hourMatch[3]?.toLowerCase();
@@ -203,26 +529,26 @@ function extractDateTime(message: string): { date?: Date; time?: string; extract
     extractedTime = `${hour.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
   }
 
-  // 2. "3 de la tarde", "10 de la mañana", "8 de la noche"
+  // 3. "3 de la tarde", "10 de la mañana", "8 de la noche"
   if (!extractedTime) {
-    const periodMatch = lowerMessage.match(/(\d{1,2})\s*(?:de\s+)?(?:la\s+)?(mañana|tarde|noche)/i);
+    const periodMatch = normalizedMessage.match(/(\d{1,2})\s*(?:de\s+)?(?:la\s+)?(manana|tarde|noche)/i);
     if (periodMatch) {
       let hour = parseInt(periodMatch[1]);
       const period = periodMatch[2].toLowerCase();
 
       if (period === 'tarde' && hour < 12) hour += 12;
       if (period === 'noche' && hour < 12) hour += 12;
-      if (period === 'mañana' && hour === 12) hour = 0;
+      if (period === 'manana' && hour === 12) hour = 0;
 
       extractedTime = `${hour.toString().padStart(2, '0')}:00`;
     }
   }
 
-  // 3. Solo número "a las 3" (asumir mañana si es < 7, tarde si >= 7)
+  // 4. Solo número "a las 3" (asumir mañana si es < 7, tarde si >= 7)
   if (!extractedTime) {
-    const justNumber = lowerMessage.match(/\ba\s+las\s+(\d{1,2})\b/);
+    const justNumber = normalizedMessage.match(/\ba\s+las\s+(\d{1,2})\b/);
     if (justNumber) {
-      let hour = parseInt(justNumber[1]);
+      const hour = parseInt(justNumber[1]);
       if (hour >= 1 && hour <= 11) {
         extractedTime = `${hour.toString().padStart(2, '0')}:00`;
       }
@@ -283,6 +609,29 @@ const processAppointmentRequest = async (
   // pasa a handleConfirmAppointment que sabe interpretar la selección.
   if (ticketId) {
     const ctx = await AppointmentContextStore.get(ticketId);
+    if (ctx && ACTIVE_CREATE_CONTEXT_STEPS.includes(ctx.step)) {
+      logger.info(
+        `[AppointmentAgent] Contexto ${ctx.step} detectado para ticket ${ticketId} — ` +
+        `continuando selección antes de consultar horarios`
+      );
+
+      let effectiveContactId = contactId || ctx.contactId;
+      if (!effectiveContactId) {
+        const ticket = await Ticket.findByPk(ticketId);
+        if (ticket?.contactId) effectiveContactId = ticket.contactId;
+      }
+
+      if (effectiveContactId) {
+        return await handleCreateAppointment(
+          message,
+          effectiveContactId,
+          companyId,
+          ticketId,
+          { resolvedDate: context.resolvedDate, resolvedTime: context.resolvedTime }
+        );
+      }
+    }
+
     if (ctx?.step === 'awaiting_confirmation') {
       logger.info(
         `[AppointmentAgent] Contexto awaiting_confirmation detectado para ticket ${ticketId} — ` +
@@ -306,7 +655,10 @@ const processAppointmentRequest = async (
   // usamos el clasificador LLM en lugar del regex frágil.
   if (contactId && ticketId) {
     const existingContext = await AppointmentContextStore.get(ticketId);
-    const inInitialSchedulingFlow = existingContext?.step === 'awaiting_confirmation';
+    const inInitialSchedulingFlow = !!existingContext && [
+      ...ACTIVE_CREATE_CONTEXT_STEPS,
+      "awaiting_confirmation"
+    ].includes(existingContext.step);
 
     if (!inInitialSchedulingFlow) {
       const pendingAppointment = await Appointment.findOne({
@@ -540,6 +892,7 @@ async function handleListAppointments(
 async function checkAvailability(
   companyId: number,
   serviceId: number,
+  userId: number,
   date: Date,
   time: string
 ): Promise<{ available: boolean; availableUsers: number; slots: any[] }> {
@@ -563,6 +916,7 @@ async function checkAvailability(
     const allSlots = await AvailabilityService.getAvailableSlots({
       companyId,
       serviceId,
+      userId,
       startDate: dayStart,
       endDate: dayEnd
     });
@@ -592,6 +946,7 @@ async function checkAvailability(
 async function getNextAvailableSlots(
   companyId: number,
   serviceId: number,
+  userId: number,
   daysAhead: number = 7
 ): Promise<string[]> {
   try {
@@ -603,6 +958,7 @@ async function getNextAvailableSlots(
     const slots = await AvailabilityService.getAvailableSlots({
       companyId,
       serviceId,
+      userId,
       startDate,
       endDate
     });
@@ -649,6 +1005,8 @@ async function handleCreateAppointment(
   ticketId?: number,
   resolved?: { resolvedDate?: string; resolvedTime?: string }
 ): Promise<AppointmentResponse> {
+  const existingContext = ticketId ? await AppointmentContextStore.get(ticketId) : null;
+
   // 🆕 Bug C fix: priorizar fecha/hora resuelta por el enriquecedor LLM
   // sobre el regex local (que falla con expresiones naturales complejas).
   // Si vienen ambas, usamos la del enriquecedor; si solo una, combinamos.
@@ -668,11 +1026,23 @@ async function handleCreateAppointment(
     dateTime = extractDateTime(message);
   }
 
+  if (!dateTime && existingContext?.metadata?.pendingDate) {
+    const pendingDate = dateFromKey(String(existingContext.metadata.pendingDate));
+    if (pendingDate) {
+      dateTime = {
+        date: pendingDate,
+        time: typeof existingContext.metadata.pendingTime === "string"
+          ? existingContext.metadata.pendingTime
+          : undefined
+      };
+    }
+  }
+
+  const pendingDate = dateTime?.date ? formatDateKey(dateTime.date) : existingContext?.metadata?.pendingDate;
+  const pendingTime = dateTime?.time || existingContext?.metadata?.pendingTime;
+
   // Obtener servicios disponibles
-  const services = await AppointmentService.findAll({
-    where: { companyId, isActive: true },
-    limit: 5
-  });
+  const services = await loadActiveAppointmentServices(companyId);
 
   if (services.length === 0) {
     return {
@@ -682,40 +1052,179 @@ async function handleCreateAppointment(
     };
   }
 
-  const servicesList = services.map((s, i) =>
-    `${i + 1}. ${s.name} (${s.duration} min)`
-  ).join("\n");
+  let service: AppointmentService | null = null;
+  if (existingContext?.serviceId) {
+    service = services.find(s => Number(s.id) === Number(existingContext.serviceId)) || null;
+  }
 
-  // Usar el primer servicio por defecto
-  const service = services[0];
+  if (!service) {
+    const selectedService = matchOptionByMessage(
+      message,
+      services.map(s => ({ id: Number(s.id), name: s.name, duration: s.duration }))
+    );
+    if (selectedService) {
+      service = services.find(s => Number(s.id) === selectedService.id) || null;
+    }
+  }
 
-  // Si no hay fecha específica, mostrar servicios Y pedir fecha
-  if (!dateTime) {
-    // Obtener próximos horarios disponibles
-    const availableSlots = await getNextAvailableSlots(companyId, service.id, 7);
-    let availabilityMsg = "";
+  if (!service && services.length === 1) {
+    service = services[0];
+  }
 
-    if (availableSlots.length > 0) {
-      availabilityMsg = `\n\n📅 *Horarios disponibles próximos:*\n${availableSlots.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+  if (!service) {
+    if (ticketId) {
+      await AppointmentContextStore.set({
+        ticketId,
+        step: "awaiting_service_selection",
+        contactId,
+        lastAction: "create",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        metadata: {
+          pendingDate,
+          pendingTime,
+          serviceOptions: services.map(s => ({ id: Number(s.id), name: s.name }))
+        }
+      } as any);
     }
 
     return {
-      message: `Perfecto, puedo ayudarte a agendar una cita. ¿Qué servicio necesitas?\n\n${servicesList}${availabilityMsg}\n\nTambién dime qué fecha y horario te gustaría.`,
+      message: `Perfecto, puedo ayudarte a agendar una cita. Primero dime qué servicio necesitas:\n\n${buildOptionList(services)}\n\nPuedes responder con el número o el nombre del servicio.`,
       action: "create",
       confidence: 0.85
+    };
+  }
+
+  const providers = await loadUsersForService(companyId, Number(service.id));
+  if (providers.length === 0) {
+    return {
+      message: `El servicio "${service.name}" todavía no tiene usuarios con disponibilidad configurada. Te puedo contactar con un asesor para ayudarte a coordinar la cita.`,
+      action: "create",
+      confidence: 0.82
+    };
+  }
+
+  let selectedUser = existingContext?.userId
+    ? providers.find(user => user.id === Number(existingContext.userId)) || null
+    : null;
+
+  if (!selectedUser) {
+    selectedUser = matchOptionByMessage(message, providers);
+  }
+
+  if (!selectedUser && providers.length === 1) {
+    selectedUser = providers[0];
+  }
+
+  if (!selectedUser) {
+    if (ticketId) {
+      await AppointmentContextStore.set({
+        ticketId,
+        step: "awaiting_user_selection",
+        serviceId: Number(service.id),
+        serviceName: service.name,
+        contactId,
+        lastAction: "create",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        metadata: {
+          pendingDate,
+          pendingTime,
+          userOptions: providers
+        }
+      } as any);
+    }
+
+    return {
+      message: `Listo, para *${service.name}* necesito elegir el usuario que atenderá la cita:\n\n${buildOptionList(providers)}\n\nResponde con el número o el nombre.`,
+      action: "create",
+      confidence: 0.87
+    };
+  }
+
+  if (!dateTime?.date) {
+    if (ticketId) {
+      await AppointmentContextStore.set({
+        ticketId,
+        step: "awaiting_date",
+        serviceId: Number(service.id),
+        serviceName: service.name,
+        userId: selectedUser.id,
+        userName: selectedUser.name,
+        contactId,
+        lastAction: "create",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        metadata: {}
+      } as any);
+    }
+
+    return {
+      message: `Perfecto, sería para *${service.name}* con *${selectedUser.name}*. ¿Qué fecha y hora prefieres?`,
+      action: "create",
+      confidence: 0.88
     };
   }
 
   // ========== VERIFICAR DISPONIBILIDAD ==========
   const targetDate = dateTime.date || new Date();
   const targetTime = dateTime.time || "10:00";
+  const explicitTimeFromText = parseNaturalTime(message);
+  const hasExplicitRequestedTime = Boolean(
+    resolved?.resolvedTime ||
+    explicitTimeFromText ||
+    existingContext?.metadata?.pendingTime
+  );
 
   // Verificar si hay disponibilidad para la fecha/hora solicitada
-  const availability = await checkAvailability(companyId, service.id, targetDate, targetTime);
+  const availability = await checkAvailability(companyId, Number(service.id), selectedUser.id, targetDate, targetTime);
 
   if (!availability.available) {
-    // No hay disponibilidad, mostrar opciones
-    const availableSlots = await getNextAvailableSlots(companyId, service.id, 7);
+    let detailedSlots = await getAvailableSlotsForContext(companyId, Number(service.id), selectedUser.id, 7);
+    const requestedDaySlots = detailedSlots.filter((slot: any) =>
+      formatDateKey(new Date(slot.start)) === formatDateKey(targetDate)
+    );
+    if (requestedDaySlots.length > 0) {
+      detailedSlots = requestedDaySlots;
+    }
+    const nearestSlotMatch = hasExplicitRequestedTime
+      ? findClosestSlotByDateTime(detailedSlots, targetDate, targetTime)
+      : null;
+
+    if (nearestSlotMatch) {
+      const prioritizedSlots = prioritizeSlotsByRequest(detailedSlots, targetDate, targetTime);
+      if (ticketId) {
+        await AppointmentContextStore.set({
+          ticketId,
+          step: 'awaiting_confirmation',
+          serviceId: Number(service.id),
+          serviceName: service.name,
+          userId: selectedUser.id,
+          userName: selectedUser.name,
+          contactId,
+          lastAction: 'create',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+          metadata: {
+            availableSlots: prioritizedSlots,
+            suggestedSlotStart: nearestSlotMatch.slot.start
+          }
+        } as any);
+      }
+
+      const nearestMessage = nearestSlotMatch.diffMinutes === 0
+        ? `✅ Sí, tengo disponible ese horario:\n\n1) ${nearestSlotMatch.slot.formatted}`
+        : `No tengo exactamente las ${targetTime}, pero el horario disponible más cercano es:\n\n1) ${nearestSlotMatch.slot.formatted}`;
+
+      return {
+        message: `${nearestMessage}\n\nServicio: *${service.name}* con *${selectedUser.name}*.\n\nSi te sirve, responde *confirmo* o *1* y te agendo esa cita.`,
+        action: "create",
+        confidence: 0.93
+      };
+    }
+
+    // No hay disponibilidad cercana, mostrar opciones
+    const availableSlots = detailedSlots.slice(0, 5).map((slot: any) => slot.formatted);
     let optionsMsg = "";
 
     if (availableSlots.length > 0) {
@@ -733,7 +1242,19 @@ async function handleCreateAppointment(
 
   // ========== GUARDAR CONTEXTO Y MOSTRAR OPCIONES (SIN CREAR CITA) ==========
   // Obtener slots detallados para guardar en contexto
-  const detailedSlots = await getAvailableSlotsForContext(companyId, service.id, 7);
+  let detailedSlots = await getAvailableSlotsForContext(companyId, Number(service.id), selectedUser.id, 7);
+  const requestedDaySlots = detailedSlots.filter((slot: any) =>
+    formatDateKey(new Date(slot.start)) === formatDateKey(targetDate)
+  );
+  if (requestedDaySlots.length > 0) {
+    detailedSlots = requestedDaySlots;
+  }
+  const suggestedSlotMatch = hasExplicitRequestedTime
+    ? findClosestSlotByDateTime(detailedSlots, targetDate, targetTime)
+    : null;
+  if (suggestedSlotMatch) {
+    detailedSlots = prioritizeSlotsByRequest(detailedSlots, targetDate, targetTime);
+  }
 
   if (detailedSlots.length === 0) {
     return {
@@ -748,13 +1269,18 @@ async function handleCreateAppointment(
     await AppointmentContextStore.set({
       ticketId,
       step: 'awaiting_confirmation',
-      serviceId: service.id,
+      serviceId: Number(service.id),
       serviceName: service.name,
+      userId: selectedUser.id,
+      userName: selectedUser.name,
       contactId,
       lastAction: 'create',
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-      metadata: { availableSlots: detailedSlots }
+      metadata: {
+        availableSlots: detailedSlots,
+        suggestedSlotStart: suggestedSlotMatch?.slot.start
+      }
     } as any);
   }
 
@@ -763,8 +1289,16 @@ async function handleCreateAppointment(
     `${i + 1}) ${s.formatted}`
   ).join("\n");
 
+  if (suggestedSlotMatch?.diffMinutes === 0) {
+    return {
+      message: `✅ Sí, tengo disponible ese horario:\n\n1) ${suggestedSlotMatch.slot.formatted}\n\nServicio: *${service.name}* con *${selectedUser.name}*.\n\nResponde *confirmo* o *1* para agendar tu cita.`,
+      action: "create",
+      confidence: 0.95
+    };
+  }
+
   return {
-    message: `✅Tengo los siguientes horarios disponibles:\n\n${optionsText}\n\nResponde con el *número* o el *horario* que prefieras para agendar tu cita.`,
+    message: `✅ Tengo los siguientes horarios disponibles para *${service.name}* con *${selectedUser.name}*:\n\n${optionsText}\n\nResponde con el *número* o el *horario* que prefieras para agendar tu cita.`,
     action: "create",
     confidence: 0.95
   };
@@ -776,6 +1310,7 @@ async function handleCreateAppointment(
 async function getAvailableSlotsForContext(
   companyId: number,
   serviceId: number,
+  userId: number,
   daysAhead: number = 7
 ): Promise<any[]> {
   try {
@@ -787,6 +1322,7 @@ async function getAvailableSlotsForContext(
     const slots = await AvailabilityService.getAvailableSlots({
       companyId,
       serviceId,
+      userId,
       startDate,
       endDate
     });
@@ -972,6 +1508,7 @@ async function handleConfirmAppointment(
 
       // Obtener los slots del metadata del contexto
       const slots = (context as any).metadata?.availableSlots || [];
+      const suggestedSlotStart = (context as any).metadata?.suggestedSlotStart;
       let selectedSlot: any = null;
 
       // Extraer selección del usuario
@@ -986,13 +1523,29 @@ async function handleConfirmAppointment(
         selectedSlot = slots[1];
       } else if (lowerMsg.includes('tercero') || lowerMsg.includes('3)')) {
         selectedSlot = slots[2];
+      } else if (suggestedSlotStart && isPositiveSlotConfirmation(message)) {
+        selectedSlot = slots.find((slot: any) =>
+          getSlotStart(slot)?.getTime() === new Date(suggestedSlotStart).getTime()
+        );
       } else {
-        // Buscar por horario mencionado
+        // Buscar por fecha/hora exacta o natural mencionada ("mañana a las 8 y media").
         for (const slot of slots) {
-          if (lowerMsg.includes(slot.formatted?.toLowerCase()) ||
-              lowerMsg.includes(new Date(slot.start).getHours().toString())) {
+          if (slot.formatted && normalizeAppointmentText(message).includes(normalizeAppointmentText(slot.formatted))) {
             selectedSlot = slot;
             break;
+          }
+        }
+
+        if (!selectedSlot) {
+          const naturalSlotMatch = findClosestSlotFromMessage(message, slots);
+          if (naturalSlotMatch) {
+            selectedSlot = naturalSlotMatch.slot;
+            logger.info(
+              `[AppointmentAgent] Slot seleccionado por lenguaje natural: ` +
+              `requestedDate=${naturalSlotMatch.requestedDate || 'any'}, ` +
+              `requestedTime=${naturalSlotMatch.requestedTime}, ` +
+              `selected="${selectedSlot.formatted}", diff=${naturalSlotMatch.diffMinutes}m`
+            );
           }
         }
       }
@@ -1028,78 +1581,40 @@ async function handleConfirmAppointment(
       }
 
       const startTime = new Date(selectedSlot.start);
-      const endTime = new Date(selectedSlot.end);
-      const assignedUserId = selectedSlot.userId;
-      const reminderTemplate = await ReminderService.resolveWhatsappTemplate(companyId);
+      const assignedUserId = selectedSlot.userId || context.userId;
 
-      const appointmentData: any = {
-        companyId,
-        contactId,
-        ticketId,
-        serviceId: service.id,
-        title: service.name,
-        description: `Cita solicitada via ChatEAM`,
-        startTime,
-        endTime,
-        duration: service.duration || 60,
-        status: "scheduled", // Pendiente de confirmación del cliente
-        attendeeName: "",
-        attendeeEmail: "",
-        attendeePhone: "",
-        attendeeCount: 1,
-        location: "",
-        locationType: "in_person"
-      };
-
-      if (reminderTemplate) {
-        appointmentData.reminderTemplateId = reminderTemplate.id;
-        logger.info(
-          `[AppointmentAgent] Plantilla de recordatorio aplicada por defecto: ` +
-          `id=${reminderTemplate.id}, name="${reminderTemplate.name}"`
-        );
-      } else {
-        logger.warn(
-          `[AppointmentAgent] No hay plantilla activa de WhatsApp para companyId=${companyId}; ` +
-          `la cita se creará sin reminderTemplateId`
-        );
-      }
-
-      if (assignedUserId) {
-        appointmentData.userId = assignedUserId;
-      }
-
-      // 🆕 Bug D fix: logs explícitos del payload ANTES del INSERT para poder
-      // depurar si Sequelize falla silenciosamente
+      // 🆕 Unificado con BookingService.createBooking (fuente ÚNICA de creación de citas).
+      // Antes la Ruta IA duplicaba manualmente: crear + mensaje de creación + recordatorios +
+      // encolar confirmación + notificar + sync de calendarios (riesgo de divergencia con el
+      // path REST). Ahora delega TODO en BookingService, que además VALIDA disponibilidad y
+      // respeta requiresConfirmation del servicio. El userId SIEMPRE viene del paso de
+      // selección de usuario del flujo (awaiting_user_selection).
       logger.info(
-        `[AppointmentAgent] [PERSIST] Intentando crear cita: ` +
+        `[AppointmentAgent] [PERSIST] Creando cita vía BookingService: ` +
         `companyId=${companyId}, contactId=${contactId}, ticketId=${ticketId}, ` +
-        `serviceId=${service.id}, userId=${assignedUserId ?? 'null'}, ` +
-        `startTime=${startTime.toISOString()}, endTime=${endTime.toISOString()}, ` +
-        `duration=${appointmentData.duration}, title="${appointmentData.title}"`
+        `serviceId=${service.id}, userId=${assignedUserId ?? 'null'}, startTime=${startTime.toISOString()}`
       );
 
       let appointment: any;
       try {
-        appointment = await Appointment.create(appointmentData);
+        appointment = await BookingService.createBooking({
+          companyId,
+          serviceId: Number(service.id),
+          userId: Number(assignedUserId),
+          contactId: contactId!,
+          ticketId: ticketId || undefined,
+          startTime,
+          title: service.name,
+          description: `Cita solicitada via ChatEAM`
+        });
         logger.info(
-          `[AppointmentAgent] [PERSIST] ✅ Cita creada: id=${appointment.id}, ` +
+          `[AppointmentAgent] [PERSIST] ✅ Cita creada vía BookingService: id=${appointment.id}, ` +
           `status=${appointment.status}, startTime=${appointment.startTime}`
         );
       } catch (createErr: any) {
-        // 🆕 Log de error completo: Sequelize oculta detalles en message pero
-        // los pone en .errors (ValidationError) o .parent.detail (PG)
-        const sequelizeErrors = createErr?.errors?.map((e: any) => ({
-          field: e.path,
-          type: e.type,
-          message: e.message,
-          value: e.value
-        })) || [];
         logger.error(
-          `[AppointmentAgent] [PERSIST] ❌ FALLO al crear cita: ${createErr?.message || createErr}\n` +
-          `  → sequelizeErrors: ${JSON.stringify(sequelizeErrors)}\n` +
-          `  → pgDetail: ${createErr?.parent?.detail || 'n/a'}\n` +
-          `  → pgCode: ${createErr?.parent?.code || 'n/a'}\n` +
-          `  → payload: ${JSON.stringify(appointmentData)}`
+          `[AppointmentAgent] [PERSIST] ❌ FALLO al crear cita vía BookingService: ${createErr?.message || createErr}\n` +
+          `  → serviceId=${service.id}, userId=${assignedUserId ?? 'null'}, startTime=${startTime.toISOString()}`
         );
         // Devolver respuesta amigable y NO limpiar contexto (permite reintento)
         return {
@@ -1109,59 +1624,6 @@ async function handleConfirmAppointment(
           action: "none",
           confidence: 0
         };
-      }
-
-      // Marcar bloque como reservado
-      if (assignedUserId && selectedSlot.id) {
-        try {
-          await AvailabilityService.markBlockAsBooked(
-            selectedSlot.id,
-            appointment.id,
-            companyId
-          );
-        } catch (e) {
-          logger.warn(`[AppointmentAgent] No se pudo marcar bloque: ${e}`);
-        }
-      }
-
-      // 🆕 Crear recordatorios por defecto (equivalente a BookingService.createBooking)
-      // Garantiza que las citas creadas desde el flujo IA también tengan seguimiento automático
-      try {
-        await ReminderService.createDefaultReminders(appointment);
-        logger.info(`[AppointmentAgent] Recordatorios creados para cita ID=${appointment.id}`);
-      } catch (reminderErr: any) {
-        logger.warn(`[AppointmentAgent] No se pudieron crear recordatorios para cita ID=${appointment.id}: ${reminderErr.message}`);
-        // No fallar la confirmación de la cita por un error de reminders
-      }
-
-      try {
-        await BookingService.enqueueConfirmationReminder(appointment);
-      } catch (reminderQueueErr: any) {
-        logger.warn(
-          `[AppointmentAgent] No se pudo encolar el mensaje inicial de confirmación ` +
-          `para cita ID=${appointment.id}: ${reminderQueueErr.message}`
-        );
-      }
-
-      // 🆕 Bug E fix: sync a Google Calendar / Outlook si el user tiene sync configurado
-      if (appointment.userId) {
-        try {
-          const CalendarSyncService = require("../AppointmentServices/CalendarSyncService").default;
-          const gEventId = await CalendarSyncService.syncToGoogleCalendar(
-            appointment, appointment.userId, companyId
-          );
-          if (gEventId) {
-            logger.info(`[AppointmentAgent] Cita sincronizada a Google Calendar: eventId=${gEventId}`);
-          }
-          const oEventId = await CalendarSyncService.syncToOutlookCalendar(
-            appointment, appointment.userId
-          );
-          if (oEventId) {
-            logger.info(`[AppointmentAgent] Cita sincronizada a Outlook: eventId=${oEventId}`);
-          }
-        } catch (syncErr: any) {
-          logger.warn(`[AppointmentAgent] Error en sync de calendario para cita ID=${appointment.id}: ${syncErr?.message || syncErr}`);
-        }
       }
 
       // Limpiar contexto

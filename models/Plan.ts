@@ -88,6 +88,10 @@ class Plan extends Model<Plan> {
   @Column(DataType.STRING)
   paypalPlanId: string;
 
+  @Default(false)
+  @Column(DataType.BOOLEAN)
+  allowRecurringPayments: boolean;
+
   @Default(true)
   @Column(DataType.BOOLEAN)
   useOpenAi: boolean;

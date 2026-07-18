@@ -26,6 +26,7 @@ import { getInstagramShortLivedToken, getInstagramLongLivedToken, getInstagramPr
 import User from "../models/User";
 import axios from "axios";
 import { getWABAId } from "../services/FacebookConversionService/FacebookAuthHelper";
+import logger from "../utils/logger";
 interface WhatsappData {
   name: string;
   queueIds: number[];
@@ -45,6 +46,10 @@ interface WhatsappData {
   timeInactiveMessage?: string;
   inactiveMessage?: string;
   ratingMessage?: string;
+  npsEnabled?: boolean | null;
+  acceptAudio?: boolean | null;
+  callRejectMessage?: string;
+  rejectAudioMessage?: string;
   maxUseBotQueuesNPS?: number;
   expiresTicketNPS?: number;
   whenExpiresTicket?: string;
@@ -126,6 +131,10 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     timeInactiveMessage,
     inactiveMessage,
     ratingMessage,
+    npsEnabled,
+    acceptAudio,
+    callRejectMessage,
+    rejectAudioMessage,
     maxUseBotQueuesNPS,
     expiresTicketNPS,
     whenExpiresTicket,
@@ -154,7 +163,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   // Normalize channel parameter (accept both 'channel' and 'type' from frontend)
   const finalChannel = channel || type || "whatsapp";
 
-  //console.log("WhatsappData",req.body)
 
   const company = await ShowCompanyService(companyId)
   const plan = await ShowPlanService(company.planId);
@@ -174,9 +182,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     }
   }
 
-  //console.log("================ WhatsAppController ==============")
-  //console.log(req.body)
-  //console.log("==================================================")
 
   const { whatsapp, oldDefaultWhatsapp } = await CreateWhatsAppService({
     name,
@@ -197,6 +202,10 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     timeInactiveMessage,
     inactiveMessage,
     ratingMessage,
+    ...(npsEnabled !== undefined && { npsEnabled }),
+    ...(acceptAudio !== undefined && { acceptAudio }),
+    ...(callRejectMessage !== undefined && { callRejectMessage }),
+    ...(rejectAudioMessage !== undefined && { rejectAudioMessage }),
     maxUseBotQueuesNPS,
     expiresTicketNPS,
     whenExpiresTicket,
@@ -261,10 +270,9 @@ export const storeFacebook = async (
       addInstagram: boolean;
     } = req.body;
     const { companyId } = req.user;
-    //console.log("🔹 Recibida solicitud de conexión con Facebook:");
-    //console.log("📌 UserID:", facebookUserId);
-    //console.log("📌 AccessToken:", facebookUserToken);
-    //console.log("📌 Agregar Instagram:", addInstagram);
+    logger.info(
+      `[FacebookConnect] start companyId=${companyId} userId=${req.user.id} fbUserId=${facebookUserId || "missing"} hasToken=${Boolean(facebookUserToken)} addInstagram=${Boolean(addInstagram)}`
+    );
 
     // const company = await ShowCompanyService(companyId)
     // const plan = await ShowPlanService(company.planId);
@@ -276,8 +284,14 @@ export const storeFacebook = async (
     // }
 
     const { data } = await getPageProfile(facebookUserId, facebookUserToken);
+    logger.info(
+      `[FacebookConnect] pages fetched companyId=${companyId} fbUserId=${facebookUserId} count=${data?.length || 0}`
+    );
 
     if (data.length === 0) {
+      logger.warn(
+        `[FacebookConnect] no pages returned companyId=${companyId} fbUserId=${facebookUserId}`
+      );
       return res.status(400).json({
         error: "Facebook page not found 1"
       });
@@ -287,8 +301,9 @@ export const storeFacebook = async (
     const pages = [];
     for await (const page of data) {
       const { name, access_token, id, instagram_business_account } = page;
-      //console.log(`🔹 Procesando página: ${name} (ID: ${id}) (instagram_business_account: ${instagram_business_account})  `);
-      //console.log(`📌 Token de la página: ${access_token}`);
+      logger.info(
+        `[FacebookConnect] processing page companyId=${companyId} pageId=${id} name=${name} hasPageToken=${Boolean(access_token)} hasInstagram=${Boolean(instagram_business_account?.id)}`
+      );
       const acessTokenPage = await getAccessTokenFromPage(access_token, companyId);
 
 
@@ -300,6 +315,8 @@ export const storeFacebook = async (
           facebookPageUserId: id,
           facebookUserToken: acessTokenPage,
           tokenMeta: facebookUserToken,
+          pageAccessToken: acessTokenPage,
+          instagramBusinessAccountId: instagram_business_account?.id || null,
           isDefault: false,
           channel: "facebook",
           status: "CONNECTED",
@@ -310,16 +327,13 @@ export const storeFacebook = async (
         });
   
         try {
-          //console.log(`📢 Intentando suscribirse a eventos de la página ${name}...`);
           const subscribeResponse = await subscribeApp(id, acessTokenPage);
-          //console.log(`✅ Respuesta de la suscripción para ${name}:`, subscribeResponse);
         } catch (error) {
           console.error(`❌ Error al suscribirse a ${name}:`, error);
         }
   
         // 🔹 Si `addInstagram` es `true`, procesar la cuenta de Instagram si está vinculada
         if (addInstagram === true && instagram_business_account) {
-          //console.log(`📸 Se solicitó agregar Instagram y se detectó cuenta vinculada:`, instagram_business_account);
           const { id: instagramId, username, name: instagramName } = instagram_business_account;
   
           if (instagram_business_account.id) {
@@ -330,6 +344,8 @@ export const storeFacebook = async (
               facebookPageUserId: instagramId,
               facebookUserToken: acessTokenPage,
               tokenMeta: facebookUserToken,
+              pageAccessToken: acessTokenPage,
+              instagramBusinessAccountId: instagramId,
               isDefault: false,
               channel: "instagram",
               status: "CONNECTED",
@@ -338,12 +354,10 @@ export const storeFacebook = async (
               queueIds: [],
               isMultidevice: false
             });
-            //console.log(`✅ Página de Instagram agregada: ${instagram_business_account.id}`);
           } else {
             console.warn(`⚠️ No se encontró un ID de Instagram para la página: ${name}`);
           }
         } else {
-          //console.log(`⚠️ No se agregó Instagram para la página ${name} porque addInstagram es ${addInstagram}`);
         }
       }
 
@@ -361,10 +375,16 @@ export const storeFacebook = async (
         await exist.update({
           ...pageConection
         });
+        logger.info(
+          `[FacebookConnect] connection updated companyId=${companyId} whatsappId=${exist.id} channel=${pageConection.channel} pageId=${pageConection.facebookPageUserId}`
+        );
       }
 
       if (!exist) {
         const { whatsapp } = await CreateWhatsAppService(pageConection);
+        logger.info(
+          `[FacebookConnect] connection created companyId=${companyId} whatsappId=${whatsapp.id} channel=${pageConection.channel} pageId=${pageConection.facebookPageUserId}`
+        );
 
         io.of(String(companyId))
           .emit(`company-${companyId}-whatsapp`, {
@@ -374,9 +394,14 @@ export const storeFacebook = async (
 
       }
     }
-    return res.status(200);
+    logger.info(
+      `[FacebookConnect] completed companyId=${companyId} createdOrUpdated=${pages.length}`
+    );
+    return res.status(200).json({ success: true, connections: pages.length });
   } catch (error) {
-    //console.log(error);
+    logger.error(
+      `[FacebookConnect] failed companyId=${req.user?.companyId || "unknown"} userId=${req.user?.id || "unknown"} status=${error?.response?.status || "N/A"} message=${error?.response?.data?.error?.message || error?.message || "unknown"}`
+    );
     return res.status(400).json({
       error: "Facebook page not found 2"
     });
@@ -389,7 +414,6 @@ export const storeInstagram = async (req, res) => {
     const { code } = req.body;
     const { companyId } = req.user;
     const redirectUri = process.env.IG_REDIRECT_URI!;
-    ////console.log('redirectUri', redirectUri, 'code', code);
     const io = getIO();
     // 1. Short-lived token
     const tokenResp = await getInstagramShortLivedToken(code, redirectUri, companyId);
@@ -413,7 +437,6 @@ export const storeInstagram = async (req, res) => {
 // 5) SUSCRIBIR la cuenta IG a tu app (para webhooks y mensajería)
 try {
   const sub = await igSubscribe(user_id, ig_access_token);
-  //console.log("🟢 IG subscribed:", sub);
 } catch (e) {
   console.error("🔴 Error subscribing IG:", e.response?.data || e);
   // opcional: reintento limpio
@@ -461,7 +484,6 @@ try {
     }
     return res.status(200).json({ success: true, profile });
   } catch (error) {
-    //console.log(error.response?.data || error);
     return res.status(400).json({ error: "Instagram connect failed" });
   }
 };
@@ -532,7 +554,6 @@ export const remove = async (
   if (profile !== "admin") {
     throw new AppError("ERR_NO_PERMISSION", 403);
   }
-  //console.log("REMOVING WHATSAPP", whatsappId)
   const whatsapp = await ShowWhatsAppService(whatsappId, companyId);
 
 
@@ -659,7 +680,6 @@ export const removeAdmin = async (
   const { whatsappId } = req.params;
   const { companyId } = req.user;
   const io = getIO();
-  //console.log("REMOVING WHATSAPP ADMIN", whatsappId)
   const whatsapp = await ShowWhatsAppService(whatsappId, companyId);
 
 
@@ -745,6 +765,26 @@ async function getPhoneNumberInfo(accessToken: string, number: string) {
   return { data, ms, url, params };
 }
 
+async function getPhoneNumbersFromWaba(accessToken: string, wabaId: string) {
+  const url = `https://graph.facebook.com/v24.0/${wabaId}/phone_numbers`;
+  const params = {
+    fields: "id,display_phone_number,verified_name,quality_rating,platform_type,code_verification_status"
+  };
+
+  console.log("🔍 [getPhoneNumbersFromWaba] Consultando Graph API:", { url, params });
+
+  const t0 = Date.now();
+  const { data } = await axios.get(url, {
+    params,
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const ms = Date.now() - t0;
+
+  console.log(`📦 [getPhoneNumbersFromWaba] Respuesta (${ms}ms):`, JSON.stringify(data, null, 2));
+
+  return { data: data?.data || [], ms, url, params };
+}
+
 export const storeMeta = async (req: Request, res: Response) => {
   try {
     const { accessToken, number, name, wabaId: providedWabaId } = req.body;
@@ -767,14 +807,61 @@ export const storeMeta = async (req: Request, res: Response) => {
     }
 
     // ===== Validación contra Graph =====
+    let resolvedPhoneNumberId = String(number).trim();
+    let resolvedWabaFromNumber: string | null = null;
     let info: any;
     try {
       console.log("🔵 [storeMeta] Validando token contra Graph API...");
-      info = await getPhoneNumberInfo(accessToken, number);
+      info = await getPhoneNumberInfo(accessToken, resolvedPhoneNumberId);
       console.log("🟢 [storeMeta] Graph info obtenida:", JSON.stringify(info?.data, null, 2));
     } catch (e: any) {
       console.error("🔴 [storeMeta] Graph error:", e?.response?.data || e?.message || e);
-      throw new AppError("Token o number inválidos en Meta", 400);
+
+      const metaMessage = e?.response?.data?.error?.message || "";
+      const looksLikeWaba =
+        metaMessage.includes("display_phone_number") ||
+        metaMessage.includes("nonexisting field");
+
+      if (!looksLikeWaba) {
+        throw new AppError("Token o Phone Number ID inválidos en Meta", 400);
+      }
+
+      console.log("🟡 [storeMeta] El ID recibido parece WABA ID. Intentando resolver Phone Number ID...");
+      const phones = await getPhoneNumbersFromWaba(accessToken, resolvedPhoneNumberId);
+
+      if (!phones.data.length) {
+        throw new AppError(
+          "Ese ID parece ser un WABA ID, pero no encontré números asociados. Usa el Phone Number ID de Meta.",
+          400
+        );
+      }
+
+      if (phones.data.length > 1) {
+        const options = phones.data
+          .map((p: any) => `${p.display_phone_number || p.id} (Phone Number ID: ${p.id})`)
+          .join(", ");
+        throw new AppError(
+          `Ese ID es un WABA ID y tiene varios números. Ingresa el Phone Number ID exacto. Opciones: ${options}`,
+          400
+        );
+      }
+
+      const selectedPhone = phones.data[0];
+      resolvedWabaFromNumber = resolvedPhoneNumberId;
+      resolvedPhoneNumberId = String(selectedPhone.id);
+      info = {
+        ...phones,
+        data: {
+          id: selectedPhone.id,
+          display_phone_number: selectedPhone.display_phone_number,
+          verified_name: selectedPhone.verified_name
+        }
+      };
+      console.log("🟢 [storeMeta] Phone Number ID resuelto desde WABA:", {
+        wabaId: resolvedWabaFromNumber,
+        phoneNumberId: resolvedPhoneNumberId,
+        displayPhoneNumber: selectedPhone.display_phone_number
+      });
     }
 
     // ===== Obtener WABA ID (Business Account ID) =====
@@ -784,11 +871,14 @@ export const storeMeta = async (req: Request, res: Response) => {
     if (providedWabaId) {
       wabaId = providedWabaId.trim();
       console.log("🟢 [storeMeta] WABA ID proporcionado manualmente:", wabaId);
+    } else if (resolvedWabaFromNumber) {
+      wabaId = resolvedWabaFromNumber;
+      console.log("🟢 [storeMeta] WABA ID resuelto desde el campo number:", wabaId);
     } else {
       // Intentar obtenerlo automáticamente
       console.log("🔵 [storeMeta] Intentando obtener WABA ID automáticamente...");
       try {
-        wabaId = await getWABAId(accessToken, number);
+        wabaId = await getWABAId(accessToken, resolvedPhoneNumberId);
         console.log("🟢 [storeMeta] WABA ID obtenido:", wabaId || "NO ENCONTRADO");
       } catch (wabaError: any) {
         console.warn("🟡 [storeMeta] Error obteniendo WABA ID (no crítico):", wabaError?.message);
@@ -816,9 +906,15 @@ export const storeMeta = async (req: Request, res: Response) => {
       channel,                               // "meta"
       tokenMeta: accessToken,
       token: generateRandomToken(30),        // Token para API externa de mensajes
-      number: cleanPhoneNumber || number,    // Número real del WhatsApp (ej: 593963626697)
-      facebookPageUserId: number,            // Phone Number ID de Meta (ej: 615037951693169)
+      number: cleanPhoneNumber || resolvedPhoneNumberId, // Número real del WhatsApp (ej: 593963626697)
+      facebookPageUserId: resolvedPhoneNumberId,         // Phone Number ID de Meta (legacy)
       facebookUserId: wabaId || undefined,   // WABA ID para templates
+      displayPhoneNumber: displayPhone,
+      phoneNumberId: resolvedPhoneNumberId,  // Phone Number ID de Meta usado por webhooks
+      coexistenceEnabled: true,
+      coexistenceStatus: "active",
+      coexistenceOnboardedAt: new Date(),
+      lastAppOpenedAt: new Date(),
     } as Partial<Whatsapp>;
 
     console.log("🔵 [storeMeta] Payload a guardar:", {
@@ -835,7 +931,7 @@ export const storeMeta = async (req: Request, res: Response) => {
 
     // ===== Upsert por company + facebookPageUserId (Phone Number ID es único) =====
     let record = await Whatsapp.findOne({
-      where: { companyId, facebookPageUserId: number, provider, channel },
+      where: { companyId, facebookPageUserId: resolvedPhoneNumberId, provider, channel },
     });
 
     if (record) {

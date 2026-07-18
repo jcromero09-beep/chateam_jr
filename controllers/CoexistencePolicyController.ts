@@ -23,7 +23,10 @@ import Whatsapp from "../models/Whatsapp";
 import UnifiedConversation from "../models/UnifiedConversation";
 import ContactBinding from "../models/ContactBinding";
 import ConversationResolverService from "../services/CoexistenceServices/ConversationResolverService";
-import OutboundRoutingService from "../services/CoexistenceServices/OutboundRoutingService";
+import OutboundRoutingService, {
+  resolveProviderTarget
+} from "../services/CoexistenceServices/OutboundRoutingService";
+import CoexistenceTicketRoutingService from "../services/CoexistenceServices/CoexistenceTicketRoutingService";
 import AppError from "../errors/AppError";
 
 const VALID_MODES = ["auto", "force_meta", "force_baileys", "sticky_inbound"];
@@ -52,9 +55,13 @@ const findOrCreateConversationForTicket = async (
   });
   if (!res) return null;
 
-  // Enlazar ticket con la conversación
+  // Enlazar ticket con la conversación.
+  // FECHA SAGRADA: silent:true → enlazar la conversación es administrativo y NO
+  // debe mover updatedAt ni reordenar la lista. Este endpoint es un GET que la UI
+  // dispara al ABRIR el ticket; sin silent, abrir un ticket sin conversationId lo
+  // saltaba al tope de la lista. (regresión click/abrir 2026-06-16)
   try {
-    await ticket.update({ conversationId: res.conversation.id });
+    await ticket.update({ conversationId: res.conversation.id }, { silent: true });
   } catch (_e) { /* silencioso */ }
 
   return res.conversation;
@@ -66,7 +73,7 @@ export const getRoutingPolicy = async (
 ): Promise<Response> => {
   try {
     const { ticketId } = req.params;
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ticket = await ShowTicketService(ticketId, companyId);
 
     const conversation = await findOrCreateConversationForTicket(ticket);
@@ -102,40 +109,32 @@ export const getRoutingPolicy = async (
       preview = null;
     }
 
-    // Disponibilidad de cada canal físico
+    // Disponibilidad de cada canal físico — Multi-tenant: filtrar por companyId
     const seedWa = ticket.whatsappId
-      ? await Whatsapp.findByPk(ticket.whatsappId)
+      ? await Whatsapp.findOne({ where: { id: ticket.whatsappId, companyId } })
       : null;
-    const linkedWa = seedWa && (seedWa as any).linkedWhatsappId
-      ? await Whatsapp.findByPk((seedWa as any).linkedWhatsappId)
+    const metaWa = seedWa ? await resolveProviderTarget(seedWa, "meta") : null;
+    const baileysWa = seedWa
+      ? await resolveProviderTarget(seedWa, "baileys")
       : null;
 
     const availability = {
       meta: {
         available:
-          (seedWa && (seedWa as any).channel === "meta" &&
-            !!(seedWa as any).phoneNumberId && !!(seedWa as any).tokenMeta) ||
-          (!!linkedWa && (linkedWa as any).channel === "meta" &&
-            !!(linkedWa as any).phoneNumberId && !!(linkedWa as any).tokenMeta),
-        whatsappName:
-          seedWa && (seedWa as any).channel === "meta"
-            ? (seedWa as any).name
-            : linkedWa && (linkedWa as any).channel === "meta"
-            ? (linkedWa as any).name
-            : null
+          !!metaWa &&
+          (metaWa as any).channel === "meta" &&
+          !!(metaWa as any).phoneNumberId &&
+          !!(metaWa as any).tokenMeta,
+        whatsappName: metaWa ? (metaWa as any).name : null,
+        whatsappId: metaWa ? (metaWa as any).id : null
       },
       baileys: {
         available:
-          (seedWa && (seedWa as any).channel === "whatsapp" &&
-            (seedWa as any).status === "CONNECTED") ||
-          (!!linkedWa && (linkedWa as any).channel === "whatsapp" &&
-            (linkedWa as any).status === "CONNECTED"),
-        whatsappName:
-          seedWa && (seedWa as any).channel === "whatsapp"
-            ? (seedWa as any).name
-            : linkedWa && (linkedWa as any).channel === "whatsapp"
-            ? (linkedWa as any).name
-            : null
+          !!baileysWa &&
+          (baileysWa as any).channel === "whatsapp" &&
+          (baileysWa as any).status === "CONNECTED",
+        whatsappName: baileysWa ? (baileysWa as any).name : null,
+        whatsappId: baileysWa ? (baileysWa as any).id : null
       }
     };
 
@@ -178,7 +177,7 @@ export const setRoutingPolicy = async (
 ): Promise<Response> => {
   try {
     const { ticketId } = req.params;
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const mode = (req.body?.mode as string) || "";
 
     if (!VALID_MODES.includes(mode)) {
@@ -233,4 +232,56 @@ export const setRoutingPolicy = async (
   }
 };
 
-export default { getRoutingPolicy, setRoutingPolicy };
+/**
+ * POST /coexistence/tickets/:ticketId/switch-owner
+ * Body: { provider: 'meta' | 'baileys' }
+ *
+ * Cambia el TRANSPORTE DUEÑO del ticket canónico (canal activo real):
+ *  - Ticket.whatsappId → conexión hermana del proveedor elegido
+ *  - Ticket.channel → 'meta' | 'whatsapp'
+ *  - UnifiedConversation.routingPolicy → force_meta | force_baileys
+ *  - emite socket company-{id}-ticket
+ *
+ * NO crea un segundo ticket (un solo ticket canónico, varios transportes).
+ */
+export const switchOwner = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { ticketId } = req.params;
+    const { companyId } = req.user;
+    const provider = (req.body?.provider as string) || "";
+
+    if (provider !== "meta" && provider !== "baileys") {
+      return res.status(400).json({
+        error: "invalid_provider",
+        validProviders: ["meta", "baileys"]
+      });
+    }
+
+    const ticket = await CoexistenceTicketRoutingService.switchTicketOwner(
+      Number(ticketId),
+      provider,
+      companyId
+    );
+
+    return res.status(200).json({
+      ticketId: ticket.id,
+      whatsappId: (ticket as any).whatsappId,
+      channel: (ticket as any).channel,
+      provider,
+      conversationId: (ticket as any).conversationId ?? null
+    });
+  } catch (err: any) {
+    if (err instanceof AppError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return res.status(500).json({
+      error: "switch_owner_failed",
+      detail: err?.message
+    });
+  }
+};
+
+export default { getRoutingPolicy, setRoutingPolicy, switchOwner };

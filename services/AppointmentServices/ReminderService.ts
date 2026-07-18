@@ -5,7 +5,13 @@ import ReminderTemplate from '../../models/Appointments/ReminderTemplate';
 import Contact from '../../models/Contact';
 import User from '../../models/User';
 import AppointmentService from '../../models/AppointmentService';
+import CompaniesSettings from '../../models/CompaniesSettings';
+import FindOrCreateTicketService from '../TicketServices/FindOrCreateTicketService';
+import CreateMessageService from '../MessageServices/CreateMessageService';
+import ResolveAppointmentReminderWhatsapp from './ResolveAppointmentReminderWhatsapp';
 import logger, { logError, logInfo, logWarn, logDebug } from '../../utils/logger';
+import { sendTicketText } from '../CoexistenceServices/CoexistenceAwareTextSender';
+import { v4 as uuidv4 } from 'uuid';
 
 interface CreateReminderRequest {
   appointmentId: number;
@@ -20,6 +26,7 @@ interface CreateTemplateRequest {
   name: string;
   channel: 'email' | 'whatsapp';
   subject?: string;
+  messageCreated: string;  // Mensaje inmediato al crear la cita
   messageConfirm: string;  // Mensaje para pedir confirmación
   messageReminder: string; // Mensaje de recordatorio cuando ya confirmó
   timing: number;
@@ -105,6 +112,7 @@ class ReminderService {
         channel: data.channel,
         subject: data.subject,
         message: data.messageConfirm, // Legacy column NOT NULL — se replica desde messageConfirm
+        messageCreated: data.messageCreated,
         messageConfirm: data.messageConfirm,
         messageReminder: data.messageReminder,
         timing: data.timing,
@@ -140,11 +148,13 @@ class ReminderService {
       }
 
       const newMessageConfirm = data.messageConfirm ?? template.messageConfirm;
+      const newMessageCreated = data.messageCreated ?? template.messageCreated ?? newMessageConfirm;
       await template.update({
         name: data.name ?? template.name,
         channel: data.channel ?? template.channel,
         subject: data.subject ?? template.subject,
         message: newMessageConfirm, // Mantener columna legacy sincronizada
+        messageCreated: newMessageCreated,
         messageConfirm: newMessageConfirm,
         messageReminder: data.messageReminder ?? template.messageReminder,
         timing: data.timing ?? template.timing,
@@ -199,6 +209,177 @@ class ReminderService {
     } catch (error) {
       logError('Error toggling template', { error, templateId });
       throw error;
+    }
+  }
+
+  private formatAppointmentMessage(
+    message: string,
+    appointment: any,
+    contact: any,
+    assignedUser?: any,
+    service?: any
+  ): string {
+    const appointmentDate = new Date(appointment.startTime);
+    const formattedDate = appointmentDate.toLocaleDateString('es-ES', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const formattedTime = appointmentDate.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const replacements: Record<string, string> = {
+      clientName: contact?.name || appointment.attendeeName || 'Cliente',
+      email: contact?.email || appointment.attendeeEmail || '',
+      phone: contact?.number || appointment.attendeePhone || '',
+      date: formattedDate,
+      time: formattedTime,
+      agent: assignedUser?.name || '',
+      user: assignedUser?.name || '',
+      service: service?.name || appointment.title || 'Cita',
+      title: appointment.title || service?.name || 'Cita',
+      location: appointment.location || '',
+      meetingUrl: appointment.meetingUrl || ''
+    };
+
+    return Object.entries(replacements).reduce((body, [key, value]) => {
+      return body
+        .replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+        .replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+    }, message);
+  }
+
+  /**
+   * Send the immediate "appointment created" WhatsApp message.
+   * This is best-effort: appointment creation must not fail if the message fails.
+   */
+  async sendAppointmentCreatedMessage(appointment: Appointment): Promise<boolean> {
+    try {
+      const fullAppointment = await Appointment.findOne({
+        where: { id: appointment.id, companyId: appointment.companyId },
+        include: [
+          { model: Contact, as: 'contact', required: false },
+          { model: User, as: 'assignedUser', required: false, attributes: ['id', 'name', 'email'] },
+          { model: AppointmentService, as: 'service', required: false, attributes: ['id', 'name'] },
+          { model: ReminderTemplate, as: 'reminderTemplate', required: false }
+        ]
+      });
+
+      if (!fullAppointment) {
+        logWarn('Skipping appointment created message because appointment was not found', {
+          appointmentId: appointment.id
+        });
+        return false;
+      }
+
+      const reminderTemplate = (fullAppointment as any).reminderTemplate;
+      const contact = (fullAppointment as any).contact;
+      const service = (fullAppointment as any).service;
+      const assignedUser = (fullAppointment as any).assignedUser;
+      const messageCreated = reminderTemplate?.messageCreated;
+
+      if (!reminderTemplate || !messageCreated) {
+        logInfo('Skipping appointment created message because template/messageCreated is not configured', {
+          appointmentId: fullAppointment.id,
+          reminderTemplateId: fullAppointment.reminderTemplateId
+        });
+        return false;
+      }
+
+      if (!contact || !contact.number) {
+        logWarn('Skipping appointment created message because contact has no WhatsApp number', {
+          appointmentId: fullAppointment.id,
+          contactId: fullAppointment.contactId
+        });
+        return false;
+      }
+
+      const whatsappResult = await ResolveAppointmentReminderWhatsapp({
+        appointment: fullAppointment,
+        contact,
+        companyId: fullAppointment.companyId,
+        logPrefix: 'APPT-CREATED'
+      });
+
+      if (!whatsappResult.whatsapp) {
+        logWarn('Skipping appointment created message because no valid WhatsApp connection was found', {
+          appointmentId: fullAppointment.id,
+          reason: whatsappResult.reason
+        });
+        return false;
+      }
+
+      const companySettings = await CompaniesSettings.findOne({
+        where: { companyId: fullAppointment.companyId }
+      });
+
+      const ticket = await FindOrCreateTicketService(
+        contact,
+        whatsappResult.whatsapp,
+        0,
+        fullAppointment.companyId,
+        null,
+        null,
+        undefined,
+        'whatsapp',
+        false,
+        false,
+        companySettings || {},
+        false,
+        false
+      );
+
+      const body = this.formatAppointmentMessage(
+        messageCreated,
+        fullAppointment,
+        contact,
+        assignedUser,
+        service
+      );
+
+      const sendRes = await sendTicketText({
+        ticket,
+        body,
+        companyId: fullAppointment.companyId,
+        requestedBy: 'automation',
+        quotedMsg: null
+      });
+
+      if (!sendRes.viaRouter) {
+        const messageId = sendRes.providerMessageId || `appointment_created_${uuidv4()}`;
+        await CreateMessageService({
+          messageData: {
+            wid: messageId,
+            ticketId: ticket.id,
+            body,
+            contactId: contact.id,
+            fromMe: true,
+            read: true,
+            mediaType: 'chat',
+            ack: 2,
+            channel: 'whatsapp'
+          },
+          companyId: fullAppointment.companyId
+        });
+      }
+
+      logInfo('Appointment created message sent', {
+        appointmentId: fullAppointment.id,
+        ticketId: ticket.id,
+        templateId: reminderTemplate.id,
+        whatsappId: whatsappResult.whatsapp.id
+      });
+
+      return true;
+    } catch (error) {
+      logError('Error sending appointment created message', {
+        error,
+        appointmentId: appointment.id
+      });
+      return false;
     }
   }
 
@@ -377,38 +558,64 @@ class ReminderService {
 
   /**
    * Create default reminders for an appointment
-   * MODO PRUEBAS: Primer recordatorio en 5 minutos, segundo 1h antes
-   * PRODUCCIÓN: Cambiar a 24h y 1h antes
+   * Programa el recordatorio según la plantilla configurada:
+   * timing = horas antes de la cita.
    */
   async createDefaultReminders(appointment: Appointment): Promise<AppointmentReminder[]> {
     try {
       const reminders: AppointmentReminder[] = [];
       const now = new Date();
+      const appointmentStart = new Date(appointment.startTime);
 
-      // PRUEBA: 5 minutos después de crear la cita (para testing)
-      const reminder5min = new Date(now.getTime() + 5 * 60 * 1000);
-      const r5 = await this.createReminder({
+      if (appointmentStart <= now) {
+        logWarn('Skipping reminder creation because appointment is not in the future', {
+          appointmentId: appointment.id,
+          startTime: appointment.startTime
+        });
+        return reminders;
+      }
+
+      const template = appointment.reminderTemplateId
+        ? await ReminderTemplate.findOne({
+            where: {
+              id: appointment.reminderTemplateId,
+              companyId: appointment.companyId,
+              channel: 'whatsapp',
+              isActive: true
+            }
+          })
+        : await this.resolveWhatsappTemplate(appointment.companyId);
+
+      if (!template) {
+        logWarn('Skipping reminder creation because appointment has no active WhatsApp reminder template', {
+          appointmentId: appointment.id,
+          companyId: appointment.companyId
+        });
+        return reminders;
+      }
+
+      const timingHours = Number(template.timing);
+      const normalizedTimingHours = Number.isFinite(timingHours) && timingHours >= 0
+        ? timingHours
+        : 24;
+      const minutesBefore = Math.round(normalizedTimingHours * 60);
+      const remindAt = new Date(appointmentStart.getTime() - minutesBefore * 60 * 1000);
+
+      const reminder = await this.createReminder({
         appointmentId: appointment.id,
         companyId: appointment.companyId,
         reminderType: 'whatsapp',
-        remindAt: reminder5min,
-        minutesBefore: 5
+        remindAt,
+        minutesBefore
       });
-      reminders.push(r5);
-      logInfo(`📅 Recordatorio de PRUEBA programado para ${reminder5min.toISOString()} (en 5 min)`);
+      reminders.push(reminder);
 
-      // 1 hour before (60 minutes) - mantener para producción
-      const reminder1h = new Date(appointment.startTime.getTime() - 60 * 60 * 1000);
-      if (reminder1h > new Date()) {
-        const r1 = await this.createReminder({
-          appointmentId: appointment.id,
-          companyId: appointment.companyId,
-          reminderType: 'whatsapp',
-          remindAt: reminder1h,
-          minutesBefore: 60
-        });
-        reminders.push(r1);
-      }
+      logInfo('Appointment reminder scheduled with configured timing', {
+        appointmentId: appointment.id,
+        templateId: template.id,
+        timingHours: normalizedTimingHours,
+        remindAt
+      });
 
       return reminders;
     } catch (error) {

@@ -26,7 +26,7 @@ const recommendationService = new CampaignRecommendationService();
 // ============================================================
 export const deepDiagnose = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const { campaignId, campaignsData } = req.body;
 
     if (!campaignId) {
@@ -62,7 +62,7 @@ export const deepDiagnose = async (req: Request, res: Response): Promise<Respons
 // ============================================================
 export const generateCopy = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const {
       productName,
       productDescription,
@@ -143,7 +143,7 @@ export const getCopyMetadata = async (_req: Request, res: Response): Promise<Res
 // ============================================================
 export const scoreCreative = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const {
       headline,
       primaryText,
@@ -193,7 +193,7 @@ export const scoreCreative = async (req: Request, res: Response): Promise<Respon
 // ============================================================
 export const detectAnomalies = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const { period = "last_30_days" } = req.query;
 
     logger.info(`${LOG_PREFIX} 🔍 Detectando anomalías para empresa ${companyId}, período ${period}`);

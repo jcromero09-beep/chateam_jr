@@ -72,7 +72,7 @@ const GenerateProfilePhotoService = async (
   try {
     // 3. Generar prompt DALL-E optimizado usando GPT-4o-mini
     const promptCompletion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5.5",
       messages: [
         {
           role: "system",

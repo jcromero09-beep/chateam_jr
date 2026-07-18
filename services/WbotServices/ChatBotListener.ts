@@ -1,4 +1,14 @@
-import { proto, WASocket } from "@whiskeysockets/baileys";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
+import { proto, WASocket } from "baileys";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 
@@ -17,14 +27,15 @@ import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import Chatbot from "../../models/Chatbot";
 import User from "../../models/User";
 import ShowFileService from "../FileServices/ShowService";
-import { isNil, isNull } from "lodash";
+import lodash from "lodash";
+const { isNil, isNull } = lodash;
 
 import SendWhatsAppMedia, { getMessageOptions } from "./SendWhatsAppMedia";
 import CompaniesSettings from "../../models/CompaniesSettings";
 import TicketTraking from "../../models/TicketTraking";
 
 const fs = require('fs')
-var axios = require('axios');
+const axios = require('axios');
 
 type Session = WASocket & {
   id?: number;
@@ -284,7 +295,7 @@ const sendDialog = async (
   const showChatBots = await ShowChatBotServices(choosenQueue.id);
   if (showChatBots.options) {
 
-    let companyId = ticket.companyId;
+    const companyId = ticket.companyId;
     const buttonActive = await CompaniesSettings.findOne({
       where: { companyId }
     })
@@ -425,7 +436,6 @@ const backToMainMenu = async (
     ticketId: ticket.id,
     companyId: ticket.companyId
   });
-  // console.log("GETTING WHATSAPP BACK TO MAIN MENU", ticket.whatsappId, wbot.id)
   const { queues, greetingMessage, greetingMediaAttachment } = await ShowWhatsAppService(wbot.id!, ticket.companyId);
 
 
@@ -479,7 +489,7 @@ const backToMainMenu = async (
 
 function validaCpfCnpj(val) {
   if (val.length == 11) {
-    var cpf = val.trim();
+    let cpf = val.trim();
 
     cpf = cpf.replace(/\./g, '');
     cpf = cpf.replace('-', '');
@@ -529,7 +539,7 @@ function validaCpfCnpj(val) {
       return true;
     }
   } else if (val.length == 14) {
-    var cnpj = val.trim();
+    let cnpj = val.trim();
 
     cnpj = cnpj.replace(/\./g, '');
     cnpj = cnpj.replace('-', '');
@@ -608,16 +618,16 @@ function firstDayOfMonth(month) {
   const now = new Date();
   const firstDay = new Date(now.getFullYear(), now.getMonth() - month, 1);
   return firstDay;
-};
+}
 
 function lastDayOfMonth(month) {
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + month, 0);
   return lastDay;
-};
+}
 
 function dataAtualFormatada(data) {
-  var dia = data.getDate().toString(),
+  const dia = data.getDate().toString(),
     diaF = (dia.length == 1) ? '0' + dia : dia,
     mes = (data.getMonth() + 1).toString(),
     mesF = (mes.length == 1) ? '0' + mes : mes,
@@ -626,10 +636,10 @@ function dataAtualFormatada(data) {
 }
 
 function makeid(length) {
-  var result = '';
-  var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  var charactersLength = characters.length;
-  for (var i = 0; i < length; i++) {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charactersLength = characters.length;
+  for (let i = 0; i < length; i++) {
     result += characters.charAt(Math.floor(Math.random() * charactersLength));
   }
   return result;
@@ -676,7 +686,6 @@ export const sayChatbot = async (
   msg: proto.IWebMessageInfo,
   ticketTraking: TicketTraking
 ): Promise<any> => {
-  // console.log("LINHA 718")
   // const selectedOption =
   //   msg?.message?.buttonsResponseMessage?.selectedButtonId ||
   //   msg?.message?.listResponseMessage?.singleSelectReply.selectedRowId ||
@@ -691,7 +700,6 @@ export const sayChatbot = async (
 
   const getStageBot = await ShowDialogChatBotsServices(contact.id);
 
-  // console.log(queues)
   // let enabledIntegrationActive: any
 
   // if (
@@ -1402,7 +1410,6 @@ export const sayChatbot = async (
     //   }
 
     // } catch (error) {
-    //   console.error(error);
     // }
 
     // // Ativar ou desativar opção de escolher consultor aleatório.
@@ -1413,7 +1420,6 @@ export const sayChatbot = async (
     //   }
     // });
 
-    // console.log('randomUserId', randomUserId)
 
     // if (settingsUserRandom?.value === "enabled") {
     //   await UpdateTicketService({
@@ -1504,7 +1510,7 @@ export const sayChatbot = async (
 
       if (choosenQueue.queueType === "file") {
         try {
-          const publicFolder = path.resolve(__dirname, "..", "..", "public");
+          const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
           const files = await ShowFileService(choosenQueue.optFileId, ticket.companyId)
 
@@ -1521,7 +1527,7 @@ export const sayChatbot = async (
             } as Express.Multer.File
 
             await SendWhatsAppMedia({ media: mediaSrc, ticket, body: file.name, isForwarded: false });
-          };
+          }
 
         } catch (error) {
           await deleteAndCreateDialogStage(contact, choosenQueue.id, ticket);
@@ -1543,7 +1549,6 @@ export const sayChatbot = async (
     const choosenQueue = bots.options[+selected - 1]
       ? bots.options[+selected - 1]
       : bots.options[0];
-    // console.log("linha 1508")
     if (!choosenQueue.greetingMessage) {
       await DeleteDialogChatBotsServices(contact.id);
       return;
@@ -1632,7 +1637,7 @@ export const sayChatbot = async (
 
       if (choosenQueue.queueType === "file") {
         try {
-          const publicFolder = path.resolve(__dirname, "..", "..", "public");
+          const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
           const files = await ShowFileService(choosenQueue.optFileId, ticket.companyId)
 
@@ -1649,7 +1654,7 @@ export const sayChatbot = async (
             } as Express.Multer.File
 
             await SendWhatsAppMedia({ media: mediaSrc, ticket, body: file.name, isForwarded: false });
-          };
+          }
 
         } catch (error) {
           await deleteAndCreateDialogStage(contact, choosenQueue.id, ticket);

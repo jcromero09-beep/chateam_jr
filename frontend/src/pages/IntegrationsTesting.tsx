@@ -1,35 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
+import { LinearProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  FormControl,
-  FormLabel,
+  Bug,
+  Play,
+  CheckCircle,
+  XCircle,
+  Code,
+  ClockCounterClockwise,
+  WebhooksLogo,
+  ArrowsClockwise,
+  WifiHigh,
+  Key,
+  Eye,
+  PencilSimple,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import {
   Select,
-  Option,
-  Chip,
-  Sheet,
-  Table,
-  Alert,
-  LinearProgress,
-} from '@mui/joy'
-import {
-  BugReport as TestIcon,
-  PlayArrow as RunIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Code as CodeIcon,
-  History as HistoryIcon,
-  Webhook as WebhookIcon,
-  Sync as SyncIcon,
-  NetworkCheck as PingIcon,
-  VpnKey as AuthIcon,
-  Visibility as ReadIcon,
-  Edit as WriteIcon,
-} from '@mui/icons-material'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 interface TestResult {
@@ -60,12 +54,12 @@ export default function IntegrationsTesting() {
   const [loadingHistory, setLoadingHistory] = useState(false)
 
   const testTypes = [
-    { value: 'connection', label: 'Test de Conexión', icon: <PingIcon /> },
-    { value: 'auth', label: 'Test de Autenticación', icon: <AuthIcon /> },
-    { value: 'read', label: 'Test de Lectura', icon: <ReadIcon /> },
-    { value: 'write', label: 'Test de Escritura', icon: <WriteIcon /> },
-    { value: 'sync', label: 'Test de Sincronización', icon: <SyncIcon /> },
-    { value: 'webhook', label: 'Test de Webhook', icon: <WebhookIcon /> },
+    { value: 'connection', label: 'Test de Conexión', icon: <WifiHigh className="size-5" aria-hidden /> },
+    { value: 'auth', label: 'Test de Autenticación', icon: <Key className="size-5" aria-hidden /> },
+    { value: 'read', label: 'Test de Lectura', icon: <Eye className="size-5" aria-hidden /> },
+    { value: 'write', label: 'Test de Escritura', icon: <PencilSimple className="size-5" aria-hidden /> },
+    { value: 'sync', label: 'Test de Sincronización', icon: <ArrowsClockwise className="size-5" aria-hidden /> },
+    { value: 'webhook', label: 'Test de Webhook', icon: <WebhooksLogo className="size-5" aria-hidden /> },
   ]
 
   useEffect(() => {
@@ -144,12 +138,12 @@ export default function IntegrationsTesting() {
     handleRunTest()
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'success':
         return 'success'
       case 'failed':
-        return 'danger'
+        return 'destructive'
       case 'pending':
         return 'warning'
       default:
@@ -157,329 +151,281 @@ export default function IntegrationsTesting() {
     }
   }
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: string): ReactNode => {
     switch (status) {
       case 'success':
-        return <CheckCircleIcon />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'failed':
-        return <ErrorIcon />
+        return <XCircle className="size-3.5" weight="fill" aria-hidden />
       default:
         return null
     }
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TestIcon sx={{ fontSize: 32 }} />
-            Testing de Integraciones
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Herramientas de diagnóstico y prueba para todas las integraciones
-          </Typography>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Bug className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Testing de Integraciones
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Herramientas de diagnóstico y prueba para todas las integraciones
+              </p>
+            </div>
+          </div>
+        </div>
 
-      {/* Configuración de Test */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Configurar Test
-              </Typography>
+        {/* Configuración de Test */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Configurar Test</h2>
 
-              <Grid container spacing={2}>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Seleccionar Integración</FormLabel>
-                    <Select
-                      value={selectedIntegration}
-                      onChange={(_, value) => setSelectedIntegration(value as string)}
-                      placeholder="Selecciona una integración"
-                    >
-                      {integrations.map((integration) => (
-                        <Option key={integration} value={integration}>
-                          {integration}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="integration-select">Seleccionar Integración</Label>
+                <Select
+                  value={selectedIntegration}
+                  onValueChange={(value) => setSelectedIntegration(value)}
+                >
+                  <SelectTrigger id="integration-select">
+                    <SelectValue placeholder="Selecciona una integración" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {integrations.map((integration) => (
+                      <SelectItem key={integration} value={integration}>
+                        {integration}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Tipo de Test</FormLabel>
-                    <Select
-                      value={selectedTest}
-                      onChange={(_, value) => setSelectedTest(value as string)}
-                    >
-                      {testTypes.map((test) => (
-                        <Option key={test.value} value={test.value}>
-                          {test.label}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
+              <div className="space-y-1.5">
+                <Label htmlFor="test-type-select">Tipo de Test</Label>
+                <Select
+                  value={selectedTest}
+                  onValueChange={(value) => setSelectedTest(value)}
+                >
+                  <SelectTrigger id="test-type-select">
+                    <SelectValue placeholder="Selecciona un tipo de test" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {testTypes.map((test) => (
+                      <SelectItem key={test.value} value={test.value}>
+                        {test.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                <Grid xs={12}>
-                  <Alert color="primary">
-                    <Typography level="body-sm" fontWeight="lg" sx={{ mb: 0.5 }}>
-                      Acerca de los Tests
-                    </Typography>
-                    <Typography level="body-xs">
-                      Los tests verifican la conectividad, autenticación y operaciones básicas con las integraciones.
-                      Los datos utilizados son de prueba y no afectan los sistemas en producción.
-                    </Typography>
-                  </Alert>
-                </Grid>
+              <div className="md:col-span-2">
+                <div className="rounded-lg border border-primary/25 bg-primary/10 p-3.5">
+                  <p className="mb-1 text-sm font-semibold text-foreground">
+                    Acerca de los Tests
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Los tests verifican la conectividad, autenticación y operaciones básicas con las integraciones.
+                    Los datos utilizados son de prueba y no afectan los sistemas en producción.
+                  </p>
+                </div>
+              </div>
 
-                <Grid xs={12}>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                      startDecorator={<RunIcon />}
-                      onClick={handleRunTest}
-                      loading={testing}
-                      disabled={!selectedIntegration}
-                      fullWidth
-                    >
-                      Ejecutar Test Seleccionado
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={handleRunAllTests}
-                      loading={testing}
-                      disabled={!selectedIntegration}
-                      fullWidth
-                    >
-                      Ejecutar Todos los Tests
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
+              <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row">
+                <Button
+                  onClick={handleRunTest}
+                  loading={testing}
+                  disabled={!selectedIntegration}
+                  className="w-full"
+                >
+                  <Play className="size-4" weight="fill" aria-hidden />
+                  Ejecutar Test Seleccionado
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleRunAllTests}
+                  loading={testing}
+                  disabled={!selectedIntegration}
+                  className="w-full"
+                >
+                  Ejecutar Todos los Tests
+                </Button>
+              </div>
+            </div>
+          </div>
 
-        <Grid xs={12} md={4}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>Tests Disponibles</Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {testTypes.map((test) => (
-                  <Box
-                    key={test.value}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1,
-                      p: 1,
-                      borderRadius: 'sm',
-                      bgcolor: selectedTest === test.value ? 'primary.softBg' : 'transparent',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        bgcolor: 'neutral.softHoverBg',
-                      },
-                    }}
-                    onClick={() => setSelectedTest(test.value)}
-                  >
-                    <Box sx={{ color: 'primary.500' }}>{test.icon}</Box>
-                    <Typography level="body-sm">{test.label}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 text-base font-semibold text-foreground">Tests Disponibles</h2>
+            <div className="flex flex-col gap-1">
+              {testTypes.map((test) => (
+                <button
+                  key={test.value}
+                  type="button"
+                  onClick={() => setSelectedTest(test.value)}
+                  aria-pressed={selectedTest === test.value}
+                  className={
+                    selectedTest === test.value
+                      ? 'flex items-center gap-2 rounded-md bg-primary/12 p-2 text-left text-primary transition-colors'
+                      : 'flex items-center gap-2 rounded-md p-2 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+                  }
+                >
+                  <span className={selectedTest === test.value ? 'text-primary' : 'text-primary/80'}>
+                    {test.icon}
+                  </span>
+                  <span className="text-sm text-foreground">{test.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
-      {/* Resultados de Test */}
-      {testResults.length > 0 && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography level="title-lg" sx={{ mb: 2 }}>
-              Resultados del Test
-            </Typography>
+        {/* Resultados de Test */}
+        {testResults.length > 0 && (
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Resultados del Test</h2>
 
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ width: '30%' }}>Test</th>
-                    <th style={{ width: '15%' }}>Estado</th>
-                    <th style={{ width: '45%' }}>Mensaje</th>
-                    <th style={{ width: '10%' }}>Duración</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {testResults.map((result, idx) => (
-                    <tr key={idx}>
-                      <td>
-                        <Typography level="body-sm" fontWeight="lg">
-                          {result.test}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(result.status)}
-                          variant="soft"
-                          startDecorator={getStatusIcon(result.status)}
-                        >
-                          {result.status}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {result.message}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {result.duration > 0 ? `${result.duration}ms` : '-'}
-                        </Typography>
-                      </td>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="w-[30%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Test</th>
+                      <th className="w-[15%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                      <th className="w-[45%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mensaje</th>
+                      <th className="w-[10%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Duración</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {testResults.map((result, idx) => (
+                      <tr key={idx} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 font-medium text-foreground">{result.test}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusVariant(result.status)}>
+                            {getStatusIcon(result.status)}
+                            {result.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{result.message}</td>
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                          {result.duration > 0 ? `${result.duration}ms` : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                {testResults.filter(r => r.status === 'success').length} de {testResults.length} tests exitosos
-              </Typography>
-              <Chip
-                color={testResults.every(r => r.status === 'success') ? 'success' : 'danger'}
-                variant="soft"
-                size="lg"
-                startDecorator={
-                  testResults.every(r => r.status === 'success') ? <CheckCircleIcon /> : <ErrorIcon />
-                }
-              >
-                {testResults.every(r => r.status === 'success') ? 'Todos los tests pasaron' : 'Algunos tests fallaron'}
-              </Chip>
-            </Box>
-          </CardContent>
-        </Card>
-      )}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">
+                {testResults.filter((r) => r.status === 'success').length} de {testResults.length} tests exitosos
+              </span>
+              <Badge variant={testResults.every((r) => r.status === 'success') ? 'success' : 'destructive'}>
+                {testResults.every((r) => r.status === 'success') ? (
+                  <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                ) : (
+                  <XCircle className="size-3.5" weight="fill" aria-hidden />
+                )}
+                {testResults.every((r) => r.status === 'success')
+                  ? 'Todos los tests pasaron'
+                  : 'Algunos tests fallaron'}
+              </Badge>
+            </div>
+          </div>
+        )}
 
-      {/* Consola de Respuestas */}
-      {response && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography level="title-lg" startDecorator={<CodeIcon />}>
+        {/* Consola de Respuestas */}
+        {response && (
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                <Code className="size-5" aria-hidden />
                 Respuesta de la API
-              </Typography>
+              </h2>
               <Button
                 size="sm"
-                variant="outlined"
+                variant="outline"
                 onClick={() => navigator.clipboard.writeText(response)}
               >
                 Copiar JSON
               </Button>
-            </Box>
+            </div>
 
-            <Sheet
-              sx={{
-                bgcolor: 'neutral.900',
-                p: 2,
-                borderRadius: 'sm',
-                overflow: 'auto',
-                maxHeight: 400,
-              }}
-            >
-              <Typography
-                level="body-sm"
-                sx={{
-                  fontFamily: 'monospace',
-                  color: 'common.white',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
+            <div className="max-h-[400px] overflow-auto rounded-lg border border-border bg-muted p-4">
+              <pre className="whitespace-pre-wrap font-mono text-sm text-foreground">
                 {response}
-              </Typography>
-            </Sheet>
-          </CardContent>
-        </Card>
-      )}
+              </pre>
+            </div>
+          </div>
+        )}
 
-      {/* Historial de Tests */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" startDecorator={<HistoryIcon />} sx={{ mb: 2 }}>
+        {/* Historial de Tests */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <ClockCounterClockwise className="size-5" aria-hidden />
             Historial de Tests Ejecutados
-          </Typography>
+          </h2>
 
           {loadingHistory && <LinearProgress sx={{ mb: 2 }} />}
 
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Integración</th>
-                  <th>Tipo de Test</th>
-                  <th>Estado</th>
-                  <th>Duración</th>
-                </tr>
-              </thead>
-              <tbody>
-                {testHistory.length === 0 && !loadingHistory ? (
-                  <tr>
-                    <td colSpan={5}>
-                      <Box sx={{ py: 4, textAlign: 'center' }}>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          No hay tests ejecutados aún.
-                        </Typography>
-                      </Box>
-                    </td>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timestamp</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Integración</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tipo de Test</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Duración</th>
                   </tr>
-                ) : (
-                  testHistory.map((test) => (
-                    <tr key={test.id}>
-                      <td>
-                        <Typography level="body-xs">
-                          {test.timestamp}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Chip size="sm" variant="outlined">
-                          {test.integration}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {test.testType}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={test.status === 'success' ? 'success' : 'danger'}
-                          variant="soft"
-                          startDecorator={test.status === 'success' ? <CheckCircleIcon /> : <ErrorIcon />}
-                        >
-                          {test.status}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {test.duration > 0 ? `${test.duration}ms` : 'N/A'}
-                        </Typography>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {testHistory.length === 0 && !loadingHistory ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                        No hay tests ejecutados aún.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </Table>
-          </Sheet>
-        </CardContent>
-      </Card>
-    </Box>
+                  ) : (
+                    testHistory.map((test) => (
+                      <tr key={test.id} className="transition-colors hover:bg-accent/40">
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {test.timestamp}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline">{test.integration}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{test.testType}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={test.status === 'success' ? 'success' : 'destructive'}>
+                            {test.status === 'success' ? (
+                              <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                            ) : (
+                              <XCircle className="size-3.5" weight="fill" aria-hidden />
+                            )}
+                            {test.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                          {test.duration > 0 ? `${test.duration}ms` : 'N/A'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

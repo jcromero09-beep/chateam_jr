@@ -1,9 +1,15 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import path from "path";
 import multer from "multer";
 import fs from "fs";
 import { validateFile, sanitizeFileName } from "../helpers/fileValidation";
 
-const publicFolder = path.resolve(__dirname, "..", "..", "public");
+const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
 export const chatUploadConfig = {
   storage: multer.diskStorage({

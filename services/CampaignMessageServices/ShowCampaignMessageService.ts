@@ -7,12 +7,15 @@ import Whatsapp from "../../models/Whatsapp";
 
 interface Request {
   id: number;
+  companyId: number | string;
 }
 
 const ShowCampaignMessageService = async ({
-  id
+  id,
+  companyId
 }: Request): Promise<CampaignMessage> => {
-  const campaignMessage = await CampaignMessage.findByPk(id, {
+  const campaignMessage = await CampaignMessage.findOne({
+    where: { id, companyId },
     include: [
       { model: Contact, as: "contact", attributes: ["id", "name", "number", "profilePicUrl"] },
       { model: Message, as: "message", attributes: ["id", "body", "createdAt"] },

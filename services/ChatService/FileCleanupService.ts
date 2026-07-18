@@ -1,8 +1,14 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import fs from "fs";
 import path from "path";
 import ChatMessage from "../../models/ChatMessage";
 
-const publicFolder = path.resolve(__dirname, "..", "..", "public");
+const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
 interface CleanupResult {
   filesRemoved: number;

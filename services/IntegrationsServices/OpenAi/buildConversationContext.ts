@@ -194,7 +194,6 @@ export const buildConversationContext = async (
       });
     }
   } else {
-    // console.log("No hay archivo de embeddings configurado, continuando sin contexto adicional");
   }
 
   return { contexto, conversationContext };

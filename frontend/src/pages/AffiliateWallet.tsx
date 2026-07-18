@@ -1,299 +1,354 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState } from 'react'
+import { CircularProgress } from '@mui/joy'
+import { Wallet, ArrowClockwise } from '@phosphor-icons/react'
+import { toast } from 'react-toastify'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import {
-  Box, Typography, Card, CardContent, Grid, Table, Sheet, Chip,
-  CircularProgress, Alert, Button, Modal, ModalDialog, ModalClose,
-  FormControl, FormLabel, Input, Select, Option
-} from '@mui/joy'
-import {
-  Wallet, ArrowUpCircle, AlertCircle
-} from 'lucide-react'
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
-const isDev = import.meta.env.DEV
-const devLog = (...args: unknown[]) => { if (isDev) console.log(...args) }
-
-interface WalletData {
-  id: number
-  availableBalance: number
-  pendingBalance: number
-  totalEarned: number
-  totalWithdrawn: number
+interface WalletSummary {
+  companyId: number
+  totalReferrals: number
+  registeredReferrals: number
+  activeReferrals: number
+  pendingClaim: number
+  claimedCount: number
+  pendingTokens: number
+  pendingDays: number
+  tokensEarned: number
+  daysEarned: number
+  currentTokenBalance: number
   currency: string
-  status: string
 }
 
-interface Transaction {
+interface RewardRow {
   id: number
-  type: string
-  amount: number
-  balanceBefore: number
-  balanceAfter: number
-  description: string
+  status: string
+  rewardStatus: 'pending' | 'claimable' | 'claimed' | 'cancelled' | string
+  rewardType: 'tokens' | 'days' | null
+  rewardTokens: number
+  rewardDays: number
+  rewardClaimedAt: string | null
+  activatedAt: string | null
   createdAt: string
-}
-
-const TX_TYPE_MAP: Record<string, { label: string; color: 'success' | 'danger' | 'warning' | 'primary' | 'neutral' }> = {
-  commission: { label: 'Comisión', color: 'success' },
-  withdrawal: { label: 'Retiro', color: 'danger' },
-  bonus: { label: 'Bono', color: 'primary' },
-  adjustment: { label: 'Ajuste', color: 'warning' },
-  refund: { label: 'Reembolso', color: 'neutral' },
-  settlement: { label: 'Liquidación', color: 'neutral' },
-}
-
-// --- Modal Solicitar Retiro ---
-function WithdrawalModal({ open, onClose, onSuccess, maxAmount }: {
-  open: boolean; onClose: () => void; onSuccess: () => void; maxAmount: number
-}) {
-  const [amount, setAmount] = useState<number>(0)
-  const [paymentMethod, setPaymentMethod] = useState('bank_transfer')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleSubmit = async () => {
-    if (amount <= 0) { setError('El monto debe ser mayor a 0'); return }
-    if (amount > maxAmount) { setError('Monto excede el balance disponible'); return }
-    setSaving(true)
-    setError(null)
-    try {
-      await api.post('/affiliates/withdrawals', { amount, paymentMethod })
-      onSuccess()
-      onClose()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al solicitar retiro'
-      setError(msg)
-    } finally {
-      setSaving(false)
-    }
+  affiliate?: {
+    id: number
+    name: string
+    rewardType: 'tokens' | 'days'
+    rewardTokens: number
+    rewardDays: number
   }
-
-  return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog sx={{ maxWidth: 400 }}>
-        <ModalClose />
-        <Typography level="title-lg">Solicitar Retiro</Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-          {error && <Alert color="danger" size="sm">{error}</Alert>}
-          <FormControl required>
-            <FormLabel>Monto (USD)</FormLabel>
-            <Input
-              type="number" value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-              slotProps={{ input: { min: 0, max: maxAmount, step: 1 } }}
-              endDecorator={<Typography level="body-xs">/ ${maxAmount.toFixed(2)}</Typography>}
-            />
-          </FormControl>
-          <FormControl required>
-            <FormLabel>Método de Pago</FormLabel>
-            <Select value={paymentMethod} onChange={(_, v) => setPaymentMethod(v || 'bank_transfer')}>
-              <Option value="bank_transfer">Transferencia Bancaria</Option>
-              <Option value="paypal">PayPal</Option>
-              <Option value="crypto">Criptomoneda</Option>
-            </Select>
-          </FormControl>
-          <Button loading={saving} onClick={handleSubmit} color="success" sx={{ mt: 1 }}>
-            Solicitar Retiro
-          </Button>
-        </Box>
-      </ModalDialog>
-    </Modal>
-  )
+  referredCompany?: { id: number; name: string; email?: string; planId?: number }
 }
 
-// --- Main Page ---
-export default function AffiliateWallet() {
-  const [wallet, setWallet] = useState<WalletData | null>(null)
-  const [programName, setProgramName] = useState('')
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [txCount, setTxCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [txTypeFilter, setTxTypeFilter] = useState<string>('')
-  const [withdrawalModalOpen, setWithdrawalModalOpen] = useState(false)
+type KpiColor = 'primary' | 'success' | 'warning' | 'neutral'
 
-  const fetchWallet = useCallback(async () => {
+const kpiValueTone: Record<KpiColor, string> = {
+  primary: 'text-primary',
+  success: 'text-success-text',
+  warning: 'text-warning-text',
+  neutral: 'text-foreground',
+}
+
+const KpiCard = ({
+  label,
+  value,
+  hint,
+  color = 'neutral',
+}: {
+  label: string
+  value: string | number
+  hint?: string
+  color?: KpiColor
+}) => (
+  <div className="min-w-[180px] flex-1 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className={cn('mt-1 text-2xl font-semibold tracking-tight tabular-nums', kpiValueTone[color])}>
+      {value}
+    </p>
+    {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+  </div>
+)
+
+const RewardStatusChip = ({ status }: { status: string }) => {
+  const map: Record<string, { variant: BadgeProps['variant']; label: string }> = {
+    pending: { variant: 'neutral', label: 'Pendiente de pago' },
+    claimable: { variant: 'warning', label: 'Disponible para cobrar' },
+    claimed: { variant: 'success', label: 'Cobrado' },
+    cancelled: { variant: 'neutral', label: 'Cancelado' },
+  }
+  const m = map[status] || { variant: 'neutral' as const, label: status }
+  return <Badge variant={m.variant}>{m.label}</Badge>
+}
+
+const expectedReward = (r: RewardRow): { kind: 'tokens' | 'days' | null; amount: number } => {
+  if (r.rewardStatus === 'claimed') {
+    if (r.rewardType === 'tokens') return { kind: 'tokens', amount: Number(r.rewardTokens || 0) }
+    if (r.rewardType === 'days') return { kind: 'days', amount: Number(r.rewardDays || 0) }
+  }
+  if (r.affiliate) {
+    if (r.affiliate.rewardType === 'tokens') return { kind: 'tokens', amount: Number(r.affiliate.rewardTokens || 0) }
+    if (r.affiliate.rewardType === 'days') return { kind: 'days', amount: Number(r.affiliate.rewardDays || 0) }
+  }
+  return { kind: null, amount: 0 }
+}
+
+const columns = ['Empresa referida', 'Programa', 'Tipo', 'Cantidad', 'Estado', 'Cobrado', '']
+
+export default function AffiliateWallet() {
+  const [loading, setLoading] = useState(true)
+  const [summary, setSummary] = useState<WalletSummary | null>(null)
+  const [rows, setRows] = useState<RewardRow[]>([])
+  const [count, setCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [typeFilter, setTypeFilter] = useState<string>('')
+  const [claimingId, setClaimingId] = useState<number | null>(null)
+  const limit = 20
+  const totalPages = Math.max(1, Math.ceil(count / limit))
+
+  useEffect(() => { fetchAll() }, [page, typeFilter])
+
+  const fetchAll = async () => {
     try {
       setLoading(true)
-      const { data: res } = await api.get('/affiliates/wallet')
-      if (res.success) {
-        setWallet(res.data.wallet)
-        setProgramName(res.data.programName)
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al cargar wallet'
-      setError(msg)
-      devLog('[AffiliateWallet] Error:', err)
+      const [walletRes, txRes] = await Promise.all([
+        api.get('/affiliates/wallet'),
+        api.get('/affiliates/wallet/transactions', {
+          params: { page, limit, type: typeFilter || undefined },
+        }),
+      ])
+      setSummary(walletRes.data?.data || null)
+      setRows(txRes.data?.data?.rows || [])
+      setCount(txRes.data?.data?.count || 0)
+    } catch (err) {
+      console.error('Error cargando wallet', err)
     } finally {
       setLoading(false)
     }
-  }, [])
-
-  const fetchTransactions = useCallback(async () => {
-    try {
-      const params: Record<string, string | number> = { limit: 30 }
-      if (txTypeFilter) params.type = txTypeFilter
-      const { data: res } = await api.get('/affiliates/wallet/transactions', { params })
-      if (res.success) {
-        setTransactions(res.data.rows || [])
-        setTxCount(res.data.count || 0)
-      }
-    } catch (err: unknown) {
-      devLog('[AffiliateWallet] TX Error:', err)
-    }
-  }, [txTypeFilter])
-
-  useEffect(() => { fetchWallet() }, [fetchWallet])
-  useEffect(() => { fetchTransactions() }, [fetchTransactions])
-
-  const formatCurrency = (val: number) => `$${Number(val || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })
-
-  if (loading) {
-    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress size="lg" /></Box>
   }
 
-  if (error) {
-    return <Box sx={{ p: 3 }}><Alert color="danger" startDecorator={<AlertCircle size={18} />}>{error}</Alert></Box>
+  const handleClaim = async (referralId: number) => {
+    if (claimingId) return
+    try {
+      setClaimingId(referralId)
+      const { data } = await api.post(`/affiliates/referrals/${referralId}/claim-reward`)
+      if (data?.data?.alreadyClaimed) {
+        toast.info('La recompensa ya estaba cobrada')
+      } else {
+        const r = data?.data
+        if (r?.rewardType === 'tokens' && r.rewardTokens > 0) {
+          toast.success(`Recompensa cobrada: ${Number(r.rewardTokens).toLocaleString()} tokens`)
+        } else if (r?.rewardType === 'days' && r.rewardDays > 0) {
+          toast.success(`Recompensa cobrada: ${r.rewardDays} días extra`)
+        } else {
+          toast.success('Recompensa cobrada')
+        }
+      }
+      await fetchAll()
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.response?.data?.errors?.[0] || 'No se pudo cobrar la recompensa'
+      toast.error(msg)
+    } finally {
+      setClaimingId(null)
+    }
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography level="h3" sx={{ fontWeight: 700 }}>
-            <Wallet size={22} style={{ marginRight: 8, verticalAlign: 'middle' }} />
-            Billetera
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'neutral.500' }}>{programName}</Typography>
-        </Box>
-        {wallet && Number(wallet.availableBalance) > 0 && (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Wallet className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Resumen de Recompensas
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Tokens IA y días extra ganados por las empresas que invitaste.
+              </p>
+            </div>
+          </div>
           <Button
-            size="sm" color="success"
-            startDecorator={<ArrowUpCircle size={16} />}
-            onClick={() => setWithdrawalModalOpen(true)}
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+            onClick={fetchAll}
           >
-            Solicitar Retiro
+            <ArrowClockwise className="size-5" aria-hidden />
           </Button>
-        )}
-      </Box>
+        </div>
 
-      {/* Balance Cards */}
-      {wallet && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid xs={6} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'neutral.500' }}>Disponible</Typography>
-                <Typography level="h4" sx={{ fontWeight: 700, color: '#52b788' }}>
-                  {formatCurrency(wallet.availableBalance)}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'neutral.500' }}>Pendiente</Typography>
-                <Typography level="h4" sx={{ fontWeight: 700, color: '#f3a43b' }}>
-                  {formatCurrency(wallet.pendingBalance)}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'neutral.500' }}>Total Ganado</Typography>
-                <Typography level="h4" sx={{ fontWeight: 700, color: '#3b82f6' }}>
-                  {formatCurrency(wallet.totalEarned)}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'neutral.500' }}>Retirado</Typography>
-                <Typography level="h4" sx={{ fontWeight: 700 }}>
-                  {formatCurrency(wallet.totalWithdrawn)}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
+        {/* KPIs */}
+        <div className="flex flex-wrap gap-4">
+          <KpiCard label="Referidos totales" value={summary?.totalReferrals ?? 0} />
+          <KpiCard
+            label="Por cobrar"
+            value={summary?.pendingClaim ?? 0}
+            color="warning"
+            hint="Activos sin cobrar"
+          />
+          <KpiCard label="Cobrados" value={summary?.claimedCount ?? 0} color="success" />
+          <KpiCard
+            label="Tokens pendientes"
+            value={(summary?.pendingTokens ?? 0).toLocaleString()}
+            color="warning"
+          />
+          <KpiCard
+            label="Días pendientes"
+            value={summary?.pendingDays ?? 0}
+            color="warning"
+          />
+          <KpiCard
+            label="Tokens cobrados"
+            value={(summary?.tokensEarned ?? 0).toLocaleString()}
+            color="success"
+          />
+          <KpiCard
+            label="Días cobrados"
+            value={summary?.daysEarned ?? 0}
+            color="success"
+          />
+          <KpiCard
+            label="Saldo de tokens"
+            value={(summary?.currentTokenBalance ?? 0).toLocaleString()}
+            hint="Tu saldo IA actual"
+          />
+        </div>
 
-      {/* Transactions */}
-      <Card variant="outlined">
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography level="title-md">Transacciones ({txCount})</Typography>
+        {/* Filtros */}
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
             <Select
-              size="sm" placeholder="Tipo" value={txTypeFilter}
-              onChange={(_, v) => setTxTypeFilter(v || '')}
-              sx={{ minWidth: 130 }}
+              value={typeFilter || 'all'}
+              onValueChange={(v) => { setTypeFilter(v === 'all' ? '' : v); setPage(1) }}
             >
-              <Option value="">Todos</Option>
-              <Option value="commission">Comisión</Option>
-              <Option value="withdrawal">Retiro</Option>
-              <Option value="bonus">Bono</Option>
-              <Option value="adjustment">Ajuste</Option>
+              <SelectTrigger aria-label="Filtrar recompensas" className="sm:w-[240px]">
+                <SelectValue placeholder="Filtrar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas (cobrables + cobradas)</SelectItem>
+                <SelectItem value="claimable">Solo por cobrar</SelectItem>
+                <SelectItem value="claimed">Solo cobradas</SelectItem>
+                <SelectItem value="tokens">Tipo: Tokens</SelectItem>
+                <SelectItem value="days">Tipo: Días</SelectItem>
+              </SelectContent>
             </Select>
-          </Box>
+            <Button variant="outline" size="sm" onClick={fetchAll}>
+              Actualizar
+            </Button>
+          </div>
+        </div>
 
-          {transactions.length === 0 ? (
-            <Typography level="body-sm" sx={{ textAlign: 'center', color: 'neutral.400', py: 4 }}>
-              Sin transacciones
-            </Typography>
+        {/* Tabla */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {loading ? (
+            <div className="p-10 text-center">
+              <CircularProgress size="md" />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="p-10 text-center">
+              <p className="text-sm text-muted-foreground">
+                Aún no hay recompensas. Cuando un referido pase de demo a un plan
+                pagado, aparecerá aquí con un botón para cobrar.
+              </p>
+            </div>
           ) : (
-            <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-              <Table size="sm" hoverRow>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead>
-                  <tr>
-                    <th>Tipo</th>
-                    <th>Monto</th>
-                    <th>Saldo Antes</th>
-                    <th>Saldo Después</th>
-                    <th>Descripción</th>
-                    <th>Fecha</th>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c, i) => (
+                      <th
+                        key={i}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {transactions.map((tx) => {
-                    const tc = TX_TYPE_MAP[tx.type] || TX_TYPE_MAP.adjustment
+                <tbody className="divide-y divide-border">
+                  {rows.map((r) => {
+                    const exp = expectedReward(r)
+                    const canClaim = r.rewardStatus === 'claimable'
                     return (
-                      <tr key={tx.id}>
-                        <td><Chip size="sm" variant="soft" color={tc.color}>{tc.label}</Chip></td>
-                        <td>
-                          <Typography
-                            level="body-sm"
-                            sx={{ fontWeight: 600, color: tx.amount >= 0 ? '#52b788' : '#ef4444' }}
-                          >
-                            {tx.amount >= 0 ? '+' : ''}{formatCurrency(tx.amount)}
-                          </Typography>
+                      <tr key={r.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-sm text-foreground">{r.referredCompany?.name || '—'}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {r.referredCompany?.email || ''}
+                            </span>
+                          </div>
                         </td>
-                        <td><Typography level="body-xs">{formatCurrency(tx.balanceBefore)}</Typography></td>
-                        <td><Typography level="body-xs">{formatCurrency(tx.balanceAfter)}</Typography></td>
-                        <td><Typography level="body-xs">{tx.description}</Typography></td>
-                        <td><Typography level="body-xs">{formatDate(tx.createdAt)}</Typography></td>
+                        <td className="px-4 py-3 text-muted-foreground">{r.affiliate?.name || '—'}</td>
+                        <td className="px-4 py-3">
+                          {exp.kind ? (
+                            <Badge variant={exp.kind === 'tokens' ? 'primary' : 'success'}>
+                              {exp.kind === 'tokens' ? 'Tokens' : 'Días'}
+                            </Badge>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-foreground">
+                          {exp.kind === 'tokens'
+                            ? exp.amount.toLocaleString()
+                            : exp.kind === 'days'
+                              ? exp.amount
+                              : '—'}
+                        </td>
+                        <td className="px-4 py-3"><RewardStatusChip status={r.rewardStatus} /></td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {r.rewardClaimedAt
+                            ? new Date(r.rewardClaimedAt).toLocaleString()
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          {canClaim ? (
+                            <Button
+                              size="sm"
+                              loading={claimingId === r.id}
+                              onClick={() => handleClaim(r.id)}
+                            >
+                              Cobrar recompensa
+                            </Button>
+                          ) : null}
+                        </td>
                       </tr>
                     )
                   })}
                 </tbody>
-              </Table>
-            </Sheet>
+              </table>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {wallet && (
-        <WithdrawalModal
-          open={withdrawalModalOpen}
-          onClose={() => setWithdrawalModalOpen(false)}
-          onSuccess={() => { fetchWallet(); fetchTransactions() }}
-          maxAmount={Number(wallet.availableBalance)}
-        />
-      )}
-    </Box>
+        {/* Paginación */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground">
+            {count} recompensas — página {page} de {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+              Anterior
+            </Button>
+            <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+              Siguiente
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

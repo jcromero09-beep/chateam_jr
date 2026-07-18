@@ -1,10 +1,16 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import * as fsp from 'fs/promises';
 import path from "path";
 import * as fs from "fs";
 // const filePath = 'caminho/do/seu/arquivo.txt';
 
 export async function addLogs({fileName, text, forceNewFile=false}) {
-        const logs = path.resolve(__dirname, "..","..", "logs");  
+        const logs = path.resolve(currentDir, "..","..", "logs");  
         const filePath  = path.resolve(logs,fileName)
 
 

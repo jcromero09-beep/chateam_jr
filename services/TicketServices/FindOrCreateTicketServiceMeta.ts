@@ -26,6 +26,7 @@ const FindOrCreateTicketServiceMeta = async (
       },
       contactId: contact.id,
       companyId,
+      whatsappId,
       channel
     },
     order: [["id", "DESC"]]
@@ -39,6 +40,8 @@ const FindOrCreateTicketServiceMeta = async (
     ticket = await Ticket.findOne({
       where: {
         contactId: contact.id,
+        companyId,
+        whatsappId,
         channel
       },
       order: [["updatedAt", "DESC"]]
@@ -72,7 +75,9 @@ const FindOrCreateTicketServiceMeta = async (
         updatedAt: {
           [Op.between]: [+subHours(new Date(), 2), +new Date()]
         },
-        contactId: contact.id
+        contactId: contact.id,
+        companyId,
+        whatsappId
       },
       order: [["updatedAt", "DESC"]]
     });

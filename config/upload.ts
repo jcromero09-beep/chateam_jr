@@ -1,10 +1,17 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import path from "path";
 import multer from "multer";
 import fs from "fs";
 import Whatsapp from "../models/Whatsapp";
-import { isEmpty, isNil } from "lodash";
+import lodash from "lodash";
+const { isEmpty, isNil } = lodash;
 
-const publicFolder = path.resolve(__dirname, "..", "public");
+const publicFolder = path.resolve(currentDir, "..", "public");
 
 const inferArchiveTypeFromRequest = (req: any): string | null => {
   const requestPath = String(req.originalUrl || req.path || "").toLowerCase();
@@ -23,6 +30,10 @@ const inferArchiveTypeFromRequest = (req: any): string | null => {
 
   if (requestPath.includes("/email-campaigns/") && requestPath.includes("/media-upload")) {
     return "emailCampaign";
+  }
+
+  if (requestPath.includes("/recepts") || requestPath.includes("/ai/subplan-purchase/comprobante")) {
+    return "receipts";
   }
 
   return null;

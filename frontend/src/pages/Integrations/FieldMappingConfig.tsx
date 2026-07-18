@@ -1,38 +1,38 @@
 import React, { useState, useEffect } from 'react';
+// [Fase2·G] CircularProgress se conserva en MUI Joy a propósito (no hay equivalente
+// en el design system Tailwind/Radix todavía). El resto de la pantalla ya está migrado.
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Button,
-  Card,
-  Chip,
-  IconButton,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Sheet,
-  Table,
-  Typography,
-  Input,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Alert,
-  CircularProgress,
-  Stack,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Divider
-} from '@mui/joy';
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Save as SaveIcon,
-  ArrowForward as ArrowIcon
-} from '@mui/icons-material';
+  ArrowRight,
+  ArrowsLeftRight,
+  FloppyDisk,
+  Info,
+  PencilSimple,
+  Plus,
+  Trash,
+  Warning,
+} from '@phosphor-icons/react';
 import { toast } from 'react-toastify';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import api from '../../services/api';
 
 interface IntegrationConnection {
@@ -94,6 +94,16 @@ const TRANSFORMATION_RULES = [
   { value: 'parse_json', label: 'Parsear JSON' },
   { value: 'date_iso', label: 'Fecha ISO (YYYY-MM-DD)' },
   { value: 'boolean', label: 'Convertir a boolean' }
+];
+
+const columns = [
+  'Campo Local',
+  '',
+  'Campo Externo',
+  'Requerido',
+  'Transformación',
+  'Valor por Defecto',
+  'Acciones'
 ];
 
 const FieldMappingConfig: React.FC = () => {
@@ -231,253 +241,291 @@ const FieldMappingConfig: React.FC = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     );
   }
 
   if (connections.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert color="warning">
+      <div className="p-5 sm:p-6">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/12 px-4 py-3 text-sm text-foreground"
+        >
+          <Warning className="mt-0.5 size-5 shrink-0 text-warning-text" weight="fill" aria-hidden />
           No hay conexiones activas. Configure una conexión primero para poder mapear campos.
-        </Alert>
-      </Box>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography level="h2">Configuración de Mapeo de Campos</Typography>
-        <Button
-          startDecorator={<AddIcon />}
-          onClick={() => handleOpenModal()}
-        >
+    <div className="space-y-6 p-5 sm:p-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <ArrowsLeftRight className="size-6" weight="bold" aria-hidden />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Configuración de Mapeo de Campos
+          </h1>
+        </div>
+        <Button size="sm" onClick={() => handleOpenModal()}>
+          <Plus className="size-4" weight="bold" aria-hidden />
           Nuevo Mapeo
         </Button>
-      </Stack>
+      </div>
 
-      <Card sx={{ mb: 3 }}>
-        <FormControl>
-          <FormLabel>Conexión</FormLabel>
+      {/* Selector de conexión */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+        <div className="max-w-md space-y-1.5">
+          <Label htmlFor="mapping-connection">Conexión</Label>
           <Select
-            value={selectedConnection}
-            onChange={(_, value) => setSelectedConnection(value)}
+            value={selectedConnection ? String(selectedConnection) : undefined}
+            onValueChange={(value) => setSelectedConnection(Number(value))}
           >
-            {connections.map((conn) => (
-              <Option key={conn.id} value={conn.id}>
-                {conn.name} ({conn.integration_type})
-              </Option>
-            ))}
+            <SelectTrigger id="mapping-connection">
+              <SelectValue placeholder="Seleccione una conexión" />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={String(conn.id)}>
+                  {conn.name} ({conn.integration_type})
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
-        </FormControl>
-      </Card>
+        </div>
+      </div>
 
-      <Tabs value={selectedEntity} onChange={(_, value) => setSelectedEntity(value as string)}>
-        <TabList>
-          {ENTITY_TYPES.map((entity) => (
-            <Tab key={entity.value} value={entity.value}>
-              {entity.label}
-            </Tab>
-          ))}
-        </TabList>
+      <Tabs value={selectedEntity} onValueChange={(value) => setSelectedEntity(value)}>
+        <div className="overflow-x-auto">
+          <TabsList>
+            {ENTITY_TYPES.map((entity) => (
+              <TabsTrigger key={entity.value} value={entity.value}>
+                {entity.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         {ENTITY_TYPES.map((entity) => (
-          <TabPanel key={entity.value} value={entity.value} sx={{ p: 0, pt: 2 }}>
+          <TabsContent key={entity.value} value={entity.value} className="mt-4">
             {mappings.length === 0 ? (
-              <Alert color="neutral">
+              <div
+                role="status"
+                className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+              >
+                <Info className="size-[18px] shrink-0" aria-hidden />
                 No hay mapeos configurados para {entity.label} en esta conexión.
-              </Alert>
+              </div>
             ) : (
-              <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-                <Table>
-                  <thead>
-                    <tr>
-                      <th>Campo Local</th>
-                      <th></th>
-                      <th>Campo Externo</th>
-                      <th>Requerido</th>
-                      <th>Transformación</th>
-                      <th>Valor por Defecto</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mappings.map((mapping) => (
-                      <tr key={mapping.id}>
-                        <td>
-                          <Chip size="sm" variant="soft" color="primary">
-                            {mapping.local_field}
-                          </Chip>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <ArrowIcon fontSize="small" />
-                        </td>
-                        <td>
-                          <Chip size="sm" variant="soft" color="success">
-                            {mapping.external_field}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Chip
-                            size="sm"
-                            variant="soft"
-                            color={mapping.is_required ? 'danger' : 'neutral'}
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        {columns.map((c, i) => (
+                          <th
+                            key={i}
+                            className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                           >
-                            {mapping.is_required ? 'Sí' : 'No'}
-                          </Chip>
-                        </td>
-                        <td>
-                          {mapping.transformation_rule ? (
-                            <Chip size="sm" variant="outlined">
-                              {mapping.transformation_rule}
-                            </Chip>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td>
-                          {mapping.default_value ? (
-                            <Typography level="body-sm" noWrap sx={{ maxWidth: 150 }}>
-                              {mapping.default_value}
-                            </Typography>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td>
-                          <Stack direction="row" spacing={1}>
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="neutral"
-                              onClick={() => handleOpenModal(mapping)}
-                            >
-                              <EditIcon />
-                            </IconButton>
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="danger"
-                              onClick={() => handleDelete(mapping.id)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Stack>
-                        </td>
+                            {c}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </Sheet>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {mappings.map((mapping) => (
+                        <tr key={mapping.id} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3">
+                            <Badge variant="primary">{mapping.local_field}</Badge>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <ArrowRight
+                              className="inline size-4 text-muted-foreground"
+                              aria-hidden
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="success">{mapping.external_field}</Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={mapping.is_required ? 'destructive' : 'neutral'}>
+                              {mapping.is_required ? 'Sí' : 'No'}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            {mapping.transformation_rule ? (
+                              <Badge variant="outline">{mapping.transformation_rule}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {mapping.default_value ? (
+                              <span
+                                className="block max-w-[150px] truncate text-muted-foreground"
+                                title={mapping.default_value}
+                              >
+                                {mapping.default_value}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                aria-label="Editar mapeo"
+                                title="Editar"
+                                onClick={() => handleOpenModal(mapping)}
+                                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                              >
+                                <PencilSimple className="size-[18px]" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="Eliminar mapeo"
+                                title="Eliminar"
+                                onClick={() => handleDelete(mapping.id)}
+                                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                              >
+                                <Trash className="size-[18px]" aria-hidden />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
-          </TabPanel>
+          </TabsContent>
         ))}
       </Tabs>
 
-      <Modal open={modalOpen} onClose={handleCloseModal}>
-        <ModalDialog sx={{ width: 600, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" mb={2}>
-            {editingMapping ? 'Editar Mapeo de Campo' : 'Nuevo Mapeo de Campo'}
-          </Typography>
+      <Dialog open={modalOpen} onOpenChange={(open) => !open && handleCloseModal()}>
+        <DialogContent className="max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>
+              {editingMapping ? 'Editar Mapeo de Campo' : 'Nuevo Mapeo de Campo'}
+            </DialogTitle>
+          </DialogHeader>
 
-          <form onSubmit={handleSubmit}>
-            <Stack spacing={2}>
-              <FormControl required>
-                <FormLabel>Tipo de Entidad</FormLabel>
-                <Select
-                  value={formData.entity_type}
-                  onChange={(_, value) => setFormData({ ...formData, entity_type: value!, local_field: '' })}
-                >
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="mapping-entity-type">Tipo de Entidad</Label>
+              <Select
+                value={formData.entity_type}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, entity_type: value, local_field: '' })
+                }
+              >
+                <SelectTrigger id="mapping-entity-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {ENTITY_TYPES.map((entity) => (
-                    <Option key={entity.value} value={entity.value}>
+                    <SelectItem key={entity.value} value={entity.value}>
                       {entity.label}
-                    </Option>
+                    </SelectItem>
                   ))}
-                </Select>
-              </FormControl>
+                </SelectContent>
+              </Select>
+            </div>
 
-              <Divider />
+            <div className="h-px w-full bg-border" role="separator" />
 
-              <FormControl required>
-                <FormLabel>Campo Local (Sistema JR Chateam)</FormLabel>
-                <Select
-                  value={formData.local_field}
-                  onChange={(_, value) => setFormData({ ...formData, local_field: value! })}
-                  placeholder="Seleccione un campo local"
-                >
+            <div className="space-y-1.5">
+              <Label htmlFor="mapping-local-field">Campo Local (Sistema JR Chateam)</Label>
+              <Select
+                value={formData.local_field || undefined}
+                onValueChange={(value) => setFormData({ ...formData, local_field: value })}
+              >
+                <SelectTrigger id="mapping-local-field">
+                  <SelectValue placeholder="Seleccione un campo local" />
+                </SelectTrigger>
+                <SelectContent>
                   {LOCAL_FIELDS_BY_ENTITY[formData.entity_type]?.map((field) => (
-                    <Option key={field} value={field}>
+                    <SelectItem key={field} value={field}>
                       {field}
-                    </Option>
+                    </SelectItem>
                   ))}
-                </Select>
-              </FormControl>
+                </SelectContent>
+              </Select>
+            </div>
 
-              <FormControl required>
-                <FormLabel>Campo Externo (Sistema Integrado)</FormLabel>
-                <Input
-                  value={formData.external_field}
-                  onChange={(e) => setFormData({ ...formData, external_field: e.target.value })}
-                  placeholder="Ej: customer_name, phone_number"
-                />
-              </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="mapping-external-field">Campo Externo (Sistema Integrado)</Label>
+              <Input
+                id="mapping-external-field"
+                value={formData.external_field}
+                onChange={(e) => setFormData({ ...formData, external_field: e.target.value })}
+                placeholder="Ej: customer_name, phone_number"
+              />
+            </div>
 
-              <Divider />
+            <div className="h-px w-full bg-border" role="separator" />
 
-              <FormControl>
-                <FormLabel>Regla de Transformación</FormLabel>
-                <Select
-                  value={formData.transformation_rule}
-                  onChange={(_, value) => setFormData({ ...formData, transformation_rule: value! })}
-                >
+            <div className="space-y-1.5">
+              <Label htmlFor="mapping-transformation">Regla de Transformación</Label>
+              <Select
+                value={formData.transformation_rule}
+                onValueChange={(value) => setFormData({ ...formData, transformation_rule: value })}
+              >
+                <SelectTrigger id="mapping-transformation">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {TRANSFORMATION_RULES.map((rule) => (
-                    <Option key={rule.value} value={rule.value}>
+                    <SelectItem key={rule.value} value={rule.value}>
                       {rule.label}
-                    </Option>
+                    </SelectItem>
                   ))}
-                </Select>
-              </FormControl>
+                </SelectContent>
+              </Select>
+            </div>
 
-              <FormControl>
-                <FormLabel>Valor por Defecto</FormLabel>
-                <Input
-                  value={formData.default_value}
-                  onChange={(e) => setFormData({ ...formData, default_value: e.target.value })}
-                  placeholder="Valor a usar si el campo está vacío"
-                />
-              </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="mapping-default-value">Valor por Defecto</Label>
+              <Input
+                id="mapping-default-value"
+                value={formData.default_value}
+                onChange={(e) => setFormData({ ...formData, default_value: e.target.value })}
+                placeholder="Valor a usar si el campo está vacío"
+              />
+            </div>
 
-              <FormControl>
-                <Stack direction="row" spacing={2} alignItems="center">
-                  <input
-                    type="checkbox"
-                    checked={formData.is_required}
-                    onChange={(e) => setFormData({ ...formData, is_required: e.target.checked })}
-                    id="is_required"
-                  />
-                  <FormLabel htmlFor="is_required" sx={{ m: 0, cursor: 'pointer' }}>
-                    Campo requerido (bloquear sincronización si falta)
-                  </FormLabel>
-                </Stack>
-              </FormControl>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="is_required"
+                checked={formData.is_required}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_required: checked })}
+              />
+              <Label htmlFor="is_required" className="cursor-pointer">
+                Campo requerido (bloquear sincronización si falta)
+              </Label>
+            </div>
 
-              <Stack direction="row" spacing={2} justifyContent="flex-end" mt={2}>
-                <Button variant="outlined" color="neutral" onClick={handleCloseModal}>
-                  Cancelar
-                </Button>
-                <Button type="submit" variant="solid" color="primary" startDecorator={<SaveIcon />}>
-                  {editingMapping ? 'Actualizar' : 'Crear'}
-                </Button>
-              </Stack>
-            </Stack>
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={handleCloseModal}>
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm">
+                <FloppyDisk className="size-4" aria-hidden />
+                {editingMapping ? 'Actualizar' : 'Crear'}
+              </Button>
+            </DialogFooter>
           </form>
-        </ModalDialog>
-      </Modal>
-    </Box>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 

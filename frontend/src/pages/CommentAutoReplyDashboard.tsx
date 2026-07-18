@@ -3,35 +3,23 @@
  * Ruta: /comment-autoreply
  */
 import { useState, useEffect, useCallback } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  Chip,
-  Alert,
-  CircularProgress,
-  Grid,
-  Sheet,
-  Table,
-  Divider,
-  IconButton,
-} from '@mui/joy'
-import {
-  Campaign as CampaignIcon,
-  Add as AddIcon,
-  Refresh as RefreshIcon,
-  Visibility as VisibilityIcon,
-  ThumbUp as ThumbUpIcon,
-  Forum as ForumIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Delete as DeleteIcon,
-  Message as MessageIcon,
-  SmartToy as SmartToyIcon,
-} from '@mui/icons-material'
+  Megaphone,
+  Plus,
+  ArrowClockwise,
+  Eye,
+  ThumbsUp,
+  ChatsCircle,
+  EyeSlash,
+  Trash,
+  ChatText,
+  Robot,
+} from '@phosphor-icons/react'
 import { useNavigate } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const devLog = (...args: unknown[]) => { if (import.meta.env.DEV) console.log(...args) }
@@ -73,20 +61,20 @@ const formatDate = (iso: string) => {
   } catch { return iso }
 }
 
-const replySourceColor = (src: string): 'primary' | 'success' | 'warning' | 'neutral' | 'danger' => {
-  const map: Record<string, 'primary' | 'success' | 'warning' | 'neutral' | 'danger'> = {
+const replySourceVariant = (src: string): BadgeProps['variant'] => {
+  const map: Record<string, BadgeProps['variant']> = {
     keyword: 'primary',
     ai: 'success',
     default: 'neutral',
-    offensive: 'danger',
+    offensive: 'destructive',
   }
   return map[src] ?? 'neutral'
 }
 
-const publicStatusColor = (st: string): 'success' | 'warning' | 'danger' | 'neutral' => {
-  const map: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
+const publicStatusVariant = (st: string): BadgeProps['variant'] => {
+  const map: Record<string, BadgeProps['variant']> = {
     sent: 'success',
-    failed: 'danger',
+    failed: 'destructive',
     skipped: 'warning',
     pending: 'neutral',
   }
@@ -144,44 +132,51 @@ const MOCK_STATS: DashboardStats = {
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
+type KpiTone = 'primary' | 'success' | 'accent' | 'warning' | 'destructive' | 'coral'
+
+const kpiToneWrap: Record<KpiTone, string> = {
+  primary: 'bg-primary/12 text-primary',
+  success: 'bg-success/14 text-success-text',
+  accent: 'bg-brand-cyan/15 text-[color:var(--brand-teal)] dark:text-brand-cyan',
+  warning: 'bg-warning/16 text-warning-text',
+  destructive: 'bg-destructive/12 text-destructive-text',
+  coral: 'bg-brand-coral/15 text-brand-coral',
+}
+
+const kpiToneValue: Record<KpiTone, string> = {
+  primary: 'text-foreground',
+  success: 'text-success-text',
+  accent: 'text-foreground',
+  warning: 'text-warning-text',
+  destructive: 'text-destructive-text',
+  coral: 'text-foreground',
+}
+
 interface KpiCardProps {
   label: string
   value: number
   icon: React.ReactNode
-  color: string
-  bg: string
+  tone: KpiTone
 }
 
-function KpiCard({ label, value, icon, color, bg }: KpiCardProps) {
+function KpiCard({ label, value, icon, tone }: KpiCardProps) {
   return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography level="body-xs" sx={{ color: 'text.secondary', mb: 0.5 }}>
-              {label}
-            </Typography>
-            <Typography level="h2" sx={{ fontWeight: 700, color }}>
-              {(value ?? 0).toLocaleString()}
-            </Typography>
-          </Box>
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: '12px',
-              background: bg,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color,
-            }}
-          >
-            {icon}
-          </Box>
-        </Stack>
-      </CardContent>
-    </Card>
+    <div className="h-full rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="mb-0.5 text-xs text-muted-foreground">{label}</p>
+          <p className={cn('text-3xl font-bold tracking-tight tabular-nums', kpiToneValue[tone])}>
+            {(value ?? 0).toLocaleString()}
+          </p>
+        </div>
+        <span
+          className={cn('flex size-12 shrink-0 items-center justify-center rounded-xl', kpiToneWrap[tone])}
+          aria-hidden
+        >
+          {icon}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -190,35 +185,25 @@ function KpiCard({ label, value, icon, color, bg }: KpiCardProps) {
 function SimpleBarChart({ data = [] }: { data: Array<{ date: string; count: number }> }) {
   if (!data || data.length === 0) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 120, mt: 2 }}>
-        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Sin datos aún</Typography>
-      </Box>
+      <div className="mt-2 flex h-[120px] items-center justify-center">
+        <span className="text-sm text-muted-foreground">Sin datos aún</span>
+      </div>
     )
   }
   const max = Math.max(...data.map(d => d.count), 1)
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 120, mt: 2 }}>
+    <div className="mt-2 flex h-[120px] items-end gap-2">
       {data.map(d => (
-        <Box key={d.date} sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-          <Typography level="body-xs" sx={{ color: 'text.secondary', fontSize: 11 }}>
-            {d.count}
-          </Typography>
-          <Box
-            sx={{
-              width: '100%',
-              height: `${(d.count / max) * 90}px`,
-              minHeight: 4,
-              borderRadius: '4px 4px 0 0',
-              background: 'linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%)',
-              transition: 'height 0.4s ease',
-            }}
+        <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">{d.count}</span>
+          <div
+            className="w-full rounded-t-md bg-primary transition-[height] duration-300 ease-out"
+            style={{ height: `${(d.count / max) * 90}px`, minHeight: 4 }}
           />
-          <Typography level="body-xs" sx={{ color: 'text.secondary', fontSize: 10 }}>
-            {d.date}
-          </Typography>
-        </Box>
+          <span className="text-[10px] text-muted-foreground">{d.date}</span>
+        </div>
       ))}
-    </Box>
+    </div>
   )
 }
 
@@ -268,14 +253,12 @@ export default function CommentAutoReplyDashboard() {
   // ── Loading ──
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <Stack alignItems="center" gap={2}>
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
           <CircularProgress size="lg" />
-          <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-            Cargando dashboard...
-          </Typography>
-        </Stack>
-      </Box>
+          <span className="text-sm text-muted-foreground">Cargando dashboard...</span>
+        </div>
+      </div>
     )
   }
 
@@ -285,272 +268,215 @@ export default function CommentAutoReplyDashboard() {
     {
       label: 'Campañas Activas',
       value: s.activeCampaigns,
-      icon: <CampaignIcon fontSize="small" />,
-      color: '#3b82f6',
-      bg: 'rgba(59,130,246,0.12)',
+      icon: <Megaphone className="size-5" weight="fill" aria-hidden />,
+      tone: 'primary',
     },
     {
       label: 'Respuestas Públicas Enviadas',
       value: s.publicRepliesSent,
-      icon: <ForumIcon fontSize="small" />,
-      color: '#52b788',
-      bg: 'rgba(82,183,136,0.12)',
+      icon: <ChatsCircle className="size-5" weight="fill" aria-hidden />,
+      tone: 'success',
     },
     {
       label: 'Respuestas Privadas',
       value: s.privateRepliesSent,
-      icon: <MessageIcon fontSize="small" />,
-      color: '#7c3aed',
-      bg: 'rgba(124,58,237,0.12)',
+      icon: <ChatText className="size-5" weight="fill" aria-hidden />,
+      tone: 'accent',
     },
     {
       label: 'Comentarios Ocultos',
       value: s.commentsHidden,
-      icon: <VisibilityOffIcon fontSize="small" />,
-      color: '#f3a43b',
-      bg: 'rgba(243,164,59,0.12)',
+      icon: <EyeSlash className="size-5" weight="fill" aria-hidden />,
+      tone: 'warning',
     },
     {
       label: 'Comentarios Eliminados',
       value: s.commentsDeleted,
-      icon: <DeleteIcon fontSize="small" />,
-      color: '#ef4444',
-      bg: 'rgba(239,68,68,0.12)',
+      icon: <Trash className="size-5" weight="fill" aria-hidden />,
+      tone: 'destructive',
     },
     {
       label: 'Likes Dados',
       value: s.likesGiven,
-      icon: <ThumbUpIcon fontSize="small" />,
-      color: '#ec4899',
-      bg: 'rgba(236,72,153,0.12)',
+      icon: <ThumbsUp className="size-5" weight="fill" aria-hidden />,
+      tone: 'coral',
     },
   ]
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto' }}>
-      {/* Header */}
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        alignItems={{ sm: 'center' }}
-        justifyContent="space-between"
-        gap={2}
-        mb={3}
-      >
-        <Box>
-          <Stack direction="row" alignItems="center" gap={1.5}>
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                borderRadius: '10px',
-                background: 'rgba(59,130,246,0.12)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <SmartToyIcon sx={{ color: '#3b82f6', fontSize: 22 }} />
-            </Box>
-            <Box>
-              <Typography level="h3" sx={{ fontWeight: 700 }}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary" aria-hidden>
+              <Robot className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 Auto-Respondedor de Comentarios
-              </Typography>
-              <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Gestión automatizada de comentarios en redes sociales
-              </Typography>
-            </Box>
-          </Stack>
-        </Box>
-        <Stack direction="row" gap={1}>
-          <IconButton
-            variant="outlined"
-            color="neutral"
-            onClick={fetchDashboard}
-            title="Actualizar"
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchDashboard}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={() => navigate('/comment-autoreply/campaigns')}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva Campaña
+            </Button>
+          </div>
+        </div>
+
+        {/* Error alert */}
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-warning/30 bg-warning/16 px-4 py-3 text-sm text-warning-text"
           >
-            <RefreshIcon />
-          </IconButton>
-          <Button
-            startDecorator={<AddIcon />}
-            onClick={() => navigate('/comment-autoreply/campaigns')}
-            sx={{ background: '#3b82f6', '&:hover': { background: '#2563eb' } }}
-          >
-            Nueva Campaña
-          </Button>
-        </Stack>
-      </Stack>
+            {error}
+          </div>
+        )}
 
-      {/* Error alert */}
-      {error && (
-        <Alert color="warning" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+        {/* KPI Grid */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {kpis.map(kpi => (
+            <KpiCard key={kpi.label} {...kpi} />
+          ))}
+        </div>
 
-      {/* KPI Grid */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {kpis.map(kpi => (
-          <Grid key={kpi.label} xs={12} sm={6} md={4}>
-            <KpiCard {...kpi} />
-          </Grid>
-        ))}
-      </Grid>
+        {/* Chart + Quick Actions */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] lg:col-span-2">
+            <h2 className="mb-2 text-sm font-semibold text-foreground">
+              Respuestas por Día — Últimos 7 días
+            </h2>
+            <div className="border-t border-border" />
+            <SimpleBarChart data={s.repliesPerDay} />
+          </div>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-3 text-sm font-semibold text-foreground">
+              Acciones Rápidas
+            </h2>
+            <div className="mb-4 border-t border-border" />
+            <div className="flex flex-col gap-3">
+              <Button
+                variant="primary"
+                className="w-full justify-start"
+                onClick={() => navigate('/comment-autoreply/campaigns')}
+              >
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Nueva Campaña
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => navigate('/comment-autoreply/campaigns')}
+              >
+                <Eye className="size-4" aria-hidden />
+                Ver Todas las Campañas
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => navigate('/comment-autoreply/settings')}
+              >
+                <Megaphone className="size-4" aria-hidden />
+                Configuración
+              </Button>
+            </div>
+            <div className="my-4 border-t border-border" />
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                El sistema procesa comentarios en tiempo real via webhooks de Meta. Las campañas activas responden automaticamente segun las reglas configuradas.
+              </p>
+            </div>
+          </div>
+        </div>
 
-      {/* Chart + Quick Actions */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={8}>
-          <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-sm" sx={{ fontWeight: 600, mb: 1 }}>
-                Respuestas por Día — Últimos 7 días
-              </Typography>
-              <Divider />
-              <SimpleBarChart data={s.repliesPerDay} />
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} md={4}>
-          <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-sm" sx={{ fontWeight: 600, mb: 2 }}>
-                Acciones Rápidas
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Stack gap={1.5}>
-                <Button
-                  fullWidth
-                  variant="soft"
-                  color="primary"
-                  startDecorator={<AddIcon />}
-                  onClick={() => navigate('/comment-autoreply/campaigns')}
-                >
-                  Nueva Campaña
-                </Button>
-                <Button
-                  fullWidth
-                  variant="soft"
-                  color="neutral"
-                  startDecorator={<VisibilityIcon />}
-                  onClick={() => navigate('/comment-autoreply/campaigns')}
-                >
-                  Ver Todas las Campañas
-                </Button>
-                <Button
-                  fullWidth
-                  variant="soft"
-                  color="neutral"
-                  startDecorator={<CampaignIcon />}
-                  onClick={() => navigate('/comment-autoreply/settings')}
-                >
-                  Configuración
-                </Button>
-              </Stack>
-              <Divider sx={{ my: 2 }} />
-              <Box sx={{ p: 1.5, background: 'rgba(59,130,246,0.06)', borderRadius: 'sm', border: '1px solid rgba(59,130,246,0.2)' }}>
-                <Typography level="body-xs" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
-                  El sistema procesa comentarios en tiempo real via webhooks de Meta. Las campañas activas responden automaticamente segun las reglas configuradas.
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Recent Logs Table */}
-      <Card variant="outlined">
-        <CardContent>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
-            <Typography level="title-sm" sx={{ fontWeight: 600 }}>
+        {/* Recent Logs Table */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">
               Actividad Reciente
-            </Typography>
-            <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-              Ultimos 10 eventos
-            </Typography>
-          </Stack>
-          <Divider sx={{ mb: 2 }} />
+            </h2>
+            <span className="text-xs text-muted-foreground">Ultimos 10 eventos</span>
+          </div>
+          <div className="mb-4 border-t border-border" />
 
           {s.recentLogs.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <ForumIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
-              <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                No hay actividad reciente
-              </Typography>
-            </Box>
+            <div className="py-12 text-center">
+              <ChatsCircle className="mx-auto mb-2 size-12 text-muted-foreground" aria-hidden />
+              <p className="text-sm text-muted-foreground">No hay actividad reciente</p>
+            </div>
           ) : (
-            <Sheet
-              variant="outlined"
-              sx={{ borderRadius: 'sm', overflow: 'auto' }}
-            >
-              <Table
-                hoverRow
-                stickyHeader
-                sx={{ '--TableCell-paddingY': '10px', '--TableCell-paddingX': '12px' }}
-              >
-                <thead>
-                  <tr>
-                    <th style={{ width: 140 }}>Comentarista</th>
-                    <th>Comentario</th>
-                    <th style={{ width: 130 }}>Keyword</th>
-                    <th style={{ width: 120 }}>Estado Público</th>
-                    <th style={{ width: 110 }}>Fuente</th>
-                    <th style={{ width: 140 }}>Procesado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.recentLogs.map(log => (
-                    <tr key={log.id}>
-                      <td>
-                        <Typography level="body-sm" fontWeight={600}>
-                          {log.commenterName}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                          {truncate(log.commentText, 50)}
-                        </Typography>
-                      </td>
-                      <td>
-                        {log.matchedKeyword ? (
-                          <Chip size="sm" variant="soft" color="primary">
-                            {log.matchedKeyword}
-                          </Chip>
-                        ) : (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>—</Typography>
-                        )}
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={publicStatusColor(log.publicReplyStatus)}
-                          sx={{ textTransform: 'capitalize' }}
-                        >
-                          {log.publicReplyStatus}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={replySourceColor(log.replySource)}
-                          sx={{ textTransform: 'capitalize' }}
-                        >
-                          {log.replySource}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                          {formatDate(log.processedAt)}
-                        </Typography>
-                      </td>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="w-[140px] whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comentarista</th>
+                      <th className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comentario</th>
+                      <th className="w-[130px] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Keyword</th>
+                      <th className="w-[120px] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado Público</th>
+                      <th className="w-[110px] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fuente</th>
+                      <th className="w-[140px] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Procesado</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {s.recentLogs.map(log => (
+                      <tr key={log.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-3 py-2.5">
+                          <span className="text-sm font-semibold text-foreground">
+                            {log.commenterName}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs text-muted-foreground">
+                            {truncate(log.commentText, 50)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {log.matchedKeyword ? (
+                            <Badge variant="primary">{log.matchedKeyword}</Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant={publicStatusVariant(log.publicReplyStatus)} className="capitalize">
+                            {log.publicReplyStatus}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant={replySourceVariant(log.replySource)} className="capitalize">
+                            {log.replySource}
+                          </Badge>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5">
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(log.processedAt)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </Box>
+        </div>
+      </div>
+    </div>
   )
 }

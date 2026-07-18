@@ -14,6 +14,8 @@ contactRoutes.post("/contacts/import", isAuth, ImportPhoneContactsController.sto
 contactRoutes.post("/contactsImport", isAuth, ContactController.importXls);
 contactRoutes.get("/contacts", isAuth, ContactController.index);
 contactRoutes.get("/contacts/list", isAuth, ContactController.list);
+// [Fase A] Antes de /contacts/:contactId (si no, "list-whatsapp" se toma como id → 500).
+contactRoutes.get("/contacts/list-whatsapp", isAuth, ContactController.listWhatsapp);
 contactRoutes.get("/contacts/:contactId", isAuth, ContactController.show);
 contactRoutes.post("/contacts", isAuth, ContactController.store);
 contactRoutes.put("/contacts/:contactId", isAuth, ContactController.update);
@@ -31,6 +33,5 @@ contactRoutes.get("/contacts/export/download/:jobId", isAuth, ContactController.
 contactRoutes.get("/contactTags/:contactId", isAuth, ContactController.getContactTags);
 contactRoutes.put("/contacts/toggleDisableBot/:contactId", isAuth, ContactController.toggleDisableBot);
 contactRoutes.put("/contact-wallet/:contactId", isAuth, ContactController.updateContactWallet);
-// contactRoutes.get("/contacts/list-whatsapp", isAuth, ContactController.listWhatsapp);
 
 export default contactRoutes;

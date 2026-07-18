@@ -14,6 +14,7 @@ import {
   Index
 } from "sequelize-typescript";
 import Company from "./Company";
+import AIChatbotDataSource from "./AIChatbotDataSource";
 
 @Table({
   tableName: "AIChatbotConfigs",
@@ -49,7 +50,7 @@ class AIChatbotConfig extends Model<AIChatbotConfig> {
   @Column(DataType.TEXT)
   firstMessage!: string; // Mensaje de bienvenida
 
-  @Default('gpt-4.1-mini')
+  @Default('gpt-5.5')
   @Column(DataType.STRING(100))
   modelKey!: string;
 
@@ -101,7 +102,7 @@ class AIChatbotConfig extends Model<AIChatbotConfig> {
   @BelongsTo(() => Company)
   company!: Company;
 
-  @HasMany(() => require("./AIChatbotDataSource").default)
+  @HasMany(() => AIChatbotDataSource)
   dataSources!: any[];
 }
 

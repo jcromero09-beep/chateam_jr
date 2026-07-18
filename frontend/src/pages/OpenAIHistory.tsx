@@ -1,33 +1,31 @@
 import { useState } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Input,
-  Select,
-  Option,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Divider,
-} from '@mui/joy'
+  ClockCounterClockwise,
+  MagnifyingGlass,
+  DownloadSimple,
+  Eye,
+  Trash,
+  FunnelSimple,
+  CheckCircle,
+  WarningCircle,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
-  History as HistoryIcon,
-  Search as SearchIcon,
-  Download as DownloadIcon,
-  Visibility as ViewIcon,
-  Delete as DeleteIcon,
-  FilterList as FilterIcon,
-  CheckCircle as SuccessIcon,
-  Error as ErrorIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
 interface HistoryEntry {
   id: number
@@ -42,6 +40,57 @@ interface HistoryEntry {
   duration: number
   status: 'success' | 'error'
   errorMessage?: string
+}
+
+const columns = [
+  'Timestamp',
+  'Usuario',
+  'Modelo',
+  'Categoría',
+  'Prompt',
+  'Tokens',
+  'Costo',
+  'Duración',
+  'Estado',
+  '',
+]
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick?: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Campo de solo lectura del detalle (label + valor)
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-sm text-foreground">{value}</p>
+    </div>
+  )
 }
 
 export default function OpenAIHistory() {
@@ -175,6 +224,9 @@ export default function OpenAIHistory() {
   const totalCost = filteredHistory.reduce((sum, entry) => sum + entry.cost, 0)
   const successRate = (filteredHistory.filter((e) => e.status === 'success').length / totalEntries * 100).toFixed(1)
 
+  const successCount = filteredHistory.filter((e) => e.status === 'success').length
+  const errorCount = filteredHistory.filter((e) => e.status === 'error').length
+
   const handleViewDetail = (entry: HistoryEntry) => {
     setSelectedEntry(entry)
   }
@@ -184,337 +236,256 @@ export default function OpenAIHistory() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <HistoryIcon sx={{ fontSize: 32 }} />
-            Historial de IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Registro completo de todas las interacciones con modelos de IA
-          </Typography>
-        </Box>
-        <Button variant="outlined" startDecorator={<DownloadIcon />} onClick={handleExport}>
-          Exportar CSV
-        </Button>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ClockCounterClockwise className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Historial de IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Registro completo de todas las interacciones con modelos de IA
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <DownloadSimple className="size-4" aria-hidden />
+            Exportar CSV
+          </Button>
+        </div>
 
-      {/* Estadísticas */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Entries
-              </Typography>
-              <Typography level="h3">{totalEntries}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Tokens
-              </Typography>
-              <Typography level="h3">{totalTokens.toLocaleString()}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Costo Total
-              </Typography>
-              <Typography level="h3">${totalCost.toFixed(4)}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Tasa de Éxito
-              </Typography>
-              <Typography level="h3">{successRate}%</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Estadísticas */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Entries" value={String(totalEntries)} />
+          <StatTile label="Total Tokens" value={totalTokens.toLocaleString()} />
+          <StatTile label="Costo Total" value={`$${totalCost.toFixed(4)}`} />
+          <StatTile label="Tasa de Éxito" value={`${successRate}%`} tone="success" />
+        </div>
 
-      {/* Filtros */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid xs={12} md={3}>
-              <Input
+        {/* Filtros */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="relative">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
                 placeholder="Buscar..."
+                aria-label="Buscar en el historial"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                startDecorator={<SearchIcon />}
+                className="h-9 w-full rounded-md border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               />
-            </Grid>
-            <Grid xs={12} md={2}>
-              <Select value={filterModel} onChange={(_, val) => setFilterModel(val as string)}>
-                <Option value="all">Todos los modelos</Option>
-                <Option value="GPT-4 Turbo">GPT-4 Turbo</Option>
-                <Option value="GPT-3.5 Turbo">GPT-3.5 Turbo</Option>
-                <Option value="Gemini Pro">Gemini Pro</Option>
-                <Option value="DeepSeek">DeepSeek</Option>
-              </Select>
-            </Grid>
-            <Grid xs={12} md={2}>
-              <Select value={filterStatus} onChange={(_, val) => setFilterStatus(val as string)}>
-                <Option value="all">Todos los estados</Option>
-                <Option value="success">Exitosos</Option>
-                <Option value="error">Con errores</Option>
-              </Select>
-            </Grid>
-            <Grid xs={12} md={2}>
-              <Select value={filterDate} onChange={(_, val) => setFilterDate(val as string)}>
-                <Option value="24h">Últimas 24h</Option>
-                <Option value="7d">Últimos 7 días</Option>
-                <Option value="30d">Últimos 30 días</Option>
-                <Option value="90d">Últimos 90 días</Option>
-              </Select>
-            </Grid>
-            <Grid xs={12} md={3}>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Chip size="sm" startDecorator={<FilterIcon />}>
-                  {totalEntries} resultados
-                </Chip>
-                <Chip size="sm" color="success">
-                  {filteredHistory.filter((e) => e.status === 'success').length} éxito
-                </Chip>
-                <Chip size="sm" color="danger">
-                  {filteredHistory.filter((e) => e.status === 'error').length} error
-                </Chip>
-              </Box>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+            </div>
 
-      {/* Tabla de Historial */}
-      <Card>
-        <CardContent>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table>
+            <Select value={filterModel} onValueChange={setFilterModel}>
+              <SelectTrigger aria-label="Filtrar por modelo">
+                <SelectValue placeholder="Todos los modelos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los modelos</SelectItem>
+                <SelectItem value="GPT-4 Turbo">GPT-4 Turbo</SelectItem>
+                <SelectItem value="GPT-3.5 Turbo">GPT-3.5 Turbo</SelectItem>
+                <SelectItem value="Gemini Pro">Gemini Pro</SelectItem>
+                <SelectItem value="DeepSeek">DeepSeek</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger aria-label="Filtrar por estado">
+                <SelectValue placeholder="Todos los estados" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                <SelectItem value="success">Exitosos</SelectItem>
+                <SelectItem value="error">Con errores</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={filterDate} onValueChange={setFilterDate}>
+              <SelectTrigger aria-label="Filtrar por fecha">
+                <SelectValue placeholder="Últimos 7 días" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24h">Últimas 24h</SelectItem>
+                <SelectItem value="7d">Últimos 7 días</SelectItem>
+                <SelectItem value="30d">Últimos 30 días</SelectItem>
+                <SelectItem value="90d">Últimos 90 días</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Badge variant="outline">
+              <FunnelSimple className="size-3.5" aria-hidden />
+              {totalEntries} resultados
+            </Badge>
+            <Badge variant="success">{successCount} éxito</Badge>
+            <Badge variant="destructive">{errorCount} error</Badge>
+          </div>
+        </div>
+
+        {/* Tabla de Historial */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 150 }}>Timestamp</th>
-                  <th style={{ width: 150 }}>Usuario</th>
-                  <th style={{ width: 120 }}>Modelo</th>
-                  <th style={{ width: 100 }}>Categoría</th>
-                  <th>Prompt</th>
-                  <th style={{ width: 80 }}>Tokens</th>
-                  <th style={{ width: 80 }}>Costo</th>
-                  <th style={{ width: 80 }}>Duración</th>
-                  <th style={{ width: 100 }}>Estado</th>
-                  <th style={{ width: 80, textAlign: 'center' }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
-                {filteredHistory.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>
-                      <Typography level="body-xs">{entry.timestamp}</Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{entry.user.split('@')[0]}</Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {entry.model}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft">
-                        {entry.category}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography
-                        level="body-sm"
-                        sx={{
-                          maxWidth: 300,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {entry.prompt}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{entry.tokens}</Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm" sx={{ fontFamily: 'monospace' }}>
-                        ${entry.cost.toFixed(5)}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{entry.duration}s</Typography>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={entry.status === 'success' ? 'success' : 'danger'}
-                        startDecorator={entry.status === 'success' ? <SuccessIcon /> : <ErrorIcon />}
-                      >
-                        {entry.status}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                        <IconButton size="sm" variant="outlined" onClick={() => handleViewDetail(entry)}>
-                          <ViewIcon />
-                        </IconButton>
-                        <IconButton size="sm" variant="outlined" color="danger">
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
+              <tbody className="divide-y divide-border">
+                {filteredHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron registros
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredHistory.map((entry) => (
+                    <tr key={entry.id} className="transition-colors hover:bg-accent/40">
+                      <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-muted-foreground">
+                        {entry.timestamp}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-foreground">
+                        {entry.user.split('@')[0]}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">{entry.model}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="neutral">{entry.category}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="max-w-[300px] truncate text-muted-foreground">
+                          {entry.prompt}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {entry.tokens}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs tabular-nums text-muted-foreground">
+                        ${entry.cost.toFixed(5)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                        {entry.duration}s
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={entry.status === 'success' ? 'success' : 'destructive'}>
+                          {entry.status === 'success' ? (
+                            <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                          ) : (
+                            <WarningCircle className="size-3.5" weight="fill" aria-hidden />
+                          )}
+                          {entry.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <ActionBtn label="Ver detalle" onClick={() => handleViewDetail(entry)}>
+                            <Eye className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Eliminar"
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
-            </Table>
-          </Sheet>
-        </CardContent>
-      </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
       {/* Modal de Detalle */}
-      <Modal open={selectedEntry !== null} onClose={() => setSelectedEntry(null)}>
-        <ModalDialog sx={{ minWidth: 700, maxWidth: 900 }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Detalle de Interacción
-          </Typography>
+      <Dialog
+        open={selectedEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedEntry(null)
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Detalle de Interacción</DialogTitle>
+          </DialogHeader>
 
           {selectedEntry && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Timestamp
-                  </Typography>
-                  <Typography level="body-md">{selectedEntry.timestamp}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Usuario
-                  </Typography>
-                  <Typography level="body-md">{selectedEntry.user}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Modelo
-                  </Typography>
-                  <Typography level="body-md">{selectedEntry.model}</Typography>
-                </Grid>
-                <Grid xs={6}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Categoría
-                  </Typography>
-                  <Typography level="body-md">{selectedEntry.category}</Typography>
-                </Grid>
-              </Grid>
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-4">
+                <DetailField label="Timestamp" value={selectedEntry.timestamp} />
+                <DetailField label="Usuario" value={selectedEntry.user} />
+                <DetailField label="Modelo" value={selectedEntry.model} />
+                <DetailField label="Categoría" value={selectedEntry.category} />
+              </div>
 
-              <Divider />
+              <div className="border-t border-border" />
 
-              <Box>
-                <Typography level="title-sm" sx={{ mb: 1 }}>
-                  Prompt Enviado
-                </Typography>
-                <Box
-                  sx={{
-                    p: 2,
-                    bgcolor: 'background.level1',
-                    borderRadius: 'sm',
-                    fontFamily: 'monospace',
-                    fontSize: '0.875rem',
-                    whiteSpace: 'pre-wrap',
-                    maxHeight: 200,
-                    overflow: 'auto',
-                    border: '1px solid',
-                    borderColor: 'divider',
-                  }}
-                >
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">Prompt Enviado</h3>
+                <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-4 font-mono text-sm text-foreground">
                   {selectedEntry.prompt}
-                </Box>
-              </Box>
+                </pre>
+              </div>
 
-              <Box>
-                <Typography level="title-sm" sx={{ mb: 1 }}>
-                  Respuesta del Modelo
-                </Typography>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">Respuesta del Modelo</h3>
                 {selectedEntry.status === 'success' ? (
-                  <Box
-                    sx={{
-                      p: 2,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'sm',
-                      fontFamily: 'monospace',
-                      fontSize: '0.875rem',
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: 300,
-                      overflow: 'auto',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                    }}
-                  >
+                  <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-4 font-mono text-sm text-foreground">
                     {selectedEntry.response}
-                  </Box>
+                  </pre>
                 ) : (
-                  <Card color="danger" variant="outlined">
-                    <CardContent>
-                      <Typography level="body-sm">Error: {selectedEntry.errorMessage}</Typography>
-                    </CardContent>
-                  </Card>
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+                    <p className="text-sm text-destructive-text">
+                      Error: {selectedEntry.errorMessage}
+                    </p>
+                  </div>
                 )}
-              </Box>
+              </div>
 
-              <Divider />
+              <div className="border-t border-border" />
 
-              <Grid container spacing={2}>
-                <Grid xs={4}>
-                  <Card variant="outlined" size="sm">
-                    <CardContent>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                        Tokens Utilizados
-                      </Typography>
-                      <Typography level="title-md">{selectedEntry.tokens}</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid xs={4}>
-                  <Card variant="outlined" size="sm">
-                    <CardContent>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                        Costo
-                      </Typography>
-                      <Typography level="title-md">${selectedEntry.cost.toFixed(5)}</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid xs={4}>
-                  <Card variant="outlined" size="sm">
-                    <CardContent>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                        Duración
-                      </Typography>
-                      <Typography level="title-md">{selectedEntry.duration}s</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-            </Box>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <p className="text-xs text-muted-foreground">Tokens Utilizados</p>
+                  <p className="mt-1 text-base font-semibold tabular-nums text-foreground">
+                    {selectedEntry.tokens}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <p className="text-xs text-muted-foreground">Costo</p>
+                  <p className="mt-1 text-base font-semibold tabular-nums text-foreground">
+                    ${selectedEntry.cost.toFixed(5)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <p className="text-xs text-muted-foreground">Duración</p>
+                  <p className="mt-1 text-base font-semibold tabular-nums text-foreground">
+                    {selectedEntry.duration}s
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
-        </ModalDialog>
-      </Modal>
-    </Box>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

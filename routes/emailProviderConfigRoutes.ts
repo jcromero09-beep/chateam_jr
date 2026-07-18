@@ -44,7 +44,14 @@ emailProviderConfigRoutes.delete(
   EmailProviderConfigController.remove
 );
 
-// Probar conexion del proveedor
+// Probar conexion con datos AD-HOC (aun sin guardar). Debe ir ANTES de "/:id/test".
+emailProviderConfigRoutes.post(
+  "/email-provider-configs/test",
+  isAuth,
+  EmailProviderConfigController.testConnectionAdHoc
+);
+
+// Probar conexion de una configuracion ya guardada
 emailProviderConfigRoutes.post(
   "/email-provider-configs/:id/test",
   isAuth,

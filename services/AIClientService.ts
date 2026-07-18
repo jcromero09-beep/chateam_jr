@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * AIClientService - Servicio Centralizado de IA
  *
@@ -23,6 +27,7 @@ import OpenAI from 'openai';
 import { getDefaultProviderForCapability, AICapability } from './AIProviderService';
 import { trackChatCompletion, trackEmbeddings } from './TokenTrackingService/TokenTrackingService';
 import AIProviderConfig from '../models/AIProviderConfig';
+import AIEntity from '../models/AIEntity';
 
 // ============================================================================
 // TIPOS E INTERFACES
@@ -138,6 +143,52 @@ setInterval(() => {
 // FUNCIONES INTERNAS
 // ============================================================================
 
+const GPT55_MODEL = 'gpt-5.5';
+const OPENAI_TEXT_FALLBACKS = [GPT55_MODEL, 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-3.5-turbo-0125'];
+
+const uniqueModels = (models: Array<string | undefined | null>): string[] => {
+  const seen = new Set<string>();
+  return models
+    .map(model => (model || '').trim())
+    .filter(model => {
+      if (!model || seen.has(model)) return false;
+      seen.add(model);
+      return true;
+    });
+};
+
+const getConfiguredTextModel = async (provider: AIProviderConfig): Promise<string> => {
+  const configured = provider.settings?.defaultModel?.trim();
+  if (configured) return configured;
+
+  const selected = await AIEntity.findOne({
+    where: {
+      engine: provider.provider,
+      type: 'text',
+      status: 'active',
+      isSelected: true
+    },
+    order: [['updatedAt', 'DESC'], ['id', 'ASC']]
+  });
+
+  return selected?.key || GPT55_MODEL;
+};
+
+const buildTextModelFallbacks = (primaryModel: string): string[] =>
+  uniqueModels([primaryModel, ...OPENAI_TEXT_FALLBACKS]);
+
+const isRecoverableModelError = (err: any): boolean => {
+  const status = Number(err?.status || err?.response?.status || 0);
+  const message = String(err?.message || err?.response?.data?.error?.message || '').toLowerCase();
+
+  if (status === 429 || status >= 500) return true;
+  if ((status === 400 || status === 404) && /(model|not found|does not exist|unsupported|not available|invalid)/i.test(message)) {
+    return true;
+  }
+
+  return false;
+};
+
 /**
  * Crea o recupera un cliente de IA para un proveedor especifico
  */
@@ -158,7 +209,7 @@ function createClient(provider: AIProviderConfig): { client: any; provider: AIPr
         apiKey: provider.apiKey,
         baseURL: provider.baseUrl || undefined,
         timeout: 60000, // 60 segundos timeout
-        maxRetries: 2
+        maxRetries: 1 // reducido de 2: ya hay retry en capas superiores (p.ej. RAGAgentService.chatCompletionWithRetry) → evita amplificación de reintentos anidados que dispara la latencia de cola
       });
       break;
 
@@ -228,17 +279,25 @@ export async function chatCompletion(options: ChatCompletionOptions): Promise<Ch
 
   // OpenAI
   if (provider.provider === 'openai') {
-    const defaultModel = provider.settings?.defaultModel || 'gpt-4o-mini';
-    const models = options.fallbackModels || [options.model || defaultModel, 'gpt-4o-mini', 'gpt-3.5-turbo-0125'];
+    const defaultModel = await getConfiguredTextModel(provider);
+    const models = options.fallbackModels || buildTextModelFallbacks(options.model || defaultModel);
+    let lastError: any;
 
     for (const modelo of models) {
       try {
-        const response = await client.chat.completions.create({
+        const requestParams: any = {
           model: modelo,
-          messages: options.messages,
-          max_tokens: options.maxTokens || 1000,
-          temperature: options.temperature ?? 0.7
-        });
+          messages: options.messages
+        };
+
+        if (modelo.startsWith('gpt-5')) {
+          requestParams.max_completion_tokens = options.maxTokens || 1000;
+        } else {
+          requestParams.max_tokens = options.maxTokens || 1000;
+          requestParams.temperature = options.temperature ?? 0.7;
+        }
+
+        const response = await client.chat.completions.create(requestParams);
 
         // Track tokens
         if (options.companyId && response.usage) {
@@ -257,16 +316,20 @@ export async function chatCompletion(options: ChatCompletionOptions): Promise<Ch
           provider: provider.provider
         };
       } catch (err: any) {
-        if (err.status === 429) {
-          console.warn(`[AIClientService] Rate limit en ${modelo}, intentando siguiente modelo...`);
-          await new Promise(r => setTimeout(r, 1000));
+        lastError = err;
+        const canTryNext = isRecoverableModelError(err) && modelo !== models[models.length - 1];
+        if (canTryNext) {
+          console.warn(
+            '[AIClientService] Modelo ' + modelo + ' no disponible/reintentable (' + (err?.status || 'N/A') + '), intentando siguiente modelo...'
+          );
+          await new Promise(r => setTimeout(r, err?.status === 429 ? 1000 : 250));
           continue;
         }
         throw err;
       }
     }
 
-    throw new Error('Todos los modelos fallaron por rate limit');
+    throw lastError || new Error('Todos los modelos configurados fallaron');
   }
 
   // Anthropic
@@ -462,8 +525,8 @@ export async function analyzeImage(
   const { client, provider } = await getClientForCapability('imageAnalysis');
 
   if (provider.provider === 'openai') {
-    const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+    const requestParams: any = {
+      model: 'gpt-5.5',
       messages: [
         {
           role: 'user',
@@ -473,8 +536,11 @@ export async function analyzeImage(
           ]
         }
       ],
-      max_tokens: options?.maxTokens || 500
-    });
+    };
+
+    requestParams.max_completion_tokens = options?.maxTokens || 500;
+
+    const response = await client.chat.completions.create(requestParams);
 
     // Track tokens
     if (options?.companyId && response.usage) {
@@ -623,55 +689,78 @@ export async function chatCompletionWithTools(
   const { client, provider } = await getClientForCapability('text');
 
   if (provider.provider === 'openai') {
-    const defaultModel = provider.settings?.defaultModel || 'gpt-4o-mini';
-    const model = options.model || defaultModel;
+    const defaultModel = await getConfiguredTextModel(provider);
+    const models = options.fallbackModels || buildTextModelFallbacks(options.model || defaultModel);
+    let lastError: any;
 
-    const requestParams: any = {
-      model,
-      messages: options.messages,
-      max_tokens: options.maxTokens || 1000,
-      temperature: options.temperature ?? 0.7
-    };
+    for (const model of models) {
+      try {
+        const requestParams: any = {
+          model,
+          messages: options.messages
+        };
 
-    // Agregar tools si existen
-    if (options.tools && options.tools.length > 0) {
-      requestParams.tools = options.tools;
-      if (options.tool_choice) {
-        requestParams.tool_choice = options.tool_choice;
+        if (model.startsWith('gpt-5')) {
+          requestParams.max_completion_tokens = options.maxTokens || 1000;
+        } else {
+          requestParams.max_tokens = options.maxTokens || 1000;
+          requestParams.temperature = options.temperature ?? 0.7;
+        }
+
+        // Agregar tools si existen
+        if (options.tools && options.tools.length > 0) {
+          requestParams.tools = options.tools;
+          if (options.tool_choice) {
+            requestParams.tool_choice = options.tool_choice;
+          }
+        }
+
+        const response = await client.chat.completions.create(requestParams);
+
+        // Track tokens
+        if (options.companyId && response.usage) {
+          await trackChatCompletion(
+            options.companyId,
+            response.model,
+            response.usage,
+            options.module || 'chat'
+          );
+        }
+
+        // Extraer tool calls si existen
+        const choice = response.choices[0];
+        const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
+          id: tc.id,
+          type: tc.type as 'function',
+          function: {
+            name: tc.function.name,
+            arguments: tc.function.arguments
+          }
+        }));
+
+        return {
+          content: choice?.message?.content || '',
+          usage: response.usage,
+          model: response.model,
+          provider: provider.provider,
+          toolCalls: toolCalls || undefined,
+          finishReason: choice?.finish_reason || undefined
+        };
+      } catch (err: any) {
+        lastError = err;
+        const canTryNext = isRecoverableModelError(err) && model !== models[models.length - 1];
+        if (canTryNext) {
+          console.warn(
+            '[AIClientService] Modelo tools ' + model + ' no disponible/reintentable (' + (err?.status || 'N/A') + '), intentando siguiente modelo...'
+          );
+          await new Promise(r => setTimeout(r, err?.status === 429 ? 1000 : 250));
+          continue;
+        }
+        throw err;
       }
     }
 
-    const response = await client.chat.completions.create(requestParams);
-
-    // Track tokens
-    if (options.companyId && response.usage) {
-      await trackChatCompletion(
-        options.companyId,
-        response.model,
-        response.usage,
-        options.module || 'chat'
-      );
-    }
-
-    // Extraer tool calls si existen
-    const choice = response.choices[0];
-    const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
-      id: tc.id,
-      type: tc.type as 'function',
-      function: {
-        name: tc.function.name,
-        arguments: tc.function.arguments
-      }
-    }));
-
-    return {
-      content: choice?.message?.content || '',
-      usage: response.usage,
-      model: response.model,
-      provider: provider.provider,
-      toolCalls: toolCalls || undefined,
-      finishReason: choice?.finish_reason || undefined
-    };
+    throw lastError || new Error('Todos los modelos configurados fallaron para tools');
   }
 
   // Para otros proveedores (Anthropic, Google), usar chatCompletion normal sin tools

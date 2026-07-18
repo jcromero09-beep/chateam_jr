@@ -9,7 +9,7 @@
  * @author JR Chateam Development Team
  */
 
-import { WASocket } from "@whiskeysockets/baileys";
+import { WASocket } from "baileys";
 import { hybridWhatsAppService } from "../services/WhatsAppAdapter/HybridWhatsAppService";
 import { CloudAPIFactory } from "../services/WhatsAppCloudAPI/CloudAPIService";
 import logger from "../utils/logger";

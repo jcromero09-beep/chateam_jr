@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * CreativeScoringService
  *
@@ -268,8 +272,8 @@ Responde SOLO con JSON válido con esta estructura exacta:
   "benchmarkComparison": "Comparación con benchmarks de la industria ${industry} para objetivo ${objective}"
 }`;
 
-    const model = this.provider?.settings?.defaultModel || "gpt-4o";
-    const jsonModeModels = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo-1106", "gpt-4-turbo-preview", "gpt-4-turbo"];
+    const model = this.provider?.settings?.defaultModel || "gpt-5.5";
+    const jsonModeModels = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo-1106", "gpt-4-turbo-preview", "gpt-4-turbo"];
     const supportsJsonMode = jsonModeModels.some(m => model.includes(m));
 
     logger.info(`${LOG_PREFIX} Scoring creativo para empresa ${companyId}`);

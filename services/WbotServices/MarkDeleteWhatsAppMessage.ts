@@ -33,12 +33,6 @@ const MarkDeleteWhatsAppMessage = async (from: any, timestamp?: any, msgId?: str
             });
 
             if (messageToUpdate) {
-                const settings = await CompaniesSettings.findOne({
-                    where: {
-                        companyId: companyId
-                    }
-                });
-
                 const ticket = await Ticket.findOne({
                     where: {
                         id: messageToUpdate.ticketId,
@@ -46,16 +40,12 @@ const MarkDeleteWhatsAppMessage = async (from: any, timestamp?: any, msgId?: str
                     }
                 })
 
-                if (settings.lgpdDeleteMessage === "enabled" && settings.enableLGPD === "enabled") {
+                // ChatEAM: conservamos SIEMPRE el contenido original aunque el mensaje se elimine.
+                // Solo lo marcamos como eliminado (isDeleted); el frontend muestra el badge
+                // "Mensaje eliminado" + el contenido real. No se sobreescribe el body.
+                await messageToUpdate.update({ isDeleted: true });
 
-                    await messageToUpdate.update({ body: "🚫 _Mensagem Apagada_", isDeleted: true });
-
-                } else {
-                    await messageToUpdate.update({ isDeleted: true });
-
-                }
-
-                await UpdateTicketService({ ticketData: { lastMessage: "🚫 _Mensagem Apagada_" }, ticketId: ticket.id, companyId })
+                await UpdateTicketService({ ticketData: { lastMessage: "🚫 Mensaje eliminado" }, ticketId: ticket.id, companyId })
 
                 const io = getIO();
                 io.of(String(companyId))
@@ -70,7 +60,7 @@ const MarkDeleteWhatsAppMessage = async (from: any, timestamp?: any, msgId?: str
         }
 
         return timestamp;
-    };
+    }
 
 }
 

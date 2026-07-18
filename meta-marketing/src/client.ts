@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import axiosRetry from 'axios-retry';
 import Bottleneck from 'bottleneck';
@@ -7,6 +8,7 @@ export class MetaClient {
   private axios: AxiosInstance;
   private limiter: Bottleneck;
   private config: Required<MetaConfig>;
+  private appsecretProof?: string;
 
   constructor(config: MetaConfig) {
     this.config = {
@@ -16,7 +18,14 @@ export class MetaClient {
       timeout: config.timeout || 30000,
       retries: config.retries || 3,
       retryDelay: config.retryDelay || 1000,
+      appSecret: config.appSecret || '',
     };
+
+    // [Fase2] appsecret_proof: firma HMAC-SHA256 del token con el secret de la app.
+    // Si el token se filtra, sin la firma no sirve desde otra IP/app.
+    this.appsecretProof = this.config.appSecret
+      ? crypto.createHmac('sha256', this.config.appSecret).update(this.config.accessToken).digest('hex')
+      : undefined;
 
     this.axios = axios.create({
       baseURL: `${this.config.baseUrl}/${this.config.apiVersion}`,
@@ -27,12 +36,24 @@ export class MetaClient {
       },
     });
 
+    // La firma viaja como query param en TODAS las llamadas (GET y POST).
+    if (this.appsecretProof) {
+      this.axios.interceptors.request.use(cfg => {
+        cfg.params = { ...(cfg.params || {}), appsecret_proof: this.appsecretProof };
+        return cfg;
+      });
+    }
+
     axiosRetry(this.axios, {
       retries: this.config.retries,
       retryDelay: (retryCount) => {
         return Math.min(this.config.retryDelay * Math.pow(2, retryCount - 1), 10000);
       },
       retryCondition: (error) => {
+        // [Fase2] Nunca reintentar un bloqueo por politicas (368) ni un limite de
+        // llamadas: Meta lo cuenta igual y alarga el castigo.
+        const code = (error.response?.data as any)?.error?.code;
+        if (code === 368 || [4, 17, 32, 613, 80000, 80003, 80004, 80014].includes(code)) return false;
         return axiosRetry.isNetworkOrIdempotentRequestError(error) ||
                (error.response?.status === 429) ||
                (error.response?.status === 500) ||
@@ -126,37 +147,86 @@ export class MetaClient {
     );
   }
 
+  /**
+   * Lee la cuota que reporta Meta y frena ANTES de que nos frene ella.
+   *
+   * Contrato real (docs Graph API / Marketing API rate limiting):
+   *  - x-app-usage: {call_count,total_time,total_cputime} PLANO, valores en %.
+   *  - x-business-use-case-usage: {"<id>":[{type,call_count,total_cputime,
+   *    total_time,estimated_time_to_regain_access,ads_api_access_tier}]} — mapa
+   *    de ARRAYS, %, y el tiempo de recuperacion en MINUTOS.
+   *  - x-ad-account-usage: {acc_id_util_pct, reset_time_duration(seg)}.
+   *  - x-fb-ads-insights-throttle: {app_id_util_pct, acc_id_util_pct}.
+   *
+   * Antes se hacia Object.assign del mapa sobre {call_count:0}: call_count
+   * quedaba SIEMPRE en 0 y el freno no salto nunca. Ademas Meta avisa: al llegar
+   * al limite hay que PARAR — si sigues llamando el contador no baja y alargas
+   * el bloqueo. Por eso al 100% se corta el grifo, no solo se ralentiza.
+   */
   private handleRateLimit(response: AxiosResponse): void {
-    const usageHeader = response.headers['x-business-use-case-usage'];
-    const adAccountUsage = response.headers['x-ad-account-usage'];
-    const appUsage = response.headers['x-app-usage'];
+    const raws = {
+      buc: response.headers['x-business-use-case-usage'],
+      app: response.headers['x-app-usage'],
+      acct: response.headers['x-ad-account-usage'],
+      insights: response.headers['x-fb-ads-insights-throttle'],
+    };
+    if (!raws.buc && !raws.app && !raws.acct && !raws.insights) return;
 
-    if (usageHeader || adAccountUsage || appUsage) {
-      const rateLimitInfo: RateLimitInfo = {
-        call_count: 0,
-        total_time: 0,
-        total_cputime: 0,
-        type: 'business',
-      };
+    const parse = (raw: any): any => {
+      if (!raw) return undefined;
+      try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return undefined; }
+    };
 
-      if (usageHeader) {
-        try {
-          const usage = JSON.parse(usageHeader);
-          Object.assign(rateLimitInfo, usage);
-        } catch (e) {
-          console.warn('No se pudo parsear x-business-use-case-usage:', usageHeader);
+    let pct = 0;          // peor porcentaje de uso visto
+    let blockMs = 0;      // cuanto pide Meta que esperemos
+    let tier: string | undefined;
+
+    const pctFrom = (o: any, keys: string[]) => {
+      if (!o || typeof o !== 'object') return;
+      for (const k of keys) pct = Math.max(pct, Number(o[k]) || 0);
+    };
+
+    const buc = parse(raws.buc);
+    if (buc && typeof buc === 'object') {
+      for (const entries of Object.values(buc)) {
+        const list = Array.isArray(entries) ? entries : [entries];
+        for (const e of list as any[]) {
+          pctFrom(e, ['call_count', 'total_cputime', 'total_time']);
+          blockMs = Math.max(blockMs, (Number(e?.estimated_time_to_regain_access) || 0) * 60_000);
+          tier = tier || e?.ads_api_access_tier;
         }
       }
+    }
+    pctFrom(parse(raws.app), ['call_count', 'total_cputime', 'total_time']);
 
-      if (rateLimitInfo.call_count > 80) {
-        console.warn('⚠️ Rate limit cercano:', rateLimitInfo);
-        this.limiter.updateSettings({
-          minTime: 500,
-          maxConcurrent: 2,
-        });
-      }
+    const acct = parse(raws.acct);
+    pctFrom(acct, ['acc_id_util_pct']);
+    if (acct?.reset_time_duration && (Number(acct.acc_id_util_pct) || 0) >= 100) {
+      blockMs = Math.max(blockMs, Number(acct.reset_time_duration) * 1000);
+    }
+    pctFrom(parse(raws.insights), ['app_id_util_pct', 'acc_id_util_pct']);
+
+    if (pct >= 100 || blockMs > 0) {
+      const waitMs = blockMs || 5 * 60_000;
+      console.error(
+        `⛔ Cuota Meta agotada (${pct}%${tier ? `, tier ${tier}` : ''}). ` +
+        `Cortando llamadas ~${Math.round(waitMs / 60000)} min: insistir alarga el bloqueo.`
+      );
+      // reservoir 0 = ninguna llamada sale hasta que se restaure.
+      this.limiter.updateSettings({ reservoir: 0, maxConcurrent: 1 });
+      setTimeout(() => {
+        console.warn('🔓 Ventana de cuota Meta reabierta, reanudando con ritmo conservador');
+        this.limiter.updateSettings({ reservoir: 20, minTime: 1000, maxConcurrent: 2 });
+      }, waitMs).unref?.();
+      return;
+    }
+
+    if (pct >= 70) {
+      console.warn(`⚠️ Cuota Meta al ${pct}%${tier ? ` (tier ${tier})` : ''} — bajando el ritmo`);
+      this.limiter.updateSettings({ minTime: pct >= 90 ? 2000 : 500, maxConcurrent: pct >= 90 ? 1 : 2 });
     }
   }
+
 
   private handleApiError(error: any): void {
     if (error.response?.data?.error) {

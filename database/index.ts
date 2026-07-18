@@ -65,6 +65,8 @@ import Session from "../models/Session";
 import AIProviderConfig from "../models/AIProviderConfig";
 import AIPromptTemplate from "../models/AIPromptTemplate";
 import WebChatWidget from "../models/WebChatWidget";
+import WebChatConversation from "../models/WebChatConversation";
+import WebChatConversationMessage from "../models/WebChatConversationMessage";
 import WhatsAppTemplate from "../models/WhatsAppTemplate";
 
 // Appointment Models
@@ -81,6 +83,8 @@ import ReminderTemplate from "../models/Appointments/ReminderTemplate";
 // Facebook Conversions API Models
 import FacebookDataset from "../models/FacebookDataset";
 import FacebookConversionEvent from "../models/FacebookConversionEvent";
+import KanbanLeadConversionEvent from "../models/KanbanLeadConversionEvent";
+import CompanyMetaConversionSetting from "../models/CompanyMetaConversionSetting";
 
 // AI Image Generation Models
 import AIImageGeneration from "../models/AIImageGeneration";
@@ -102,6 +106,7 @@ import CampaignRecommendation from "../models/CampaignRecommendation";
 
 // Campaign Messages (mensajes de anuncios de Facebook/Meta)
 import CampaignMessage from "../models/CampaignMessage";
+import InsightsDaily from "../models/InsightsDaily"; // [Fase2·D5.1]
 
 // Customer Origin (Origen de Cliente)
 import CustomerOrigin from "../models/CustomerOrigin";
@@ -130,6 +135,8 @@ import KanbanMovementLog from "../models/KanbanMovementLog";
 // Comment Auto-Reply
 import CommentAutoReplyCampaign from "../models/CommentAutoReplyCampaign";
 import CommentAutoReplyLog from "../models/CommentAutoReplyLog";
+// Módulo Comentarios Sociales (SocialComments) — settings de modo de respuesta
+import CommentResponseSettings from "../models/CommentResponseSettings";
 
 // AI Credit System (Tipos, Balances, Asignaciones, Transacciones)
 import AICreditType from "../models/AICreditType";
@@ -149,6 +156,10 @@ import AffiliateWallet from "../models/AffiliateWallet";
 import AffiliateTransaction from "../models/AffiliateTransaction";
 import AffiliateWithdrawal from "../models/AffiliateWithdrawal";
 import AffiliateLink from "../models/AffiliateLink";
+// Meta Ads Agent Models
+import MetaAgentPlan from "../models/MetaAgentPlan";
+import MetaAgentActionLog from "../models/MetaAgentActionLog";
+import MetaOfficialMcpConnection from "../models/MetaOfficialMcpConnection";
 // UGC Models
 import UGCCampaign from "../models/UGCCampaign";
 import UGCVideoJob from "../models/UGCVideoJob";
@@ -178,6 +189,10 @@ import IntegrationWebhookEvent from "../models/Integrations/IntegrationWebhookEv
 import IntegrationEntityMapping from "../models/Integrations/IntegrationEntityMapping";
 import IntegrationApiRequest from "../models/Integrations/IntegrationApiRequest";
 import AISupportCorrection from "../models/AISupportCorrection";
+import AIHistoricalQA from "../models/AIHistoricalQA";
+// Sprint 1 (2026-05-20) — Loop de Aprendizaje desde Correcciones Humanas
+import AICorrectionReviewQueue from "../models/AICorrectionReviewQueue";
+import AICorrectionLearned from "../models/AICorrectionLearned";
 // FASE 2 Coexistencia WhatsApp — ledger de eventos inbound para dedupe e idempotencia
 import InboundEventLedger from "../models/InboundEventLedger";
 // FASE 3 Coexistencia WhatsApp — identidad unificada
@@ -185,6 +200,27 @@ import UnifiedConversation from "../models/UnifiedConversation";
 import ContactBinding from "../models/ContactBinding";
 // FASE 6 Coexistencia WhatsApp — auditoría de dispatches salientes
 import OutboundDispatch from "../models/OutboundDispatch";
+
+// Notifications (centro de notificaciones in-app)
+import Notification from "../models/Notification";
+// [Barrido] Modelos VIVOS que nunca se registraron => sus servicios reventaban con
+// "Model not initialized". Medido en produccion: /queue-options daba 500 y la tabla
+// CampaignAlerts llevaba 0 filas porque createAlert fallaba SIEMPRE.
+import QueueOption from "../models/QueueOption";
+import CampaignAlert from "../models/CampaignAlert";
+import CampaignRule from "../models/CampaignRule";
+import CampaignRuleLog from "../models/CampaignRuleLog";
+import AgentDevice from "../models/AgentDevice";
+import AgentInteraction from "../models/AgentInteraction";
+import ContactTemperature from "../models/ContactTemperature";
+import RecommendationRun from "../models/RecommendationRun"; // [Ola D · G0]
+import CampaignApproval from "../models/CampaignApproval"; // [Ola F · F2.1]
+import SensitiveCategory from "../models/SensitiveCategory"; // [Ola H · H.1]
+import CommentModerationAudit from "../models/CommentModerationAudit"; // [Ola H · H.5]
+import MetaAuditLog from "../models/MetaAuditLog"; // [N5]
+import ImpersonationAudit from "../models/ImpersonationAudit"; // [Super]
+import CompanyUser from "../models/CompanyUser"; // [Multi-empresa] membresías usuario↔empresa
+import CompanyUserQueue from "../models/CompanyUserQueue"; // [Multi-empresa] colas por membresía
 
 // AI Platform Models (batch)
 import AIDocument from "../models/AIDocument";
@@ -209,10 +245,17 @@ import AIABTestVariant from "../models/AIABTestVariant";
 import AITrace from "../models/AITrace";
 import AISpan from "../models/AISpan";
 import AIUsageMetric from "../models/AIUsageMetric";
+import AITurnEvent from "../models/AITurnEvent";
+import UserTermsAcceptance from "../models/UserTermsAcceptance"; // [Fase A] faltaba registrar -> /settings/terms/stats daba 500
+import AutomationRule from "../models/AutomationRule"; // [Fase E] motor de reglas de ticket
+import Role from "../models/Role"; // [Fase3·N2.0] roles configurables por empresa
 
 const sequelize = new Sequelize(dbConfig);
 
 const models = [
+  UserTermsAcceptance,
+  AutomationRule,
+  Role,
   Company,
   User,
   Contact,
@@ -276,6 +319,8 @@ const models = [
   AIProviderConfig,
   AIPromptTemplate,
   WebChatWidget,
+  WebChatConversation,
+  WebChatConversationMessage,
   WhatsAppTemplate,
   // Appointment Models
   AppointmentServiceModel,
@@ -290,6 +335,8 @@ const models = [
   // Facebook Conversions API Models
   FacebookDataset,
   FacebookConversionEvent,
+  KanbanLeadConversionEvent,
+  CompanyMetaConversionSetting,
   // AI Image Generation Models
   AIImageGeneration,
   AIImageGenerationItem,
@@ -314,6 +361,7 @@ const models = [
   CampaignRecommendation,
   // Campaign Messages (mensajes de anuncios de Facebook/Meta)
   CampaignMessage,
+  InsightsDaily,
   // Customer Origin (Origen de Cliente)
   CustomerOrigin,
   // Email Marketing Models (Acelle Mail)
@@ -335,9 +383,15 @@ const models = [
   AffiliateTransaction,
   AffiliateWithdrawal,
   AffiliateLink,
+  // Meta Ads Agent
+  MetaAgentPlan,
+  MetaAgentActionLog,
+  MetaOfficialMcpConnection,
   // Comment Auto-Reply
   CommentAutoReplyCampaign,
   CommentAutoReplyLog,
+  // Módulo Comentarios Sociales (SocialComments) — settings de modo de respuesta
+  CommentResponseSettings,
   // AI Credit System (Tipos, Balances, Asignaciones, Transacciones)
   AICreditType,
   AICreditBalance,
@@ -369,6 +423,7 @@ const models = [
   AITrace,
   AISpan,
   AIUsageMetric,
+  AITurnEvent,
   // UGC Models
   UGCCampaign,
   UGCVideoJob,
@@ -396,6 +451,10 @@ const models = [
   IntegrationEntityMapping,
   IntegrationApiRequest,
   AISupportCorrection,
+  AIHistoricalQA,
+  // Sprint 1 (2026-05-20) — Loop de Aprendizaje desde Correcciones Humanas
+  AICorrectionReviewQueue,
+  AICorrectionLearned,
   // FASE 2 Coexistencia WhatsApp
   InboundEventLedger,
   // FASE 3 Coexistencia WhatsApp
@@ -403,6 +462,24 @@ const models = [
   ContactBinding,
   // FASE 6 Coexistencia WhatsApp
   OutboundDispatch,
+  // Notifications (centro de notificaciones in-app)
+  Notification,
+  // [Barrido] Registro de los modelos vivos que faltaban (ver imports arriba).
+  QueueOption,
+  CampaignAlert,
+  CampaignRule,
+  CampaignRuleLog,
+  AgentDevice,
+  AgentInteraction,
+  ContactTemperature,
+  RecommendationRun,
+  CampaignApproval,
+  SensitiveCategory,
+  CommentModerationAudit,
+  MetaAuditLog,
+  ImpersonationAudit,
+  CompanyUser,
+  CompanyUserQueue,
 ];
 
 // console.log("🔄 Adding models to sequelize...");

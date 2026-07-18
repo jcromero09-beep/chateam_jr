@@ -1,38 +1,33 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, forwardRef } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Sheet,
-  Table,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-  Switch,
-} from '@mui/joy'
+  Plus,
+  Trash,
+  PencilSimple,
+  Users,
+  UploadSimple,
+  MagnifyingGlass,
+  ArrowClockwise,
+  EnvelopeSimple,
+  ListBullets,
+  CaretLeft,
+} from '@phosphor-icons/react'
+// [Fase2·G] CircularProgress se conserva como MUI (design system sin equivalente Radix).
+import { CircularProgress } from '@mui/joy'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  People as PeopleIcon,
-  Upload as UploadIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Email as EmailIcon,
-  List as ListIcon,
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import * as emailService from '../services/emailCampaignService'
 
 // ---- Type definitions ----
@@ -65,6 +60,43 @@ interface UploadResult {
   imported: number
   errors: string[]
 }
+
+const LIST_COLUMNS = [
+  'Nombre',
+  'Email Remitente',
+  'Nombre Remitente',
+  'Contactos',
+  'Acelle UID',
+  '',
+]
+
+const CONTACT_COLUMNS = ['Nombre', 'Email', 'Número', 'Estado WhatsApp', '']
+
+// Botón de acción de fila (mismo look que RowAction, con onClick).
+// forwardRef + spread de props: Radix `TooltipTrigger asChild` clona el hijo y le
+// inyecta ref y handlers; sin esto el tooltip no abre.
+// Sin `title` nativo: lo aporta el Tooltip de Radix (evita tooltip duplicado).
+interface ActionBtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  label: string
+}
+
+const ActionBtn = forwardRef<HTMLButtonElement, ActionBtnProps>(
+  ({ label, className, children, ...props }, ref) => (
+    <button
+      ref={ref}
+      type="button"
+      aria-label={label}
+      className={cn(
+        'appearance-none border-0 bg-transparent [font-family:inherit] cursor-pointer flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  ),
+)
+ActionBtn.displayName = 'ActionBtn'
 
 // ---- Component ----
 
@@ -315,513 +347,483 @@ export default function EmailMarketingTemplates() {
   // ---- Render: Lists View ----
 
   const renderListsView = () => (
-    <Stack spacing={3}>
+    <div className="space-y-6">
       {/* Header */}
-      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-        <Stack direction="row" spacing={2} alignItems="center">
-          <EmailIcon sx={{ fontSize: 32, color: 'primary.500' }} />
-          <Box>
-            <Typography level="h2">Listas de Email</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Gestiona las listas de contactos para campanas de Acelle Mail
-            </Typography>
-          </Box>
-        </Stack>
-        <Button
-          startDecorator={<AddIcon />}
-          color="primary"
-          onClick={() => setOpenCreateListModal(true)}
-        >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <EnvelopeSimple className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Listas de Email
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Gestiona las listas de contactos para campañas de Acelle Mail
+            </p>
+          </div>
+        </div>
+        <Button size="sm" onClick={() => setOpenCreateListModal(true)}>
+          <Plus className="size-4" weight="bold" aria-hidden />
           Nueva Lista de Email
         </Button>
-      </Stack>
+      </div>
 
       {/* Stats */}
-      <Grid container spacing={2}>
-        <Grid xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                    Total de Listas
-                  </Typography>
-                  <Typography level="h2">{contactLists.length}</Typography>
-                </Box>
-                <ListIcon sx={{ fontSize: 48, color: 'primary.500', opacity: 0.3 }} />
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                    Listas Acelle
-                  </Typography>
-                  <Typography level="h2">
-                    {contactLists.filter((l) => l.acelleListUid).length}
-                  </Typography>
-                </Box>
-                <EmailIcon sx={{ fontSize: 48, color: 'success.500', opacity: 0.3 }} />
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                    Total de Contactos
-                  </Typography>
-                  <Typography level="h2">
-                    {contactLists.reduce((acc, l) => acc + (l.contactsCount ?? 0), 0).toLocaleString()}
-                  </Typography>
-                </Box>
-                <PeopleIcon sx={{ fontSize: 48, color: 'warning.500', opacity: 0.3 }} />
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <StatTile label="Total de Listas" value={String(contactLists.length)} />
+        <StatTile
+          label="Listas Acelle"
+          value={String(contactLists.filter((l) => l.acelleListUid).length)}
+          tone="success"
+        />
+        <StatTile
+          label="Total de Contactos"
+          value={contactLists
+            .reduce((acc, l) => acc + (l.contactsCount ?? 0), 0)
+            .toLocaleString()}
+        />
+      </div>
 
       {/* Search + Refresh */}
-      <Card>
-        <CardContent>
-          <Stack direction="row" spacing={1}>
-            <Input
-              placeholder="Buscar listas..."
-              value={searchParam}
-              onChange={(e) => setSearchParam(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearchLists()}
-              startDecorator={<SearchIcon />}
-              sx={{ flexGrow: 1 }}
-            />
-            <Button
-              variant="outlined"
-              color="neutral"
-              startDecorator={loading ? <CircularProgress size="sm" /> : <RefreshIcon />}
-              onClick={handleSearchLists}
-              disabled={loading}
-            >
-              Buscar
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Input
+            placeholder="Buscar listas..."
+            aria-label="Buscar listas"
+            value={searchParam}
+            onChange={(e) => setSearchParam(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearchLists()}
+            leftIcon={<MagnifyingGlass aria-hidden />}
+            className="h-10"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSearchLists}
+          loading={loading}
+          disabled={loading}
+        >
+          {!loading && <ArrowClockwise className="size-4" aria-hidden />}
+          Buscar
+        </Button>
+      </div>
 
       {/* Table */}
-      <Card>
-        <Sheet sx={{ overflow: 'auto', borderRadius: 'sm' }}>
-          <Table stickyHeader>
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[940px] text-sm">
             <thead>
-              <tr>
-                <th style={{ minWidth: 200 }}>Nombre</th>
-                <th style={{ minWidth: 220 }}>Email Remitente</th>
-                <th style={{ minWidth: 120 }}>Nombre Remitente</th>
-                <th style={{ minWidth: 100 }}>Contactos</th>
-                <th style={{ minWidth: 140 }}>Acelle UID</th>
-                <th style={{ minWidth: 160 }}>Acciones</th>
+              <tr className="border-b border-border bg-muted/40 text-left">
+                {LIST_COLUMNS.map((c, i) => (
+                  <th
+                    key={i}
+                    className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    {c}
+                  </th>
+                ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                     <CircularProgress size="sm" />
                   </td>
                 </tr>
               ) : contactLists.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      No hay listas de email. Crea la primera lista.
-                    </Typography>
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                    No hay listas de email. Crea la primera lista.
                   </td>
                 </tr>
               ) : (
                 contactLists.map((list) => (
-                  <tr key={list.id}>
-                    <td>
-                      <Typography level="body-sm" fontWeight="lg">
-                        {list.name}
-                      </Typography>
+                  <tr key={list.id} className="transition-colors hover:bg-accent/40">
+                    <td className="px-4 py-3 font-medium text-foreground">{list.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{list.fromEmail}</td>
+                    <td className="px-4 py-3 text-foreground">{list.fromName}</td>
+                    <td className="px-4 py-3 tabular-nums text-foreground">
+                      {list.contactsCount?.toLocaleString() ?? '--'}
                     </td>
-                    <td>
-                      <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                        {list.fromEmail}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{list.fromName}</Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {list.contactsCount?.toLocaleString() ?? '--'}
-                      </Typography>
-                    </td>
-                    <td>
+                    <td className="px-4 py-3">
                       {list.acelleListUid ? (
-                        <Chip size="sm" color="success" variant="soft">
-                          {list.acelleListUid.slice(0, 12)}...
-                        </Chip>
+                        <Badge variant="success">{list.acelleListUid.slice(0, 12)}...</Badge>
                       ) : (
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Sin sincronizar
-                        </Typography>
+                        <span className="text-xs text-muted-foreground">Sin sincronizar</span>
                       )}
                     </td>
-                    <td>
-                      <Stack direction="row" spacing={0.5}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
                         <Tooltip title="Ver contactos">
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
+                          <ActionBtn
+                            label="Ver contactos"
                             onClick={() => handleViewContacts(list)}
+                            className="text-primary hover:bg-primary/10 hover:text-primary"
                           >
-                            <PeopleIcon />
-                          </IconButton>
+                            <Users className="size-[18px]" aria-hidden />
+                          </ActionBtn>
                         </Tooltip>
                         <Tooltip title="Editar">
-                          <IconButton size="sm" variant="plain" color="neutral">
-                            <EditIcon />
-                          </IconButton>
+                          <ActionBtn label="Editar" onClick={() => {}}>
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </ActionBtn>
                         </Tooltip>
                         <Tooltip title="Eliminar">
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                          <ActionBtn
+                            label="Eliminar"
                             onClick={() => confirmDelete('list', list.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
                         </Tooltip>
-                      </Stack>
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
-          </Table>
-        </Sheet>
-      </Card>
-    </Stack>
+          </table>
+        </div>
+      </div>
+    </div>
   )
 
   // ---- Render: List Detail View ----
 
   const renderDetailView = () => (
-    <Stack spacing={3}>
+    <div className="space-y-6">
       {/* Header */}
-      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Button
-            variant="outlined"
-            color="neutral"
-            size="sm"
-            onClick={handleBackToLists}
-            sx={{ whiteSpace: 'nowrap' }}
-          >
-            &lt; Volver
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={handleBackToLists}>
+            <CaretLeft className="size-4" weight="bold" aria-hidden />
+            Volver
           </Button>
-          <Box>
-            <Typography level="h3">{selectedList?.name}</Typography>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                {selectedList?.fromEmail}
-              </Typography>
-              {selectedList?.acelleListUid && (
-                <Chip size="sm" color="success" variant="soft">
-                  Acelle
-                </Chip>
-              )}
-            </Stack>
-          </Box>
-        </Stack>
-        <Stack direction="row" spacing={1}>
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              {selectedList?.name}
+            </h2>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">{selectedList?.fromEmail}</span>
+              {selectedList?.acelleListUid && <Badge variant="success">Acelle</Badge>}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <Button
-            variant="outlined"
-            color="neutral"
-            startDecorator={<UploadIcon />}
+            variant="outline"
+            size="sm"
             onClick={() => {
               setUploadResult(null)
               setUploadFile(null)
               setOpenUploadModal(true)
             }}
           >
+            <UploadSimple className="size-4" aria-hidden />
             Importar Excel
           </Button>
-          <Button
-            startDecorator={<AddIcon />}
-            color="primary"
-            onClick={() => setOpenCreateContactModal(true)}
-          >
+          <Button size="sm" onClick={() => setOpenCreateContactModal(true)}>
+            <Plus className="size-4" weight="bold" aria-hidden />
             Agregar Contacto
           </Button>
-        </Stack>
-      </Stack>
+        </div>
+      </div>
 
       {/* Search */}
-      <Card>
-        <CardContent>
-          <Stack direction="row" spacing={1}>
-            <Input
-              placeholder="Buscar contactos por nombre o email..."
-              value={searchParam}
-              onChange={(e) => setSearchParam(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearchContacts()}
-              startDecorator={<SearchIcon />}
-              sx={{ flexGrow: 1 }}
-            />
-            <Button
-              variant="outlined"
-              color="neutral"
-              startDecorator={loading ? <CircularProgress size="sm" /> : <RefreshIcon />}
-              onClick={handleSearchContacts}
-              disabled={loading}
-            >
-              Buscar
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Input
+            placeholder="Buscar contactos por nombre o email..."
+            aria-label="Buscar contactos"
+            value={searchParam}
+            onChange={(e) => setSearchParam(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearchContacts()}
+            leftIcon={<MagnifyingGlass aria-hidden />}
+            className="h-10"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSearchContacts}
+          loading={loading}
+          disabled={loading}
+        >
+          {!loading && <ArrowClockwise className="size-4" aria-hidden />}
+          Buscar
+        </Button>
+      </div>
 
       {/* Contacts Table */}
-      <Card>
-        <Sheet sx={{ overflow: 'auto', borderRadius: 'sm' }}>
-          <Table stickyHeader>
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[780px] text-sm">
             <thead>
-              <tr>
-                <th style={{ minWidth: 180 }}>Nombre</th>
-                <th style={{ minWidth: 220 }}>Email</th>
-                <th style={{ minWidth: 150 }}>Numero</th>
-                <th style={{ minWidth: 120 }}>Estado WhatsApp</th>
-                <th style={{ minWidth: 100 }}>Acciones</th>
+              <tr className="border-b border-border bg-muted/40 text-left">
+                {CONTACT_COLUMNS.map((c, i) => (
+                  <th
+                    key={i}
+                    className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    {c}
+                  </th>
+                ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border">
               {loading && contacts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
+                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
                     <CircularProgress size="sm" />
                   </td>
                 </tr>
               ) : contacts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      No hay contactos en esta lista. Agrega o importa contactos.
-                    </Typography>
+                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                    No hay contactos en esta lista. Agrega o importa contactos.
                   </td>
                 </tr>
               ) : (
                 contacts.map((contact) => (
-                  <tr key={contact.id}>
-                    <td>
-                      <Typography level="body-sm" fontWeight="md">
-                        {contact.name}
-                      </Typography>
+                  <tr key={contact.id} className="transition-colors hover:bg-accent/40">
+                    <td className="px-4 py-3 font-medium text-foreground">{contact.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{contact.email}</td>
+                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-foreground">
+                      {contact.number ?? '--'}
                     </td>
-                    <td>
-                      <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                        {contact.email}
-                      </Typography>
+                    <td className="px-4 py-3">
+                      <Badge variant={contact.isWhatsappValid ? 'success' : 'neutral'} dot>
+                        {contact.isWhatsappValid ? 'Válido' : 'Sin validar'}
+                      </Badge>
                     </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {contact.number ?? '--'}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Switch
-                        checked={!!contact.isWhatsappValid}
-                        disabled
-                        size="sm"
-                        color={contact.isWhatsappValid ? 'success' : 'neutral'}
-                      />
-                    </td>
-                    <td>
-                      <Stack direction="row" spacing={0.5}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
                         <Tooltip title="Eliminar contacto">
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                          <ActionBtn
+                            label="Eliminar contacto"
                             onClick={() => confirmDelete('contact', contact.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
                         </Tooltip>
-                      </Stack>
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
-          </Table>
-        </Sheet>
+          </table>
+        </div>
 
         {hasMore && (
-          <Box sx={{ p: 2, textAlign: 'center' }}>
+          <div className="border-t border-border p-4 text-center">
             <Button
-              variant="outlined"
-              color="neutral"
+              variant="outline"
               size="sm"
               onClick={handleLoadMore}
               loading={loading}
+              disabled={loading}
             >
-              Cargar mas
+              Cargar más
             </Button>
-          </Box>
+          </div>
         )}
-      </Card>
-    </Stack>
+      </div>
+    </div>
   )
 
   // ---- Main Render ----
 
   return (
-    <Container maxWidth="xl">
-      {selectedList ? renderDetailView() : renderListsView()}
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] p-5 sm:p-6 lg:p-8">
+          {selectedList ? renderDetailView() : renderListsView()}
+        </div>
+      </div>
 
       {/* Modal: Create List */}
-      <Modal open={openCreateListModal} onClose={() => setOpenCreateListModal(false)}>
-        <ModalDialog sx={{ minWidth: 480, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Nueva Lista de Email
-          </Typography>
-          <Stack spacing={2}>
-            <FormControl required>
-              <FormLabel>Nombre de la lista</FormLabel>
+      <Dialog
+        open={openCreateListModal}
+        onOpenChange={(o) => {
+          if (!o) setOpenCreateListModal(false)
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ListBullets className="size-5 text-primary" aria-hidden />
+              Nueva Lista de Email
+            </DialogTitle>
+            <DialogDescription>
+              Define el remitente que usarán las campañas enviadas a esta lista.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="list-name">Nombre de la lista</Label>
               <Input
+                id="list-name"
+                required
                 placeholder="Ej: Clientes Premium 2025"
                 value={listName}
                 onChange={(e) => setListName(e.target.value)}
               />
-            </FormControl>
-            <FormControl required>
-              <FormLabel>Email remitente</FormLabel>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="list-from-email">Email remitente</Label>
               <Input
+                id="list-from-email"
+                required
                 type="email"
                 placeholder="noreply@tuempresa.com"
                 value={listFromEmail}
                 onChange={(e) => setListFromEmail(e.target.value)}
               />
-            </FormControl>
-            <FormControl required>
-              <FormLabel>Nombre remitente</FormLabel>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="list-from-name">Nombre remitente</Label>
               <Input
+                id="list-from-name"
+                required
                 placeholder="Tu Empresa"
                 value={listFromName}
                 onChange={(e) => setListFromName(e.target.value)}
               />
-            </FormControl>
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Button
-                fullWidth
-                variant="outlined"
-                color="neutral"
-                onClick={() => setOpenCreateListModal(false)}
-                disabled={listFormLoading}
-              >
-                Cancelar
-              </Button>
-              <Button
-                fullWidth
-                color="primary"
-                startDecorator={listFormLoading ? <CircularProgress size="sm" /> : <AddIcon />}
-                onClick={handleCreateList}
-                disabled={listFormLoading || !listName.trim() || !listFromEmail.trim() || !listFromName.trim()}
-              >
-                Crear Lista
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setOpenCreateListModal(false)}
+              disabled={listFormLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreateList}
+              loading={listFormLoading}
+              disabled={
+                listFormLoading ||
+                !listName.trim() ||
+                !listFromEmail.trim() ||
+                !listFromName.trim()
+              }
+            >
+              {!listFormLoading && <Plus className="size-4" weight="bold" aria-hidden />}
+              Crear Lista
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Create Contact */}
-      <Modal open={openCreateContactModal} onClose={() => setOpenCreateContactModal(false)}>
-        <ModalDialog sx={{ minWidth: 440, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Agregar Contacto
-          </Typography>
-          <Stack spacing={2}>
-            <FormControl required>
-              <FormLabel>Nombre</FormLabel>
+      <Dialog
+        open={openCreateContactModal}
+        onOpenChange={(o) => {
+          if (!o) setOpenCreateContactModal(false)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="size-5 text-primary" aria-hidden />
+              Agregar Contacto
+            </DialogTitle>
+            <DialogDescription>
+              El contacto se añadirá a la lista {selectedList?.name}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="contact-name">Nombre</Label>
               <Input
+                id="contact-name"
+                required
                 placeholder="Nombre del contacto"
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
               />
-            </FormControl>
-            <FormControl required>
-              <FormLabel>Email</FormLabel>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="contact-email">Email</Label>
               <Input
+                id="contact-email"
+                required
                 type="email"
                 placeholder="correo@ejemplo.com"
                 value={contactEmail}
                 onChange={(e) => setContactEmail(e.target.value)}
               />
-            </FormControl>
-            <FormControl>
-              <FormLabel>Numero (opcional)</FormLabel>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="contact-number">Número (opcional)</Label>
               <Input
+                id="contact-number"
                 placeholder="+52 55 1234 5678"
                 value={contactNumber}
                 onChange={(e) => setContactNumber(e.target.value)}
               />
-            </FormControl>
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Button
-                fullWidth
-                variant="outlined"
-                color="neutral"
-                onClick={() => setOpenCreateContactModal(false)}
-                disabled={contactFormLoading}
-              >
-                Cancelar
-              </Button>
-              <Button
-                fullWidth
-                color="primary"
-                startDecorator={contactFormLoading ? <CircularProgress size="sm" /> : <AddIcon />}
-                onClick={handleCreateContact}
-                disabled={contactFormLoading || !contactName.trim() || !contactEmail.trim()}
-              >
-                Agregar
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setOpenCreateContactModal(false)}
+              disabled={contactFormLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreateContact}
+              loading={contactFormLoading}
+              disabled={contactFormLoading || !contactName.trim() || !contactEmail.trim()}
+            >
+              {!contactFormLoading && <Plus className="size-4" weight="bold" aria-hidden />}
+              Agregar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Upload Excel */}
-      <Modal open={openUploadModal} onClose={handleCloseUploadModal}>
-        <ModalDialog sx={{ minWidth: 480, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Importar Contactos desde Excel
-          </Typography>
-          <Stack spacing={2}>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+      <Dialog
+        open={openUploadModal}
+        onOpenChange={(o) => {
+          if (!o) handleCloseUploadModal()
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UploadSimple className="size-5 text-primary" aria-hidden />
+              Importar Contactos desde Excel
+            </DialogTitle>
+            <DialogDescription>
               Selecciona un archivo .xlsx con las columnas: nombre, email, numero (opcional).
-            </Typography>
+            </DialogDescription>
+          </DialogHeader>
 
+          <div className="space-y-4">
             {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"
               accept=".xlsx"
-              style={{ display: 'none' }}
+              className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null
                 setUploadFile(f)
@@ -829,120 +831,123 @@ export default function EmailMarketingTemplates() {
               }}
             />
 
-            <Box
-              sx={{
-                border: '2px dashed',
-                borderColor: uploadFile ? 'success.400' : 'divider',
-                borderRadius: 'md',
-                p: 3,
-                textAlign: 'center',
-                cursor: 'pointer',
-                '&:hover': { borderColor: 'primary.400', bgcolor: 'background.level1' },
-              }}
+            <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-            >
-              <UploadIcon sx={{ fontSize: 40, color: 'text.tertiary', mb: 1 }} />
-              {uploadFile ? (
-                <Typography level="body-sm" fontWeight="md" sx={{ color: 'success.600' }}>
-                  {uploadFile.name}
-                </Typography>
-              ) : (
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Haz clic para seleccionar un archivo .xlsx
-                </Typography>
+              aria-label="Seleccionar archivo .xlsx"
+              className={cn(
+                'appearance-none [font-family:inherit] cursor-pointer flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed bg-transparent p-6 text-center outline-none transition-colors hover:border-primary hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                uploadFile ? 'border-success' : 'border-border',
               )}
-            </Box>
+            >
+              <UploadSimple className="size-10 text-muted-foreground" aria-hidden />
+              {uploadFile ? (
+                <span className="text-sm font-medium text-success-text">{uploadFile.name}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  Haz clic para seleccionar un archivo .xlsx
+                </span>
+              )}
+            </button>
 
             {/* Upload result */}
             {uploadResult && (
-              <Box
-                sx={{
-                  p: 2,
-                  borderRadius: 'md',
-                  bgcolor: uploadResult.errors.length > 0 ? 'warning.softBg' : 'success.softBg',
-                }}
+              <div
+                className={cn(
+                  'rounded-lg p-4',
+                  uploadResult.errors.length > 0 ? 'bg-warning/16' : 'bg-success/14',
+                )}
               >
-                <Typography level="body-sm" fontWeight="md">
+                <p className="text-sm font-medium text-foreground">
                   Importados: {uploadResult.imported} contactos
-                </Typography>
+                </p>
                 {uploadResult.errors.length > 0 && (
-                  <Box sx={{ mt: 1 }}>
-                    <Typography level="body-xs" sx={{ color: 'danger.600' }}>
+                  <div className="mt-2 space-y-0.5">
+                    <p className="text-xs font-medium text-destructive-text">
                       Errores ({uploadResult.errors.length}):
-                    </Typography>
+                    </p>
                     {uploadResult.errors.slice(0, 5).map((err, i) => (
-                      <Typography key={i} level="body-xs" sx={{ color: 'danger.500' }}>
+                      <p key={i} className="text-xs text-destructive-text">
                         - {err}
-                      </Typography>
+                      </p>
                     ))}
                     {uploadResult.errors.length > 5 && (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        ... y {uploadResult.errors.length - 5} errores mas
-                      </Typography>
+                      <p className="text-xs text-muted-foreground">
+                        ... y {uploadResult.errors.length - 5} errores más
+                      </p>
                     )}
-                  </Box>
+                  </div>
                 )}
-              </Box>
+              </div>
             )}
+          </div>
 
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Button
-                fullWidth
-                variant="outlined"
-                color="neutral"
-                onClick={handleCloseUploadModal}
-                disabled={uploadLoading}
-              >
-                Cerrar
-              </Button>
-              <Button
-                fullWidth
-                color="primary"
-                startDecorator={uploadLoading ? <CircularProgress size="sm" /> : <UploadIcon />}
-                onClick={handleUpload}
-                disabled={!uploadFile || uploadLoading}
-              >
-                Importar
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+          <DialogFooter className="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCloseUploadModal}
+              disabled={uploadLoading}
+            >
+              Cerrar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleUpload}
+              loading={uploadLoading}
+              disabled={!uploadFile || uploadLoading}
+            >
+              {!uploadLoading && <UploadSimple className="size-4" aria-hidden />}
+              Importar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Delete Confirmation */}
-      <Modal open={openDeleteModal} onClose={() => !deleteLoading && setOpenDeleteModal(false)}>
-        <ModalDialog sx={{ maxWidth: 400 }}>
-          <ModalClose disabled={deleteLoading} />
-          <Typography level="h4" sx={{ mb: 1 }}>
-            Confirmar eliminacion
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 3 }}>
-            {deleteTarget?.type === 'list'
-              ? 'Esta accion eliminara la lista de email y todos sus contactos. No se puede deshacer.'
-              : 'Esta accion eliminara el contacto de la lista. No se puede deshacer.'}
-          </Typography>
-          <Stack direction="row" spacing={1}>
+      <Dialog
+        open={openDeleteModal}
+        onOpenChange={(o) => {
+          if (!o && !deleteLoading) {
+            setOpenDeleteModal(false)
+            setDeleteTarget(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash className="size-5 text-destructive-text" aria-hidden />
+              Confirmar eliminación
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.type === 'list'
+                ? 'Esta acción eliminará la lista de email y todos sus contactos. No se puede deshacer.'
+                : 'Esta acción eliminará el contacto de la lista. No se puede deshacer.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
             <Button
-              fullWidth
-              variant="outlined"
-              color="neutral"
+              variant="outline"
+              size="sm"
               onClick={() => setOpenDeleteModal(false)}
               disabled={deleteLoading}
             >
               Cancelar
             </Button>
             <Button
-              fullWidth
-              color="danger"
-              startDecorator={deleteLoading ? <CircularProgress size="sm" /> : <DeleteIcon />}
+              size="sm"
               onClick={handleDelete}
+              loading={deleteLoading}
               disabled={deleteLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Eliminar
+              {!deleteLoading && <Trash className="size-4" aria-hidden />}
+              {deleteLoading ? 'Eliminando...' : 'Eliminar'}
             </Button>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
   )
 }

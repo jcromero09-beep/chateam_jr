@@ -5,7 +5,8 @@ import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import ShowTicketService from "./ShowTicketService";
 import FindOrCreateATicketTrakingService from "./FindOrCreateATicketTrakingService";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import { getIO } from "../../libs/socket";
 import logger from "../../utils/logger";
 import Whatsapp from "../../models/Whatsapp";
@@ -13,11 +14,24 @@ import CompaniesSettings from "../../models/CompaniesSettings";
 import CreateLogTicketService from "./CreateLogTicketService";
 import AppError from "../../errors/AppError";
 import UpdateTicketService from "./UpdateTicketService";
+import NotifyTicketEventService from "../NotificationServices/NotifyTicketEventService";
 
 // interface Response {
 //   ticket: Ticket;
 //   // isCreated: boolean;
 // }
+
+export interface FindOrCreateTicketCoexInput {
+  /** UUID de UnifiedConversations — si existe, se reusa ticket abierto por este id (coexistencia Meta/Baileys). */
+  conversationId?: string | null;
+  /** Auditoría: canal por el que entró este mensaje ('meta' | 'baileys' | ...). */
+  inboundChannelHint?: string | null;
+}
+
+const shouldReactivateBotForAI = (ticket: Ticket, whatsapp: Whatsapp): boolean =>
+  whatsapp.useAIOrchestrator === true &&
+  !ticket.userId &&
+  ["pending", "open"].includes(ticket.status);
 
 const FindOrCreateTicketService = async (
   contact: Contact,
@@ -32,10 +46,9 @@ const FindOrCreateTicketService = async (
   isForward?: boolean,
   settings?: any,
   isTransfered?: boolean,
-  isCampaign: boolean = false
+  isCampaign: boolean = false,
+  coex?: FindOrCreateTicketCoexInput
 ): Promise<Ticket> => {
-  // console.log("\n  🔸 [FindOrCreateTicketService] INICIO");
-  // console.log("  📋 Parámetros:", {
   //   contactId: contact.id,
   //   whatsappId: whatsapp.id,
   //   unreadMessages,
@@ -55,13 +68,142 @@ const FindOrCreateTicketService = async (
       (settings.lgpdConsent === "enabled" ||
         (settings.lgpdConsent === "disabled" && isNil(contact?.lgpdAcceptedAt)))
   }
-  // console.log("  🔒 openAsLGPD:", openAsLGPD);
 
   const io = getIO();
   const DirectTicketsToWallets = settings.DirectTicketsToWallets;
+  let createdNewTicket = false;
+  let conversationIdForTicket = coex?.conversationId ?? null;
 
-  // console.log("  🔍 Buscando ticket ABIERTO existente...");
-  let ticket = await Ticket.findOne({
+  // 🆕 FASE 3 Coexistencia — Lookup por conversationId (une Baileys + Meta).
+  // Si tenemos un conversationId estable, intentar reutilizar el ticket abierto
+  // de esa conversación lógica (aunque cambie whatsappId/contactId por canal).
+  let ticket: Ticket | null = null;
+  if (coex?.conversationId && !groupContact) {
+    const reusableWhatsappIds = new Set<number>([Number(whatsapp.id)]);
+
+    if ((whatsapp as any).linkedWhatsappId) {
+      reusableWhatsappIds.add(Number((whatsapp as any).linkedWhatsappId));
+    }
+
+    const reverseLinkedWhatsapps = await Whatsapp.findAll({
+      where: {
+        companyId,
+        linkedWhatsappId: whatsapp.id,
+        coexistenceEnabled: true
+      } as any,
+      attributes: ["id"]
+    });
+
+    reverseLinkedWhatsapps.forEach(linked => {
+      reusableWhatsappIds.add(Number(linked.id));
+    });
+
+    ticket = await Ticket.findOne({
+      where: {
+        companyId,
+        conversationId: coex.conversationId,
+        whatsappId: {
+          [Op.in]: Array.from(reusableWhatsappIds)
+        },
+        status: {
+          [Op.or]: ["open", "pending", "group", "nps", "lgpd"]
+        }
+      },
+      order: [["id", "DESC"]]
+    });
+
+    if (ticket) {
+      if (isCampaign) {
+        await ticket.update({
+          userId: userId !== ticket.userId ? ticket.userId : userId,
+          queueId: queueId !== ticket.queueId ? ticket.queueId : queueId,
+        });
+      } else {
+        // Misma lógica de isBot que el lookup legacy (preservar comportamiento IA).
+        await ticket.update({
+          unreadMessages,
+          ...(coex.inboundChannelHint ? { inboundChannelHint: coex.inboundChannelHint } : {}),
+          ...(shouldReactivateBotForAI(ticket, whatsapp)
+            ? { isBot: true, aiStatus: "inactive" }
+            : !whatsapp.useAIOrchestrator
+              ? { isBot: false }
+              : {})
+        });
+      }
+      logger.info(
+        `[FindOrCreateTicket] Reutilizando ticket=${ticket.id} via conversationId=${coex.conversationId} hint=${coex.inboundChannelHint || "n/a"} whatsappId=${whatsapp.id}`
+      );
+      ticket = await ShowTicketService(ticket.id, companyId);
+      return ticket;
+    }
+
+    const linkedContactTicket = await Ticket.findOne({
+      where: {
+        companyId,
+        contactId: contact.id,
+        whatsappId: {
+          [Op.in]: Array.from(reusableWhatsappIds)
+        },
+        status: {
+          [Op.or]: ["open", "pending", "group", "nps", "lgpd"]
+        }
+      },
+      order: [["updatedAt", "DESC"]]
+    });
+
+    if (linkedContactTicket) {
+      if (isCampaign) {
+        await linkedContactTicket.update({
+          userId: userId !== linkedContactTicket.userId ? linkedContactTicket.userId : userId,
+          queueId: queueId !== linkedContactTicket.queueId ? linkedContactTicket.queueId : queueId,
+          conversationId: coex.conversationId
+        });
+      } else {
+        await linkedContactTicket.update({
+          unreadMessages,
+          conversationId: coex.conversationId,
+          ...(coex.inboundChannelHint ? { inboundChannelHint: coex.inboundChannelHint } : {}),
+          ...(shouldReactivateBotForAI(linkedContactTicket, whatsapp)
+            ? { isBot: true, aiStatus: "inactive" }
+            : !whatsapp.useAIOrchestrator
+              ? { isBot: false }
+              : {})
+        });
+      }
+      logger.info(
+        `[FindOrCreateTicket] Reutilizando ticket=${linkedContactTicket.id} por contactId=${contact.id} entre conexiones enlazadas; conversationId=${coex.conversationId} hint=${coex.inboundChannelHint || "n/a"} whatsappId=${whatsapp.id}`
+      );
+      ticket = await ShowTicketService(linkedContactTicket.id, companyId);
+      return ticket;
+    }
+
+    logger.info(
+      `[FindOrCreateTicket] No se reutiliza ticket por conversationId=${coex.conversationId} para whatsappId=${whatsapp.id}; conexiones reutilizables=${Array.from(reusableWhatsappIds).join(",")}`
+    );
+
+    const conflictingOpenTicket = await Ticket.findOne({
+      where: {
+        companyId,
+        conversationId: coex.conversationId,
+        whatsappId: {
+          [Op.notIn]: Array.from(reusableWhatsappIds)
+        },
+        status: {
+          [Op.or]: ["open", "pending", "group", "nps", "lgpd"]
+        }
+      },
+      order: [["id", "DESC"]]
+    });
+
+    if (conflictingOpenTicket) {
+      conversationIdForTicket = null;
+      logger.warn(
+        `[FindOrCreateTicket] conversationId=${coex.conversationId} ya tiene ticket abierto no reutilizable=${conflictingOpenTicket.id} whatsappId=${conflictingOpenTicket.whatsappId}; creando ticket sin conversationId para whatsappId=${whatsapp.id}`
+      );
+    }
+  }
+
+  ticket = await Ticket.findOne({
     where: {
       status: {
         [Op.or]: ["open", "pending", "group", "nps", "lgpd"]
@@ -82,29 +224,28 @@ const FindOrCreateTicketService = async (
         userId: userId !== ticket.userId ? ticket.userId : userId,
         queueId: queueId !== ticket.queueId ? ticket.queueId : queueId,
       })
-      // console.log("  📢 Ticket actualizado para campaña");
     } else {
       // Si useAIOrchestrator = true, preservar isBot para que responda la IA
       // Si no, forzar isBot = false para comportamiento normal con chatbots
       await ticket.update({
         unreadMessages,
-        ...(!whatsapp.useAIOrchestrator && { isBot: false })
+        ...(shouldReactivateBotForAI(ticket, whatsapp)
+          ? { isBot: true, aiStatus: "inactive" }
+          : !whatsapp.useAIOrchestrator
+            ? { isBot: false }
+            : {})
       });
     }
 
     ticket = await ShowTicketService(ticket.id, companyId);
-    // console.log("  ✅ [FindOrCreateTicketService] FIN - Ticket existente retornado\n");
 
     return ticket
 
   }
 
   const timeCreateNewTicket = whatsapp.timeCreateNewTicket;
-  // console.log("  ❌ No hay ticket abierto");
-  // console.log("  ⏱️ timeCreateNewTicket:", timeCreateNewTicket, "minutos");
 
   if (!ticket && timeCreateNewTicket !== 0) {
-    // console.log("  🔍 Buscando ticket CERRADO reciente (últimos", timeCreateNewTicket, "minutos)...");
 
     // @ts-ignore: Unreachable code error
     if (timeCreateNewTicket !== 0 && timeCreateNewTicket !== "0") {
@@ -127,23 +268,20 @@ const FindOrCreateTicketService = async (
     }
 
     if (ticket && ticket.status !== "nps") {
-      // console.log("  ✅ Ticket cerrado reciente encontrado:", ticket.id);
-      // console.log("  🔄 REABRIENDO ticket como 'pending'...");
       await ticket.update({
         status: "pending",
         unreadMessages,
         companyId,
+        ...(whatsapp.useAIOrchestrator === true && !ticket.userId
+          ? { isBot: true, aiStatus: "inactive" }
+          : {})
       });
-      // console.log("  ✅ Ticket reabierto");
     } else if (ticket) {
-      // console.log("  ℹ️ Ticket encontrado pero es NPS, no se reabre");
     } else {
-      // console.log("  ❌ No hay ticket cerrado reciente");
     }
   }
 
   if (!ticket) {
-    // console.log("\n  🆕 CREANDO NUEVO TICKET...");
 
     const ticketData: any = {
       contactId: groupContact ? groupContact.id : contact.id,
@@ -161,6 +299,9 @@ const FindOrCreateTicketService = async (
       channel,
       imported: isImported ? new Date() : null,
       isActiveDemand: false,
+      // 🆕 FASE 3 Coexistencia — persistir identidad unificada en creación
+      ...(conversationIdForTicket ? { conversationId: conversationIdForTicket } : {}),
+      ...(coex?.inboundChannelHint ? { inboundChannelHint: coex.inboundChannelHint } : {})
     };
 
     if (DirectTicketsToWallets && contact.id) {
@@ -177,32 +318,36 @@ const FindOrCreateTicketService = async (
       }
     }
 
-    // console.log("  💾 Creando ticket en BD...");
     ticket = await Ticket.create(
       ticketData
     );
-    // console.log("  ✅ Ticket creado con ID:", ticket.id);
+    createdNewTicket = true;
+    if (coex?.conversationId) {
+      logger.info(
+        `[FindOrCreateTicket] Creando ticket nuevo id=${ticket.id} conversationId=${conversationIdForTicket || "none"} requestedConversationId=${coex.conversationId} inboundChannelHint=${coex.inboundChannelHint || "n/a"}`
+      );
+    }
   }
 
 
   if (queueId != 0 && !isNil(queueId)) {
-    // console.log("  🎯 Asignando cola (queueId):", queueId);
     await ticket.update({ queueId: queueId });
   }
 
   if (userId != 0 && !isNil(userId)) {
-    // console.log("  👤 Asignando usuario (userId):", userId);
     await ticket.update({ userId: userId });
   }
 
-  // console.log("  🔄 Obteniendo ticket completo con relaciones...");
   ticket = await ShowTicketService(ticket.id, companyId);
 
-  // console.log("  📝 Creando log del ticket...");
   await CreateLogTicketService({
     ticketId: ticket.id,
     type: openAsLGPD ? "lgpd" : "create"
   });
+
+  if (createdNewTicket) {
+    await NotifyTicketEventService(ticket, "created");
+  }
 
   return ticket;
 };

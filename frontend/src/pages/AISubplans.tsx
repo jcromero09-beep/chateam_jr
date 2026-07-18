@@ -1,39 +1,33 @@
 import { useState, useEffect, useCallback } from 'react'
+// [Fase2·G] CircularProgress se mantiene en MUI Joy a propósito (no hay equivalente
+// en el design system Tailwind/Radix). El resto de la pantalla ya está migrado.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Switch,
-  Alert,
-  Divider,
-  Chip,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  CircularProgress,
-  IconButton,
-  Table,
-  Sheet,
-  Textarea,
-} from '@mui/joy'
+  Package,
+  Plus,
+  PencilSimple,
+  Trash,
+  ArrowClockwise,
+  FloppyDisk,
+  Coins,
+  CurrencyDollar,
+  Globe,
+  Robot,
+  X,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import {
-  Inventory as SubplanIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Refresh as RefreshIcon,
-  Save as SaveIcon,
-  Token as TokenIcon,
-  AttachMoney as MoneyIcon,
-  Public as PublicIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { AxiosResponse } from 'axios'
 import { i18n } from "../translate/i18n" // P3.47: i18n support
@@ -46,6 +40,82 @@ const devLog = (...args: any[]) => {
 const devError = (...args: any[]) => {
   if (isDev) console.error(...args);
 };
+
+// ─── Switch (toggle accesible con tokens del design system) ────────────────────
+
+function Toggle({
+  checked,
+  onCheckedChange,
+  disabled,
+  ariaLabel,
+  id,
+}: {
+  checked: boolean
+  onCheckedChange: (v: boolean) => void
+  disabled?: boolean
+  ariaLabel: string
+  id?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer appearance-none items-center rounded-full border-0 p-0 outline-none transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'disabled:cursor-not-allowed disabled:opacity-55',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 transform rounded-full bg-card shadow-sm transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+const textareaClass =
+  'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
 
 // COMENTADO: Subplanes ya no están ligados a un proveedor específico
 // interface AIProviderConfig {
@@ -325,32 +395,7 @@ export default function AISubplans() {
   // const selectedProvider = providers.find(p => p.id === formData.aiProviderConfigId)
 
   // COMENTADO: Ya no se calcula capacidad basada en proveedor
-  // const calculateCapacity = (tokens: number, provider?: AIProviderConfig) => {
-  //   if (!provider) return null
-  //   const capacity: { label: string; value: string; icon: JSX.Element }[] = []
-  //   if (provider.textGenerationEnabled && provider.textGenerationPricing > 0) {
-  //     const words = Math.floor(tokens / provider.textGenerationPricing)
-  //     capacity.push({ label: 'Palabras de texto', value: `~${words.toLocaleString()}`, icon: <TextIcon sx={{ fontSize: 16 }} /> })
-  //   }
-  //   if (provider.translationEnabled && provider.translationPricing > 0) {
-  //     const words = Math.floor(tokens / provider.translationPricing)
-  //     capacity.push({ label: 'Palabras traducidas', value: `~${words.toLocaleString()}`, icon: <TranslateIcon sx={{ fontSize: 16 }} /> })
-  //   }
-  //   if (provider.imageGenerationEnabled && provider.imageGenerationPricing['1024x1024'] > 0) {
-  //     const images = Math.floor(tokens / provider.imageGenerationPricing['1024x1024'])
-  //     capacity.push({ label: 'Imagenes 1024x1024', value: `~${images.toLocaleString()}`, icon: <ImageIcon sx={{ fontSize: 16 }} /> })
-  //   }
-  //   if (provider.imageAnalysisEnabled && provider.imageAnalysisPricing > 0) {
-  //     const images = Math.floor(tokens / provider.imageAnalysisPricing)
-  //     capacity.push({ label: 'Imagenes analizadas', value: `~${images.toLocaleString()}`, icon: <VisionIcon sx={{ fontSize: 16 }} /> })
-  //   }
-  //   if (provider.speechToTextEnabled && provider.speechToTextPricing > 0) {
-  //     const seconds = Math.floor(tokens / provider.speechToTextPricing)
-  //     const minutes = Math.floor(seconds / 60)
-  //     capacity.push({ label: 'Minutos de audio', value: `~${minutes.toLocaleString()}`, icon: <AudioIcon sx={{ fontSize: 16 }} /> })
-  //   }
-  //   return capacity
-  // }
+  // const calculateCapacity = (tokens: number, provider?: AIProviderConfig) => { ... }
 
   const formatNumber = (num: number | string) => {
     return Number(num).toLocaleString()
@@ -362,470 +407,411 @@ export default function AISubplans() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SubplanIcon sx={{ fontSize: 32 }} />
-            {i18n.t("aiModules.subplans.title")}
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            {i18n.t("aiModules.subplans.description")}
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshIcon />} onClick={fetchData}>
-            {i18n.t("aiModules.subplans.buttons.reload")}
-          </Button>
-          <Button startDecorator={<AddIcon />} onClick={handleCreate}>
-            {i18n.t("aiModules.subplans.buttons.new")}
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Package className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {i18n.t("aiModules.subplans.title")}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {i18n.t("aiModules.subplans.description")}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              {i18n.t("aiModules.subplans.buttons.reload")}
+            </Button>
+            <Button size="sm" onClick={handleCreate}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              {i18n.t("aiModules.subplans.buttons.new")}
+            </Button>
+          </div>
+        </div>
 
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
+        {/* Alertas */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span>{error}</span>
+            <ActionBtn
+              label={i18n.t("aiModules.subplans.buttons.cancel")}
+              onClick={() => setError(null)}
+              className="-my-0.5 shrink-0 text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+            >
+              <X className="size-4" aria-hidden />
+            </ActionBtn>
+          </div>
+        )}
 
-      {success && (
-        <Alert
-          color="success"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="success" onClick={() => setSuccess(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
-        >
-          {success}
-        </Alert>
-      )}
+        {success && (
+          <div
+            role="status"
+            className="flex items-start justify-between gap-3 rounded-lg border border-success/30 bg-success/14 px-4 py-3 text-sm text-success-text"
+          >
+            <span>{success}</span>
+            <ActionBtn
+              label={i18n.t("aiModules.subplans.buttons.cancel")}
+              onClick={() => setSuccess(null)}
+              className="-my-0.5 shrink-0 text-success-text hover:bg-success/10 hover:text-success-text"
+            >
+              <X className="size-4" aria-hidden />
+            </ActionBtn>
+          </div>
+        )}
 
-      {/* Resumen */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.subplans.stats.total")}
-              </Typography>
-              <Typography level="h3">{subplans.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.subplans.stats.active")}
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>
-                {subplans.filter(s => s.isActive).length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.subplans.stats.public")}
-              </Typography>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>
-                {subplans.filter(s => s.isPublic).length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.subplans.stats.totalTokens")}
-              </Typography>
-              <Typography level="h3">{formatNumber(subplans.reduce((acc, s) => acc + Number(s.tokens || 0), 0))}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Resumen */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile
+            label={i18n.t("aiModules.subplans.stats.total")}
+            value={String(subplans.length)}
+          />
+          <StatTile
+            label={i18n.t("aiModules.subplans.stats.active")}
+            value={String(subplans.filter(s => s.isActive).length)}
+            tone="success"
+          />
+          <StatTile
+            label={i18n.t("aiModules.subplans.stats.public")}
+            value={String(subplans.filter(s => s.isPublic).length)}
+            tone="primary"
+          />
+          <StatTile
+            label={i18n.t("aiModules.subplans.stats.totalTokens")}
+            value={formatNumber(subplans.reduce((acc, s) => acc + Number(s.tokens || 0), 0))}
+          />
+        </div>
 
-      {/* Lista de Subplanes */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TokenIcon />
-            {i18n.t("aiModules.subplans.table.title")}
-          </Typography>
+        {/* Lista de Subplanes */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+            <Coins className="size-5 text-muted-foreground" aria-hidden />
+            <h2 className="text-base font-semibold text-foreground">
+              {i18n.t("aiModules.subplans.table.title")}
+            </h2>
+          </div>
 
           {/* COMENTADO: Ya no se requiere validación de proveedores */}
 
           {subplans.length === 0 ? (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
+            <div className="flex flex-col items-center gap-4 px-4 py-10 text-center">
+              <p className="text-sm text-muted-foreground">
                 {i18n.t("aiModules.subplans.table.empty")}
-              </Typography>
-              <Button startDecorator={<AddIcon />} onClick={handleCreate}>
+              </p>
+              <Button size="sm" onClick={handleCreate}>
+                <Plus className="size-4" weight="bold" aria-hidden />
                 {i18n.t("aiModules.subplans.buttons.createFirst")}
               </Button>
-            </Box>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead>
-                  <tr>
-                    <th style={{ width: 200 }}>{i18n.t("aiModules.subplans.table.name")}</th>
-                    {/* COMENTADO: <th style={{ width: 150 }}>Proveedor</th> */}
-                    <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.tokens")}</th>
-                    <th style={{ width: 80, textAlign: 'right' }}>Agentes</th>
-                    <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.used")}</th>
-                    <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.remaining")}</th>
-                    <th style={{ width: 100, textAlign: 'right' }}>{i18n.t("aiModules.subplans.table.price")}</th>
-                    <th style={{ width: 80 }}>{i18n.t("aiModules.subplans.table.active")}</th>
-                    <th style={{ width: 80 }}>{i18n.t("aiModules.subplans.table.public")}</th>
-                    <th style={{ width: 150, textAlign: 'center' }}>{i18n.t("aiModules.subplans.table.actions")}</th>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="w-[200px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.name")}
+                    </th>
+                    {/* COMENTADO: <th>Proveedor</th> */}
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.tokens")}
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Agentes
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.used")}
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.remaining")}
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.price")}
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.active")}
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.public")}
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {i18n.t("aiModules.subplans.table.actions")}
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border">
                   {subplans.map((subplan) => (
-                    <tr key={subplan.id}>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="lg">
-                            {subplan.name}
-                          </Typography>
+                    <tr key={subplan.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-foreground">{subplan.name}</p>
                           {subplan.description && (
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            <p className="text-xs text-muted-foreground">
                               {subplan.description.substring(0, 50)}{subplan.description.length > 50 ? '...' : ''}
-                            </Typography>
+                            </p>
                           )}
-                        </Box>
+                        </div>
                       </td>
-                      {/* COMENTADO: Columna de proveedor
-                      <td>
-                        <Typography level="body-sm">
-                          {subplan.aiProviderConfig?.name || '-'}
-                        </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {subplan.aiProviderConfig?.provider}
-                        </Typography>
+                      {/* COMENTADO: Columna de proveedor */}
+                      <td className="px-4 py-3 text-right font-medium tabular-nums text-foreground">
+                        {formatNumber(subplan.tokens)}
                       </td>
-                      */}
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm" fontWeight="lg">
-                          {formatNumber(subplan.tokens)}
-                        </Typography>
+                      <td className="px-4 py-3 text-right">
+                        <Badge variant="primary">{subplan.maxAgents || 1}</Badge>
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Chip size="sm" color="primary">
-                          {subplan.maxAgents || 1}
-                        </Chip>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {formatNumber(subplan.tokensConsumed || 0)}
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm">
-                          {formatNumber(subplan.tokensConsumed || 0)}
-                        </Typography>
+                      <td className="px-4 py-3 text-right tabular-nums text-success-text">
+                        {formatNumber((subplan.tokens || 0) - (subplan.tokensConsumed || 0))}
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm" sx={{ color: 'success.600' }}>
-                          {formatNumber((subplan.tokens || 0) - (subplan.tokensConsumed || 0))}
-                        </Typography>
+                      <td className="px-4 py-3 text-right font-medium tabular-nums text-success-text">
+                        {formatCurrency(subplan.priceUsd)}
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm" fontWeight="lg" sx={{ color: 'success.600' }}>
-                          {formatCurrency(subplan.priceUsd)}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Chip size="sm" color={subplan.isActive ? 'success' : 'neutral'}>
+                      <td className="px-4 py-3">
+                        <Badge variant={subplan.isActive ? 'success' : 'neutral'} dot>
                           {subplan.isActive ? i18n.t("aiModules.subplans.table.yes") : i18n.t("aiModules.subplans.table.no")}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Chip size="sm" color={subplan.isPublic ? 'primary' : 'neutral'} startDecorator={subplan.isPublic ? <PublicIcon sx={{ fontSize: 14 }} /> : null}>
+                      <td className="px-4 py-3">
+                        <Badge variant={subplan.isPublic ? 'primary' : 'neutral'}>
+                          {subplan.isPublic && <Globe className="size-3.5" aria-hidden />}
                           {subplan.isPublic ? i18n.t("aiModules.subplans.table.yes") : i18n.t("aiModules.subplans.table.no")}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                          <IconButton size="sm" variant="outlined" onClick={() => handleEdit(subplan)}>
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="outlined"
-                            color="danger"
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <ActionBtn label="Editar" onClick={() => handleEdit(subplan)}>
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Eliminar"
                             onClick={() => setDeleteConfirm(subplan.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Box>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
-              </Table>
-            </Sheet>
+              </table>
+            </div>
           )}
 
           {/* P2.25: Pagination Controls */}
           {totalPages > 1 && (
-            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+              <p className="text-sm text-muted-foreground">
                 {i18n.t("aiModules.subplans.pagination.showing", { current: subplans.length, total: totalSubplans })}
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              </p>
+              <div className="flex items-center gap-2">
                 <Button
                   size="sm"
-                  variant="outlined"
+                  variant="outline"
                   disabled={pageNumber === 1}
                   onClick={() => setPageNumber(prev => Math.max(1, prev - 1))}
                 >
                   {i18n.t("aiModules.subplans.pagination.previous")}
                 </Button>
-                <Typography level="body-sm">
+                <span className="text-sm text-muted-foreground">
                   {i18n.t("aiModules.subplans.pagination.page", { current: pageNumber, total: totalPages })}
-                </Typography>
+                </span>
                 <Button
                   size="sm"
-                  variant="outlined"
+                  variant="outline"
                   disabled={pageNumber >= totalPages}
                   onClick={() => setPageNumber(prev => Math.min(totalPages, prev + 1))}
                 >
                   {i18n.t("aiModules.subplans.pagination.next")}
                 </Button>
-              </Box>
-            </Box>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Modal Crear/Editar */}
-      <Modal open={openModal} onClose={() => setOpenModal(false)}>
-        <ModalDialog sx={{ minWidth: 600, maxWidth: 700, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2, flexShrink: 0 }}>
-            {editingSubplan ? i18n.t("aiModules.subplans.modal.titleEdit") : i18n.t("aiModules.subplans.modal.titleCreate")}
-          </Typography>
+      <Dialog open={openModal} onOpenChange={setOpenModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingSubplan ? i18n.t("aiModules.subplans.modal.titleEdit") : i18n.t("aiModules.subplans.modal.titleCreate")}
+            </DialogTitle>
+          </DialogHeader>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'auto', pr: 1 }}>
-            {/* COMENTADO: Ya no se selecciona proveedor en el subplan
-            <FormControl required>
-              <FormLabel>Proveedor de IA</FormLabel>
-              <Select
-                value={formData.aiProviderConfigId || ''}
-                onChange={(_, val) => setFormData({ ...formData, aiProviderConfigId: val as number })}
-                placeholder="Selecciona un proveedor"
-              >
-                {providers.map((provider) => (
-                  <Option key={provider.id} value={provider.id}>
-                    {provider.name} ({provider.provider})
-                  </Option>
-                ))}
-              </Select>
-            </FormControl>
+          <div className="flex flex-col gap-4">
+            {/* COMENTADO: Ya no se selecciona proveedor en el subplan */}
 
-            {selectedProvider && (
-              <Box sx={{ p: 1.5, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  Capacidades del proveedor:
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                  {selectedProvider.textGenerationEnabled && <Chip size="sm" color="primary" startDecorator={<TextIcon sx={{ fontSize: 12 }} />}>Texto ({selectedProvider.textGenerationPricing} cred/palabra)</Chip>}
-                  {selectedProvider.translationEnabled && <Chip size="sm" color="success" startDecorator={<TranslateIcon sx={{ fontSize: 12 }} />}>Traduccion ({selectedProvider.translationPricing} cred/palabra)</Chip>}
-                  {selectedProvider.imageGenerationEnabled && <Chip size="sm" color="warning" startDecorator={<ImageIcon sx={{ fontSize: 12 }} />}>Imagenes ({selectedProvider.imageGenerationPricing['1024x1024']} cred/img)</Chip>}
-                  {selectedProvider.imageAnalysisEnabled && <Chip size="sm" color="neutral" startDecorator={<VisionIcon sx={{ fontSize: 12 }} />}>Vision ({selectedProvider.imageAnalysisPricing} cred/img)</Chip>}
-                  {selectedProvider.speechToTextEnabled && <Chip size="sm" color="danger" startDecorator={<AudioIcon sx={{ fontSize: 12 }} />}>STT ({selectedProvider.speechToTextPricing} cred/seg)</Chip>}
-                </Box>
-              </Box>
-            )}
-            */}
-
-            <FormControl required>
-              <FormLabel>{i18n.t("aiModules.subplans.modal.nameLabel")}</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="subplan-name">{i18n.t("aiModules.subplans.modal.nameLabel")}</Label>
               <Input
+                id="subplan-name"
+                required
                 placeholder={i18n.t("aiModules.subplans.modal.namePlaceholder")}
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
-            </FormControl>
+            </div>
 
-            <FormControl>
-              <FormLabel>{i18n.t("aiModules.subplans.modal.descriptionLabel")}</FormLabel>
-              <Textarea
+            <div className="space-y-1.5">
+              <Label htmlFor="subplan-description">{i18n.t("aiModules.subplans.modal.descriptionLabel")}</Label>
+              <textarea
+                id="subplan-description"
                 placeholder={i18n.t("aiModules.subplans.modal.descriptionPlaceholder")}
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                minRows={2}
+                rows={2}
+                className={textareaClass}
               />
-            </FormControl>
+            </div>
 
-            <Divider />
-            <Typography level="title-sm">{i18n.t("aiModules.subplans.modal.tokensSection")}</Typography>
+            <div className="border-t border-border" />
+            <h3 className="text-sm font-semibold text-foreground">
+              {i18n.t("aiModules.subplans.modal.tokensSection")}
+            </h3>
 
-            <Grid container spacing={2}>
-              <Grid xs={12} md={6}>
-                <FormControl required>
-                  <FormLabel>{i18n.t("aiModules.subplans.modal.tokensLabel")}</FormLabel>
-                  <Input
-                    type="number"
-                    startDecorator={<TokenIcon />}
-                    value={formData.tokens}
-                    onChange={(e) => setFormData({ ...formData, tokens: parseInt(e.target.value) || 0 })}
-                    slotProps={{ input: { min: 0 } }}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={6}>
-                <FormControl required>
-                  <FormLabel>{i18n.t("aiModules.subplans.modal.maxAgentsLabel") || "Límite de Agentes IA"}</FormLabel>
-                  <Input
-                    type="number"
-                    startDecorator={<SubplanIcon />}
-                    value={formData.maxAgents}
-                    onChange={(e) => setFormData({ ...formData, maxAgents: parseInt(e.target.value) || 1 })}
-                    slotProps={{ input: { min: 1, max: 100 } }}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={6}>
-                <FormControl required>
-                  <FormLabel>{i18n.t("aiModules.subplans.modal.priceLabel")}</FormLabel>
-                  <Input
-                    type="number"
-                    startDecorator={<MoneyIcon />}
-                    value={formData.priceUsd}
-                    onChange={(e) => setFormData({ ...formData, priceUsd: parseFloat(e.target.value) || 0 })}
-                    slotProps={{ input: { min: 0, step: 0.01 } }}
-                  />
-                </FormControl>
-              </Grid>
-            </Grid>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="subplan-tokens">{i18n.t("aiModules.subplans.modal.tokensLabel")}</Label>
+                <Input
+                  id="subplan-tokens"
+                  required
+                  type="number"
+                  min={0}
+                  leftIcon={<Coins aria-hidden />}
+                  value={formData.tokens}
+                  onChange={(e) => setFormData({ ...formData, tokens: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="subplan-max-agents">
+                  {i18n.t("aiModules.subplans.modal.maxAgentsLabel") || "Límite de Agentes IA"}
+                </Label>
+                <Input
+                  id="subplan-max-agents"
+                  required
+                  type="number"
+                  min={1}
+                  max={100}
+                  leftIcon={<Robot aria-hidden />}
+                  value={formData.maxAgents}
+                  onChange={(e) => setFormData({ ...formData, maxAgents: parseInt(e.target.value) || 1 })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="subplan-price">{i18n.t("aiModules.subplans.modal.priceLabel")}</Label>
+                <Input
+                  id="subplan-price"
+                  required
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  leftIcon={<CurrencyDollar aria-hidden />}
+                  value={formData.priceUsd}
+                  onChange={(e) => setFormData({ ...formData, priceUsd: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
 
-            {/* COMENTADO: Ya no se calcula capacidad basada en proveedor
-            {selectedProvider && formData.tokens > 0 && (
-              <>
-                <Divider />
-                <Typography level="title-sm">Capacidad Aproximada</Typography>
-                <Box sx={{ p: 1.5, bgcolor: 'success.softBg', borderRadius: 'sm' }}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-                    Con {formatNumber(formData.tokens)} tokens puedes obtener aproximadamente:
-                  </Typography>
-                  <Grid container spacing={1}>
-                    {calculateCapacity(formData.tokens, selectedProvider)?.map((item, idx) => (
-                      <Grid xs={6} key={idx}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {item.icon}
-                          <Typography level="body-sm">
-                            <strong>{item.value}</strong> {item.label}
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              </>
-            )}
-            */}
+            {/* COMENTADO: Ya no se calcula capacidad basada en proveedor */}
 
-            <Divider />
-            <Typography level="title-sm">{i18n.t("aiModules.subplans.modal.optionsSection")}</Typography>
+            <div className="border-t border-border" />
+            <h3 className="text-sm font-semibold text-foreground">
+              {i18n.t("aiModules.subplans.modal.optionsSection")}
+            </h3>
 
-            <Grid container spacing={2}>
-              <Grid xs={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.subplans.modal.activeLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.subplans.modal.activeHelper")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.isActive}
-                      onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                    />
-                  </Box>
-                </FormControl>
-              </Grid>
-              <Grid xs={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.subplans.modal.publicLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.subplans.modal.publicHelper")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.isPublic}
-                      onChange={(e) => setFormData({ ...formData, isPublic: e.target.checked })}
-                    />
-                  </Box>
-                </FormControl>
-              </Grid>
-            </Grid>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                <div>
+                  <Label htmlFor="subplan-active">{i18n.t("aiModules.subplans.modal.activeLabel")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {i18n.t("aiModules.subplans.modal.activeHelper")}
+                  </p>
+                </div>
+                <Toggle
+                  id="subplan-active"
+                  ariaLabel={i18n.t("aiModules.subplans.modal.activeLabel")}
+                  checked={formData.isActive}
+                  onCheckedChange={(v) => setFormData({ ...formData, isActive: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                <div>
+                  <Label htmlFor="subplan-public">{i18n.t("aiModules.subplans.modal.publicLabel")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {i18n.t("aiModules.subplans.modal.publicHelper")}
+                  </p>
+                </div>
+                <Toggle
+                  id="subplan-public"
+                  ariaLabel={i18n.t("aiModules.subplans.modal.publicLabel")}
+                  checked={formData.isPublic}
+                  onCheckedChange={(v) => setFormData({ ...formData, isPublic: v })}
+                />
+              </div>
+            </div>
+          </div>
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
-              <Button variant="outlined" onClick={() => setOpenModal(false)}>
-                {i18n.t("aiModules.subplans.buttons.cancel")}
-              </Button>
-              <Button
-                startDecorator={<SaveIcon />}
-                onClick={handleSave}
-                loading={saving}
-              >
-                {editingSubplan ? i18n.t("aiModules.subplans.buttons.save") : i18n.t("aiModules.subplans.buttons.create")}
-              </Button>
-            </Box>
-          </Box>
-        </ModalDialog>
-      </Modal>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
+              {i18n.t("aiModules.subplans.buttons.cancel")}
+            </Button>
+            <Button size="sm" onClick={handleSave} loading={saving}>
+              {!saving && <FloppyDisk className="size-4" aria-hidden />}
+              {editingSubplan ? i18n.t("aiModules.subplans.buttons.save") : i18n.t("aiModules.subplans.buttons.create")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Confirmar Eliminacion */}
-      <Modal open={deleteConfirm !== null} onClose={() => setDeleteConfirm(null)}>
-        <ModalDialog>
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {i18n.t("aiModules.subplans.delete.title")}
-          </Typography>
-          <Typography level="body-md" sx={{ mb: 3 }}>
+      <Dialog open={deleteConfirm !== null} onOpenChange={(open) => { if (!open) setDeleteConfirm(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{i18n.t("aiModules.subplans.delete.title")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
             {i18n.t("aiModules.subplans.delete.message")}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+          </p>
+          <DialogFooter>
             <Button
-              variant="outlined"
+              variant="outline"
+              size="sm"
               onClick={() => setDeleteConfirm(null)}
               disabled={deleting}
             >
               {i18n.t("aiModules.subplans.buttons.cancel")}
             </Button>
             <Button
-              color="danger"
+              size="sm"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
               loading={deleting}
               disabled={deleting}
             >
+              <Trash className="size-4" aria-hidden />
               {i18n.t("aiModules.subplans.buttons.delete")}
             </Button>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Box>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { proto, WASocket } from "@whiskeysockets/baileys";
+import { proto, WASocket } from "baileys";
 import Ticket from "../models/Ticket";
 import AppError from "../errors/AppError";
 import GetMessageService from "../services/MessageServices/GetMessagesService";

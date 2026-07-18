@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * AbTestService — Servicio de A/B Testing para campanas de email
  *

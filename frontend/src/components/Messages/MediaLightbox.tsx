@@ -74,6 +74,12 @@ export default function MediaLightbox({
 
   const isVideo = currentType === 'video'
 
+  // Fuerza la descarga vía backend (Content-Disposition) — el atributo `download`
+  // se ignora entre dominios distintos (frontend vs backend).
+  const downloadName =
+    decodeURIComponent(currentSrc.split('?')[0].split('/').pop() || 'media') || 'media'
+  const downloadUrl = `${currentSrc}${currentSrc.includes('?') ? '&' : '?'}download=${encodeURIComponent(downloadName)}`
+
   return (
     <Modal
       open={open}
@@ -122,9 +128,8 @@ export default function MediaLightbox({
             {/* Descargar */}
             <IconButton
               component="a"
-              href={currentSrc}
-              download
-              target="_blank"
+              href={downloadUrl}
+              download={downloadName}
               size="sm"
               sx={{ color: '#fff', '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' } }}
             >

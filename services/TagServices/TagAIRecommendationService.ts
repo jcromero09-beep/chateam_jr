@@ -16,6 +16,9 @@
  */
 
 import { chatCompletion } from "../AIClientService";
+import AppError from "../../errors/AppError";
+import logger from "../../utils/logger";
+import { chargeClassification } from "../AICreditServices/AIUsagePricingService";
 
 export interface AIRecommendation {
   followupDelay1: number;
@@ -77,6 +80,36 @@ Basándote en esta información, recomienda intervalos y guidance de contexto IA
     : `Nombre de la etapa: "${name}"
 
 No hay descripción disponible. Infiere el propósito de esta etapa por su nombre y recomienda intervalos y guidance de contexto IA.`;
+
+  // 💳 COBRO UNIFICADO: recomendacion de tags = classification (con fallback a 'message').
+  // Si no hay company es uso interno (admin scaffolding) — se omite el cobro.
+  if (options.companyId) {
+    try {
+      await chargeClassification({
+        companyId: options.companyId,
+        units: 1,
+        source: "tag_ai_recommendation",
+        sourceId: options.name,
+        description: `Recomendacion IA tag="${options.name}"`,
+        metadata: { hasDescription: !!options.description }
+      });
+    } catch (creditErr: any) {
+      const isInsufficient =
+        creditErr instanceof AppError &&
+        (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+          creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+      if (isInsufficient) {
+        logger.warn(
+          `[TagAIRecommendation] Sin creditos (company=${options.companyId}); usando fallback`
+        );
+        return getFallbackRecommendation(options.name);
+      }
+      logger.warn(
+        `[TagAIRecommendation] Error cobro: ${creditErr?.message || creditErr}; usando fallback por seguridad`
+      );
+      return getFallbackRecommendation(options.name);
+    }
+  }
 
   try {
     const response = await chatCompletion({

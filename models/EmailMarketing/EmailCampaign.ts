@@ -129,7 +129,7 @@ class EmailCampaign extends Model {
   @Column(DataType.INTEGER)
   totalSpamComplaints: number;
 
-  @Default('acelle')
+  @Default('listmonk')
   @Column(DataType.STRING(50))
   provider: string;
 
@@ -139,6 +139,25 @@ class EmailCampaign extends Model {
   @Default({})
   @Column(DataType.JSONB)
   settings: object;
+
+  /**
+   * Segundos entre envios de cada email. Si es 0, se usa el modo nativo
+   * del provider (Listmonk envia toda la campana sin throttling propio).
+   * Si es >0, se usa el modo individual_queue: cada recipient se encola
+   * con delay incremental.
+   */
+  @Default(0)
+  @Column(DataType.INTEGER)
+  sendIntervalSeconds: number;
+
+  /**
+   * Modo de despacho:
+   *   - 'provider_native': delegamos todo el envio al provider (campana en Listmonk/Acelle)
+   *   - 'individual_queue': enviamos uno-a-uno via EmailSendQueue para respetar sendIntervalSeconds
+   */
+  @Default('provider_native')
+  @Column(DataType.STRING(20))
+  dispatchMode: string;
 
   @Default(false)
   @Column(DataType.BOOLEAN)

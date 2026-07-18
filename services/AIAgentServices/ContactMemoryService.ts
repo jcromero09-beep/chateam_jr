@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * ContactMemoryService — Memoria Persistente por Contacto
  *
@@ -255,7 +259,7 @@ ${conversation}`;
 
     const response = await AIClientService.generateText({
       prompt,
-      modelKey: "gpt-4.1-mini",
+      modelKey: "gpt-5.5",
       maxTokens: 512,
       temperature: 0.1
     });

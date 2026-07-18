@@ -1,6 +1,7 @@
 import { Op, fn, col, where } from "sequelize";
 import Campaign from "../../models/Campaign";
-import { isEmpty } from "lodash";
+import lodash from "lodash";
+const { isEmpty } = lodash;
 import ContactList from "../../models/ContactList";
 import Whatsapp from "../../models/Whatsapp";
 import WhatsAppTemplate from "../../models/WhatsAppTemplate";

@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Job: AgentIdentityGen
  * Procesa la generacion completa de una identidad de agente UGC en background.

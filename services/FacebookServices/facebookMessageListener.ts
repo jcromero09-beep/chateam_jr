@@ -1,3 +1,13 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import { writeFileSync } from "fs";
 import fs from "fs";
 import axios from "axios";
@@ -20,7 +30,8 @@ import Chatbot from "../../models/Chatbot";
 import Message from "../../models/Message";
 import { sayChatbot } from "../WbotServices/ChatbotListenerFacebook";
 import ListSettingsService from "../SettingServices/ListSettingsService";
-import { isNil, isNull, head } from "lodash";
+import lodash from "lodash";
+const { isNil, isNull, head } = lodash;
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
 import { handleMessageIntegration, handleRating, verifyRating } from "../WbotServices/wbotMessageListener";
 import CompaniesSettings from "../../models/CompaniesSettings";
@@ -107,7 +118,6 @@ const verifyContact = async (msgContact: any, token: any, companyId: any) => {
   };
   // //console.log('contacto creado',contactData)
   const contact = await CreateOrUpdateContactService(contactData);
-  ////console.log('contacto creado',contact)
   return contact;
 };
 
@@ -131,9 +141,7 @@ export const  verifyMessageFace = async (
     dataJson: JSON.stringify(msg),
     channel: ticket.channel
   };
-  //console.log('messageData', messageData)
   await CreateMessageService({ messageData, companyId: ticket.companyId });
-  //console.log('newMessage facebook listener CreateMessageService')
   await ticket.update({
     lastMessage: msg.text
   });
@@ -165,7 +173,7 @@ export const verifyMessageMedia = async (
   }
 
   writeFileSync(
-    join(__dirname, "..", "..", "..", folder, fileName),
+    join(currentDir, "..", "..", "..", folder, fileName),
     data,
     "base64"
   );
@@ -184,7 +192,6 @@ export const verifyMessageMedia = async (
     dataJson: JSON.stringify(msg),
     channel: ticket.channel
   };
-  //console.log('messageData', messageData)
   await CreateMessageService({ messageData, companyId: ticket.companyId });
 
   await ticket.update({
@@ -230,9 +237,6 @@ const flowBuilderQueue = async (
   };
 
 
-  //console.log("======================================")
-  //console.log("|         flowBuilderQueue           |")
-  //console.log("======================================")
 
 
   const nodes: INodes[] = flow.flow["nodes"]
@@ -303,7 +307,7 @@ const flowbuilderIntegration = async (
   );
 
   if (flowDispar) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId, active: true } });
     if (flow) {
       console.log("[FlowBuilder-FB] Prioridad 1: Palabra clave →", flowDispar.phrase);
       await ActionsWebhookFacebookService(
@@ -318,7 +322,7 @@ const flowbuilderIntegration = async (
 
   // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
   if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
     if (flow) {
       console.log("[FlowBuilder-FB] Prioridad 2: Continuación flujo activo");
       await ActionsWebhookFacebookService(
@@ -333,7 +337,7 @@ const flowbuilderIntegration = async (
 
   // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
   if (isFirstMsg && getSession.flowIdWelcome) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdWelcome } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdWelcome, active: true } });
     if (flow) {
       console.log("[FlowBuilder-FB] Prioridad 3: Contacto con ticket previo → flowIdWelcome");
       await ActionsWebhookFacebookService(
@@ -348,7 +352,7 @@ const flowbuilderIntegration = async (
 
   // ─── PRIORIDAD 4: CONTACTO EXISTENTE → flowIdNotPhrase ───
   if (!isFirstMsg && getSession.flowIdNotPhrase) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdNotPhrase } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdNotPhrase, active: true } });
     if (flow) {
       console.log("[FlowBuilder-FB] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
       await ActionsWebhookFacebookService(
@@ -377,8 +381,7 @@ export const handleMessage = async (
       const { message } = webhookEvent;
       const fromMe = message.is_echo;
 
-      let bodyMessage = message.text;
-  ////console.log('fromMe',fromMe)
+      const bodyMessage = message.text;
   if (channel === "facebook") {
     try {
       if (fromMe) {
@@ -413,7 +416,6 @@ export const handleMessage = async (
           profile_pic: null,
          
         };
-        //console.log('No se pudo obtener perfil IG externo, usando solo ID:', msgContact);
       }
     }
    // //console.log('contacto creado', msgContact);
@@ -456,6 +458,7 @@ export const handleMessage = async (
         where: {
           contactId: contact.id,
           companyId,
+          whatsappId: getSession.id
         },
         order: [["id", "DESC"]]
       });
@@ -553,22 +556,20 @@ export const handleMessage = async (
             } else {
 
               if (ticket.amountUsedBotQueuesNPS < getSession.maxUseBotQueuesNPS) {
-                let bodyErrorRating = `\u200eOpção inválida, tente novamente.\n`;
+                const bodyErrorRating = `\u200eOpção inválida, tente novamente.\n`;
                 const sentMessage = await sendText(
                   contact.number,
                   bodyErrorRating,
                   getSession.facebookUserToken
                 );
-                //console.log('verifyMessageFace')
                 await verifyMessageFace(sentMessage, bodyErrorRating, ticket, contact);
 
 
                 // await delay(1000);
 
-                let bodyRatingMessage = `\u200e${getSession.ratingMessage}\n`;
+                const bodyRatingMessage = `\u200e${getSession.ratingMessage}\n`;
 
                 const msg = await sendText(contact.number, bodyRatingMessage, getSession.facebookUserToken);
-                //console.log('verifyMessageFace2')
                 await verifyMessageFace(sentMessage, bodyRatingMessage, ticket, contact);
 
                 await ticket.update({
@@ -612,7 +613,6 @@ export const handleMessage = async (
                       `\u200e${getSession.complationMessage}`,
                       getSession.facebookUserToken
                     );
-                    //console.log('verifyMessageFace3')
                     await verifyMessageFace(sentMessage, `\u200e${getSession.complationMessage}`, ticket, contact);
                   }
 
@@ -652,11 +652,9 @@ export const handleMessage = async (
               !contact.isGroup && isNil(ticket.lgpdSendMessageAt) &&
               ticket.amountUsedBotQueues <= getSession.maxUseBotQueues && !isNil(settings?.lgpdMessage)
             ) {
-              //console.log('verifyMessageFace10', message)
               if (message.attachments) {
                 await verifyMessageMedia(message, ticket, contact);
               } else {
-                //console.log('verifyMessageFace4')
                 await verifyMessageFace(message, message.text, ticket, contact);
               }
 
@@ -668,7 +666,6 @@ export const handleMessage = async (
                   bodyMessageLGPD,
                   getSession.facebookUserToken
                 );
-                //console.log('verifyMessageFace5')
                 await verifyMessageFace(sentMessage, bodyMessageLGPD, ticket, contact);
 
               }
@@ -681,9 +678,8 @@ export const handleMessage = async (
                   bodyLink,
                   getSession.facebookUserToken
                 );
-                //console.log('verifyMessageFace6')
                 await verifyMessageFace(sentMessage, bodyLink, ticket, contact);
-              };
+              }
 
               // await delay(1000);
 
@@ -697,7 +693,6 @@ export const handleMessage = async (
                 bodyBot,
                 getSession.facebookUserToken
               );
-              //console.log('verifyMessageFace7')
               await verifyMessageFace(sentMessageBot, bodyBot, ticket, contact);
 
               await ticket.update({
@@ -709,7 +704,7 @@ export const handleMessage = async (
 
               return;
 
-            };
+            }
 
             if (!isNil(ticket.lgpdSendMessageAt) && isNil(ticket.lgpdAcceptedAt))
               return
@@ -717,13 +712,11 @@ export const handleMessage = async (
         }
       } catch (e) {
         throw new Error(e);
-        //console.log(e);
       }
      // //console.log('verifyMessageFace11', message)
       if (message.attachments) {
         await verifyMessageMedia(message, ticket, contact);
       } else {
-        //console.log('verifyMessageFace8')
         await verifyMessageFace(message, message.text, ticket, contact);
       }
 
@@ -763,9 +756,7 @@ export const handleMessage = async (
       // ================= Fin detección de campaña =================
 
       const flow = await FlowBuilderModel.findOne({
-        where: {
-          id: ticket.flowStopped
-        }
+        where: { id: ticket.flowStopped, active: true }
       });
 
       let isMenu = false;
@@ -816,7 +807,6 @@ const contactName = contact?.name || "Cliente";
 
 
       if (!openAiSettings?.apiKey || !openAiSettings?.prompt) {
-        //console.log("OpenAI deshabilitado o sin credenciales.");
       } else {
         // //console.log("OpenAI listo:", {
         //   companyId: ticket.companyId,
@@ -870,7 +860,6 @@ const contactName = contact?.name || "Cliente";
             //   queueId: ticket.queueId
             // });
           } else {
-            //console.log("OpenAI deshabilitado o sin credenciales.");
           }
         }
 
@@ -953,8 +942,8 @@ const contactName = contact?.name || "Cliente";
             const body = message.message?.text || "";
             if (!body || body.trim().length === 0) return;
 
-            const SupervisorService = require("../AIAgentServices/SupervisorService").default;
-            const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+            const SupervisorService = (await import("../AIAgentServices/SupervisorService")).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge
+            const SupervisorActionsService = (await import("../AIAgentServices/SupervisorActionsService")).default; // fix 2026-07-10: idem
 
             // Cargar historial del ticket
             const Message = require("../../models/Message").default;
@@ -1014,16 +1003,37 @@ const contactName = contact?.name || "Cliente";
                 shouldCreateAIAgentLog: true
               });
 
-              await SupervisorActionsService.classifyTicketStage(
-                ticket.id,
-                companyId,
-                aiResponse.intent,
-                aiResponse.agentUsed
-              );
-
               logger.info(`[SupervisorAI-FB] Enviando respuesta: "${aiResponse.message.substring(0, 50)}..."`);
 
               await sendText(contact.number, aiResponse.message, getSession.facebookUserToken);
+              try {
+                await SupervisorActionsService.classifyTicketStageAfterReplySent(
+                  ticket.id,
+                  companyId,
+                  aiResponse.intent,
+                  aiResponse.agentUsed,
+                  { conversionSource: "orchestrator_reply_sent_facebook" }
+                );
+              } catch (stageError: any) {
+                logger.warn(`[SupervisorAI-FB] Error clasificando Kanban post-envio: ${stageError.message}`);
+              }
+              try {
+                const ZepMemoryService = require("../AIAgentServices/ZepMemoryService").default;
+                ZepMemoryService.addConversationTurnAsync({
+                  companyId,
+                  ticketId: ticket.id,
+                  contactId: contact?.id,
+                  contactName: contact?.name,
+                  contactEmail: contact?.email,
+                  channel: "facebook",
+                  userMessage: body,
+                  assistantMessage: aiResponse.message,
+                  agentUsed: aiResponse.agentUsed,
+                  intent: aiResponse.intent
+                });
+              } catch (zepError: any) {
+                logger.warn(`[SupervisorAI-FB] Zep post-envio omitido: ${zepError.message}`);
+              }
             }
 
             if (ticket.aiStatus !== 'active') {
@@ -1075,8 +1085,8 @@ const contactName = contact?.name || "Cliente";
             const body = message.message?.text || "";
             if (!body || body.trim().length === 0) return;
 
-            const SupervisorService = require("../AIAgentServices/SupervisorService").default;
-            const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+            const SupervisorService = (await import("../AIAgentServices/SupervisorService")).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge
+            const SupervisorActionsService = (await import("../AIAgentServices/SupervisorActionsService")).default; // fix 2026-07-10: idem
 
             // Cargar historial del ticket
             const Message = require("../../models/Message").default;
@@ -1136,14 +1146,35 @@ const contactName = contact?.name || "Cliente";
                 shouldCreateAIAgentLog: true
               });
 
-              await SupervisorActionsService.classifyTicketStage(
-                ticket.id,
-                companyId,
-                aiResponse.intent,
-                aiResponse.agentUsed
-              );
-
               await sendText(message.sender.id, aiResponse.message, getSession.facebookUserToken);
+              try {
+                await SupervisorActionsService.classifyTicketStageAfterReplySent(
+                  ticket.id,
+                  companyId,
+                  aiResponse.intent,
+                  aiResponse.agentUsed,
+                  { conversionSource: "orchestrator_reply_sent_facebook" }
+                );
+              } catch (stageError: any) {
+                logger.warn(`[SupervisorAI-FB] Error clasificando Kanban post-envio: ${stageError.message}`);
+              }
+              try {
+                const ZepMemoryService = require("../AIAgentServices/ZepMemoryService").default;
+                ZepMemoryService.addConversationTurnAsync({
+                  companyId,
+                  ticketId: ticket.id,
+                  contactId: contact?.id,
+                  contactName: contact?.name,
+                  contactEmail: contact?.email,
+                  channel: "facebook",
+                  userMessage: body,
+                  assistantMessage: aiResponse.message,
+                  agentUsed: aiResponse.agentUsed,
+                  intent: aiResponse.intent
+                });
+              } catch (zepError: any) {
+                logger.warn(`[SupervisorAI-FB] Zep post-envio omitido: ${zepError.message}`);
+              }
             }
 
             if (!ticket.useIntegration) {
@@ -1235,7 +1266,6 @@ const verifyQueue = async (
   const choosenQueue = queues[+selectedOption - 1];
 
   if (choosenQueue) {
-    //console.log(585, "facebookMessageListener")
 
     await UpdateTicketService({
       ticketData: { queueId: choosenQueue.id },

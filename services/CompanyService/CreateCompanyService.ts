@@ -27,6 +27,8 @@ interface CompanyData {
   paymentMethod?: string;
   password?: string;
   companyUserName?: string;
+  /** Slug de afiliado capturado en signup (?ref=...) */
+  referralSlug?: string | null;
 }
 
 const CreateCompanyService = async (
@@ -38,7 +40,6 @@ const CreateCompanyService = async (
     password,
     email,
     status,
-    planId,
     dueDate,
     recurrence,
     document,
@@ -104,6 +105,14 @@ const CreateCompanyService = async (
       allowRealTime: "enabled",
       allowConnections: "enabled",
     },
+      { transaction: t }
+    );
+
+    // [Multi-empresa] Membresia del admin en la empresa recien creada, para que
+    // el modelo CompanyUsers sea consistente desde el alta de la empresa.
+    const CompanyUser = (await import("../../models/CompanyUser")).default;
+    await CompanyUser.create(
+      { userId: user.id, companyId: company.id, profile: "admin", active: true } as any,
       { transaction: t }
     );
 
@@ -649,10 +658,37 @@ await user.update({ whatsappId: whatsapp.id }, { transaction: t });
 
     await t.commit();
 
+    // ── Registrar referral si vino con ?ref=<slug> ────────────────────────
+    // Se hace fuera de la transacción para no abortar la creación de la
+    // company si el slug es inválido. Si falla, sólo se loguea.
+    try {
+      if (companyData.referralSlug) {
+        const { default: registerReferral } = await import(
+          "../AffiliateServices/RegisterReferralService"
+        );
+        await registerReferral({
+          referredCompanyId: company.id,
+          referralSlug: companyData.referralSlug
+        });
+      }
+    } catch (refErr: any) {
+      // No bloquear el signup
+      // eslint-disable-next-line no-console
+      console.error(
+        `[CreateCompanyService] Error registrando referral (slug=${companyData.referralSlug}):`,
+        refErr.message
+      );
+    }
+
     return company;
   } catch (error) {
     await t.rollback();
-    throw new AppError("Não foi possível criar a empresa!", error);
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    console.error("[CreateCompanyService] Error creando empresa:", error);
+    throw new AppError("ERR_COMPANY_CREATE_FAILED", 500);
   }
 };
 

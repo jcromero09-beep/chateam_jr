@@ -26,6 +26,10 @@ interface Contact {
 
 interface TagsContainerProps {
   contact: Contact
+  /** Si true, el control queda en solo lectura (modo no-edición del drawer). */
+  disabled?: boolean
+  /** Notifica al padre las etiquetas sincronizadas para reflejarlas en tiempo real. */
+  onTagsChange?: (tags: Tag[]) => void
 }
 
 const filter = createFilterOptions<Tag | string>()
@@ -37,7 +41,7 @@ function getRandomHexColor(): string {
   return `#${red.toString(16).padStart(2, '0')}${green.toString(16).padStart(2, '0')}${blue.toString(16).padStart(2, '0')}`
 }
 
-export function TagsContainer({ contact }: TagsContainerProps) {
+export function TagsContainer({ contact, disabled = false, onTagsChange }: TagsContainerProps) {
   const [tags, setTags] = useState<Tag[]>([])
   const [selecteds, setSelecteds] = useState<Tag[]>([])
   const isMounted = useRef(true)
@@ -48,17 +52,18 @@ export function TagsContainer({ contact }: TagsContainerProps) {
     }
   }, [])
 
+  // Cargar el catálogo de etiquetas disponibles una sola vez (no depende del contacto).
   useEffect(() => {
-    if (isMounted.current) {
-      loadTags().then(() => {
-        if (Array.isArray(contact.tags)) {
-          setSelecteds(contact.tags)
-        } else {
-          setSelecteds([])
-        }
-      })
-    }
-  }, [contact])
+    loadTags()
+  }, [])
+
+  // Sincronizar las etiquetas seleccionadas SOLO cuando cambia el contacto (por id).
+  // Antes dependía del objeto `contact` completo y se re-ejecutaba en cada patch/merge
+  // del ticket, pisando las etiquetas recién agregadas (bug: solo se veía la última /
+  // no se reflejaban en tiempo real).
+  useEffect(() => {
+    setSelecteds(Array.isArray(contact.tags) ? contact.tags : [])
+  }, [contact.id])
 
   const createTag = async (data: { name: string; kanban: number; color: string }) => {
     try {
@@ -118,6 +123,8 @@ export function TagsContainer({ contact }: TagsContainerProps) {
     await loadTags()
     setSelecteds(optionsChanged)
     await syncTags({ contactId: contact.id, tags: optionsChanged })
+    // Reflejar en el padre (header/lista/drawer) al instante, sin esperar recarga.
+    onTagsChange?.(optionsChanged)
   }
 
   return (
@@ -126,6 +133,7 @@ export function TagsContainer({ contact }: TagsContainerProps) {
         multiple
         freeSolo
         size="sm"
+        disabled={disabled}
         options={tags}
         value={selecteds}
         onChange={handleChange}

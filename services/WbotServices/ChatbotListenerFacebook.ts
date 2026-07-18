@@ -1,4 +1,4 @@
-import { WASocket, proto } from "@whiskeysockets/baileys";
+import { WASocket, proto } from "baileys";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import { Store } from "../../libs/store";
@@ -137,7 +137,6 @@ const backToMainMenu = async (
     ticketId: ticket.id,
     companyId: ticket.companyId
   });
-  // console.log("GETTING WHATSAPP BACK TO MAIN MENU", ticket.whatsappId, wbot.id)
   const { queues, greetingMessage } = await ShowWhatsAppService(wbot.id!, ticket.companyId);
 
 

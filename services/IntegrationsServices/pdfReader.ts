@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 // procesarPdf.ts
 import fs from 'fs';
 import path from 'path';
@@ -5,11 +11,13 @@ import pdfParse from 'pdf-parse';
 const pdf = (pdfParse as any).default || pdfParse;
 import OpenAI from 'openai';
 import chroma from '../../libs/chromadb';
+import { getApiKeyWithFallback } from '../AIProviderService';
 
-const pdfPath = path.resolve(__dirname, "smartrack.pdf");
+const pdfPath = path.resolve(currentDir, "smartrack.pdf");
 
-const openai = new OpenAI({ apiKey: "OPENAI_API_KEY_PURGED_FROM_HISTORY_000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" });
 async function procesarPdf() {
+  const apiKey = await getApiKeyWithFallback('openai', 'OPENAI_API_KEY');
+  const openai = new OpenAI({ apiKey });
   const dataBuffer = fs.readFileSync(pdfPath);
   const pdfData = await pdf(dataBuffer);
   const texto = pdfData.text;

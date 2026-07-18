@@ -1,35 +1,38 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Box,
-  Typography,
-  Sheet,
-  Card,
-  Chip,
-  Avatar,
-  Button,
-  CircularProgress,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Select,
-  Option,
-  FormControl,
-  FormLabel,
-  Input,
-  Divider,
-  IconButton,
-} from '@mui/joy'
+  Plus,
+  ShareNetwork,
+  ArrowClockwise,
+  ArrowsClockwise,
+  LinkBreak,
+  InstagramLogo,
+  TiktokLogo,
+  FacebookLogo,
+  YoutubeLogo,
+  User,
+} from '@phosphor-icons/react'
+// [Migración Ola G] CircularProgress se conserva como MUI Joy: sin equivalente en el DS.
+import { CircularProgress } from '@mui/joy'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Avatar } from '@/components/ui/avatar'
+import { Label } from '@/components/ui/label'
 import {
-  Add,
-  Share,
-  Refresh,
-  SyncAlt,
-  LinkOff,
-  Instagram,
-  Videocam,
-  Facebook,
-  Person,
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -55,43 +58,48 @@ interface SocialAccount {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// Colores de marca de cada plataforma (identidad, no tokens de superficie): se
+// mantienen como valores arbitrarios estáticos igual que en Connections.tsx.
 const PLATFORM_CONFIG: Record<SocialPlatform, {
   label: string
-  color: string
-  bgColor: string
+  iconClass: string
+  headerClass: string
   icon: React.ReactNode
 }> = {
   instagram: {
     label: 'Instagram',
-    color: '#E1306C',
-    bgColor: '#fce4ec',
-    icon: <Instagram />,
+    iconClass: 'text-[#E1306C]',
+    headerClass: 'bg-[#E1306C]/10',
+    icon: <InstagramLogo className="size-5" weight="fill" aria-hidden />,
   },
   tiktok: {
     label: 'TikTok',
-    color: '#010101',
-    bgColor: '#f5f5f5',
-    icon: <Videocam />,
+    iconClass: 'text-foreground',
+    headerClass: 'bg-muted',
+    icon: <TiktokLogo className="size-5" weight="fill" aria-hidden />,
   },
   facebook: {
     label: 'Facebook',
-    color: '#1877F2',
-    bgColor: '#e3f2fd',
-    icon: <Facebook />,
+    iconClass: 'text-[#1877F2]',
+    headerClass: 'bg-[#1877F2]/10',
+    icon: <FacebookLogo className="size-5" weight="fill" aria-hidden />,
   },
   youtube: {
     label: 'YouTube',
-    color: '#FF0000',
-    bgColor: '#ffebee',
-    icon: <Videocam />,
+    iconClass: 'text-[#FF0000]',
+    headerClass: 'bg-[#FF0000]/10',
+    icon: <YoutubeLogo className="size-5" weight="fill" aria-hidden />,
   },
 }
 
-const STATUS_CONFIG: Record<AccountStatus, { label: string; color: 'success' | 'warning' | 'danger' }> = {
-  active:  { label: 'Activa',   color: 'success' },
-  expired: { label: 'Expirada', color: 'warning' },
-  revoked: { label: 'Revocada', color: 'danger'  },
+const STATUS_CONFIG: Record<AccountStatus, { label: string; variant: BadgeProps['variant'] }> = {
+  active:  { label: 'Activa',   variant: 'success' },
+  expired: { label: 'Expirada', variant: 'warning' },
+  revoked: { label: 'Revocada', variant: 'destructive' },
 }
+
+const inputClass =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -154,85 +162,94 @@ function ConnectAccountModal({ open, onClose, onConnected }: ConnectModalProps) 
   }
 
   return (
-    <Modal open={open} onClose={() => { if (!loading) onClose() }}>
-      <ModalDialog sx={{ width: 480, maxWidth: '95vw' }}>
-        {!loading && <ModalClose />}
-        <Typography level="h4" sx={{ mb: 0.5 }}>Conectar Cuenta Social</Typography>
-        <Typography level="body-sm" color="neutral" sx={{ mb: 2.5 }}>
-          Vincula una cuenta de red social al UGC Pipeline.
-        </Typography>
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !loading) onClose() }}>
+      <DialogContent className="max-w-md" hideClose={loading}>
+        <DialogHeader>
+          <DialogTitle>Conectar Cuenta Social</DialogTitle>
+          <DialogDescription>
+            Vincula una cuenta de red social al UGC Pipeline.
+          </DialogDescription>
+        </DialogHeader>
 
         {error && (
-          <Sheet variant="soft" color="danger" sx={{ p: 1.5, borderRadius: 'sm', mb: 2 }}>
-            <Typography level="body-sm" color="danger">{error}</Typography>
-          </Sheet>
+          <div className="rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive-text">
+            {error}
+          </div>
         )}
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <FormControl>
-            <FormLabel>Plataforma</FormLabel>
+        <div className="flex flex-col gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="ugc-platform">Plataforma</Label>
             <Select
               value={platform}
-              onChange={(_, v) => v && setPlatform(v)}
+              onValueChange={(v) => setPlatform(v as SocialPlatform)}
               disabled={loading}
             >
-              {(Object.entries(PLATFORM_CONFIG) as [SocialPlatform, typeof PLATFORM_CONFIG[SocialPlatform]][]).map(([key, cfg]) => (
-                <Option key={key} value={key}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box sx={{ color: cfg.color, display: 'flex' }}>{cfg.icon}</Box>
-                    {cfg.label}
-                  </Box>
-                </Option>
-              ))}
+              <SelectTrigger id="ugc-platform" className="h-11">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.entries(PLATFORM_CONFIG) as [SocialPlatform, typeof PLATFORM_CONFIG[SocialPlatform]][]).map(([key, cfg]) => (
+                  <SelectItem key={key} value={key}>
+                    <span className="flex items-center gap-2">
+                      <span className={cn('flex', cfg.iconClass)}>{cfg.icon}</span>
+                      {cfg.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
+          </div>
 
-          <FormControl>
-            <FormLabel>Username</FormLabel>
-            <Input
+          <div className="space-y-1.5">
+            <Label htmlFor="ugc-username">Username</Label>
+            <input
+              id="ugc-username"
+              className={inputClass}
               placeholder="@usuario"
               value={username}
               onChange={e => setUsername(e.target.value)}
               disabled={loading}
             />
-          </FormControl>
+          </div>
 
-          <FormControl>
-            <FormLabel>Platform Account ID</FormLabel>
-            <Input
+          <div className="space-y-1.5">
+            <Label htmlFor="ugc-account-id">Platform Account ID</Label>
+            <input
+              id="ugc-account-id"
+              className={inputClass}
               placeholder="ID de la cuenta en la plataforma"
               value={accountId}
               onChange={e => setAccountId(e.target.value)}
               disabled={loading}
             />
-          </FormControl>
+          </div>
 
-          <FormControl>
-            <FormLabel>Access Token</FormLabel>
-            <Input
+          <div className="space-y-1.5">
+            <Label htmlFor="ugc-token">Access Token</Label>
+            <input
+              id="ugc-token"
               type="password"
+              className={inputClass}
               placeholder="Token de acceso"
               value={token}
               onChange={e => setToken(e.target.value)}
               disabled={loading}
             />
-          </FormControl>
+          </div>
+        </div>
 
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1 }}>
-            <Button variant="outlined" color="neutral" onClick={onClose} disabled={loading}>
-              Cancelar
-            </Button>
-            <Button
-              startDecorator={loading ? <CircularProgress size="sm" /> : <Add />}
-              onClick={handleConnect}
-              loading={loading}
-            >
-              Conectar
-            </Button>
-          </Box>
-        </Box>
-      </ModalDialog>
-    </Modal>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={loading}>
+            Cancelar
+          </Button>
+          <Button size="sm" loading={loading} onClick={handleConnect}>
+            {!loading && <Plus className="size-4" weight="bold" aria-hidden />}
+            Conectar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -250,89 +267,86 @@ function AccountCard({ account, onSync, onDisconnect, syncingId }: AccountCardPr
   const statusCfg   = STATUS_CONFIG[account.status]
   const isSyncing   = syncingId === account.id
 
+  const metrics = [
+    { label: 'Seguidores', value: formatNumber(account.followers) },
+    { label: 'Posts',      value: formatNumber(account.postsCount) },
+    { label: 'Engagement', value: `${account.engagementRate.toFixed(1)}%` },
+  ]
+
   return (
-    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm shadow-black/[0.02]">
       {/* Platform header */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          p: 1.5,
-          mx: -1.5,
-          mt: -1.5,
-          borderRadius: 'sm sm 0 0',
-          bgcolor: platformCfg.bgColor,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ color: platformCfg.color, display: 'flex' }}>
-            {platformCfg.icon}
-          </Box>
-          <Typography level="title-sm" sx={{ color: platformCfg.color, fontWeight: 700 }}>
+      <div className={cn('flex items-center justify-between px-4 py-3', platformCfg.headerClass)}>
+        <div className="flex items-center gap-2">
+          <span className={cn('flex', platformCfg.iconClass)}>{platformCfg.icon}</span>
+          <span className={cn('text-sm font-bold', platformCfg.iconClass)}>
             {platformCfg.label}
-          </Typography>
-        </Box>
-        <Chip size="sm" variant="soft" color={statusCfg.color}>
-          {statusCfg.label}
-        </Chip>
-      </Box>
+          </span>
+        </div>
+        <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+      </div>
 
-      {/* Account info */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Avatar src={account.avatarUrl} sx={{ width: 48, height: 48, flexShrink: 0 }}>
-          {account.displayName.charAt(0)}
-        </Avatar>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography level="title-sm" noWrap>{account.displayName}</Typography>
-          <Typography level="body-xs" color="neutral" noWrap>@{account.username}</Typography>
-        </Box>
-      </Box>
+      <div className="flex flex-col gap-3 p-4">
+        {/* Account info */}
+        <div className="flex items-center gap-3">
+          {account.avatarUrl ? (
+            <img
+              src={account.avatarUrl}
+              alt={account.displayName}
+              width={48}
+              height={48}
+              className="size-12 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <Avatar name={account.displayName} size="lg" className="size-12" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-foreground">{account.displayName}</p>
+            <p className="truncate text-xs text-muted-foreground">@{account.username}</p>
+          </div>
+        </div>
 
-      {/* Metrics */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1 }}>
-        {[
-          { label: 'Seguidores',  value: formatNumber(account.followers) },
-          { label: 'Posts',       value: formatNumber(account.postsCount) },
-          { label: 'Engagement',  value: `${account.engagementRate.toFixed(1)}%` },
-        ].map(metric => (
-          <Box key={metric.label} sx={{ textAlign: 'center', p: 1, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-            <Typography level="body-sm" fontWeight="lg">{metric.value}</Typography>
-            <Typography level="body-xs" color="neutral" sx={{ fontSize: 10 }}>{metric.label}</Typography>
-          </Box>
-        ))}
-      </Box>
+        {/* Metrics */}
+        <div className="grid grid-cols-3 gap-2">
+          {metrics.map(metric => (
+            <div key={metric.label} className="rounded-md bg-muted p-2 text-center">
+              <p className="text-sm font-bold text-foreground">{metric.value}</p>
+              <p className="text-[10px] text-muted-foreground">{metric.label}</p>
+            </div>
+          ))}
+        </div>
 
-      {/* Last sync */}
-      <Typography level="body-xs" color="neutral">
-        Ultima sinc: {formatDate(account.lastSyncAt)}
-      </Typography>
+        {/* Last sync */}
+        <p className="text-xs text-muted-foreground">
+          Última sinc: {formatDate(account.lastSyncAt)}
+        </p>
 
-      <Divider />
+        <div className="border-t border-border" />
 
-      {/* Actions */}
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <Button
-          size="sm"
-          variant="outlined"
-          color="neutral"
-          startDecorator={isSyncing ? <CircularProgress size="sm" /> : <SyncAlt sx={{ fontSize: 16 }} />}
-          onClick={() => onSync(account.id)}
-          loading={isSyncing}
-          sx={{ flex: 1 }}
-        >
-          Sincronizar
-        </Button>
-        <IconButton
-          size="sm"
-          variant="outlined"
-          color="danger"
-          onClick={() => onDisconnect(account.id)}
-        >
-          <LinkOff sx={{ fontSize: 18 }} />
-        </IconButton>
-      </Box>
-    </Card>
+        {/* Actions */}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1"
+            loading={isSyncing}
+            onClick={() => onSync(account.id)}
+          >
+            {!isSyncing && <ArrowsClockwise className="size-4" aria-hidden />}
+            Sincronizar
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Desconectar cuenta"
+            className="size-9 border-destructive/40 text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+            onClick={() => onDisconnect(account.id)}
+          >
+            <LinkBreak className="size-[18px]" aria-hidden />
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -389,80 +403,89 @@ export default function UGCSocialAccounts() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: 'auto' }}>
-      {/* ── Header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Share sx={{ fontSize: 28, color: 'primary.500' }} />
-          <Box>
-            <Typography level="h3">Cuentas Sociales</Typography>
-            <Typography level="body-sm" color="neutral">
-              Gestiona las cuentas de redes sociales conectadas al Pipeline
-            </Typography>
-          </Box>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <IconButton variant="outlined" color="neutral" size="sm" onClick={fetchAccounts} disabled={loading}>
-            <Refresh />
-          </IconButton>
-          <Button startDecorator={<Add />} onClick={() => setShowConnect(true)}>
-            Conectar Cuenta
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1200px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* ── Header ── */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ShareNetwork className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Cuentas Sociales
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestiona las cuentas de redes sociales conectadas al Pipeline
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchAccounts}
+              disabled={loading}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={() => setShowConnect(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Conectar Cuenta
+            </Button>
+          </div>
+        </div>
 
-      {/* ── Error state ── */}
-      {error && (
-        <Sheet variant="soft" color="danger" sx={{ p: 2, borderRadius: 'md', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography level="body-sm" color="danger">{error}</Typography>
-            <Button size="sm" variant="plain" color="danger" onClick={fetchAccounts}>Reintentar</Button>
-          </Box>
-        </Sheet>
-      )}
+        {/* ── Error state ── */}
+        {error && (
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-destructive/12 px-4 py-3">
+            <p className="text-sm text-destructive-text">{error}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+              onClick={fetchAccounts}
+            >
+              Reintentar
+            </Button>
+          </div>
+        )}
 
-      {/* ── Loading state ── */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size="lg" />
-        </Box>
-      ) : accounts.length === 0 ? (
-        /* ── Empty state ── */
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 10, gap: 2 }}>
-          <Person sx={{ fontSize: 64, color: 'text.tertiary' }} />
-          <Typography level="h3" textAlign="center">Sin cuentas conectadas</Typography>
-          <Typography level="body-md" color="neutral" textAlign="center" sx={{ maxWidth: 400 }}>
-            Conecta tus cuentas de redes sociales para monitorear publicaciones y comentarios desde el Pipeline.
-          </Typography>
-          <Button size="lg" startDecorator={<Add />} onClick={() => setShowConnect(true)}>
-            Conectar Primera Cuenta
-          </Button>
-        </Box>
-      ) : (
-        /* ── Accounts grid ── */
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, 1fr)',
-              md: 'repeat(3, 1fr)',
-              lg: 'repeat(4, 1fr)',
-            },
-            gap: 2,
-          }}
-        >
-          {accounts.map(account => (
-            <AccountCard
-              key={account.id}
-              account={account}
-              onSync={handleSync}
-              onDisconnect={handleDisconnect}
-              syncingId={syncingId}
-            />
-          ))}
-        </Box>
-      )}
+        {/* ── Loading / Empty / Grid ── */}
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <CircularProgress size="lg" />
+          </div>
+        ) : accounts.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-20 text-center">
+            <span className="flex size-16 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <User className="size-9" aria-hidden />
+            </span>
+            <h2 className="text-xl font-semibold text-foreground">Sin cuentas conectadas</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Conecta tus cuentas de redes sociales para monitorear publicaciones y comentarios desde el Pipeline.
+            </p>
+            <Button size="lg" onClick={() => setShowConnect(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Conectar Primera Cuenta
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {accounts.map(account => (
+              <AccountCard
+                key={account.id}
+                account={account}
+                onSync={handleSync}
+                onDisconnect={handleDisconnect}
+                syncingId={syncingId}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ── Connect Modal ── */}
       <ConnectAccountModal
@@ -470,6 +493,6 @@ export default function UGCSocialAccounts() {
         onClose={() => setShowConnect(false)}
         onConnected={handleConnected}
       />
-    </Box>
+    </div>
   )
 }

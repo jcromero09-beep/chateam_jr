@@ -115,8 +115,6 @@ const CreateMessageService = async ({
   messageData,
   companyId
 }: Request): Promise<Message> => {
-  // console.log("\n  🔸 [CreateMessageService] INICIO");
-  // console.log("  📋 Datos del mensaje:", {
   //   wid: messageData.wid,
   //   ticketId: messageData.ticketId,
   //   body: messageData.body?.substring(0, 50) + (messageData.body?.length > 50 ? "..." : ""),
@@ -228,7 +226,6 @@ const CreateMessageService = async ({
       await existingMessage.update(updateFields);
     }
   } else {
-    // console.log("  💾 Creando mensaje nuevo en BD...");
     try {
       await Message.create(enrichedData);
     } catch (err: any) {
@@ -296,7 +293,6 @@ const CreateMessageService = async ({
     }
   }
 
-  // console.log("  🔍 Obteniendo mensaje completo con relaciones...");
   const message = await Message.findOne({
     where: {
       wid: messageData.wid,
@@ -306,21 +302,19 @@ const CreateMessageService = async ({
   });
 
   if (message.ticket.queueId !== null && message.queueId === null) {
-    // console.log("  🎯 Asignando queueId del ticket al mensaje:", message.ticket.queueId);
     await message.update({ queueId: message.ticket.queueId });
   }
 
   if (message.isPrivate) {
-    // console.log("  🔒 Mensaje privado - generando wid especial");
     await message.update({ wid: `PVT${message.id}` });
+    await message.ticket.update({ updatedAt: new Date() });
+    await message.ticket.reload();
   }
 
   if (!message) {
-    // console.log("  ❌ [CreateMessageService] ERROR: No se pudo crear el mensaje");
     throw new Error("ERR_CREATING_MESSAGE");
   }
 
-  // console.log("  ✅ Mensaje creado con ID:", message.id);
 
   const io = getIO();
 
@@ -342,7 +336,6 @@ const CreateMessageService = async ({
       });
   }
 
-  // console.log("  ✅ [CreateMessageService] FIN\n");
 
   return message;
 };

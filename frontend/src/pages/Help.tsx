@@ -1,18 +1,25 @@
-import { Box, Typography, Sheet, Card, List, ListItem, ListItemDecorator, Divider } from '@mui/joy'
+import type { ReactNode } from 'react'
 import {
-  HelpOutline as HelpIcon,
-  QuestionAnswer as QAIcon,
-  Description as DocsIcon,
-  ContactSupport as SupportIcon,
-  VideoLibrary as VideoIcon,
-  School as TutorialIcon,
-} from '@mui/icons-material'
+  Question,
+  ChatCircleDots,
+  FileText,
+  Headset,
+  VideoCamera,
+  GraduationCap,
+} from '@phosphor-icons/react'
+
+interface HelpSection {
+  title: string
+  icon: ReactNode
+  description: string
+  items: string[]
+}
 
 export default function Help() {
-  const helpSections = [
+  const helpSections: HelpSection[] = [
     {
       title: 'Preguntas Frecuentes',
-      icon: <QAIcon color="primary" />,
+      icon: <ChatCircleDots className="size-6 text-brand-teal" weight="fill" aria-hidden />,
       description: 'Respuestas a las preguntas más comunes sobre JR Chateam',
       items: [
         '¿Cómo crear una campaña de marketing?',
@@ -24,7 +31,7 @@ export default function Help() {
     },
     {
       title: 'Documentación',
-      icon: <DocsIcon color="success" />,
+      icon: <FileText className="size-6 text-success-text" weight="fill" aria-hidden />,
       description: 'Guías completas y documentación técnica del sistema',
       items: [
         'Manual de Usuario - Guía completa',
@@ -36,7 +43,7 @@ export default function Help() {
     },
     {
       title: 'Video Tutoriales',
-      icon: <VideoIcon color="warning" />,
+      icon: <VideoCamera className="size-6 text-warning-text" weight="fill" aria-hidden />,
       description: 'Tutoriales en video paso a paso',
       items: [
         'Introducción a JR Chateam (5 min)',
@@ -48,7 +55,7 @@ export default function Help() {
     },
     {
       title: 'Capacitación',
-      icon: <TutorialIcon color="info" />,
+      icon: <GraduationCap className="size-6 text-brand-cyan" weight="fill" aria-hidden />,
       description: 'Cursos y capacitaciones para usuarios',
       items: [
         'Curso Básico - Operaciones diarias',
@@ -60,131 +67,91 @@ export default function Help() {
     },
   ]
 
+  const resources = [
+    { title: 'Base de Conocimiento', description: '+150 artículos disponibles' },
+    { title: 'Comunidad', description: 'Foro con +5,000 usuarios' },
+    { title: 'Actualizaciones', description: 'Novedades v6.0.0' },
+  ]
+
   return (
-    <Box>
-      {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-          <HelpIcon sx={{ fontSize: 40, color: 'primary.main' }} />
-          <Typography level="h2">Centro de Ayuda</Typography>
-        </Box>
-        <Typography level="body-md" sx={{ color: 'text.secondary' }}>
-          Encuentra respuestas, documentación y recursos para aprovechar al máximo JR Chateam
-        </Typography>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <Question className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Centro de Ayuda
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Encuentra respuestas, documentación y recursos para aprovechar al máximo JR Chateam
+            </p>
+          </div>
+        </div>
 
-      {/* Quick Support Contact */}
-      <Card
-        variant="soft"
-        color="primary"
-        sx={{
-          mb: 4,
-          p: 3,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 3,
-        }}
-      >
-        <SupportIcon sx={{ fontSize: 48 }} />
-        <Box sx={{ flex: 1 }}>
-          <Typography level="title-lg" sx={{ mb: 0.5 }}>
-            ¿Necesitas ayuda inmediata?
-          </Typography>
-          <Typography level="body-sm">
-            Nuestro equipo de soporte está disponible de lunes a viernes de 9:00 AM a 6:00 PM
-          </Typography>
-          <Typography level="body-sm" sx={{ mt: 1, fontWeight: 'bold' }}>
-            Email: soporte@jrchateam.com | WhatsApp: Disponible en horario laboral
-          </Typography>
-        </Box>
-      </Card>
+        {/* Quick Support Contact */}
+        <div className="flex items-center gap-4 rounded-xl border border-border bg-accent p-6 text-accent-foreground">
+          <span className="flex size-14 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <Headset className="size-7" weight="fill" aria-hidden />
+          </span>
+          <div className="flex-1">
+            <h2 className="mb-1 text-lg font-semibold text-foreground">
+              ¿Necesitas ayuda inmediata?
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Nuestro equipo de soporte está disponible de lunes a viernes de 9:00 AM a 6:00 PM
+            </p>
+            <p className="mt-1 text-sm font-semibold text-foreground">
+              Email: soporte@jrchateam.com | WhatsApp: Disponible en horario laboral
+            </p>
+          </div>
+        </div>
 
-      {/* Help Sections Grid */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: '1fr',
-            md: 'repeat(2, 1fr)',
-          },
-          gap: 3,
-        }}
-      >
-        {helpSections.map((section, index) => (
-          <Sheet
-            key={index}
-            variant="outlined"
-            sx={{
-              p: 3,
-              borderRadius: 'md',
-              transition: 'all 0.2s',
-              '&:hover': {
-                boxShadow: 'md',
-                transform: 'translateY(-4px)',
-              },
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-              {section.icon}
-              <Typography level="title-lg">{section.title}</Typography>
-            </Box>
-            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 2 }}>
-              {section.description}
-            </Typography>
-            <Divider sx={{ my: 2 }} />
-            <List size="sm">
-              {section.items.map((item, idx) => (
-                <ListItem key={idx}>
-                  <ListItemDecorator>•</ListItemDecorator>
-                  {item}
-                </ListItem>
-              ))}
-            </List>
-          </Sheet>
-        ))}
-      </Box>
+        {/* Help Sections Grid */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {helpSections.map((section, index) => (
+            <div
+              key={index}
+              className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02] transition-all hover:-translate-y-1 hover:shadow-md"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                {section.icon}
+                <h3 className="text-lg font-semibold text-foreground">{section.title}</h3>
+              </div>
+              <p className="mb-3 text-sm text-muted-foreground">{section.description}</p>
+              <div className="my-3 border-t border-border" />
+              <ul className="space-y-1.5">
+                {section.items.map((item, idx) => (
+                  <li key={idx} className="flex gap-2 text-sm text-foreground">
+                    <span className="text-muted-foreground" aria-hidden>
+                      •
+                    </span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
 
-      {/* Additional Resources */}
-      <Box sx={{ mt: 4 }}>
-        <Typography level="title-md" sx={{ mb: 2 }}>
-          Recursos Adicionales
-        </Typography>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(3, 1fr)',
-            },
-            gap: 2,
-          }}
-        >
-          <Card variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-            <Typography level="title-sm" sx={{ mb: 0.5 }}>
-              Base de Conocimiento
-            </Typography>
-            <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-              +150 artículos disponibles
-            </Typography>
-          </Card>
-          <Card variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-            <Typography level="title-sm" sx={{ mb: 0.5 }}>
-              Comunidad
-            </Typography>
-            <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-              Foro con +5,000 usuarios
-            </Typography>
-          </Card>
-          <Card variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-            <Typography level="title-sm" sx={{ mb: 0.5 }}>
-              Actualizaciones
-            </Typography>
-            <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-              Novedades v6.0.0
-            </Typography>
-          </Card>
-        </Box>
-      </Box>
-    </Box>
+        {/* Additional Resources */}
+        <div>
+          <h2 className="mb-3 text-base font-semibold text-foreground">Recursos Adicionales</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {resources.map((resource, index) => (
+              <div
+                key={index}
+                className="rounded-xl border border-border bg-card p-4 text-center shadow-sm shadow-black/[0.02]"
+              >
+                <p className="mb-0.5 text-sm font-semibold text-foreground">{resource.title}</p>
+                <p className="text-xs text-muted-foreground">{resource.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

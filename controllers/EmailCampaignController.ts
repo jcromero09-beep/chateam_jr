@@ -1,8 +1,13 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import * as Yup from "yup";
 import { ValidationError } from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import { Op } from "sequelize";
 import fs from "fs";
 import path from "path";
@@ -18,6 +23,8 @@ import Setting from "../models/Setting";
 
 import AppError from "../errors/AppError";
 import logger from "../utils/logger";
+import EmailTemplateService from "../services/EmailMarketing/EmailTemplateService";
+import { EmailMarketingFactory } from "../services/EmailMarketing/providers/EmailMarketingFactory";
 
 type IndexQuery = {
   searchParam: string;
@@ -341,6 +348,25 @@ export const cancel = async (req: Request, res: Response): Promise<Response> => 
       throw new AppError("Email Campaign not found", 404);
     }
 
+    // Si esta en provider remoto, cancelar alla tambien (best-effort)
+    if (emailCampaign.providerCampaignId && emailCampaign.provider) {
+      try {
+        const provider = await EmailMarketingFactory.getProvider(Number(companyId));
+        if (provider.getProviderName() === emailCampaign.provider) {
+          const r = await provider.cancelCampaign(emailCampaign.providerCampaignId);
+          if (!r.success) {
+            logger.warn(
+              `[EmailCampaign] cancel remoto fallo: ${r.error}`
+            );
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          `[EmailCampaign] cancel remoto exception: ${(err as Error).message}`
+        );
+      }
+    }
+
     await emailCampaign.update({ status: "CANCELADA" });
 
     const io = getIO();
@@ -415,8 +441,12 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
     reply_to: Yup.string().email("Email de respuesta invalido"),
     contactListId: Yup.number().required("El ID de la lista de contactos es requerido"),
     htmlContent: Yup.string().required("El contenido HTML es requerido"),
+    templateId: Yup.number().nullable(),
     sendAt: Yup.string().nullable(),
-    launchNow: Yup.boolean().default(false)
+    launchNow: Yup.boolean().default(false),
+    sendIntervalSeconds: Yup.number().min(0).max(3600).default(0),
+    trackOpens: Yup.boolean().default(true),
+    trackClicks: Yup.boolean().default(true)
   });
 
   let validatedData: {
@@ -427,8 +457,12 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
     reply_to?: string;
     contactListId: number;
     htmlContent: string;
+    templateId?: number;
     sendAt?: string | null;
     launchNow?: boolean;
+    sendIntervalSeconds?: number;
+    trackOpens?: boolean;
+    trackClicks?: boolean;
   };
 
   try {
@@ -470,22 +504,125 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
       });
     }
 
-    // 2. Crear la campana en BD
+    // 2. Resolver provider activo de Email Marketing
+    const provider = await EmailMarketingFactory.getProvider(Number(companyId));
+    const providerName = provider.getProviderName();
+
+    // 3. Decidir dispatchMode
+    const sendIntervalSeconds = Number(validatedData.sendIntervalSeconds || 0);
+    const dispatchMode: "provider_native" | "individual_queue" =
+      sendIntervalSeconds > 0 ? "individual_queue" : "provider_native";
+
+    // 4. Resolver providerListId efectivo (para provider_native)
+    const providerListId = contactList.providerListId || contactList.acelleListUid || null;
+    if (dispatchMode === "provider_native" && !providerListId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "La lista no esta sincronizada con el provider activo. Edite la lista o use sendIntervalSeconds > 0 para enviar individual."
+      });
+    }
+
+    // 5. Resolver providerTemplateId si se paso templateId
+    let providerTemplateId: string | null = null;
+    if (validatedData.templateId) {
+      const tpl = await EmailTemplate.findOne({
+        where: { id: validatedData.templateId, companyId }
+      });
+      if (tpl?.providerTemplateId) {
+        providerTemplateId = tpl.providerTemplateId;
+      }
+    }
+
+    // 6. Crear la campana en provider remoto (solo provider_native)
+    let providerCampaignId: string | null = null;
+    let initialStatus: string;
+
+    if (dispatchMode === "provider_native" && providerListId) {
+      const remoteResult = await provider.createCampaign({
+        name: validatedData.name,
+        subject: validatedData.subject,
+        htmlContent: validatedData.htmlContent,
+        fromEmail: validatedData.from_email || "",
+        fromName: validatedData.from_name || "",
+        replyTo: validatedData.reply_to,
+        providerListIds: [providerListId],
+        providerTemplateId,
+        sendAt: validatedData.sendAt ? new Date(validatedData.sendAt) : null,
+        trackOpens: validatedData.trackOpens !== false,
+        trackClicks: validatedData.trackClicks !== false
+      });
+
+      if (!remoteResult.success || !remoteResult.data) {
+        return res.status(400).json({
+          success: false,
+          message: `Error al crear campana en ${providerName}: ${remoteResult.error || "respuesta invalida"}`
+        });
+      }
+      providerCampaignId = remoteResult.data.providerCampaignId;
+      initialStatus = "INACTIVA";
+
+      // Si launchNow → start. Si sendAt → schedule.
+      if (validatedData.launchNow) {
+        const startR = await provider.startCampaign(providerCampaignId);
+        if (!startR.success) {
+          return res.status(400).json({
+            success: false,
+            message: `Error al lanzar campana: ${startR.error}`
+          });
+        }
+        initialStatus = "EN_ANDAMENTO";
+      } else if (validatedData.sendAt) {
+        const schedR = await provider.scheduleCampaign(
+          providerCampaignId,
+          new Date(validatedData.sendAt)
+        );
+        if (!schedR.success) {
+          return res.status(400).json({
+            success: false,
+            message: `Error al programar campana: ${schedR.error}`
+          });
+        }
+        initialStatus = "PROGRAMADA";
+      }
+    } else {
+      // dispatchMode === individual_queue: NO crear campana remota, queue local
+      initialStatus = validatedData.launchNow ? "EN_ANDAMENTO" : "INACTIVA";
+    }
+
+    // 7. Crear la campana en BD local
     const emailCampaign = await EmailCampaign.create({
       name: validatedData.name,
       subject: validatedData.subject,
       htmlContent: validatedData.htmlContent,
-      status: validatedData.launchNow ? "EN_PROCESO" : "BORRADOR",
+      templateId: validatedData.templateId || null,
+      status: initialStatus,
       sendAt: validatedData.sendAt ? new Date(validatedData.sendAt) : null,
       contactListId: contactList.id,
       companyId,
-      provider: "carbonio"
+      provider: providerName,
+      providerCampaignId,
+      sendIntervalSeconds,
+      dispatchMode,
+      settings: {
+        launchNow: validatedData.launchNow || false,
+        trackOpens: validatedData.trackOpens !== false,
+        trackClicks: validatedData.trackClicks !== false,
+        fromEmail: validatedData.from_email,
+        fromName: validatedData.from_name,
+        replyTo: validatedData.reply_to
+      }
     } as Partial<EmailCampaign>);
 
-    // 3. Si launchNow, encolar el envio
-    if (validatedData.launchNow) {
+    // 8. Si individual_queue + launchNow → encolar
+    if (dispatchMode === "individual_queue" && validatedData.launchNow) {
       const { emailCampaignQueue } = require("../queues");
-      await emailCampaignQueue.add("ProcessEmailCampaign", {
+      // Fix: encolar SIN nombre de job. EmailCampaignQueue usa el procesador POR DEFECTO
+      // (queues.ts ~1421, rama else → runJobHandle(jobs/EmailCampaign)). Un job con nombre
+      // ("ProcessEmailCampaign") no tenía handler registrado → Bull lanzaba "Missing process
+      // handler for job type ProcessEmailCampaign", el job fallaba y la campaña quedaba
+      // EN_ANDAMENTO sin enviar NUNCA. Solo CampaignQueue (WhatsApp) usa jobs con nombre.
+      await emailCampaignQueue.add({
         campaignId: emailCampaign.id,
         companyId: Number(companyId)
       }, {
@@ -494,7 +631,6 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
       });
     }
 
-    // 4. Contar subscribers
     const subscribersCount = await ContactListItem.count({
       where: { contactListId: contactList.id }
     });
@@ -509,7 +645,7 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
     return res.status(200).json({
       success: true,
       message: validatedData.launchNow
-        ? "Campana creada y encolada para envio"
+        ? "Campana creada y lanzada"
         : validatedData.sendAt
         ? "Campana creada y programada"
         : "Campana creada como borrador",
@@ -518,6 +654,9 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
         name: emailCampaign.name,
         subject: emailCampaign.subject,
         status: emailCampaign.status,
+        provider: providerName,
+        providerCampaignId,
+        dispatchMode,
         contactListId: contactList.id,
         contactListName: contactList.name,
         subscribersCount,
@@ -542,28 +681,18 @@ export const createAndLaunch = async (req: Request, res: Response): Promise<Resp
 
 export const indexTemplates = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { searchParam = "", pageNumber = "1" } = req.query as IndexQuery;
+    const { searchParam = "", pageNumber = "1", type, status } = req.query as IndexQuery & { type?: string; status?: string };
     const { companyId } = req.user;
 
-    const limit = 20;
-    const offset = limit * (+pageNumber - 1);
-
-    const where: any = { companyId };
-
-    if (searchParam) {
-      where.name = { [Op.iLike]: `%${searchParam}%` };
-    }
-
-    const { count, rows: records } = await EmailTemplate.findAndCountAll({
-      where,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]]
+    const result = await EmailTemplateService.list({
+      companyId: Number(companyId),
+      searchParam,
+      pageNumber,
+      type: (type as "campaign" | "tx") || undefined,
+      status
     });
 
-    const hasMore = count > offset + records.length;
-
-    return res.json({ records, count, hasMore });
+    return res.json(result);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Error interno del servidor";
     const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -578,7 +707,7 @@ export const indexTemplates = async (req: Request, res: Response): Promise<Respo
 
 export const storeTemplate = async (req: Request, res: Response): Promise<Response> => {
   const { companyId, id: userId } = req.user;
-  const { name, subject, htmlContent, category } = req.body;
+  const { name, subject, htmlContent, textContent, previewText, category, type, status, tags } = req.body;
 
   const schema = Yup.object().shape({
     name: Yup.string().required(),
@@ -593,15 +722,21 @@ export const storeTemplate = async (req: Request, res: Response): Promise<Respon
     throw new AppError(msg);
   }
 
-  const template = await EmailTemplate.create({
-    name,
-    subject,
-    htmlContent,
-    category: category || "general",
-    companyId,
-    createdBy: userId,
-    status: "active"
-  } as any);
+  const template = await EmailTemplateService.create(
+    Number(companyId),
+    Number(userId),
+    {
+      name,
+      subject,
+      htmlContent,
+      textContent,
+      previewText,
+      type: type === "tx" ? "tx" : "campaign",
+      category: category || "general",
+      status: status || "draft",
+      tags: Array.isArray(tags) ? tags : []
+    }
+  );
 
   return res.status(200).json(template);
 };
@@ -638,15 +773,7 @@ export const updateTemplate = async (req: Request, res: Response): Promise<Respo
     const { companyId } = req.user;
     const data = req.body;
 
-    const template = await EmailTemplate.findOne({
-      where: { id, companyId }
-    });
-
-    if (!template) {
-      throw new AppError("Template not found", 404);
-    }
-
-    await template.update(data);
+    const template = await EmailTemplateService.update(Number(companyId), Number(id), data);
 
     return res.status(200).json(template);
   } catch (error: unknown) {
@@ -666,22 +793,79 @@ export const removeTemplate = async (req: Request, res: Response): Promise<Respo
     const { id } = req.params;
     const { companyId } = req.user;
 
-    const template = await EmailTemplate.findOne({
-      where: { id, companyId }
-    });
-
-    if (!template) {
-      throw new AppError("Template not found", 404);
-    }
-
-    // BD SAGRADA: soft delete en vez de destroy
-    await template.update({ isActive: false });
+    await EmailTemplateService.remove(Number(companyId), Number(id));
 
     return res.status(200).json({ message: "Template archived" });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Error interno del servidor";
     const statusCode = error instanceof AppError ? error.statusCode : 500;
     logger.error(`[EmailCampaign] Error en removeTemplate: ${msg}`);
+    return res.status(statusCode).json({
+      success: false,
+      message: msg,
+      errors: [msg]
+    });
+  }
+};
+
+/**
+ * Duplicar plantilla — POST /email-templates/:id/duplicate
+ */
+export const duplicateTemplate = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { id } = req.params;
+    const { companyId, id: userId } = req.user;
+    const copy = await EmailTemplateService.duplicate(
+      Number(companyId),
+      Number(userId),
+      Number(id)
+    );
+    return res.status(201).json(copy);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Error interno del servidor";
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    logger.error(`[EmailCampaign] Error en duplicateTemplate: ${msg}`);
+    return res.status(statusCode).json({
+      success: false,
+      message: msg,
+      errors: [msg]
+    });
+  }
+};
+
+/**
+ * Test send de plantilla — POST /email-templates/:id/test-send
+ * Body: { to: string, fromEmail?: string, fromName?: string }
+ */
+export const sendTemplateTest = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { id } = req.params;
+    const { companyId } = req.user;
+    const { to, fromEmail, fromName } = req.body as { to: string; fromEmail?: string; fromName?: string };
+
+    if (!to) throw new AppError("Destinatario (to) es requerido", 400);
+
+    const tpl = await EmailTemplateService.show(Number(companyId), Number(id));
+    const provider = await EmailMarketingFactory.getProvider(Number(companyId));
+
+    const result = await provider.sendTest({
+      to,
+      subject: tpl.subject,
+      htmlContent: tpl.htmlContent,
+      textContent: tpl.textContent || "",
+      fromEmail: fromEmail || "",
+      fromName: fromName || ""
+    });
+
+    if (!result.success) {
+      throw new AppError(`Error enviando prueba: ${result.error || "desconocido"}`, 400);
+    }
+
+    return res.status(200).json({ success: true, providerId: result.data?.providerId });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Error interno del servidor";
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    logger.error(`[EmailCampaign] Error en sendTemplateTest: ${msg}`);
     return res.status(statusCode).json({
       success: false,
       message: msg,
@@ -710,27 +894,52 @@ export const send = async (req: Request, res: Response): Promise<Response> => {
       throw new AppError("Email Campaign not found", 404);
     }
 
-    if (campaign.status === "ENVIADA" || campaign.status === "ELIMINADA") {
+    if (campaign.status === "FINALIZADA" || campaign.status === "CANCELADA") {
       throw new AppError(`Campana no puede enviarse (status: ${campaign.status})`, 400);
     }
 
-    // Cambiar status a EN_PROCESO
-    await campaign.update({ status: "EN_PROCESO" });
+    // C4 fix (anti doble-envío): si la campaña YA está en curso, no re-despachar.
+    // Antes solo se bloqueaban FINALIZADA/CANCELADA, así que llamar "enviar" sobre una
+    // campaña EN_ANDAMENTO re-encolaba los recipients (status pending/queued) y duplicaba
+    // los correos. Para reintentar una campaña atascada hay que resetear su estado primero.
+    if (campaign.status === "EN_ANDAMENTO") {
+      throw new AppError("La campaña ya está en envío (EN_ANDAMENTO); no se puede volver a enviar para evitar duplicados.", 409);
+    }
 
-    // Encolar el job de envio masivo
-    const { emailCampaignQueue } = require("../queues");
-    await emailCampaignQueue.add("ProcessEmailCampaign", {
-      campaignId: Number(id),
-      companyId: Number(companyId)
-    }, {
-      removeOnComplete: { age: 3600, count: 100 },
-      removeOnFail: { age: 86400, count: 500 }
-    });
+    const provider = await EmailMarketingFactory.getProvider(Number(companyId));
+
+    // Modo provider_native: pedir al provider que arranque la campana
+    if (campaign.dispatchMode === "provider_native" && campaign.providerCampaignId) {
+      if (provider.getProviderName() !== campaign.provider) {
+        throw new AppError(
+          `Provider activo (${provider.getProviderName()}) no coincide con el de la campana (${campaign.provider})`,
+          400
+        );
+      }
+      const r = await provider.startCampaign(campaign.providerCampaignId);
+      if (!r.success) {
+        throw new AppError(`Error al iniciar campana en ${campaign.provider}: ${r.error}`, 400);
+      }
+      await campaign.update({ status: "EN_ANDAMENTO" });
+    } else {
+      // Modo individual_queue: encolar BullMQ
+      await campaign.update({ status: "EN_ANDAMENTO" });
+      const { emailCampaignQueue } = require("../queues");
+      // Fix: encolar SIN nombre de job (mismo motivo que en createAndLaunch): el procesador
+      // por defecto de EmailCampaignQueue ejecuta jobs/EmailCampaign; con nombre no se procesaba.
+      await emailCampaignQueue.add({
+        campaignId: Number(id),
+        companyId: Number(companyId)
+      }, {
+        removeOnComplete: { age: 3600, count: 100 },
+        removeOnFail: { age: 86400, count: 500 }
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      message: "Campana encolada para envio",
-      data: { campaignId: Number(id), status: "EN_PROCESO" }
+      message: "Campana en envio",
+      data: { campaignId: Number(id), status: "EN_ANDAMENTO", dispatchMode: campaign.dispatchMode }
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Error interno del servidor";
@@ -749,7 +958,7 @@ export const send = async (req: Request, res: Response): Promise<Response> => {
  */
 export const testSend = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
-  const { email, subject, htmlContent, fromName, fromEmail } = req.body;
+  const { email, subject, htmlContent, textContent, fromName, fromEmail } = req.body;
 
   if (!email || !subject || !htmlContent) {
     return res.status(400).json({
@@ -760,15 +969,15 @@ export const testSend = async (req: Request, res: Response): Promise<Response> =
   }
 
   try {
-    const { ProviderFactory } = require("../services/EmailMarketing/providers/ProviderFactory");
-    const provider = await ProviderFactory.getProvider(Number(companyId));
+    const provider = await EmailMarketingFactory.getProvider(Number(companyId));
 
-    const result = await provider.sendEmail({
+    const result = await provider.sendTest({
       to: email,
-      from: fromEmail || process.env.MAIL_USER || "noreply@chateam.ws",
-      fromName: fromName || "ChatEAM Test",
       subject: `[TEST] ${subject}`,
-      htmlContent
+      htmlContent,
+      textContent: textContent || "",
+      fromEmail: fromEmail || process.env.MAIL_USER || "noreply@chateam.ws",
+      fromName: fromName || "ChatEAM Test"
     });
 
     return res.status(200).json({
@@ -776,7 +985,7 @@ export const testSend = async (req: Request, res: Response): Promise<Response> =
       message: result.success
         ? `Email de prueba enviado a ${email}`
         : `Error al enviar email de prueba: ${result.error}`,
-      data: result
+      data: result.data
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Error interno del servidor";

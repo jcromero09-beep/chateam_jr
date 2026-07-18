@@ -1,37 +1,194 @@
 import { useState } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Switch,
-  Chip,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Table,
-  Sheet,
-  Alert,
-  Select,
-  Option,
-} from '@mui/joy'
+  ClipboardText,
+  FloppyDisk,
+  ArrowsClockwise,
+  CheckCircle,
+  Gear,
+  ChartBar,
+  Warning,
+  XCircle,
+  ClockCounterClockwise,
+} from '@phosphor-icons/react'
+import type { Icon } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
-  Assignment as AssignmentIcon,
-  Save as SaveIcon,
-  Sync as SyncIcon,
-  CheckCircle as CheckCircleIcon,
-  Settings as SettingsIcon,
-  BarChart as BarChartIcon,
-  Warning as WarningIcon,
-  Error as ErrorIcon,
-  PendingActions as PendingIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+
+// Toggle accesible (role="switch") con tokens del design system.
+// No hay componente Switch en @/components/ui; se define local (patrón IntegrationSmartTrack).
+function Toggle({
+  checked,
+  onChange,
+  id,
+  label,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  id?: string
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-card shadow-sm transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// Campo de texto con etiqueta, estilizado como el resto del design system.
+function Field({
+  id,
+  label,
+  value,
+  onChange,
+  type = 'text',
+  min,
+  max,
+}: {
+  id: string
+  label: string
+  value: string | number
+  onChange: (value: string) => void
+  type?: string
+  min?: number
+  max?: number
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+      />
+    </div>
+  )
+}
+
+// Fila de toggle etiquetada (label + descripción a la izquierda, switch a la derecha).
+function ToggleRow({
+  id,
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  id: string
+  label: string
+  hint?: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <Label htmlFor={id} className="cursor-pointer">
+          {label}
+        </Label>
+        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      <Toggle id={id} label={label} checked={checked} onChange={onChange} />
+    </div>
+  )
+}
+
+// KPI con ícono y nota al pie (StatTile no soporta ícono/nota; mismo shell visual).
+function KpiCard({
+  icon: IconCmp,
+  iconClassName,
+  label,
+  value,
+  hint,
+  hintClassName,
+}: {
+  icon: Icon
+  iconClassName?: string
+  label: string
+  value: string
+  hint: string
+  hintClassName?: string
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-center gap-2">
+        <IconCmp className={cn('size-5', iconClassName)} weight="fill" aria-hidden />
+        <p className="text-sm text-muted-foreground">{label}</p>
+      </div>
+      <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+        {value}
+      </p>
+      <p className={cn('mt-1 text-xs text-muted-foreground', hintClassName)}>{hint}</p>
+    </div>
+  )
+}
+
+// Barra de distribución (reemplaza las Box con bgcolor de MUI).
+function DistributionBar({
+  label,
+  value,
+  total,
+  barClassName,
+}: {
+  label: string
+  value: number
+  total: number
+  barClassName: string
+}) {
+  const pct = (value / total) * 100
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-sm text-foreground">{label}</span>
+        <span className="text-sm font-semibold tabular-nums text-foreground">
+          {value} ({pct.toFixed(1)}%)
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-sm bg-muted">
+        <div className={cn('h-full', barClassName)} style={{ width: `${pct}%` }} aria-hidden />
+      </div>
+    </div>
+  )
+}
+
+const columns = [
+  'Número de Reclamo',
+  'Cliente',
+  'Estado',
+  'Prioridad',
+  'Monto',
+  'Fecha Creación',
+  'Última Actualización',
+]
 
 interface Claim {
   id: number
@@ -145,7 +302,7 @@ export default function IntegrationSGR() {
     console.log('Iniciando sincronización manual de reclamos...')
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'pending':
         return 'warning'
@@ -154,7 +311,7 @@ export default function IntegrationSGR() {
       case 'closed':
         return 'success'
       case 'rejected':
-        return 'danger'
+        return 'destructive'
       default:
         return 'neutral'
     }
@@ -175,10 +332,10 @@ export default function IntegrationSGR() {
     }
   }
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority: string): BadgeProps['variant'] => {
     switch (priority) {
       case 'critical':
-        return 'danger'
+        return 'destructive'
       case 'high':
         return 'warning'
       case 'medium':
@@ -195,522 +352,428 @@ export default function IntegrationSGR() {
     : recentClaims.filter(claim => claim.status === selectedStatus)
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AssignmentIcon sx={{ fontSize: 32 }} />
-            Integración SGR - Sistema de Reclamos
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Gestión de reclamos con Sistema General de Reclamos v2.0
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<SyncIcon />} onClick={handleSyncNow}>
-            Sincronizar Ahora
-          </Button>
-          <Button startDecorator={<SaveIcon />} onClick={handleSave}>
-            Guardar Cambios
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ClipboardText className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Integración SGR - Sistema de Reclamos
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestión de reclamos con Sistema General de Reclamos v2.0
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleSyncNow}>
+              <ArrowsClockwise className="size-4" aria-hidden />
+              Sincronizar Ahora
+            </Button>
+            <Button size="sm" onClick={handleSave}>
+              <FloppyDisk className="size-4" aria-hidden />
+              Guardar Cambios
+            </Button>
+          </div>
+        </div>
 
-      {/* KPIs de Reclamos */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <AssignmentIcon sx={{ color: 'primary.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Total Reclamos
-                </Typography>
-              </Box>
-              <Typography level="h3">{stats.total.toLocaleString()}</Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                Histórico completo
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <PendingIcon sx={{ color: 'warning.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Pendientes
-                </Typography>
-              </Box>
-              <Typography level="h3">{stats.pending}</Typography>
-              <Typography level="body-xs" sx={{ color: 'warning.500', mt: 0.5 }}>
-                Requieren atención
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <WarningIcon sx={{ color: 'primary.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  En Proceso
-                </Typography>
-              </Box>
-              <Typography level="h3">{stats.inProgress}</Typography>
-              <Typography level="body-xs" sx={{ color: 'primary.500', mt: 0.5 }}>
-                En gestión activa
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <CheckCircleIcon sx={{ color: 'success.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Cerrados
-                </Typography>
-              </Box>
-              <Typography level="h3">{stats.closed}</Typography>
-              <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>
-                {((stats.closed / stats.total) * 100).toFixed(1)}% del total
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={2.4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <ErrorIcon sx={{ color: 'danger.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Rechazados
-                </Typography>
-              </Box>
-              <Typography level="h3">{stats.rejected}</Typography>
-              <Typography level="body-xs" sx={{ color: 'danger.500', mt: 0.5 }}>
-                {((stats.rejected / stats.total) * 100).toFixed(1)}% del total
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* KPIs de Reclamos */}
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          <KpiCard
+            icon={ClipboardText}
+            iconClassName="text-primary"
+            label="Total Reclamos"
+            value={stats.total.toLocaleString()}
+            hint="Histórico completo"
+          />
+          <KpiCard
+            icon={ClockCounterClockwise}
+            iconClassName="text-warning-text"
+            label="Pendientes"
+            value={String(stats.pending)}
+            hint="Requieren atención"
+            hintClassName="text-warning-text"
+          />
+          <KpiCard
+            icon={Warning}
+            iconClassName="text-primary"
+            label="En Proceso"
+            value={String(stats.inProgress)}
+            hint="En gestión activa"
+            hintClassName="text-primary"
+          />
+          <KpiCard
+            icon={CheckCircle}
+            iconClassName="text-success-text"
+            label="Cerrados"
+            value={String(stats.closed)}
+            hint={`${((stats.closed / stats.total) * 100).toFixed(1)}% del total`}
+            hintClassName="text-success-text"
+          />
+          <KpiCard
+            icon={XCircle}
+            iconClassName="text-destructive-text"
+            label="Rechazados"
+            value={String(stats.rejected)}
+            hint={`${((stats.rejected / stats.total) * 100).toFixed(1)}% del total`}
+            hintClassName="text-destructive-text"
+          />
+        </div>
 
-      {/* Estado General */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography level="title-lg">Estado de Conexión</Typography>
-                <Chip color="success" startDecorator={<CheckCircleIcon />}>
-                  Activo
-                </Chip>
-              </Box>
-              <Grid container spacing={2}>
-                <Grid xs={6} sm={4}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Última Sincronización</Typography>
-                  <Typography level="body-sm" fontWeight="lg">{generalStats.lastSync}</Typography>
-                </Grid>
-                <Grid xs={6} sm={4}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Próxima Sincronización</Typography>
-                  <Typography level="body-sm" fontWeight="lg">{generalStats.nextSync}</Typography>
-                </Grid>
-                <Grid xs={6} sm={4}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Sincronizados Hoy</Typography>
-                  <Typography level="body-sm" fontWeight="lg" sx={{ color: 'success.500' }}>{generalStats.syncedToday}</Typography>
-                </Grid>
-                <Grid xs={6} sm={4}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Errores 24h</Typography>
-                  <Typography level="body-sm" fontWeight="lg" sx={{ color: 'warning.500' }}>{generalStats.errors}</Typography>
-                </Grid>
-                <Grid xs={6} sm={4}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Uptime</Typography>
-                  <Typography level="body-sm" fontWeight="lg" sx={{ color: 'success.500' }}>{generalStats.uptime}%</Typography>
-                </Grid>
-                <Grid xs={6} sm={4}>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Tiempo Respuesta Prom.</Typography>
-                  <Typography level="body-sm" fontWeight="lg">{generalStats.avgResponseTime}s</Typography>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} md={4}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>Acciones Rápidas</Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Button variant="outlined" size="sm" fullWidth startDecorator={<SyncIcon />}>
-                  Sincronizar Reclamos
-                </Button>
-                <Button variant="outlined" size="sm" fullWidth startDecorator={<AssignmentIcon />}>
-                  Crear Nuevo Reclamo
-                </Button>
-                <Button variant="outlined" size="sm" fullWidth startDecorator={<BarChartIcon />}>
-                  Ver Reportes
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Estado General */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02] lg:col-span-2">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-foreground">Estado de Conexión</h2>
+              <Badge variant="success" dot>
+                Activo
+              </Badge>
+            </div>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs text-muted-foreground">Última Sincronización</dt>
+                <dd className="text-sm font-semibold text-foreground">{generalStats.lastSync}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Próxima Sincronización</dt>
+                <dd className="text-sm font-semibold text-foreground">{generalStats.nextSync}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Sincronizados Hoy</dt>
+                <dd className="text-sm font-semibold tabular-nums text-success-text">
+                  {generalStats.syncedToday}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Errores 24h</dt>
+                <dd className="text-sm font-semibold tabular-nums text-warning-text">
+                  {generalStats.errors}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Uptime</dt>
+                <dd className="text-sm font-semibold tabular-nums text-success-text">
+                  {generalStats.uptime}%
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Tiempo Respuesta Prom.</dt>
+                <dd className="text-sm font-semibold tabular-nums text-foreground">
+                  {generalStats.avgResponseTime}s
+                </dd>
+              </div>
+            </dl>
+          </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue={0}>
-        <TabList>
-          <Tab>Configuración</Tab>
-          <Tab>Gestión de Reclamos</Tab>
-          <Tab>Reportes</Tab>
-        </TabList>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 text-base font-semibold text-foreground">Acciones Rápidas</h2>
+            <div className="flex flex-col gap-2">
+              <Button variant="outline" size="sm" className="w-full justify-start">
+                <ArrowsClockwise className="size-4" aria-hidden />
+                Sincronizar Reclamos
+              </Button>
+              <Button variant="outline" size="sm" className="w-full justify-start">
+                <ClipboardText className="size-4" aria-hidden />
+                Crear Nuevo Reclamo
+              </Button>
+              <Button variant="outline" size="sm" className="w-full justify-start">
+                <ChartBar className="size-4" aria-hidden />
+                Ver Reportes
+              </Button>
+            </div>
+          </div>
+        </div>
 
-        <TabPanel value={0}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" startDecorator={<SettingsIcon />} sx={{ mb: 3 }}>
+        {/* Tabs */}
+        <Tabs defaultValue="config">
+          <TabsList>
+            <TabsTrigger value="config">Configuración</TabsTrigger>
+            <TabsTrigger value="claims">Gestión de Reclamos</TabsTrigger>
+            <TabsTrigger value="reports">Reportes</TabsTrigger>
+          </TabsList>
+
+          {/* Configuración */}
+          <TabsContent value="config">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-foreground">
+                <Gear className="size-5 text-muted-foreground" aria-hidden />
                 Configuración de Conexión SGR
-              </Typography>
+              </h2>
 
-              <Grid container spacing={2}>
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Integración</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Activar o desactivar la sincronización con SGR
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={config.enabled}
-                        onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <ToggleRow
+                    id="sgr-enabled"
+                    label="Habilitar Integración"
+                    hint="Activar o desactivar la sincronización con SGR"
+                    checked={config.enabled}
+                    onChange={(v) => setConfig({ ...config, enabled: v })}
+                  />
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>URL de API SGR</FormLabel>
-                    <Input
-                      value={config.apiUrl}
-                      onChange={(e) => setConfig({ ...config, apiUrl: e.target.value })}
-                    />
-                  </FormControl>
-                </Grid>
+                <Field
+                  id="sgr-api-url"
+                  label="URL de API SGR"
+                  value={config.apiUrl}
+                  onChange={(v) => setConfig({ ...config, apiUrl: v })}
+                />
+                <Field
+                  id="sgr-api-key"
+                  label="API Key"
+                  type="password"
+                  value={config.apiKey}
+                  onChange={(v) => setConfig({ ...config, apiKey: v })}
+                />
+                <Field
+                  id="sgr-company-code"
+                  label="Código de Empresa"
+                  value={config.companyCode}
+                  onChange={(v) => setConfig({ ...config, companyCode: v })}
+                />
+                <Field
+                  id="sgr-sync-interval"
+                  label="Intervalo de Sincronización (minutos)"
+                  type="number"
+                  min={5}
+                  max={60}
+                  value={config.syncInterval}
+                  onChange={(v) => setConfig({ ...config, syncInterval: parseInt(v) })}
+                />
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>API Key</FormLabel>
-                    <Input
-                      type="password"
-                      value={config.apiKey}
-                      onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                    />
-                  </FormControl>
-                </Grid>
+                <div
+                  role="note"
+                  className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-accent-foreground md:col-span-2"
+                >
+                  <p className="text-sm font-semibold">Información Importante</p>
+                  <p className="mt-0.5 text-xs">
+                    La sincronización automática obtiene nuevos reclamos del SGR cada {config.syncInterval} minutos.
+                    Los cambios de estado se notifican en tiempo real mediante webhooks.
+                  </p>
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Código de Empresa</FormLabel>
-                    <Input
-                      value={config.companyCode}
-                      onChange={(e) => setConfig({ ...config, companyCode: e.target.value })}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="flex flex-col gap-4 md:col-span-2">
+                  <ToggleRow
+                    id="sgr-auto-sync"
+                    label="Sincronización Automática"
+                    checked={config.autoSync}
+                    onChange={(v) => setConfig({ ...config, autoSync: v })}
+                  />
+                  <ToggleRow
+                    id="sgr-notify-new"
+                    label="Notificar Nuevos Reclamos"
+                    checked={config.notifyNewClaims}
+                    onChange={(v) => setConfig({ ...config, notifyNewClaims: v })}
+                  />
+                  <ToggleRow
+                    id="sgr-notify-status"
+                    label="Notificar Cambios de Estado"
+                    checked={config.notifyStatusChange}
+                    onChange={(v) => setConfig({ ...config, notifyStatusChange: v })}
+                  />
+                  <ToggleRow
+                    id="sgr-auto-tickets"
+                    label="Crear Tickets Automáticamente"
+                    hint="Crea un ticket en JR Chateam por cada nuevo reclamo"
+                    checked={config.autoAssignTickets}
+                    onChange={(v) => setConfig({ ...config, autoAssignTickets: v })}
+                  />
+                </div>
+              </div>
+            </div>
+          </TabsContent>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Intervalo de Sincronización (minutos)</FormLabel>
-                    <Input
-                      type="number"
-                      value={config.syncInterval}
-                      onChange={(e) => setConfig({ ...config, syncInterval: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 5, max: 60 } }}
-                    />
-                  </FormControl>
-                </Grid>
-
-                <Grid xs={12}>
-                  <Alert color="primary" sx={{ mt: 2 }}>
-                    <Typography level="body-sm" fontWeight="lg" sx={{ mb: 0.5 }}>
-                      Información Importante
-                    </Typography>
-                    <Typography level="body-xs">
-                      La sincronización automática obtiene nuevos reclamos del SGR cada {config.syncInterval} minutos.
-                      Los cambios de estado se notifican en tiempo real mediante webhooks.
-                    </Typography>
-                  </Alert>
-                </Grid>
-
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Sincronización Automática</FormLabel>
-                      <Switch
-                        checked={config.autoSync}
-                        onChange={(e) => setConfig({ ...config, autoSync: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
-
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Notificar Nuevos Reclamos</FormLabel>
-                      <Switch
-                        checked={config.notifyNewClaims}
-                        onChange={(e) => setConfig({ ...config, notifyNewClaims: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
-
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Notificar Cambios de Estado</FormLabel>
-                      <Switch
-                        checked={config.notifyStatusChange}
-                        onChange={(e) => setConfig({ ...config, notifyStatusChange: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
-
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Crear Tickets Automáticamente</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Crea un ticket en JR Chateam por cada nuevo reclamo
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={config.autoAssignTickets}
-                        onChange={(e) => setConfig({ ...config, autoAssignTickets: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </TabPanel>
-
-        <TabPanel value={1}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography level="title-lg">Reclamos Recientes</Typography>
-                <FormControl sx={{ width: 200 }}>
-                  <Select
-                    value={selectedStatus}
-                    onChange={(_, value) => setSelectedStatus(value as string)}
-                    size="sm"
-                  >
-                    <Option value="all">Todos los estados</Option>
-                    <Option value="pending">Pendientes</Option>
-                    <Option value="in_progress">En Proceso</Option>
-                    <Option value="closed">Cerrados</Option>
-                    <Option value="rejected">Rechazados</Option>
+          {/* Gestión de Reclamos */}
+          <TabsContent value="claims">
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="flex flex-wrap items-center justify-between gap-4 p-6 pb-4">
+                <h2 className="text-lg font-semibold text-foreground">Reclamos Recientes</h2>
+                <div className="w-[200px]">
+                  <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                    <SelectTrigger aria-label="Filtrar por estado">
+                      <SelectValue placeholder="Todos los estados" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los estados</SelectItem>
+                      <SelectItem value="pending">Pendientes</SelectItem>
+                      <SelectItem value="in_progress">En Proceso</SelectItem>
+                      <SelectItem value="closed">Cerrados</SelectItem>
+                      <SelectItem value="rejected">Rechazados</SelectItem>
+                    </SelectContent>
                   </Select>
-                </FormControl>
-              </Box>
+                </div>
+              </div>
 
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-sm">
                   <thead>
-                    <tr>
-                      <th>Número de Reclamo</th>
-                      <th>Cliente</th>
-                      <th>Estado</th>
-                      <th>Prioridad</th>
-                      <th>Monto</th>
-                      <th>Fecha Creación</th>
-                      <th>Última Actualización</th>
+                    <tr className="border-y border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                          {c}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody>
-                    {filteredClaims.map((claim) => (
-                      <tr key={claim.id}>
-                        <td>
-                          <Typography level="body-sm" fontWeight="lg">
-                            {claim.claimNumber}
-                          </Typography>
-                        </td>
-                        <td>{claim.customerName}</td>
-                        <td>
-                          <Chip size="sm" color={getStatusColor(claim.status)} variant="soft">
-                            {getStatusLabel(claim.status)}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Chip size="sm" color={getPriorityColor(claim.priority)} variant="outlined">
-                            {claim.priority}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Typography level="body-sm" fontWeight="lg">
-                            ${claim.amount.toLocaleString()}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-xs">
-                            {claim.createdAt}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-xs">
-                            {claim.updatedAt}
-                          </Typography>
+                  <tbody className="divide-y divide-border">
+                    {filteredClaims.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={columns.length}
+                          className="px-4 py-10 text-center text-muted-foreground"
+                        >
+                          No hay reclamos con el estado seleccionado
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredClaims.map((claim) => (
+                        <tr key={claim.id} className="transition-colors hover:bg-accent/40">
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-foreground">
+                            {claim.claimNumber}
+                          </td>
+                          <td className="px-4 py-3 text-foreground">{claim.customerName}</td>
+                          <td className="px-4 py-3">
+                            <Badge variant={getStatusColor(claim.status)} dot>
+                              {getStatusLabel(claim.status)}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={getPriorityColor(claim.priority)} className="capitalize">
+                              {claim.priority}
+                            </Badge>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums text-foreground">
+                            ${claim.amount.toLocaleString()}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {claim.createdAt}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {claim.updatedAt}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
-                </Table>
-              </Sheet>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
 
-              {filteredClaims.length === 0 && (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    No hay reclamos con el estado seleccionado
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </TabPanel>
-
-        <TabPanel value={2}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" startDecorator={<BarChartIcon />} sx={{ mb: 3 }}>
+          {/* Reportes */}
+          <TabsContent value="reports">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-foreground">
+                <ChartBar className="size-5 text-muted-foreground" aria-hidden />
                 Reportes y Estadísticas
-              </Typography>
+              </h2>
 
-              <Grid container spacing={2}>
-                <Grid xs={12} md={6}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography level="title-md" sx={{ mb: 2 }}>Distribución por Estado</Typography>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                        <Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography level="body-sm">Pendientes</Typography>
-                            <Typography level="body-sm" fontWeight="lg">{stats.pending} ({((stats.pending / stats.total) * 100).toFixed(1)}%)</Typography>
-                          </Box>
-                          <Box sx={{ height: 8, bgcolor: 'neutral.100', borderRadius: 'sm', overflow: 'hidden' }}>
-                            <Box sx={{ width: `${(stats.pending / stats.total) * 100}%`, height: '100%', bgcolor: 'warning.500' }} />
-                          </Box>
-                        </Box>
-                        <Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography level="body-sm">En Proceso</Typography>
-                            <Typography level="body-sm" fontWeight="lg">{stats.inProgress} ({((stats.inProgress / stats.total) * 100).toFixed(1)}%)</Typography>
-                          </Box>
-                          <Box sx={{ height: 8, bgcolor: 'neutral.100', borderRadius: 'sm', overflow: 'hidden' }}>
-                            <Box sx={{ width: `${(stats.inProgress / stats.total) * 100}%`, height: '100%', bgcolor: 'primary.500' }} />
-                          </Box>
-                        </Box>
-                        <Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography level="body-sm">Cerrados</Typography>
-                            <Typography level="body-sm" fontWeight="lg">{stats.closed} ({((stats.closed / stats.total) * 100).toFixed(1)}%)</Typography>
-                          </Box>
-                          <Box sx={{ height: 8, bgcolor: 'neutral.100', borderRadius: 'sm', overflow: 'hidden' }}>
-                            <Box sx={{ width: `${(stats.closed / stats.total) * 100}%`, height: '100%', bgcolor: 'success.500' }} />
-                          </Box>
-                        </Box>
-                        <Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography level="body-sm">Rechazados</Typography>
-                            <Typography level="body-sm" fontWeight="lg">{stats.rejected} ({((stats.rejected / stats.total) * 100).toFixed(1)}%)</Typography>
-                          </Box>
-                          <Box sx={{ height: 8, bgcolor: 'neutral.100', borderRadius: 'sm', overflow: 'hidden' }}>
-                            <Box sx={{ width: `${(stats.rejected / stats.total) * 100}%`, height: '100%', bgcolor: 'danger.500' }} />
-                          </Box>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {/* Distribución por Estado */}
+                <div className="rounded-lg border border-border p-5">
+                  <h3 className="mb-4 text-base font-semibold text-foreground">
+                    Distribución por Estado
+                  </h3>
+                  <div className="flex flex-col gap-3">
+                    <DistributionBar
+                      label="Pendientes"
+                      value={stats.pending}
+                      total={stats.total}
+                      barClassName="bg-warning"
+                    />
+                    <DistributionBar
+                      label="En Proceso"
+                      value={stats.inProgress}
+                      total={stats.total}
+                      barClassName="bg-primary"
+                    />
+                    <DistributionBar
+                      label="Cerrados"
+                      value={stats.closed}
+                      total={stats.total}
+                      barClassName="bg-success"
+                    />
+                    <DistributionBar
+                      label="Rechazados"
+                      value={stats.rejected}
+                      total={stats.total}
+                      barClassName="bg-destructive"
+                    />
+                  </div>
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography level="title-md" sx={{ mb: 2 }}>Métricas Clave</Typography>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <Box>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Tiempo Promedio de Resolución</Typography>
-                          <Typography level="h4" sx={{ mt: 0.5 }}>4.2 días</Typography>
-                        </Box>
-                        <Box>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Tasa de Cierre</Typography>
-                          <Typography level="h4" sx={{ mt: 0.5, color: 'success.500' }}>
-                            {((stats.closed / stats.total) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                        <Box>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Tasa de Rechazo</Typography>
-                          <Typography level="h4" sx={{ mt: 0.5, color: 'danger.500' }}>
-                            {((stats.rejected / stats.total) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                {/* Métricas Clave */}
+                <div className="rounded-lg border border-border p-5">
+                  <h3 className="mb-4 text-base font-semibold text-foreground">Métricas Clave</h3>
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Tiempo Promedio de Resolución
+                      </p>
+                      <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+                        4.2 días
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Tasa de Cierre</p>
+                      <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums text-success-text">
+                        {((stats.closed / stats.total) * 100).toFixed(1)}%
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Tasa de Rechazo</p>
+                      <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums text-destructive-text">
+                        {((stats.rejected / stats.total) * 100).toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-                <Grid xs={12}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography level="title-md" sx={{ mb: 2 }}>Resumen del Mes</Typography>
-                      <Grid container spacing={2}>
-                        <Grid xs={6} sm={3}>
-                          <Box sx={{ textAlign: 'center', p: 2 }}>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Nuevos Reclamos</Typography>
-                            <Typography level="h3" sx={{ mt: 1 }}>87</Typography>
-                            <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>+12% vs mes anterior</Typography>
-                          </Box>
-                        </Grid>
-                        <Grid xs={6} sm={3}>
-                          <Box sx={{ textAlign: 'center', p: 2 }}>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Cerrados</Typography>
-                            <Typography level="h3" sx={{ mt: 1, color: 'success.500' }}>102</Typography>
-                            <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>+8% vs mes anterior</Typography>
-                          </Box>
-                        </Grid>
-                        <Grid xs={6} sm={3}>
-                          <Box sx={{ textAlign: 'center', p: 2 }}>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Tiempo Prom. Respuesta</Typography>
-                            <Typography level="h3" sx={{ mt: 1 }}>2.1h</Typography>
-                            <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>-0.3h vs mes anterior</Typography>
-                          </Box>
-                        </Grid>
-                        <Grid xs={6} sm={3}>
-                          <Box sx={{ textAlign: 'center', p: 2 }}>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Satisfacción Cliente</Typography>
-                            <Typography level="h3" sx={{ mt: 1, color: 'success.500' }}>94%</Typography>
-                            <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>+2% vs mes anterior</Typography>
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </TabPanel>
-      </Tabs>
-    </Box>
+                {/* Resumen del Mes */}
+                <div className="rounded-lg border border-border p-5 md:col-span-2">
+                  <h3 className="mb-4 text-base font-semibold text-foreground">Resumen del Mes</h3>
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <div className="p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Nuevos Reclamos</p>
+                      <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                        87
+                      </p>
+                      <p className="mt-1 text-xs text-success-text">+12% vs mes anterior</p>
+                    </div>
+                    <div className="p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Cerrados</p>
+                      <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+                        102
+                      </p>
+                      <p className="mt-1 text-xs text-success-text">+8% vs mes anterior</p>
+                    </div>
+                    <div className="p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Tiempo Prom. Respuesta</p>
+                      <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                        2.1h
+                      </p>
+                      <p className="mt-1 text-xs text-success-text">-0.3h vs mes anterior</p>
+                    </div>
+                    <div className="p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Satisfacción Cliente</p>
+                      <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+                        94%
+                      </p>
+                      <p className="mt-1 text-xs text-success-text">+2% vs mes anterior</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
   )
 }

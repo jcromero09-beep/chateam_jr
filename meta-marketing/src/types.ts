@@ -1,5 +1,12 @@
 export interface MetaConfig {
   accessToken: string;
+  /**
+   * [Fase2] App secret para firmar cada llamada con appsecret_proof.
+   * SOLO debe pasarse si pertenece a la MISMA app que emitio el token: con un
+   * secret de otra app, Meta rechaza TODAS las llamadas (error 190). Quien
+   * construye el cliente es responsable de verificar la correspondencia.
+   */
+  appSecret?: string;
   apiVersion?: string;
   baseUrl?: string;
   timeout?: number;

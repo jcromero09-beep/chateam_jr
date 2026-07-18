@@ -184,15 +184,27 @@ const ProcessPendingMessagesService = async (whatsappId?: number): Promise<numbe
         setTimeout(() => reject(new Error("Timeout de envío excedido (30s)")), SEND_TIMEOUT_MS);
       });
 
-      await Promise.race([sendPromise, timeoutPromise]);
+      const sentMessageResult: any = await Promise.race([sendPromise, timeoutPromise]);
+      const wid = sentMessageResult?.key?.id || currentMessage.wid;
+      const remoteJid =
+        sentMessageResult?.key?.remoteJid ||
+        currentMessage.remoteJid ||
+        (ticket as any)?.contact?.remoteJid ||
+        null;
 
       // Éxito: actualizar status
       await currentMessage.update({
         messageStatus: 'sent',
         sentAt: new Date(),
-        ack: 1
+        ack: 1,
+        wid,
+        remoteJid,
+        dataJson: JSON.stringify(sentMessageResult)
       });
 
+      console.log(
+        `[OutboundDeliveryTrace] accepted source=ProcessPendingMessages messageId=${currentMessage.id} ticketId=${ticket.id} whatsappId=${ticket.whatsappId} wid=${wid} remoteJid=${remoteJid}`
+      );
       console.log(`[ProcessPendingMessages] Mensaje ${message.id} enviado exitosamente`);
 
       // Emitir socket para actualizar UI

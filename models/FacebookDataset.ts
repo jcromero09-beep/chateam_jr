@@ -38,6 +38,21 @@ class FacebookDataset extends Model<FacebookDataset> {
     datasetId: string;
 
     @Column(DataType.STRING)
+    datasetName: string;
+
+    @Column(DataType.STRING)
+    datasetSource: string;
+
+    @Column(DataType.STRING)
+    validationStatus: string;
+
+    @Column(DataType.TEXT)
+    validationError: string;
+
+    @Column(DataType.DATE)
+    validatedAt: Date;
+
+    @Column(DataType.STRING)
     channelSpecificId: string;
 
     @Column(DataType.STRING)

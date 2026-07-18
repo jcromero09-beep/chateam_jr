@@ -76,7 +76,7 @@ Criterios:
 - purchaseIntentScore: 0.0 = sin intencion, 1.0 = intencion maxima`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

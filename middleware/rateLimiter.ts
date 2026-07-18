@@ -194,8 +194,8 @@ export const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const userId = (req as any).user?.id || 'anonymous';
-    const companyId = (req as any).user?.companyId || 'unknown';
+    const userId = req.user?.id || 'anonymous';
+    const companyId = req.user?.companyId || 'unknown';
     return `upload:${companyId}:${userId}`;
   },
 });
@@ -213,8 +213,8 @@ export const messageLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const userId = (req as any).user?.id || 'anonymous';
-    const companyId = (req as any).user?.companyId || 'unknown';
+    const userId = req.user?.id || 'anonymous';
+    const companyId = req.user?.companyId || 'unknown';
     return `message:${companyId}:${userId}`;
   },
 });

@@ -79,6 +79,9 @@ const CredentialsTab: React.FC<CredentialsTabProps> = ({
   const [instagramAppId, setInstagramAppId] = useState<string>("");
   const [sdkLoaded, setSdkLoaded] = useState(false);
   const [sdkLoading, setSdkLoading] = useState(false);
+  const [sdkError, setSdkError] = useState<string>("");
+  const [facebookConnectLoading, setFacebookConnectLoading] = useState(false);
+  const [facebookConnectError, setFacebookConnectError] = useState<string>("");
 
   // Cargar configuracion de Facebook/Instagram App ID
   useEffect(() => {
@@ -109,63 +112,155 @@ const CredentialsTab: React.FC<CredentialsTabProps> = ({
   // Cargar SDK de Facebook cuando tengamos el App ID
   useEffect(() => {
     if (!facebookAppId || connectionType !== "facebook") return;
-    if (window.FB) {
-      setSdkLoaded(true);
-      return;
-    }
 
-    setSdkLoading(true);
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-    window.fbAsyncInit = function () {
-      window.FB.init({
-        appId: facebookAppId,
-        cookie: true,
-        xfbml: true,
-        version: "v24.0",
-      });
-      setSdkLoaded(true);
-      setSdkLoading(false);
+    const markLoaded = () => {
+      if (cancelled || !window.FB) return;
+      try {
+        window.FB.init({
+          appId: facebookAppId,
+          cookie: true,
+          xfbml: true,
+          version: "v24.0",
+        });
+        setSdkLoaded(true);
+        setSdkLoading(false);
+        setSdkError("");
+      } catch (error) {
+        setSdkLoaded(false);
+        setSdkLoading(false);
+        setSdkError("No se pudo inicializar el SDK de Facebook. Verifica el App ID.");
+      }
     };
 
-    // Verificar si el script ya existe
-    if (!document.getElementById("facebook-jssdk")) {
-      const script = document.createElement("script");
+    const markError = () => {
+      if (cancelled) return;
+      setSdkLoaded(false);
+      setSdkLoading(false);
+      setSdkError("No se pudo cargar el SDK de Facebook. Revisa bloqueadores del navegador o acceso a connect.facebook.net.");
+    };
+
+    setSdkLoading(true);
+    setSdkError("");
+
+    window.fbAsyncInit = markLoaded;
+
+    if (window.FB) {
+      markLoaded();
+      return () => {
+        cancelled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+    }
+
+    let script = document.getElementById("facebook-jssdk") as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement("script");
       script.id = "facebook-jssdk";
       script.src = "https://connect.facebook.net/en_US/sdk.js";
       script.async = true;
       script.defer = true;
       document.body.appendChild(script);
     }
+
+    script.onload = markLoaded;
+    script.onerror = markError;
+
+    timeoutId = setTimeout(() => {
+      if (!window.FB) markError();
+    }, 12000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (script) {
+        script.onload = null;
+        script.onerror = null;
+      }
+    };
   }, [facebookAppId, connectionType]);
 
   const handleFacebookReconnect = () => {
     if (!window.FB) {
-      alert("Facebook SDK no esta cargado. Verifica que el Facebook App ID este configurado en Settings.");
+      const message = "Facebook SDK no esta cargado. Verifica que el Facebook App ID este configurado en Settings.";
+      setFacebookConnectError(message);
+      alert(message);
       return;
     }
 
+    setFacebookConnectError("");
+    setFacebookConnectLoading(true);
+
+    const loginOptions = {
+      scope: "public_profile,pages_messaging,pages_show_list,pages_manage_metadata,pages_read_engagement,business_management",
+      auth_type: "rerequest",
+      return_scopes: true,
+    };
+
+    console.info("Facebook login start", {
+      facebookAppId,
+      scope: loginOptions.scope,
+      authType: loginOptions.auth_type,
+      returnScopes: loginOptions.return_scopes,
+    });
+
     window.FB.login(
       (response: any) => {
-        if (response.authResponse) {
-          const { accessToken, userID } = response.authResponse;
-          // Enviar al backend para procesar (usando .then en lugar de await)
+        try {
+          if (!response?.authResponse) {
+            const status = response?.status || "unknown";
+            const message = status === "not_authorized"
+              ? "Facebook autorizo el login, pero no autorizo esta app. Reintenta y acepta todos los permisos."
+              : "Facebook no devolvio autorizacion. Reintenta y selecciona las paginas necesarias.";
+            setFacebookConnectError(message);
+            console.warn("Facebook login without authResponse", { status });
+            setFacebookConnectLoading(false);
+            return;
+          }
+
+          const { accessToken, userID, grantedScopes } = response.authResponse;
+          console.info("Facebook login authorized", {
+            userID,
+            hasAccessToken: Boolean(accessToken),
+            grantedScopes,
+          });
+
           api.post("/facebook", {
             facebookUserId: userID,
             facebookUserToken: accessToken,
+            addInstagram: false,
           })
             .then(() => {
-              // Recargar para reflejar cambios
               window.location.reload();
             })
-            .catch((error) => {
+            .catch((error: any) => {
               console.error("Error connecting Facebook:", error);
-              alert("Error al conectar con Facebook");
+              const status = error?.response?.status;
+              const backendError = error?.response?.data?.error;
+              const message = status === 401
+                ? "Tu sesion de ChatEAM vencio antes de guardar Facebook. Inicia sesion nuevamente y repite la conexion."
+                : backendError || "Error al conectar con Facebook. Revisa que hayas seleccionado una pagina con permisos.";
+              setFacebookConnectError(message);
+              alert(message);
+            })
+            .finally(() => {
+              setFacebookConnectLoading(false);
             });
+        } catch (error: any) {
+          console.error("Error connecting Facebook:", error);
+          const status = error?.response?.status;
+          const backendError = error?.response?.data?.error;
+          const message = status === 401
+            ? "Tu sesion de ChatEAM vencio antes de guardar Facebook. Inicia sesion nuevamente y repite la conexion."
+            : backendError || "Error al conectar con Facebook. Revisa que hayas seleccionado una pagina con permisos.";
+          setFacebookConnectError(message);
+          alert(message);
+          setFacebookConnectLoading(false);
         }
       },
-      {
-        scope: "public_profile,pages_messaging,pages_show_list,pages_manage_metadata,pages_read_engagement,business_management",
-      }
+      loginOptions
     );
   };
 
@@ -423,21 +518,34 @@ const CredentialsTab: React.FC<CredentialsTabProps> = ({
             <Alert color="warning" variant="soft">
               Facebook App ID no configurado. Ve a Settings &gt; Facebook Ads para configurarlo.
             </Alert>
+          ) : sdkError ? (
+            <Alert color="danger" variant="soft">
+              {sdkError}
+            </Alert>
           ) : sdkLoading ? (
             <Stack direction="row" spacing={2} alignItems="center">
               <CircularProgress size="sm" />
               <Typography level="body-sm">Cargando SDK de Facebook...</Typography>
             </Stack>
           ) : (
-            <Button
-              variant="outlined"
-              color="primary"
-              startDecorator={<FacebookIcon />}
-              onClick={handleFacebookReconnect}
-              disabled={!sdkLoaded}
-            >
-              {credentials.oauthStatus === "connected" ? "Reconectar" : "Conectar con Facebook"}
-            </Button>
+            <>
+              {facebookConnectError && (
+                <Alert color="danger" variant="soft">
+                  {facebookConnectError}
+                </Alert>
+              )}
+              <Button
+                variant="outlined"
+                color="primary"
+                startDecorator={facebookConnectLoading ? <CircularProgress size="sm" /> : <FacebookIcon />}
+                onClick={handleFacebookReconnect}
+                disabled={!sdkLoaded || facebookConnectLoading}
+              >
+                {facebookConnectLoading
+                  ? "Conectando..."
+                  : credentials.oauthStatus === "connected" ? "Reconectar" : "Conectar con Facebook"}
+              </Button>
+            </>
           )}
 
           <Alert color="neutral" variant="soft">

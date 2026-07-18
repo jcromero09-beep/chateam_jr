@@ -7,6 +7,8 @@ const subscriptionRoutes = express.Router();
 
 // Rutas de Stripe
 subscriptionRoutes.post("/subscription", isAuth, SubscriptionController.createSubscription);
+subscriptionRoutes.post("/subscription/paypal", isAuth, SubscriptionController.createPaypalPlanPayment);
+subscriptionRoutes.post("/subscription/paypal/capture", isAuth, SubscriptionController.capturePaypalPlanPayment);
 subscriptionRoutes.post("/subscription/stripewebhook/:type?", SubscriptionController.stripewebhook);
 subscriptionRoutes.post("/subscription/cancel", isAuth, SubscriptionController.cancelsubscription);
 subscriptionRoutes.post("/subscription/refund", isAuth, SubscriptionController.refundPayment);

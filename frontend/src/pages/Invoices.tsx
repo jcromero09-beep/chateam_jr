@@ -1,33 +1,20 @@
 import { useState, useEffect, useReducer } from 'react'
-import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  IconButton,
-  Chip,
-  Sheet,
-  Table,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  CircularProgress,
-  AspectRatio,
-} from '@mui/joy'
+import { CircularProgress } from '@mui/joy'
 import {
   Receipt as ReceiptIcon,
-  Download as DownloadIcon,
-  Edit as EditIcon,
-  CheckCircle as CheckIcon,
-  Cancel as CancelIcon,
-  Pending as PendingIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  DownloadSimple,
+  PencilSimple,
+  CheckCircle,
+  XCircle,
+  Clock,
+  ArrowClockwise,
+  X,
+} from '@phosphor-icons/react'
 import moment from 'moment'
 import { toast } from 'react-toastify'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import api from '../services/api'
 
 interface Receipt {
@@ -35,12 +22,22 @@ interface Receipt {
   descripcion: string
   comprobante: string
   estado: number // 1 = pending, 2 = approved, 3 = rejected
-  invoiceId: number
+  invoiceId?: number | null
   companyId: number
+  purchaseType?: 'subscription' | 'ai_subplan'
   totalPrice?: number
   planId?: number
   planName?: string
-  duration?: number
+  duration?: string | number
+  aiSubplanId?: number
+  aiTokens?: number
+  amountUsd?: number
+  aiSubplan?: {
+    id: number
+    name: string
+    tokens: number
+    priceUsd: number
+  } | null
   createdAt: string
   updatedAt: string
   company: {
@@ -101,30 +98,42 @@ const getStatusChip = (estado: number) => {
   switch (estado) {
     case 1:
       return (
-        <Chip color="warning" startDecorator={<PendingIcon />} size="sm">
+        <Badge variant="warning">
+          <Clock className="size-3.5" aria-hidden />
           Pendiente
-        </Chip>
+        </Badge>
       )
     case 2:
       return (
-        <Chip color="success" startDecorator={<CheckIcon />} size="sm">
+        <Badge variant="success">
+          <CheckCircle className="size-3.5" aria-hidden />
           Aprobado
-        </Chip>
+        </Badge>
       )
     case 3:
       return (
-        <Chip color="danger" startDecorator={<CancelIcon />} size="sm">
+        <Badge variant="destructive">
+          <XCircle className="size-3.5" aria-hidden />
           Rechazado
-        </Chip>
+        </Badge>
       )
     default:
-      return (
-        <Chip color="neutral" size="sm">
-          Desconocido
-        </Chip>
-      )
+      return <Badge variant="neutral">Desconocido</Badge>
   }
 }
+
+const formatReceiptType = (receipt: Receipt) =>
+  receipt.purchaseType === 'ai_subplan' ? 'Tokens IA' : 'Suscripción'
+
+const formatReceiptAmount = (receipt: Receipt) => {
+  const amount = receipt.purchaseType === 'ai_subplan'
+    ? receipt.amountUsd ?? receipt.totalPrice
+    : receipt.totalPrice
+
+  return amount !== undefined && amount !== null ? `$${Number(amount).toFixed(2)}` : 'N/A'
+}
+
+const columns = ['Fecha', 'Empresa', 'Tipo', 'Descripción', 'Estado', 'Acción']
 
 export default function Invoices() {
   const [state, dispatch] = useReducer(reducer, initialState)
@@ -217,226 +226,235 @@ export default function Invoices() {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ReceiptIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Recibos ({totalReceipts})</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ReceiptIcon className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Recibos ({totalReceipts})
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Gestión de recibos y facturación (Solo Super Admin)
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <Button
-              startDecorator={<RefreshIcon />}
-              variant="outlined"
-              color="neutral"
-              onClick={handleRefresh}
-            >
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleRefresh}>
+              <ArrowClockwise className="size-4" aria-hidden />
               Actualizar
             </Button>
-            <Button startDecorator={<DownloadIcon />} color="primary">
+            <Button size="sm">
+              <DownloadSimple className="size-4" aria-hidden />
               Exportar
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
-        {/* Stats Cards */}
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <Card sx={{ flex: 1 }}>
-            <CardContent>
-              <Typography level="body-sm" sx={{ mb: 1 }}>
-                Total Recibos
-              </Typography>
-              <Typography level="h2">{totalReceipts}</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ flex: 1 }}>
-            <CardContent>
-              <Typography level="body-sm" sx={{ mb: 1 }}>
-                Pendientes
-              </Typography>
-              <Typography level="h2" sx={{ color: 'warning.main' }}>
-                {pendingReceipts}
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ flex: 1 }}>
-            <CardContent>
-              <Typography level="body-sm" sx={{ mb: 1 }}>
-                Aprobados
-              </Typography>
-              <Typography level="h2" sx={{ color: 'success.main' }}>
-                {approvedReceipts}
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ flex: 1 }}>
-            <CardContent>
-              <Typography level="body-sm" sx={{ mb: 1 }}>
-                Rechazados
-              </Typography>
-              <Typography level="h2" sx={{ color: 'danger.main' }}>
-                {rejectedReceipts}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Stack>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Recibos" value={String(totalReceipts)} />
+          <StatTile label="Pendientes" value={String(pendingReceipts)} tone="warning" />
+          <StatTile label="Aprobados" value={String(approvedReceipts)} tone="success" />
+          <StatTile label="Rechazados" value={String(rejectedReceipts)} tone="destructive" />
+        </div>
 
         {/* Receipts Table */}
-        <Card>
-          <Sheet
-            sx={{
-              overflow: 'auto',
-              maxHeight: '60vh',
-            }}
-            onScroll={handleScroll}
-          >
-            <Table stickyHeader>
-              <thead>
-                <tr>
-                  <th style={{ width: 150 }}>Fecha</th>
-                  <th style={{ width: 200 }}>Empresa</th>
-                  <th style={{ width: 250 }}>Descripción</th>
-                  <th style={{ width: 120, textAlign: 'center' }}>Estado</th>
-                  <th style={{ width: 100, textAlign: 'center' }}>Acción</th>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="max-h-[60vh] overflow-auto" onScroll={handleScroll}>
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-border bg-muted text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground ${
+                        i >= 4 ? 'text-center' : ''
+                      }`}
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {state.receipts.map((receipt) => (
-                  <tr key={receipt.id}>
-                    <td>
-                      <Typography level="body-sm">
-                        {moment(receipt.updatedAt).format('DD/MM/YYYY')}
-                      </Typography>
+                  <tr key={receipt.id} className="transition-colors hover:bg-accent/40">
+                    <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                      {moment(receipt.updatedAt).format('DD/MM/YYYY')}
                     </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {receipt.company?.name || 'N/A'}
-                      </Typography>
+                    <td className="px-4 py-3 font-medium text-foreground">
+                      {receipt.company?.name || 'N/A'}
                     </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {receipt.descripcion || 'Sin descripción'}
-                      </Typography>
+                    <td className="px-4 py-3">
+                      <Badge variant={receipt.purchaseType === 'ai_subplan' ? 'primary' : 'neutral'}>
+                        {formatReceiptType(receipt)}
+                      </Badge>
                     </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {getStatusChip(receipt.estado)}
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {receipt.descripcion || 'Sin descripción'}
                     </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <IconButton
-                        size="sm"
-                        color="primary"
-                        onClick={() => handleOpenModal(receipt)}
-                      >
-                        <EditIcon />
-                      </IconButton>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex justify-center">{getStatusChip(receipt.estado)}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center">
+                        <button
+                          type="button"
+                          aria-label="Revisar comprobante"
+                          title="Revisar comprobante"
+                          onClick={() => handleOpenModal(receipt)}
+                          className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <PencilSimple className="size-[18px]" aria-hidden />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {loading && (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
+                    <td colSpan={6} className="px-4 py-8 text-center">
                       <CircularProgress size="sm" />
                     </td>
                   </tr>
                 )}
                 {!loading && state.receipts.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron recibos</Typography>
+                    <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron recibos
                     </td>
                   </tr>
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Receipt Detail Modal */}
-        <Modal open={modalOpen} onClose={handleCloseModal}>
-          <ModalDialog sx={{ maxWidth: 500, width: '90%' }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Revisar Comprobante
-            </Typography>
+      {/* Receipt Detail Modal */}
+      {modalOpen && selectedReceipt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseModal}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">Revisar Comprobante</h2>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                title="Cerrar"
+                onClick={handleCloseModal}
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <X className="size-[18px]" aria-hidden />
+              </button>
+            </div>
 
-            {selectedReceipt && (
-              <Stack spacing={3}>
-                {/* Receipt Image */}
-                <Card variant="outlined">
-                  <AspectRatio ratio="4/3">
-                    <img
-                      src={selectedReceipt.comprobante}
-                      alt="Comprobante"
-                      style={{ objectFit: 'contain' }}
-                    />
-                  </AspectRatio>
-                </Card>
+            <div className="space-y-5">
+              {/* Receipt Image */}
+              <div className="overflow-hidden rounded-lg border border-border bg-background">
+                <div className="aspect-[4/3] w-full">
+                  <img
+                    src={selectedReceipt.comprobante}
+                    alt="Comprobante"
+                    width={600}
+                    height={450}
+                    className="size-full object-contain"
+                  />
+                </div>
+              </div>
 
-                {/* Receipt Info */}
-                <Stack spacing={1}>
-                  <Typography level="body-sm">
-                    <strong>Empresa:</strong> {selectedReceipt.company?.name || 'N/A'}
-                  </Typography>
-                  <Typography level="body-sm">
-                    <strong>Descripción:</strong> {selectedReceipt.descripcion || 'Sin descripción'}
-                  </Typography>
-                  {selectedReceipt.planName && (
-                    <Typography level="body-sm">
-                      <strong>Plan:</strong> {selectedReceipt.planName}
-                    </Typography>
-                  )}
-                  {selectedReceipt.totalPrice && (
-                    <Typography level="body-sm">
-                      <strong>Monto:</strong> ${selectedReceipt.totalPrice.toFixed(2)}
-                    </Typography>
-                  )}
-                  <Typography level="body-sm">
-                    <strong>Estado actual:</strong> {getStatusChip(selectedReceipt.estado)}
-                  </Typography>
-                </Stack>
-
-                {/* Actions */}
-                {selectedReceipt.estado === 1 && (
-                  <Stack direction="row" spacing={2} justifyContent="center">
-                    <Button
-                      variant="solid"
-                      color="success"
-                      startDecorator={<CheckIcon />}
-                      onClick={() => handleUpdateReceipt(2)}
-                      loading={actionLoading}
-                      sx={{ flex: 1 }}
-                    >
-                      Aprobar
-                    </Button>
-                    <Button
-                      variant="solid"
-                      color="danger"
-                      startDecorator={<CancelIcon />}
-                      onClick={() => handleUpdateReceipt(3)}
-                      loading={actionLoading}
-                      sx={{ flex: 1 }}
-                    >
-                      Rechazar
-                    </Button>
-                  </Stack>
+              {/* Receipt Info */}
+              <div className="space-y-1.5">
+                <p className="text-sm text-muted-foreground">
+                  <strong className="font-medium text-foreground">Empresa:</strong>{' '}
+                  {selectedReceipt.company?.name || 'N/A'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  <strong className="font-medium text-foreground">Descripción:</strong>{' '}
+                  {selectedReceipt.descripcion || 'Sin descripción'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  <strong className="font-medium text-foreground">Tipo:</strong>{' '}
+                  {formatReceiptType(selectedReceipt)}
+                </p>
+                {selectedReceipt.purchaseType === 'ai_subplan' ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      <strong className="font-medium text-foreground">Paquete:</strong>{' '}
+                      {selectedReceipt.aiSubplan?.name || selectedReceipt.planName || 'N/A'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <strong className="font-medium text-foreground">Tokens:</strong>{' '}
+                      {Number(selectedReceipt.aiTokens || selectedReceipt.aiSubplan?.tokens || 0).toLocaleString('es-ES')}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <strong className="font-medium text-foreground">Monto:</strong>{' '}
+                      {formatReceiptAmount(selectedReceipt)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {selectedReceipt.planName && (
+                      <p className="text-sm text-muted-foreground">
+                        <strong className="font-medium text-foreground">Plan:</strong>{' '}
+                        {selectedReceipt.planName}
+                      </p>
+                    )}
+                    {(selectedReceipt.totalPrice !== undefined && selectedReceipt.totalPrice !== null) && (
+                      <p className="text-sm text-muted-foreground">
+                        <strong className="font-medium text-foreground">Monto:</strong>{' '}
+                        {formatReceiptAmount(selectedReceipt)}
+                      </p>
+                    )}
+                  </>
                 )}
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <strong className="font-medium text-foreground">Estado actual:</strong>
+                  {getStatusChip(selectedReceipt.estado)}
+                </p>
+              </div>
 
-                {selectedReceipt.estado !== 1 && (
-                  <Typography level="body-sm" sx={{ textAlign: 'center', color: 'text.tertiary' }}>
-                    Este recibo ya ha sido procesado.
-                  </Typography>
-                )}
-              </Stack>
-            )}
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              {/* Actions */}
+              {selectedReceipt.estado === 1 ? (
+                <div className="flex justify-center gap-3">
+                  <Button
+                    className="flex-1 bg-success text-white hover:bg-success/90"
+                    loading={actionLoading}
+                    onClick={() => handleUpdateReceipt(2)}
+                  >
+                    <CheckCircle className="size-4" aria-hidden />
+                    Aprobar
+                  </Button>
+                  <Button
+                    className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    loading={actionLoading}
+                    onClick={() => handleUpdateReceipt(3)}
+                  >
+                    <XCircle className="size-4" aria-hidden />
+                    Rechazar
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-center text-sm text-muted-foreground">
+                  Este recibo ya ha sido procesado.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

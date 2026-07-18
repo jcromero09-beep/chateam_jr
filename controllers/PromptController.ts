@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
 import CreatePromptService from "../services/PromptServices/CreatePromptService";
@@ -208,7 +214,7 @@ export const update = async (
   if (existingPrompt.getDataValue("fileNameIA") && newFileNameIA) {
     const oldFileName = existingPrompt.getDataValue("fileNameIA");
     const oldFilePath = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "public",
@@ -229,7 +235,7 @@ export const update = async (
   }
 
   // 3. Parsear queueIds si llega como string JSON desde FormData (convierte "[1,2,3]" en [1,2,3])
-  let parsedBody = { ...req.body };
+  const parsedBody = { ...req.body };
   if (typeof parsedBody.queueIds === 'string') {
     try {
       parsedBody.queueIds = JSON.parse(parsedBody.queueIds);

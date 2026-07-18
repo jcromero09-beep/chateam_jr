@@ -1,9 +1,14 @@
 import QueueIntegrations from "../../models/QueueIntegrations";
 import AppError from "../../errors/AppError";
 
-const DeleteQueueIntegrationService = async (id: string): Promise<void> => {
+// [Aislamiento cross-tenant] companyId es OBLIGATORIO: antes la firma no lo recibía
+// siquiera, así que un DELETE con el id de otra empresa borraba su integración.
+const DeleteQueueIntegrationService = async (
+  id: string,
+  companyId: number
+): Promise<void> => {
   const dialogflow = await QueueIntegrations.findOne({
-    where: { id }
+    where: { id, companyId }
   });
 
   if (!dialogflow) {

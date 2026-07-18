@@ -40,4 +40,3 @@ ApiRoutes.delete("/failed-messages/:id", isAuth, ApiController.deleteFailedMessa
 // ApiRoutes.get("/getWhatsappsId", tokenAuth, ApiController.indexWhatsappsId);
 
 export default ApiRoutes;
-// console.log("📄 API-ROUTES.TS LOADED\!");

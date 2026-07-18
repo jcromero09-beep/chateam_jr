@@ -1,26 +1,12 @@
 import { useState, useEffect } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Input,
-  Table,
-  Sheet,
-  Chip,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Assessment as ReportIcon,
-  Refresh as RefreshIcon,
-  TrendingUp as TrendingUpIcon,
-  PieChart as PieChartIcon,
-  TableChart as TableIcon,
-} from '@mui/icons-material'
+  ChartBar,
+  ArrowClockwise,
+  TrendUp,
+  ChartPie,
+  Table as TableIcon,
+} from '@phosphor-icons/react'
 import {
   PieChart,
   Pie,
@@ -36,6 +22,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
+import { Button } from '@/components/ui/button'
 import api from '../services/api'
 import { toast } from 'react-toastify'
 
@@ -63,7 +50,7 @@ interface ReportData {
   trends: TrendData[]
 }
 
-export default function CustomerOriginReports() {
+export default function CustomerOriginReports({ embedded = false }: { embedded?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [report, setReport] = useState<ReportData | null>(null)
   const [startDate, setStartDate] = useState(() => {
@@ -117,310 +104,291 @@ export default function CustomerOriginReports() {
     }))
   }
 
+  const dateInputClass =
+    'h-9 rounded-lg border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
   if (loading) {
-    return (
-      <Container maxWidth="xl">
-        <Stack alignItems="center" justifyContent="center" sx={{ minHeight: '50vh' }}>
-          <CircularProgress size="lg" />
-          <Typography level="body-sm" sx={{ mt: 2 }}>Cargando reporte...</Typography>
-        </Stack>
-      </Container>
+    const spinner = (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
+        <CircularProgress size="lg" />
+        <p className="text-sm text-muted-foreground">Cargando reporte...</p>
+      </div>
+    )
+    return embedded ? spinner : (
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] p-5 sm:p-6 lg:p-8">{spinner}</div>
+      </div>
     )
   }
 
-  return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ReportIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Reporte de Origen de Clientes</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+  const totalTickets = report?.summary.totalTickets || 0
+  const withOrigin = report?.summary.ticketsWithOrigin || 0
+  const withoutOrigin = report?.summary.ticketsWithoutOrigin || 0
+
+  const body = (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        {embedded ? (
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">
+            Análisis por Origen
+          </h2>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ChartBar className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Reporte de Origen de Clientes
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Analiza de dónde provienen tus clientes
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              size="sm"
-            />
-            <Typography level="body-sm">a</Typography>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              size="sm"
-            />
-            <Button
-              variant="outlined"
-              color="neutral"
-              startDecorator={<RefreshIcon />}
-              onClick={handleRefresh}
-            >
-              Actualizar
-            </Button>
-          </Stack>
-        </Stack>
+              </p>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            aria-label="Fecha de inicio"
+            className={dateInputClass}
+          />
+          <span className="text-sm text-muted-foreground">a</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            aria-label="Fecha de fin"
+            className={dateInputClass}
+          />
+          <Button variant="outline" size="sm" onClick={handleRefresh}>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar
+          </Button>
+        </div>
+      </div>
 
-        {/* KPI Cards */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={4}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <TrendingUpIcon sx={{ color: 'primary.main' }} />
-                  <Typography level="body-sm">Total Tickets</Typography>
-                </Stack>
-                <Typography level="h2" sx={{ mt: 1 }}>
-                  {report?.summary.totalTickets || 0}
-                </Typography>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                  En el período seleccionado
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={4}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <PieChartIcon sx={{ color: 'success.main' }} />
-                  <Typography level="body-sm">Con Origen</Typography>
-                </Stack>
-                <Typography level="h2" sx={{ mt: 1, color: 'success.main' }}>
-                  {report?.summary.ticketsWithOrigin || 0}
-                </Typography>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                  {report?.summary.totalTickets
-                    ? Math.round((report.summary.ticketsWithOrigin / report.summary.totalTickets) * 100)
-                    : 0}% del total
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={4}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <TableIcon sx={{ color: 'neutral.500' }} />
-                  <Typography level="body-sm">Sin Origen</Typography>
-                </Stack>
-                <Typography level="h2" sx={{ mt: 1, color: 'neutral.500' }}>
-                  {report?.summary.ticketsWithoutOrigin || 0}
-                </Typography>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                  {report?.summary.totalTickets
-                    ? Math.round((report.summary.ticketsWithoutOrigin / report.summary.totalTickets) * 100)
-                    : 0}% del total
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2">
+            <TrendUp className="size-5 text-brand-teal" aria-hidden />
+            <p className="text-sm text-muted-foreground">Total Tickets</p>
+          </div>
+          <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+            {totalTickets}
+          </p>
+          <p className="text-xs text-muted-foreground">En el período seleccionado</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2">
+            <ChartPie className="size-5 text-success-text" aria-hidden />
+            <p className="text-sm text-muted-foreground">Con Origen</p>
+          </div>
+          <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+            {withOrigin}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {totalTickets ? Math.round((withOrigin / totalTickets) * 100) : 0}% del total
+          </p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2">
+            <TableIcon className="size-5 text-muted-foreground" aria-hidden />
+            <p className="text-sm text-muted-foreground">Sin Origen</p>
+          </div>
+          <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-muted-foreground">
+            {withoutOrigin}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {totalTickets ? Math.round((withoutOrigin / totalTickets) * 100) : 0}% del total
+          </p>
+        </div>
+      </div>
 
-        {/* Charts Row */}
-        <Grid container spacing={2}>
-          {/* Pie Chart */}
-          <Grid xs={12} md={5}>
-            <Card sx={{ height: '100%' }}>
-              <CardContent>
-                <Typography level="title-md" sx={{ mb: 2 }}>
-                  Distribución por Origen
-                </Typography>
-                {report?.byOrigin && report.byOrigin.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={report.byOrigin}
-                        dataKey="ticketCount"
-                        nameKey="originName"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                        labelLine={false}
-                      >
-                        {report.byOrigin.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.originColor} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={((value: number) => [`${value} tickets`, 'Cantidad']) as any}
-                      />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      No hay datos para mostrar
-                    </Typography>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Bar Chart */}
-          <Grid xs={12} md={7}>
-            <Card sx={{ height: '100%' }}>
-              <CardContent>
-                <Typography level="title-md" sx={{ mb: 2 }}>
-                  Tickets por Origen
-                </Typography>
-                {report?.byOrigin && report.byOrigin.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={report.byOrigin} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="originName" type="category" width={120} />
-                      <Tooltip
-                        formatter={((value: number, name: string) => [
-                          `${value} tickets (${report.byOrigin.find(o => o.originName === name)?.percentage || 0}%)`,
-                          'Cantidad'
-                        ]) as any}
-                      />
-                      <Bar dataKey="ticketCount" name="Tickets">
-                        {report.byOrigin.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.originColor} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      No hay datos para mostrar
-                    </Typography>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Trends Chart */}
-        <Card>
-          <CardContent>
-            <Typography level="title-md" sx={{ mb: 2 }}>
-              Tendencia por Día
-            </Typography>
-            {report?.trends && report.trends.length > 0 ? (
-              <ResponsiveContainer width="100%" height={350}>
-                <AreaChart data={getTrendsChartData()}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="total"
-                    name="Total"
-                    stroke="#6366f1"
-                    fill="#6366f1"
-                    fillOpacity={0.3}
-                    strokeWidth={2}
-                  />
-                  {getUniqueOrigins().map((origin, index) => (
-                    <Area
-                      key={origin.name}
-                      type="monotone"
-                      dataKey={origin.name}
-                      name={origin.name}
-                      stroke={origin.color}
-                      fill={origin.color}
-                      fillOpacity={0.2}
-                      strokeWidth={1}
-                      stackId="1"
-                    />
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+        {/* Pie Chart */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] md:col-span-5">
+          <h3 className="mb-4 text-base font-semibold text-foreground">
+            Distribución por Origen
+          </h3>
+          {report?.byOrigin && report.byOrigin.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={report.byOrigin}
+                  dataKey="ticketCount"
+                  nameKey="originName"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  labelLine={false}
+                >
+                  {report.byOrigin.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.originColor} />
                   ))}
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 350 }}>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  No hay datos de tendencia
-                </Typography>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
+                </Pie>
+                <Tooltip
+                  formatter={((value: number) => [`${value} tickets`, 'Cantidad']) as any}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center">
+              <p className="text-sm text-muted-foreground">No hay datos para mostrar</p>
+            </div>
+          )}
+        </div>
 
-        {/* Detail Table */}
-        <Card>
-          <CardContent>
-            <Typography level="title-md" sx={{ mb: 2 }}>
-              Detalle por Origen
-            </Typography>
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table stickyHeader>
-                <thead>
-                  <tr>
-                    <th style={{ width: 60 }}>Color</th>
-                    <th>Origen</th>
-                    <th style={{ width: 120, textAlign: 'right' }}>Tickets</th>
-                    <th style={{ width: 120, textAlign: 'right' }}>Porcentaje</th>
+        {/* Bar Chart */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] md:col-span-7">
+          <h3 className="mb-4 text-base font-semibold text-foreground">
+            Tickets por Origen
+          </h3>
+          {report?.byOrigin && report.byOrigin.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={report.byOrigin} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis dataKey="originName" type="category" width={120} />
+                <Tooltip
+                  formatter={((value: number, name: string) => [
+                    `${value} tickets (${report.byOrigin.find(o => o.originName === name)?.percentage || 0}%)`,
+                    'Cantidad'
+                  ]) as any}
+                />
+                <Bar dataKey="ticketCount" name="Tickets">
+                  {report.byOrigin.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.originColor} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center">
+              <p className="text-sm text-muted-foreground">No hay datos para mostrar</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Trends Chart */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+        <h3 className="mb-4 text-base font-semibold text-foreground">
+          Tendencia por Día
+        </h3>
+        {report?.trends && report.trends.length > 0 ? (
+          <ResponsiveContainer width="100%" height={350}>
+            <AreaChart data={getTrendsChartData()}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Area
+                type="monotone"
+                dataKey="total"
+                name="Total"
+                stroke="#6366f1"
+                fill="#6366f1"
+                fillOpacity={0.3}
+                strokeWidth={2}
+              />
+              {getUniqueOrigins().map((origin) => (
+                <Area
+                  key={origin.name}
+                  type="monotone"
+                  dataKey={origin.name}
+                  name={origin.name}
+                  stroke={origin.color}
+                  fill={origin.color}
+                  fillOpacity={0.2}
+                  strokeWidth={1}
+                  stackId="1"
+                />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex h-[350px] items-center justify-center">
+            <p className="text-sm text-muted-foreground">No hay datos de tendencia</p>
+          </div>
+        )}
+      </div>
+
+      {/* Detail Table */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+        <h3 className="mb-4 text-base font-semibold text-foreground">
+          Detalle por Origen
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40 text-left">
+                <th className="w-16 whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Color
+                </th>
+                <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Origen
+                </th>
+                <th className="w-32 whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Tickets
+                </th>
+                <th className="w-32 whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Porcentaje
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {report?.byOrigin && report.byOrigin.length > 0 ? (
+                report.byOrigin.map((origin, index) => (
+                  <tr key={index} className="transition-colors hover:bg-accent/40">
+                    <td className="px-4 py-3">
+                      <span
+                        className="block size-6 rounded-full ring-1 ring-inset ring-black/10"
+                        style={{ backgroundColor: origin.originColor }}
+                        aria-hidden
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold text-white"
+                        style={{ backgroundColor: origin.originColor }}
+                      >
+                        {origin.originName}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold tabular-nums text-foreground">
+                      {origin.ticketCount}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                      {origin.percentage}%
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {report?.byOrigin && report.byOrigin.length > 0 ? (
-                    report.byOrigin.map((origin, index) => (
-                      <tr key={index}>
-                        <td>
-                          <Box
-                            sx={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              bgcolor: origin.originColor,
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <Chip
-                            size="sm"
-                            sx={{
-                              bgcolor: origin.originColor,
-                              color: 'white',
-                              fontWeight: 'bold'
-                            }}
-                          >
-                            {origin.originName}
-                          </Chip>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm" fontWeight="bold">
-                            {origin.ticketCount}
-                          </Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm">
-                            {origin.percentage}%
-                          </Typography>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          No hay datos para mostrar
-                        </Typography>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </Table>
-            </Sheet>
-          </CardContent>
-        </Card>
-      </Stack>
-    </Container>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
+                    No hay datos para mostrar
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+
+  return embedded ? body : (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] p-5 sm:p-6 lg:p-8">{body}</div>
+    </div>
   )
 }

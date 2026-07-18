@@ -1,38 +1,38 @@
 import React, { useState, useEffect } from 'react';
+// [Fase2·G] CircularProgress se conserva en MUI Joy a propósito (no hay equivalente
+// en el design system Tailwind/Radix todavía).
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Button,
-  Card,
-  Chip,
-  Sheet,
-  Table,
-  Typography,
-  Input,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Alert,
-  CircularProgress,
-  Stack,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Textarea,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel
-} from '@mui/joy';
-import {
-  Refresh as RefreshIcon,
-  Search as SearchIcon,
-  CheckCircle as SuccessIcon,
-  Error as ErrorIcon,
-  Pending as PendingIcon,
-  Info as InfoIcon
-} from '@mui/icons-material';
+  WebhooksLogo,
+  ArrowClockwise,
+  MagnifyingGlass,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Info,
+  CaretLeft,
+  CaretRight,
+} from '@phosphor-icons/react';
 import { toast } from 'react-toastify';
+import { StatTile } from '@/components/ui/stat-tile';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import api from '../../services/api';
 
 interface WebhookEvent {
@@ -62,6 +62,16 @@ interface Filters {
   date_to: string;
   search: string;
 }
+
+const columns = [
+  'Fecha',
+  'Conexión',
+  'Tipo de Evento',
+  'Estado',
+  'Procesado',
+  'Reintentos',
+  '',
+];
 
 const WebhookEventsViewer: React.FC = () => {
   const [events, setEvents] = useState<WebhookEvent[]>([]);
@@ -155,12 +165,12 @@ const WebhookEventsViewer: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'processed':
         return 'success';
       case 'failed':
-        return 'danger';
+        return 'destructive';
       case 'pending':
         return 'warning';
       default:
@@ -171,13 +181,13 @@ const WebhookEventsViewer: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'processed':
-        return <SuccessIcon />;
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />;
       case 'failed':
-        return <ErrorIcon />;
+        return <XCircle className="size-3.5" weight="fill" aria-hidden />;
       case 'pending':
-        return <PendingIcon />;
+        return <Clock className="size-3.5" weight="fill" aria-hidden />;
       default:
-        return <InfoIcon />;
+        return <Info className="size-3.5" weight="fill" aria-hidden />;
     }
   };
 
@@ -217,380 +227,371 @@ const WebhookEventsViewer: React.FC = () => {
 
   if (loading && page === 1) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography level="h2">Eventos de Webhook</Typography>
-        <Button
-          startDecorator={<RefreshIcon />}
-          variant="outlined"
-          onClick={() => fetchEvents()}
-        >
-          Actualizar
-        </Button>
-      </Stack>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <WebhooksLogo className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Eventos de Webhook
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Registro de eventos entrantes de las integraciones
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => fetchEvents()}>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar
+          </Button>
+        </div>
 
-      {/* Statistics Cards */}
-      <Stack direction="row" spacing={2} mb={3}>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Procesados
-          </Typography>
-          <Typography level="h3" color="success">
-            {statusCounts.processed}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Pendientes
-          </Typography>
-          <Typography level="h3" color="warning">
-            {statusCounts.pending}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Fallidos
-          </Typography>
-          <Typography level="h3" color="danger">
-            {statusCounts.failed}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Total Eventos
-          </Typography>
-          <Typography level="h3">
-            {events.length}
-          </Typography>
-        </Card>
-      </Stack>
+        {/* Statistics */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Procesados" value={String(statusCounts.processed)} tone="success" />
+          <StatTile label="Pendientes" value={String(statusCounts.pending)} tone="warning" />
+          <StatTile label="Fallidos" value={String(statusCounts.failed)} tone="destructive" />
+          <StatTile label="Total Eventos" value={String(events.length)} />
+        </div>
 
-      {/* Filters */}
-      <Card sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} flexWrap="wrap">
-          <FormControl sx={{ minWidth: 200 }}>
-            <FormLabel>Conexión</FormLabel>
-            <Select
-              value={filters.connection_id}
-              onChange={(_, value) => setFilters({ ...filters, connection_id: value! })}
-            >
-              <Option value="all">Todas</Option>
-              {connections.map((conn) => (
-                <Option key={conn.id} value={conn.id.toString()}>
-                  {conn.name}
-                </Option>
-              ))}
-            </Select>
-          </FormControl>
+        {/* Filters */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-connection">Conexión</Label>
+              <Select
+                value={filters.connection_id}
+                onValueChange={(value) => setFilters({ ...filters, connection_id: value })}
+              >
+                <SelectTrigger id="filter-connection" className="h-11" aria-label="Filtrar por conexión">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {connections.map((conn) => (
+                    <SelectItem key={conn.id} value={conn.id.toString()}>
+                      {conn.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 200 }}>
-            <FormLabel>Tipo de Evento</FormLabel>
-            <Select
-              value={filters.event_type}
-              onChange={(_, value) => setFilters({ ...filters, event_type: value! })}
-            >
-              <Option value="all">Todos</Option>
-              <Option value="contact.created">Contacto Creado</Option>
-              <Option value="contact.updated">Contacto Actualizado</Option>
-              <Option value="ticket.created">Ticket Creado</Option>
-              <Option value="ticket.updated">Ticket Actualizado</Option>
-              <Option value="ticket.closed">Ticket Cerrado</Option>
-              <Option value="message.sent">Mensaje Enviado</Option>
-              <Option value="message.received">Mensaje Recibido</Option>
-            </Select>
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-event-type">Tipo de Evento</Label>
+              <Select
+                value={filters.event_type}
+                onValueChange={(value) => setFilters({ ...filters, event_type: value })}
+              >
+                <SelectTrigger id="filter-event-type" className="h-11" aria-label="Filtrar por tipo de evento">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="contact.created">Contacto Creado</SelectItem>
+                  <SelectItem value="contact.updated">Contacto Actualizado</SelectItem>
+                  <SelectItem value="ticket.created">Ticket Creado</SelectItem>
+                  <SelectItem value="ticket.updated">Ticket Actualizado</SelectItem>
+                  <SelectItem value="ticket.closed">Ticket Cerrado</SelectItem>
+                  <SelectItem value="message.sent">Mensaje Enviado</SelectItem>
+                  <SelectItem value="message.received">Mensaje Recibido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 150 }}>
-            <FormLabel>Estado</FormLabel>
-            <Select
-              value={filters.status}
-              onChange={(_, value) => setFilters({ ...filters, status: value! })}
-            >
-              <Option value="all">Todos</Option>
-              <Option value="processed">Procesado</Option>
-              <Option value="pending">Pendiente</Option>
-              <Option value="failed">Fallido</Option>
-            </Select>
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-status">Estado</Label>
+              <Select
+                value={filters.status}
+                onValueChange={(value) => setFilters({ ...filters, status: value })}
+              >
+                <SelectTrigger id="filter-status" className="h-11" aria-label="Filtrar por estado">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="processed">Procesado</SelectItem>
+                  <SelectItem value="pending">Pendiente</SelectItem>
+                  <SelectItem value="failed">Fallido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 180 }}>
-            <FormLabel>Fecha Desde</FormLabel>
-            <Input
-              type="date"
-              value={filters.date_from}
-              onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
-            />
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-date-from">Fecha Desde</Label>
+              <Input
+                id="filter-date-from"
+                type="date"
+                value={filters.date_from}
+                onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
+              />
+            </div>
 
-          <FormControl sx={{ minWidth: 180 }}>
-            <FormLabel>Fecha Hasta</FormLabel>
-            <Input
-              type="date"
-              value={filters.date_to}
-              onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
-            />
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-date-to">Fecha Hasta</Label>
+              <Input
+                id="filter-date-to"
+                type="date"
+                value={filters.date_to}
+                onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
+              />
+            </div>
 
-          <FormControl sx={{ minWidth: 250, flex: 1 }}>
-            <FormLabel>Buscar</FormLabel>
-            <Input
-              placeholder="Buscar en eventos..."
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              startDecorator={<SearchIcon />}
-            />
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="filter-search">Buscar</Label>
+              <Input
+                id="filter-search"
+                placeholder="Buscar en eventos..."
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                leftIcon={<MagnifyingGlass aria-hidden />}
+              />
+            </div>
+          </div>
 
-          <Box sx={{ display: 'flex', alignItems: 'flex-end' }}>
-            <Button
-              variant="outlined"
-              color="neutral"
-              onClick={handleResetFilters}
-            >
+          <div className="mt-4 flex justify-end">
+            <Button variant="outline" size="sm" onClick={handleResetFilters}>
               Limpiar
             </Button>
-          </Box>
-        </Stack>
-      </Card>
+          </div>
+        </div>
 
-      {/* Events Table */}
-      {events.length === 0 ? (
-        <Alert color="neutral">
-          No se encontraron eventos con los filtros aplicados.
-        </Alert>
-      ) : (
-        <>
-          <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Conexión</th>
-                  <th>Tipo de Evento</th>
-                  <th>Estado</th>
-                  <th>Procesado</th>
-                  <th>Reintentos</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((event) => (
-                  <tr key={event.id}>
-                    <td>{formatDate(event.created_at)}</td>
-                    <td>{getConnectionName(event.connection_id)}</td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {getEventTypeLabel(event.event_type)}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={getStatusColor(event.status)}
-                        startDecorator={getStatusIcon(event.status)}
-                      >
-                        {event.status}
-                      </Chip>
-                    </td>
-                    <td>
-                      {event.processed_at ? formatDate(event.processed_at) : '-'}
-                    </td>
-                    <td>
-                      {event.retry_count > 0 ? (
-                        <Chip size="sm" color="warning" variant="soft">
-                          {event.retry_count}
-                        </Chip>
-                      ) : (
-                        '0'
-                      )}
-                    </td>
-                    <td>
-                      <Stack direction="row" spacing={1}>
-                        <Button
-                          size="sm"
-                          variant="plain"
-                          onClick={() => handleShowDetails(event)}
+        {/* Events Table */}
+        {events.length === 0 ? (
+          <div
+            role="status"
+            className="rounded-xl border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground shadow-sm shadow-black/[0.02]"
+          >
+            No se encontraron eventos con los filtros aplicados.
+          </div>
+        ) : (
+          <>
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[880px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                         >
-                          Ver Detalles
-                        </Button>
-                        {event.status === 'failed' && (
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="warning"
-                            onClick={() => handleRetryEvent(event.id)}
-                          >
-                            Reintentar
-                          </Button>
-                        )}
-                      </Stack>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {events.map((event) => (
+                      <tr key={event.id} className="transition-colors hover:bg-accent/40">
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {formatDate(event.created_at)}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {getConnectionName(event.connection_id)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline">{getEventTypeLabel(event.event_type)}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusVariant(event.status)}>
+                            {getStatusIcon(event.status)}
+                            {event.status}
+                          </Badge>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {event.processed_at ? formatDate(event.processed_at) : '-'}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                          {event.retry_count > 0 ? (
+                            <Badge variant="warning">{event.retry_count}</Badge>
+                          ) : (
+                            '0'
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleShowDetails(event)}
+                            >
+                              Ver Detalles
+                            </Button>
+                            {event.status === 'failed' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
+                                onClick={() => handleRetryEvent(event.id)}
+                              >
+                                Reintentar
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-          {/* Pagination */}
-          <Stack direction="row" justifyContent="center" spacing={2} mt={3}>
-            <Button
-              variant="outlined"
-              disabled={page === 1}
-              onClick={() => setPage(page - 1)}
-            >
-              Anterior
-            </Button>
-            <Typography level="body-md" sx={{ display: 'flex', alignItems: 'center' }}>
-              Página {page} de {totalPages}
-            </Typography>
-            <Button
-              variant="outlined"
-              disabled={page === totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              Siguiente
-            </Button>
-          </Stack>
-        </>
-      )}
+            {/* Pagination */}
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 1}
+                onClick={() => setPage(page - 1)}
+              >
+                <CaretLeft className="size-4" aria-hidden />
+                Anterior
+              </Button>
+              <span className="text-sm tabular-nums text-muted-foreground">
+                Página {page} de {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === totalPages}
+                onClick={() => setPage(page + 1)}
+              >
+                Siguiente
+                <CaretRight className="size-4" aria-hidden />
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Details Modal */}
-      <Modal open={detailsModalOpen} onClose={() => setDetailsModalOpen(false)}>
-        <ModalDialog sx={{ width: 800, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" mb={2}>
-            Detalles del Evento de Webhook
-          </Typography>
+      <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Detalles del Evento de Webhook</DialogTitle>
+          </DialogHeader>
 
           {selectedEvent && (
-            <Tabs defaultValue={0}>
-              <TabList>
-                <Tab>Información General</Tab>
-                <Tab>Payload</Tab>
-                <Tab>Headers</Tab>
-              </TabList>
+            <Tabs defaultValue="general">
+              <TabsList>
+                <TabsTrigger value="general">Información General</TabsTrigger>
+                <TabsTrigger value="payload">Payload</TabsTrigger>
+                <TabsTrigger value="headers">Headers</TabsTrigger>
+              </TabsList>
 
-              <TabPanel value={0}>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={2}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        ID
-                      </Typography>
-                      <Typography level="body-md">{selectedEvent.id}</Typography>
-                    </Box>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        Conexión
-                      </Typography>
-                      <Typography level="body-md">
+              <TabsContent value="general">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-sm text-muted-foreground">ID</p>
+                      <p className="text-sm tabular-nums text-foreground">{selectedEvent.id}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Conexión</p>
+                      <p className="text-sm text-foreground">
                         {getConnectionName(selectedEvent.connection_id)}
-                      </Typography>
-                    </Box>
-                  </Stack>
+                      </p>
+                    </div>
+                  </div>
 
-                  <Box>
-                    <Typography level="body-sm" textColor="text.secondary">
-                      Tipo de Evento
-                    </Typography>
-                    <Chip size="sm" variant="outlined">
-                      {getEventTypeLabel(selectedEvent.event_type)}
-                    </Chip>
-                  </Box>
+                  <div>
+                    <p className="mb-1 text-sm text-muted-foreground">Tipo de Evento</p>
+                    <Badge variant="outline">{getEventTypeLabel(selectedEvent.event_type)}</Badge>
+                  </div>
 
-                  <Box>
-                    <Typography level="body-sm" textColor="text.secondary">
-                      Estado
-                    </Typography>
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color={getStatusColor(selectedEvent.status)}
-                      startDecorator={getStatusIcon(selectedEvent.status)}
-                    >
+                  <div>
+                    <p className="mb-1 text-sm text-muted-foreground">Estado</p>
+                    <Badge variant={getStatusVariant(selectedEvent.status)}>
+                      {getStatusIcon(selectedEvent.status)}
                       {selectedEvent.status}
-                    </Chip>
-                  </Box>
+                    </Badge>
+                  </div>
 
-                  <Stack direction="row" spacing={2}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        Recibido
-                      </Typography>
-                      <Typography level="body-md">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Recibido</p>
+                      <p className="text-sm text-foreground">
                         {formatDate(selectedEvent.created_at)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        Procesado
-                      </Typography>
-                      <Typography level="body-md">
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Procesado</p>
+                      <p className="text-sm text-foreground">
                         {selectedEvent.processed_at
                           ? formatDate(selectedEvent.processed_at)
                           : 'Pendiente'}
-                      </Typography>
-                    </Box>
-                  </Stack>
+                      </p>
+                    </div>
+                  </div>
 
-                  <Box>
-                    <Typography level="body-sm" textColor="text.secondary">
-                      Número de Reintentos
-                    </Typography>
-                    <Typography level="body-md">{selectedEvent.retry_count}</Typography>
-                  </Box>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Número de Reintentos</p>
+                    <p className="text-sm tabular-nums text-foreground">
+                      {selectedEvent.retry_count}
+                    </p>
+                  </div>
 
                   {selectedEvent.error_message && (
-                    <Box>
-                      <Typography level="body-sm" textColor="text.secondary" mb={1}>
-                        Mensaje de Error
-                      </Typography>
-                      <Alert color="danger">{selectedEvent.error_message}</Alert>
-                    </Box>
+                    <div>
+                      <p className="mb-1 text-sm text-muted-foreground">Mensaje de Error</p>
+                      <div
+                        role="alert"
+                        className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/12 px-3 py-2.5 text-sm text-destructive-text"
+                      >
+                        <XCircle className="mt-0.5 size-4 shrink-0" weight="fill" aria-hidden />
+                        <span className="break-words">{selectedEvent.error_message}</span>
+                      </div>
+                    </div>
                   )}
-                </Stack>
-              </TabPanel>
+                </div>
+              </TabsContent>
 
-              <TabPanel value={1}>
-                <Box>
-                  <Typography level="body-sm" textColor="text.secondary" mb={1}>
+              <TabsContent value="payload">
+                <div>
+                  <Label htmlFor="event-payload" className="mb-1.5 block text-muted-foreground">
                     Payload (JSON)
-                  </Typography>
-                  <Textarea
+                  </Label>
+                  <textarea
+                    id="event-payload"
                     value={JSON.stringify(selectedEvent.payload, null, 2)}
                     readOnly
-                    minRows={15}
-                    sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}
+                    rows={15}
+                    className="w-full resize-y rounded-md border border-input bg-card p-3 font-mono text-sm text-foreground shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />
-                </Box>
-              </TabPanel>
+                </div>
+              </TabsContent>
 
-              <TabPanel value={2}>
-                <Box>
-                  <Typography level="body-sm" textColor="text.secondary" mb={1}>
+              <TabsContent value="headers">
+                <div>
+                  <Label htmlFor="event-headers" className="mb-1.5 block text-muted-foreground">
                     Headers (JSON)
-                  </Typography>
-                  <Textarea
+                  </Label>
+                  <textarea
+                    id="event-headers"
                     value={JSON.stringify(selectedEvent.headers, null, 2)}
                     readOnly
-                    minRows={15}
-                    sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}
+                    rows={15}
+                    className="w-full resize-y rounded-md border border-input bg-card p-3 font-mono text-sm text-foreground shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />
-                </Box>
-              </TabPanel>
+                </div>
+              </TabsContent>
             </Tabs>
           )}
-        </ModalDialog>
-      </Modal>
-    </Box>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 

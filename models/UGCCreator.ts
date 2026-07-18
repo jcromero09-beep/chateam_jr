@@ -21,6 +21,7 @@ import {
   AllowNull
 } from "sequelize-typescript";
 import Company from "./Company";
+import UGCCreatorAssignment from "./UGCCreatorAssignment";
 
 // Estados del creador en la plataforma
 export type CreatorStatus = "pending" | "verified" | "active" | "suspended" | "archived";
@@ -164,7 +165,12 @@ class UGCCreator extends Model<UGCCreator> {
   @BelongsTo(() => Company)
   company!: Company;
 
-  // HasMany UGCCreatorAssignment y UGCCreatorPayment se registran via lazy import
+  // [Fix] El "lazy import" que prometia este comentario nunca existio => el alias
+  // "assignments" no estaba registrado y GET /ugc/creators moria con 500
+  // ("UGCCreatorAssignment is not associated to UGCCreator!"). El thunk de @HasMany
+  // difiere la resolucion hasta addModels, asi que el import circular no molesta.
+  @HasMany(() => UGCCreatorAssignment)
+  assignments!: UGCCreatorAssignment[];
 
   // --- Metodos auxiliares ---
 

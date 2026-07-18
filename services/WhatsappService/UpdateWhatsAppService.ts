@@ -12,6 +12,7 @@ interface WhatsappData {
   session?: string;
   isDefault?: boolean;
   greetingMessage?: string;
+  farewellMessage?: string;
   complationMessage?: string;
   outOfHoursMessage?: string;
   queueIds?: number[];
@@ -25,6 +26,10 @@ interface WhatsappData {
   timeInactiveMessage?: string;
   inactiveMessage?: string;
   ratingMessage?: string;
+  npsEnabled?: boolean | null;
+  acceptAudio?: boolean | null;
+  callRejectMessage?: string;
+  rejectAudioMessage?: string;
   maxUseBotQueuesNPS?: number;
   expiresTicketNPS?: number;
   whenExpiresTicket?: string;
@@ -80,6 +85,7 @@ const UpdateWhatsAppService = async ({
     isDefault,
     session,
     greetingMessage,
+    farewellMessage,
     complationMessage,
     outOfHoursMessage,
     queueIds = [],
@@ -93,6 +99,10 @@ const UpdateWhatsAppService = async ({
     timeInactiveMessage = 0,
     inactiveMessage,
     ratingMessage,
+    npsEnabled,
+    acceptAudio,
+    callRejectMessage,
+    rejectAudioMessage,
     maxUseBotQueuesNPS,
     expiresTicketNPS = 0,
     whenExpiresTicket,
@@ -144,7 +154,6 @@ const UpdateWhatsAppService = async ({
       await oldDefaultWhatsapp.update({ isDefault: false });
     }
   }
-  // console.log("GETTING WHATSAPP SHOW WHATSAPP 1", whatsappId, companyId)
   const whatsapp = await ShowWhatsAppService(whatsappId, companyId);
 
 
@@ -153,6 +162,7 @@ const UpdateWhatsAppService = async ({
     status,
     session,
     greetingMessage,
+    ...(farewellMessage !== undefined && { farewellMessage }),
     complationMessage,
     outOfHoursMessage,
     isDefault,
@@ -167,6 +177,10 @@ const UpdateWhatsAppService = async ({
     timeInactiveMessage: String(timeInactiveMessage || ""),
     inactiveMessage,
     ratingMessage,
+    ...(npsEnabled !== undefined && { npsEnabled }),
+    ...(acceptAudio !== undefined && { acceptAudio }),
+    ...(callRejectMessage !== undefined && { callRejectMessage }),
+    ...(rejectAudioMessage !== undefined && { rejectAudioMessage }),
     maxUseBotQueuesNPS,
     expiresTicketNPS,
     whenExpiresTicket,

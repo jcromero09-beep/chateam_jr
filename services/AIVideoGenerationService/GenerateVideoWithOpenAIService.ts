@@ -23,6 +23,9 @@ import Company from "../../models/Company";
 import sequelize from "../../database";
 import AppError from "../../errors/AppError";
 import { Transaction } from "sequelize";
+// 💳 NOTA LEGACY: este servicio aun cobra contra Company.aiTokenBalance.
+// No se registra debito paralelo en AICreditTransaction para evitar doble cobro
+// cuando la company ya tenga balance "video" en AICreditBalances.
 import { getDefaultProviderForCapability } from "../AIProviderService";
 
 // Servicios de creditos
@@ -261,6 +264,10 @@ const GenerateVideoWithOpenAIService = async ({
     }, { transaction: reserveTransaction });
 
     creditTransactionId = creditTransaction.id;
+
+    // TODO: migrar el debito real de video a AICreditBalance en una fase
+    // dedicada. Hasta entonces, AIVideoCreditTransaction es la fuente de cobro
+    // para video y evita doble descuento contra AICreditBalances.
 
     // ============================================================================
     // PASO 4.6: Crear registro de generacion (dentro de transaccion)

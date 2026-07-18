@@ -8,7 +8,8 @@ import Queue from "../models/Queue";
 import CampaignSetting from "../models/CampaignSetting";
 import { getIO } from "../libs/socket";
 import moment from "moment";
-import { isEmpty, isNil } from "lodash";
+import lodash from "lodash";
+const { isEmpty, isNil } = lodash;
 import cacheLayer from "../libs/cache";
 import { add, enqueueScheduledMessageOccurrence } from "../queues";
 
@@ -383,6 +384,22 @@ export default async function handle(job: Job<ScheduledMessageData>): Promise<vo
       });
 
       logInfo(`🔄 [SCHEDULED] Próximo envío programado para: ${moment(nextSendAt).format('DD/MM/YYYY HH:mm')} (${newContadorEnvio}/${schedule.enviarQuantasVezes})`);
+
+      try {
+        await enqueueScheduledMessageOccurrence({
+          id: schedule.id,
+          companyId: schedule.companyId,
+          sendAt: nextSendAt,
+          contadorEnvio: newContadorEnvio
+        });
+      } catch (enqueueError: any) {
+        logWarn(
+          "[SCHEDULED] No se pudo encolar la proxima ocurrencia ID=" +
+          id +
+          ": " +
+          (enqueueError?.message || enqueueError)
+        );
+      }
 
     } else {
       // Último envío - marcar como completado

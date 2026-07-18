@@ -7,15 +7,15 @@ import Contact from "../../models/Contact";
 
 interface Request {
   data_mensagem_programada: Date;
-  id_conexao: String;
+  id_conexao: string;
   intervalo: string;
   valor_intervalo: string;
   mensagem: string;
   tipo_dias_envio: string;
   mostrar_usuario_mensagem: boolean;
   criar_ticket: boolean;
-  contatos: String[];
-  tags: String[];
+  contatos: string[];
+  tags: string[];
   companyId: number;
   nome: string;
   mediaPath: string;

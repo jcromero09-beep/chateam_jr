@@ -7,6 +7,10 @@ import GetWhatsappWbot from "./GetWhatsappWbot";
 import { sessionRegistry } from "../libs/sessionRegistry";
 import { getMessageOptions } from "../services/WbotServices/SendWhatsAppMedia";
 import { sendTextDynamic } from "../services/MetaServices/metaSendService";
+import { resolveProviderTarget } from "../services/CoexistenceServices/OutboundRoutingService";
+import { logFallback } from "../utils/coexistenceLogger";
+import logger from "../utils/logger";
+import ResolveOutboundJid from "../services/WbotServices/ResolveOutboundJid";
 
 export type MessageData = {
   number: number | string;
@@ -16,15 +20,20 @@ export type MessageData = {
   mediaName?: string;
 };
 
-const resolveRecipient = (number: number | string, isGroup: boolean): string => {
+const resolveBaileysRecipient = async (
+  wbot: any,
+  number: number | string,
+  isGroup: boolean
+): Promise<string> => {
   const rawValue = String(number || "").trim();
-
-  if (rawValue.includes("@")) {
-    return rawValue;
-  }
-
-  const digitsOnly = rawValue.replace(/\D/g, "");
-  return `${digitsOnly}@${isGroup ? "g.us" : "s.whatsapp.net"}`;
+  return ResolveOutboundJid({
+    wbot,
+    contact: {
+      number: rawValue,
+      remoteJid: rawValue.includes("@") ? rawValue : null
+    } as any,
+    isGroup
+  });
 };
 
 const resolveLocalMediaPath = (mediaPath?: string, companyId?: number): string | null => {
@@ -119,10 +128,47 @@ export const SendMessage = async (
       }
 
       const to = String(messageData.number || "").replace(/\D/g, "");
-      return await sendTextDynamic(to, renderedBody, phoneNumberId, whatsapp.tokenMeta);
+      try {
+        return await sendTextDynamic(to, renderedBody, phoneNumberId, whatsapp.tokenMeta);
+      } catch (metaErr: any) {
+        // ═══ FALLBACK COEXISTENCIA: Meta → Baileys (UN solo intento lógico) ═══
+        // Si la conexión Meta está en coexistencia y el envío falla (p.ej. ventana
+        // 24h cerrada o error recuperable), reintentar UNA vez por el transporte
+        // Baileys hermano. NO se envía por ambos: sólo cuando Meta ya falló.
+        if ((whatsapp as any).coexistenceEnabled || (whatsapp as any).linkedWhatsappId) {
+          try {
+            const baileysWa = await resolveProviderTarget(whatsapp, "baileys");
+            if (
+              baileysWa &&
+              (baileysWa as any).status === "CONNECTED" &&
+              (baileysWa as any).channel !== "meta"
+            ) {
+              const wbotFb = await GetWhatsappWbot(baileysWa);
+              const chatIdFb = await resolveBaileysRecipient(
+                wbotFb,
+                messageData.number,
+                isGroup
+              );
+              const result = await wbotFb.sendMessage(chatIdFb, { text: renderedBody });
+              logFallback({
+                provider: "meta",
+                companyId: (whatsapp as any).companyId,
+                fromProvider: "meta",
+                toProvider: "baileys",
+                reason: `SendMessage.meta_failed → baileys (${metaErr?.message || "error"})`
+              });
+              return result;
+            }
+          } catch (fbErr: any) {
+            logger.warn(
+              { err: fbErr?.message, whatsappId: (whatsapp as any).id },
+              "[SendMessage] fallback Meta→Baileys falló"
+            );
+          }
+        }
+        throw metaErr;
+      }
     }
-
-    const chatId = resolveRecipient(messageData.number, isGroup);
 
     if (messageData.mediaPath) {
       const sessionLocation = await sessionRegistry.lookup(whatsapp.id);
@@ -131,6 +177,12 @@ export const SendMessage = async (
         Boolean(sessionLocation) && sessionLocation!.nodeId !== currentNodeId;
 
       if (isRemoteSession && sessionLocation) {
+        const remoteWbot = await GetWhatsappWbot(whatsapp);
+        const chatId = await resolveBaileysRecipient(
+          remoteWbot,
+          messageData.number,
+          isGroup
+        );
         const response = await axios.post(
           `http://127.0.0.1:${sessionLocation.port}/internal/send-media`,
           {
@@ -151,6 +203,11 @@ export const SendMessage = async (
       }
 
       const wbot = await GetWhatsappWbot(whatsapp);
+      const chatId = await resolveBaileysRecipient(
+        wbot,
+        messageData.number,
+        isGroup
+      );
       let mediaPath = resolveLocalMediaPath(messageData.mediaPath, messageData.companyId);
       let tempMediaPath: string | null = null;
 
@@ -187,6 +244,11 @@ export const SendMessage = async (
     }
 
     const wbot = await GetWhatsappWbot(whatsapp);
+    const chatId = await resolveBaileysRecipient(
+      wbot,
+      messageData.number,
+      isGroup
+    );
     return await wbot.sendMessage(chatId, { text: renderedBody });
   } catch (err: any) {
     throw new Error(err?.message || String(err));

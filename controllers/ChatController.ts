@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import * as Yup from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
@@ -15,6 +19,7 @@ import CreateMessageService from "../services/ChatService/CreateMessageService";
 import User from "../models/User";
 import ChatUser from "../models/ChatUser";
 import { log } from "console";
+import CreateNotificationService from "../services/NotificationServices/CreateNotificationService";
 
 type IndexQuery = {
     pageNumber: string;
@@ -49,7 +54,6 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     const ownerId = +req.user.id;
     const data = req.body as StoreData;
 
-    //console.log(`Chat recibido: ${JSON.stringify(data)}`);
 
     const record = await CreateService({
         ...data,
@@ -58,10 +62,8 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     });
 
     const io = getIO();
-    //console.log(`user chat: ${JSON.stringify(record.users)}`);
 
     record.users.forEach(user => {
-        //console.log(`chat user: ${user.userId}`);
         io.of(String(companyId))
             .emit(`company-${companyId}-chat-user-${user.userId}`, {
                 action: "create",
@@ -135,7 +137,6 @@ export const saveMessage = async (
     const { id } = req.params;
     const senderId = +req.user.id;
 
-    //console.log(`saveMessage: companyId=${companyId}, chatId=${id}, senderId=${senderId}, message=${message}`);
     if (!id || isNaN(Number(id))) {
         return res.status(400).json({ error: "saveMessage: ID de chat inválido" });
     }
@@ -159,7 +160,6 @@ export const saveMessage = async (
         mediaName,
         companyId
     });
-    //console.log('newMessage chatcontroller CreateMessageService')
 
     const chat = await Chat.findByPk(chatId, {
         include: [
@@ -182,6 +182,33 @@ export const saveMessage = async (
             newMessage,
             chat
         });
+
+    // Notificar a los demás miembros del chat interno: crea una notificación en la
+    // campana (categoría "message") y emite user-${userId}-notification. Best-effort.
+    try {
+        const sender = await User.findByPk(senderId, { attributes: ["id", "name"] });
+        const senderName = sender?.name || "Un compañero";
+        const preview = message ? String(message).slice(0, 120) : "📎 Archivo adjunto";
+        const members = ((chat?.users as unknown as ChatUser[]) || []).filter(
+            (cu) => cu.userId && cu.userId !== senderId
+        );
+        await Promise.all(
+            members.map((cu) =>
+                CreateNotificationService({
+                    companyId,
+                    userId: cu.userId,
+                    type: "info",
+                    category: "message",
+                    title: `Chat interno · ${senderName}`,
+                    message: preview,
+                    actionUrl: "/internal-chats",
+                    metadata: { chatId }
+                })
+            )
+        );
+    } catch (notifyErr) {
+        log(`[saveMessage] No se pudieron crear notificaciones internas: ${notifyErr}`);
+    }
 
     return res.json(newMessage);
 };
@@ -320,7 +347,6 @@ export const getPinnedMessages = async (
     const { id } = req.params;
     const { companyId } = req.user;
 
-    //console.log(`getPinnedMessages: companyId=${companyId}, chatId=${id}`);
     if (!id || isNaN(Number(id))) {
         return res.status(400).json({ error: "getPinnedMessages: ID de chat inválido" });
     }

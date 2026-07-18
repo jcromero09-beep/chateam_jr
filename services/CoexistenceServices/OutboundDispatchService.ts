@@ -27,19 +27,11 @@ import {
 } from "../../utils/coexistenceLogger";
 import OutboundRoutingService, {
   RoutingDecision,
+  RequestedBy,
   RequestedMode
 } from "./OutboundRoutingService";
 import { getAdapter, DispatchResult } from "./OutboundAdapters";
 import ConversationResolverService from "./ConversationResolverService";
-
-export type RequestedBy =
-  | "agent"
-  | "cron"
-  | "ai"
-  | "campaign"
-  | "followup"
-  | "automation"
-  | "webhook";
 
 export interface DispatchInput {
   ticket: Ticket;
@@ -168,22 +160,91 @@ export const dispatch = async (
     );
   }
 
-  // 3) Adapter.send
-  const adapter = getAdapter(decision.provider);
+  // 3) Adapter.send (con fallback automático si Meta falla por ventana cerrada)
+  let adapter = getAdapter(decision.provider);
   const startedAt = Date.now();
-  const result = await adapter.send({
+  let result = await adapter.send({
     ticket,
     whatsapp: decision.whatsapp,
     contact: input.contact,
     body: input.body,
     quotedMsg: input.quotedMsg
   });
+  let runtimeFallbackApplied = false;
+
+  // FASE 7 — Fallback runtime: si Meta falla por ventana 24h cerrada
+  // y hay Baileys disponible, reintentamos automáticamente por Baileys
+  // sin que el agente tenga que hacerlo manualmente.
+  if (
+    !result.ok &&
+    decision.provider === "meta" &&
+    result.error?.closedWindow &&
+    decision.fallbackProvider === "baileys" &&
+    !decision.fallbackApplied // sólo si no hicimos fallback ya en routing
+  ) {
+    // Buscar la conexión Baileys (linkedWhatsappId) — el routing ya validó
+    // que está disponible.
+    const seedWa = decision.whatsapp;
+    const linkedId = (seedWa as any).linkedWhatsappId;
+    let baileysWa = null as any;
+    if (linkedId) {
+      const Whatsapp = (await import("../../models/Whatsapp")).default as any;
+      baileysWa = await Whatsapp.findByPk(linkedId);
+    }
+    if (baileysWa && (baileysWa as any).status === "CONNECTED") {
+      logFallback({
+        provider: "mixed",
+        companyId,
+        ticketId: (ticket as any).id,
+        conversationId: (ticket as any).conversationId,
+        fromProvider: "meta",
+        toProvider: "baileys",
+        reason: `runtime_meta_closed_window code=${result.error?.code}`
+      });
+      adapter = getAdapter("baileys");
+      const retry = await adapter.send({
+        ticket,
+        whatsapp: baileysWa,
+        contact: input.contact,
+        body: input.body,
+        quotedMsg: input.quotedMsg
+      });
+      if (retry.ok) {
+        runtimeFallbackApplied = true;
+        // Mutar la decisión para reflejar el provider real usado.
+        (decision as any).provider = "baileys";
+        (decision as any).whatsappId = (baileysWa as any).id;
+        (decision as any).whatsapp = baileysWa;
+        (decision as any).fallbackApplied = true;
+        (decision as any).requestedProvider = "meta";
+        (decision as any).reason = `${decision.reason} → runtime_fallback_baileys (meta closed_window)`;
+        result = retry;
+      } else {
+        // Fallback también falló — devolvemos el error original Meta + log
+        logger.warn(
+          {
+            ticketId: (ticket as any).id,
+            metaError: result.error,
+            baileysError: retry.error
+          },
+          "[OutboundDispatchService] meta failed AND baileys retry failed"
+        );
+      }
+    }
+  }
+
   const durationMs = Date.now() - startedAt;
 
   // 4) Actualizar dispatch row con resultado
   if (dispatchRow) {
     try {
       await dispatchRow.update({
+        provider: decision.provider, // refleja runtime fallback si aplicó
+        whatsappId: decision.whatsappId,
+        fallbackApplied: decision.fallbackApplied,
+        fallbackFromProvider: decision.fallbackApplied
+          ? decision.requestedProvider ?? null
+          : null,
         providerMessageId: result.providerMessageId,
         status: result.ok
           ? decision.fallbackApplied

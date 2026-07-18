@@ -9,7 +9,7 @@ import {
   proto,
   WAMessageCursor,
   WAMessageKey
-} from "@whiskeysockets/baileys";
+} from "baileys";
 import KeyedDB from "@adiwajshing/keyed-db";
 
 export interface Store {

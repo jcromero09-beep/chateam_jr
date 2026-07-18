@@ -48,7 +48,7 @@ const CreateService = async (data: Request): Promise<AIChatbotConfig> => {
     name: data.name,
     role: data.role || "",
     firstMessage: data.firstMessage || "",
-    modelKey: data.modelKey || "gpt-4.1-mini",
+    modelKey: data.modelKey || "gpt-5.5",
     instructions: data.instructions || "",
     interests: data.interests || [],
     temperature: data.temperature ?? 0.7,

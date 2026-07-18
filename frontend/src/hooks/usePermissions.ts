@@ -60,21 +60,41 @@ export function usePermissions() {
     return parseInterfacePermissions(plan.interfacePermissions)
   }, [user, isSuperAdmin])
 
-  // Funciones de verificacion de permisos (ahora basadas en plan)
+  // [Fase3·N2.0] Segundo eje: permisos del ROL (además del plan). Compat total:
+  // sin rol asignado o rol `unrestricted` (admin de empresa / super) => pasa (comportamiento actual).
+  // [Ola 4] `role` ya está tipado en User (interface Role), así que estos accesos
+  // los valida el compilador. Antes eran `(user as any)?.role`: un typo en
+  // `permissions`/`unrestricted` no daba error de compilación y degradaba los
+  // permisos en silencio.
+  const roleGate = (module: Module): boolean => {
+    if (isSuperAdmin) return true
+    const role = user?.role
+    if (!role || role.unrestricted) return true
+    const lvl = role.permissions?.[module]
+    return lvl === true || lvl === 'read'
+  }
+  const roleGateWrite = (module: Module): boolean => {
+    if (isSuperAdmin) return true
+    const role = user?.role
+    if (!role || role.unrestricted) return true
+    return role.permissions?.[module] === true
+  }
+
+  // Funciones de verificacion de permisos: doble filtro plan ∩ rol
   const canAccess = (module: Module): boolean => {
     // Superadmin siempre tiene acceso
     if (isSuperAdmin) return true
 
-    // Usar permisos del plan
-    return hasAccessByPlan(planPermissions, module, isSuperAdmin)
+    // plan ∩ rol
+    return hasAccessByPlan(planPermissions, module, isSuperAdmin) && roleGate(module)
   }
 
   const canWrite = (module: Module): boolean => {
     // Superadmin siempre tiene acceso de escritura
     if (isSuperAdmin) return true
 
-    // Usar permisos del plan
-    return hasWriteAccessByPlan(planPermissions, module, isSuperAdmin)
+    // plan ∩ rol
+    return hasWriteAccessByPlan(planPermissions, module, isSuperAdmin) && roleGateWrite(module)
   }
 
   const isReadOnly = (module: Module): boolean => {
@@ -99,9 +119,13 @@ export function usePermissions() {
       return ALL_MODULES
     }
 
-    // Usar permisos del plan
-    return getAccessibleModulesByPlan(planPermissions, isSuperAdmin)
-  }, [planPermissions, isSuperAdmin])
+    // plan ∩ rol
+    const byPlan = getAccessibleModulesByPlan(planPermissions, isSuperAdmin)
+    const role = user?.role
+    if (!role || role.unrestricted) return byPlan
+    const perms = role.permissions ?? {}
+    return byPlan.filter((m: Module) => perms[m] === true || perms[m] === 'read')
+  }, [planPermissions, isSuperAdmin, user])
 
   // Verificaciones de rol (mantienen compatibilidad con codigo existente)
   const isAdmin = userRole === 'admin' || isSuperAdmin

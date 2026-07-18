@@ -1,244 +1,333 @@
 import { Request, Response } from "express";
-import AppError from "../errors/AppError";
-import { getIO } from "../libs/socket";
-import { v4 as uuid } from "uuid";
-import auth from "../config/auth";
 import * as jwt from "jsonwebtoken";
-import AuthUserService from "../services/UserServices/AuthUserService";
-import { SendRefreshToken } from "../helpers/SendRefreshToken";
+
+import AppError from "../errors/AppError";
+import auth from "../config/auth";
+import { getIO } from "../libs/socket";
+
+import LoginSessionService from "../services/AuthServices/LoginSessionService";
 import RefreshTokenService from "../services/AuthServices/RefreshTokenService";
-import FindUserFromToken from "../services/AuthServices/FindUserFromToken";
-import User from "../models/User";
-import Session from "../models/Session"
-import { createAccessToken, createRefreshToken, createRefreshTokenMovil, createAccessTokenMovil } from "../helpers/CreateTokens";
-import { hashToken } from "../helpers/hashToken";
-import { SerializeUser } from "../helpers/SerializeUser";
 import ShowUserService from "../services/UserServices/ShowUserService";
+import { SendRefreshToken } from "../helpers/SendRefreshToken";
+import { sendWebsiteConversionEventAsync } from "../services/FacebookConversionService/SendWebsiteEvent";
 
-// export const store = async (req: Request, res: Response): Promise<Response> => {
-//   const { email, password } = req.body;
+import User from "../models/User";
+import Session from "../models/Session";
+import CompanyUser from "../models/CompanyUser";
+import Company from "../models/Company";
+import { Op } from "sequelize";
 
-//   const { token, serializedUser, refreshToken } = await AuthUserService({
-//     email,
-//     password
-//   });
+/**
+ * [Multi-empresa] Membresías del usuario (empresas donde puede operar), para el
+ * selector de empresa del front. isCurrent marca la empresa activa del token.
+ */
+const getMemberships = async (userId: number, currentCompanyId: number) => {
+  const rows = await CompanyUser.findAll({
+    where: { userId, active: true },
+    include: [{ model: Company, as: "company", attributes: ["id", "name", "status"] }],
+    order: [["companyId", "ASC"]]
+  });
+  return rows.map((m: any) => ({
+    companyId: m.companyId,
+    companyName: m.company?.name || null,
+    status: m.company?.status ?? null,
+    profile: m.profile,
+    isCurrent: m.companyId === currentCompanyId
+  }));
+};
 
-//   SendRefreshToken(res, refreshToken);
-
-//   const io = getIO();
-
-//   io.of(serializedUser.companyId.toString())
-//   .emit(`company-${serializedUser.companyId}-auth`, {
-//     action: "update",
-//     user: {
-//       id: serializedUser.id,
-//       email: serializedUser.email,
-//       companyId: serializedUser.companyId,
-//       token: serializedUser.token
-//     }
-//   });
-
-
-//   return res.status(200).json({
-//     token,
-//     user: serializedUser
-//   });
-// };
-
-
-const REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 días (ajusta a tu config)
-
-// Helper para leer el refresh token desde la request
 type ReqWithCookies = Request & { cookies?: Record<string, string> };
 
 const pickRefreshFromRequest = (req: ReqWithCookies): string | undefined => {
-    const cookieToken = req.cookies?.jrt;
-    const headerToken = req.header("x-refresh-token") || req.header("X-Refresh-Token") || undefined;
-    const bodyToken = typeof req.body === "object" ? (req.body as any).refreshToken : undefined;
-    return cookieToken ?? headerToken ?? bodyToken ?? undefined;
+  const cookieToken = req.cookies?.jrt;
+  const headerToken =
+    req.header("x-refresh-token") || req.header("X-Refresh-Token") || undefined;
+  const bodyToken =
+    typeof req.body === "object" ? (req.body as any)?.refreshToken : undefined;
+  return cookieToken ?? headerToken ?? bodyToken ?? undefined;
 };
+
+const pickClientType = (req: Request): "web" | "app" => {
+  const raw = (
+    (req.body && (req.body as any).clientType) ||
+    req.get("x-client-type") ||
+    "web"
+  )
+    .toString()
+    .toLowerCase();
+  return raw === "app" ? "app" : "web";
+};
+
+const pickRequestIp = (req: Request): string | null => {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string" && fwd.length > 0) {
+    return fwd.split(",")[0].trim();
+  }
+  if (Array.isArray(fwd) && fwd.length > 0) {
+    return fwd[0];
+  }
+  return req.socket?.remoteAddress || null;
+};
+
 /**
  * POST /auth/login
- * - Política: una sola sesión WEB activa por usuario; APP ilimitado
- * - Si clientType=web => cookie HTTPOnly 'jrt'
- * - Si clientType=app => refresh en el body (frontend APP lo guarda en SecureStorage)
+ *
+ * Política de sesión:
+ *  - Máximo 1 sesión web y 1 sesión app activas por usuario.
+ *  - Web y app son independientes.
+ *  - Un login nuevo en el mismo canal revoca la sesión anterior del mismo canal
+ *    inmediatamente (no devuelve 409).
  */
 export const store = async (req: Request, res: Response): Promise<Response> => {
-    const { email, password, force } = req.body;
-    const clientTypeRaw = (req.body.clientType || req.get("x-client-type") || "web").toString().toLowerCase();
-    const clientType = clientTypeRaw === "app" ? "app" : "web";
-    const deviceId = req.body.deviceId || req.get("x-device-id") || null;
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ error: "missing_credentials", message: "email y password son obligatorios" });
+  }
 
-    // Validación de credenciales
-    const user = await User.findOne({ where: { email } });
-    if (!user || !(await user.checkPassword(password))) {
-        return res.status(401).json({ error: "invalid_credentials" });
-    }
+  const clientType = pickClientType(req);
+  const deviceId =
+    (req.body && (req.body as any).deviceId) ||
+    req.get("x-device-id") ||
+    null;
 
-    // Política: Solo 1 sesión WEB activa por usuario
-    if (clientType === "web") {
-        const existingWeb = await Session.findOne({
-            where: { userId: user.id, clientType: "web", revokedAt: null },
-            order: [["createdAt", "DESC"]]
-        });
+  const userAgent = req.get("user-agent") || null;
+  const ip = pickRequestIp(req);
 
-        const stillActive = !!existingWeb && existingWeb.expiresAt > new Date();
+  const {
+    token: accessToken,
+    refreshToken,
+    sid,
+    user,
+    serializedUser
+  } = await LoginSessionService({
+    email,
+    password,
+    clientType,
+    deviceId,
+    userAgent,
+    ip
+  });
 
-        if (stillActive && !force) {
-            return res.status(409).json({
-                error: "web_session_already_active",
-                message: "Ya existe una sesión web activa. Use force=true para tomar el control."
-            });
-        }
+  if (clientType === "web") {
+    SendRefreshToken(res, refreshToken);
+  }
 
-        if (stillActive && force) {
-            existingWeb!.revokedAt = new Date();
-            await existingWeb!.save();
-        }
-    }
-
-    // Crea la sesión (sid) y firma tokens con ese sid
-    const sid = uuid();
-
-    // ⬇️ tokens según tipo
-    const accessToken = clientType === "app" ? createAccessTokenMovil(user, sid)
-        : createAccessToken(user, sid);
-    const refreshToken = clientType === "app" ? createRefreshTokenMovil(user, sid)
-        : createRefreshToken(user, sid);
-
-    const now = new Date();
-    await Session.create({
-        id: sid,
-        userId: user.id,
-        refreshTokenHash: hashToken(refreshToken),
-        userAgent: req.get("user-agent") || null,
-        ip: (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || null,
-        clientType,
-        deviceId,
-        lastSeenAt: now,
-        expiresAt: new Date(now.getTime() + REFRESH_TTL_MS)
-    });
-
-    // WEB -> cookie HTTPOnly; APP -> refresh en body
-    if (clientType === "web") {
-        SendRefreshToken(res, refreshToken);
-    }
-
-
-    const userc = await ShowUserService(user.id, user.companyId);
-    if (clientType === "app") {
-        console.log('online', userc.online)
-        await userc.update({ online: false });
-        console.log('online', userc.online)
-    }
-
-    const serializedUser = await SerializeUser(userc);
-    //console.log('serializedUser', serializedUser)
-
-    // Emisión socket: usa un solo namespace consistente
+  // Notificación en vivo de actualización de usuario (compat con flujos previos).
+  try {
     const io = getIO();
-    const ns = io.of(`/${serializedUser.companyId}`);
-    ns.emit(`company-${serializedUser.companyId}-user`, {
+    io.of(`/${serializedUser.companyId}`).emit(
+      `company-${serializedUser.companyId}-user`,
+      {
         action: "update",
         user: {
-            id: serializedUser.id,
-            email: serializedUser.email,
-            companyId: serializedUser.companyId,
-            token: serializedUser.token
+          id: serializedUser.id,
+          email: serializedUser.email,
+          companyId: serializedUser.companyId,
+          token: serializedUser.token
         }
-    });
+      }
+    );
+  } catch {
+    // Socket aún no listo: no falla el login.
+  }
 
-    // Construir respuesta base
-    const responseData: any = {
-        token: accessToken,
-        user: serializedUser,
-        sid,
-        clientType
-    };
-
-    // Si es app, incluir refreshToken en el body
-    if (clientType === "app") {
-        responseData.refreshToken = refreshToken;
-    }
-
-    return res.status(200).json(responseData);
-};
-
-
-export const update = async (req: Request, res: Response): Promise<Response> => {
-    const token = pickRefreshFromRequest(req);
-
-    if (!token) {
-        throw new AppError("ERR_SESSION_EXPIRED error update", 401);
-    }
-
-    // ✅ firma correcta, ya no dará el error de TS
-
-    return RefreshTokenService(req, res);
-
-};
-export const me = async (req: Request, res: Response): Promise<Response> => {
-    // El middleware isAuth ya validó el access token y populó req.user
-    const tokenUser = (req as any).user;
-
-    if (!tokenUser) {
-        return res.status(401).json({ error: "user_not_authenticated" });
-    }
-
-    // Obtener datos completos del usuario desde la DB (incluye company y plan)
-    const user = await ShowUserService(tokenUser.id, tokenUser.companyId);
-
-    return res.json({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        profile: user.profile,
+  // Conversión Meta (no bloqueante).
+  try {
+    sendWebsiteConversionEventAsync({
+      eventName: "Login",
+      eventId: `login_${user.id}_${Date.now()}`,
+      user: {
+        userId: user.id,
         companyId: user.companyId,
-        super: user.super,
-        profileImage: user.profileImage,
-        company: user.company
+        email: user.email,
+        name: user.name
+      },
+      context: {
+        req,
+        eventSourceUrl: `${
+          process.env.FRONTEND_URL || req.get("origin") || "https://chateam.com"
+        }/app`
+      },
+      customData: {
+        method: "password",
+        client_type: clientType,
+        user_id: user.id,
+        company_id: user.companyId,
+        user_profile: user.profile || null,
+        source: "login"
+      }
     });
+  } catch {
+    // Best effort.
+  }
+
+  const body: Record<string, unknown> = {
+    token: accessToken,
+    user: serializedUser,
+    sid,
+    clientType
+  };
+  if (clientType === "app") {
+    body.refreshToken = refreshToken;
+  }
+  // [Multi-empresa] Empresas del usuario (para mostrar selector si tiene >1).
+  try {
+    body.memberships = await getMemberships(user.id, user.companyId);
+  } catch {
+    body.memberships = [];
+  }
+
+  return res.status(200).json(body);
 };
 
+export const update = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const token = pickRefreshFromRequest(req);
+  if (!token) {
+    throw new AppError("ERR_SESSION_EXPIRED error update", 401);
+  }
+  return RefreshTokenService(req, res);
+};
 
-export const remove = async (req: Request, res: Response): Promise<Response> => {
-    try {
-        // Revoca la sesión en DB si tenemos el refresh
-        const rt = pickRefreshFromRequest(req);
-        if (rt) {
-            try {
-                const payload: any = jwt.verify(rt, auth.refreshSecret);
-                if (payload?.sid) {
-                    const s = await Session.findByPk(payload.sid);
-                    if (s && !s.revokedAt) {
-                        s.revokedAt = new Date();
-                        await s.save();
-                    }
-                }
-            } catch {
-                // refresh inválido/expirado — seguimos limpiando cookie
-            }
-        }
+export const me = async (req: Request, res: Response): Promise<Response> => {
+  const tokenUser = req.user;
+  if (!tokenUser) {
+    return res.status(401).json({ error: "user_not_authenticated" });
+  }
 
-        // Marca usuario offline si viene en req.user (opcional)
-        const userId = (req as any).user?.id;
-        if (userId) {
-            const u = await User.findByPk(userId);
-            if (u) await u.update({ online: false });
-        }
-    } finally {
-        // BORRAR cookie (mismo path, sin domain)
-        SendRefreshToken(res); // <-- llamar sin token lo borra
+  // [Super/Impersonación] Si el token es de un super que "entró" a una empresa, el
+  // super NO pertenece a esa empresa: cargarlo por id y devolver el companyId destino
+  // + la empresa destino, marcando la impersonación para que el front muestre el banner.
+  if (tokenUser.impersonatedBy) {
+    const UserModel = (await import("../models/User")).default;
+    const CompanyModel = (await import("../models/Company")).default;
+    const superUser = await UserModel.findByPk(tokenUser.id);
+    const targetCompany = await CompanyModel.findByPk(tokenUser.companyId);
+    return res.json({
+      id: superUser?.id,
+      name: superUser?.name,
+      email: (superUser as any)?.email,
+      profile: "admin",
+      companyId: tokenUser.companyId,
+      roleId: null,
+      role: null,
+      super: true,
+      impersonating: true,
+      impersonatedCompanyName: (targetCompany as any)?.name || null,
+      profileImage: (superUser as any)?.profileImage,
+      company: targetCompany
+    });
+  }
+
+  const user = await ShowUserService(tokenUser.id, tokenUser.companyId);
+
+  return res.json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    profile: user.profile,
+    companyId: user.companyId,
+    roleId: (user as any).roleId ?? null,
+    role: (user as any).role ?? null,
+    super: user.super,
+    profileImage: user.profileImage,
+    company: user.company,
+    // [Multi-empresa] empresas del usuario (para el selector de empresa activa)
+    memberships: await getMemberships(tokenUser.id, tokenUser.companyId)
+  });
+};
+
+/**
+ * DELETE /auth/logout
+ *
+ * Revoca SOLO la sesión actual (identificada por sid del access token o
+ * del refresh token), no todas las sesiones del usuario.
+ */
+export const remove = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const tokenUser = req.user as
+    | { id: number; companyId: number; sid?: string }
+    | undefined;
+
+  let sidToRevoke: string | undefined = tokenUser?.sid;
+  let revokedUserId: number | undefined = tokenUser?.id;
+  let revokedCompanyId: number | undefined = tokenUser?.companyId;
+  let revokedClientType: "web" | "app" | undefined;
+
+  try {
+    const rt = pickRefreshFromRequest(req);
+    if (rt) {
+      try {
+        const payload: any = jwt.verify(rt, auth.refreshSecret);
+        if (payload?.id) revokedUserId = Number(payload.id);
+        if (payload?.companyId) revokedCompanyId = Number(payload.companyId);
+        if (payload?.sid && !sidToRevoke) sidToRevoke = payload.sid;
+      } catch {
+        // refresh inválido/expirado: seguimos con el sid del access token.
+      }
     }
 
-    return res.status(204).end();
+    if (sidToRevoke) {
+      const session = await Session.findByPk(sidToRevoke);
+      if (session && !session.revokedAt) {
+        revokedClientType = session.clientType;
+        revokedUserId = session.userId;
+        session.revokedAt = new Date();
+        await session.save();
+      }
+    }
+
+    // Notificar revocación a clientes (por si hay sockets abiertos).
+    if (sidToRevoke && revokedUserId && revokedCompanyId) {
+      try {
+        const io = getIO();
+        io.of(`/${revokedCompanyId}`).emit(
+          `company-${revokedCompanyId}-session`,
+          {
+            action: "revoked",
+            reason: "logout",
+            sid: sidToRevoke,
+            userId: revokedUserId,
+            clientType: revokedClientType ?? null
+          }
+        );
+      } catch {
+        /* socket no disponible */
+      }
+    }
+
+    if (revokedUserId) {
+      const activeSessions = await Session.count({
+        where: {
+          userId: revokedUserId,
+          revokedAt: null,
+          expiresAt: { [Op.gt]: new Date() }
+        }
+      });
+      if (activeSessions === 0) {
+        const u = await User.findByPk(revokedUserId);
+        if (u) await u.update({ online: false });
+      }
+    }
+  } finally {
+    SendRefreshToken(res); // borra cookie 'jrt'
+  }
+
+  return res.status(204).end();
 };
 
 // ============================================================================
-// Validate Token - Verificar si el token actual es válido
+// Validate Token — verifica que el access token + la sesión sigan vigentes.
 // ============================================================================
-export const validate = async (req: Request, res: Response): Promise<Response> => {
-    // El middleware isAuth ya verificó el token
-    // Si llegamos aquí, el token es válido
-    return res.status(200).json({ valid: true });
+export const validate = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  return res.status(200).json({ valid: true });
 };

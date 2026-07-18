@@ -69,6 +69,14 @@ class Contact extends Model<Contact> {
   @Column(DataType.STRING)
   channel: string;
 
+  // Estado de verificación de WhatsApp (Baileys onWhatsApp):
+  // null = sin verificar | "pending" = en cola | "valid" = tiene WhatsApp | "invalid" = sin WhatsApp
+  @Column(DataType.STRING)
+  whatsappValid: string | null;
+
+  @Column(DataType.DATE)
+  whatsappValidatedAt: Date | null;
+
   @CreatedAt
   createdAt: Date;
 
@@ -90,6 +98,17 @@ class Contact extends Model<Contact> {
   @ForeignKey(() => Company)
   @Column(DataType.INTEGER)
   companyId: number;
+
+  // [Fase2·N3 LOPDP] Consentimiento de marketing por contacto (granted|denied|unknown)
+  // + supresión (derecho al olvido). Sin consentimiento, no se le mandan eventos CAPI.
+  @Column(DataType.STRING(12))
+  marketingConsent: string;
+
+  @Column(DataType.DATE)
+  consentUpdatedAt: Date;
+
+  @Column(DataType.DATE)
+  erasedAt: Date;
 
   @BelongsTo(() => Company)
   company: Company;

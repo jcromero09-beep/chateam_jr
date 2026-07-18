@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Service: UGCVideoPipelineService
  * Orquestador del pipeline completo de generacion de video UGC.
@@ -8,12 +12,15 @@
 import OpenAI from "openai";
 import UGCVideoJob, { UGCVideoJobStage } from "../../models/UGCVideoJob";
 import UGCCampaign from "../../models/UGCCampaign";
-import UGCVideoAsset from "../../models/UGCVideoAsset";
 import DeductCreditsService from "../AICreditServices/DeductCreditsService";
 import AppError from "../../errors/AppError";
 import logger from "../../utils/logger";
+import ComposeUGCVideoService from "./ComposeUGCVideoService";
+import { buildCreativeVariation } from "../UGCContentVariationService";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 interface UGCVideoPipelineRequest {
   companyId: number;
@@ -29,6 +36,8 @@ interface UGCVideoPipelineResponse {
 
 // Providers opcionales — se importan condicionalmente
 let HeygenProvider: { generateAvatar: (config: Record<string, unknown>) => Promise<Record<string, unknown>> } | null = null;
+let WanProvider: { generateVideo: (config: Record<string, unknown>) => Promise<Record<string, unknown>> } | null = null;
+let FalVideoProvider: { textToVideo: (config: Record<string, unknown>) => Promise<Record<string, unknown>> } | null = null;
 let KlingProvider: { generateVideo: (config: Record<string, unknown>) => Promise<Record<string, unknown>> } | null = null;
 let RunwayProvider: { generateVideo: (config: Record<string, unknown>) => Promise<Record<string, unknown>> } | null = null;
 
@@ -36,6 +45,18 @@ try {
   HeygenProvider = require("../UGCProviders/HeygenProvider").default;
 } catch {
   logger.warn("[UGCVideoPipelineService] HeygenProvider no disponible");
+}
+
+try {
+  FalVideoProvider = require("../UGCProviders/fal/FalVideoProvider").default;
+} catch {
+  logger.warn("[UGCVideoPipelineService] FalVideoProvider no disponible");
+}
+
+try {
+  WanProvider = require("../UGCProviders/WanProvider").default;
+} catch {
+  logger.warn("[UGCVideoPipelineService] WanProvider no disponible");
 }
 
 try {
@@ -63,6 +84,8 @@ const handleScriptGeneration = async (
 
   const productBrief = campaign.productBrief || {};
   const genConfig = campaign.generationConfig || {};
+  const variantIndex = Number(job.metadata?.variantIndex || 1) - 1;
+  const variation = buildCreativeVariation(campaign, variantIndex, "video");
 
   const systemPrompt = `Eres un experto en creacion de contenido UGC para redes sociales.
 Genera scripts cortos, autenticos y enganchantes para videos de ${genConfig.videoDuration || 30} segundos.
@@ -77,6 +100,8 @@ CTA: ${productBrief.callToAction || "visita el link en bio"}
 Caracteristicas clave: ${(productBrief.keyFeatures || []).join(", ") || "sin especificar"}
 
 Hooks sugeridos: ${(genConfig.hooks || []).join(", ") || "cualquier hook enganchante"}
+Angulo creativo obligatorio: ${variation.angle}
+Hook recomendado: ${variation.hook}
 
 El script debe incluir:
 1. Hook fuerte en los primeros 3 segundos
@@ -84,27 +109,48 @@ El script debe incluir:
 3. Beneficio principal
 4. Call-to-action claro`;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    temperature: 0.8,
-    max_tokens: 800
-  });
+  let script: string | undefined;
 
-  const script = completion.choices[0]?.message?.content;
+  if (openai) {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.5",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.8,
+      max_tokens: 800
+    });
+
+    script = completion.choices[0]?.message?.content;
+  } else {
+    script = [
+      variation.hook,
+      `Te cuento rapido por que ${productBrief.productName || campaign.name} me llamo la atencion.`,
+      `Lo que mas se nota es: ${(productBrief.keyFeatures || []).join(", ") || "su beneficio principal"}.`,
+      `Si quieres probarlo, ${productBrief.callToAction || "revisa el link y mira si encaja contigo"}.`
+    ].join(" ");
+  }
 
   if (!script) {
     throw new AppError("ERR_UGC_SCRIPT_GENERATION_EMPTY", 500);
   }
 
   const durationMs = Date.now() - startTime;
-  await job.update({ script, status: "processing" });
+  await job.update({
+    script,
+    status: "processing",
+    metadata: {
+      ...(job.metadata || {}),
+      creativeKind: "video",
+      creativeAngle: variation.angle,
+      prompt: variation.prompt,
+      caption: variation.caption
+    }
+  });
   job.addLogEntry("script_generation", "completed", "Script generado exitosamente", {
     durationMs,
-    provider: "openai/gpt-4o"
+    provider: "openai/gpt-5.5"
   });
 
   // Avanzar al siguiente stage
@@ -229,15 +275,60 @@ const handleVideoGeneration = async (
     return;
   }
 
-  // Sin avatar — intentar generacion directa con Kling o Runway
+  // Sin avatar — intentar generacion directa con Wan/ComfyUI, Kling o Runway
   let rawVideoUrl: string | null = null;
   let usedProvider = "none";
+  const variantIndex = Number(job.metadata?.variantIndex || 1) - 1;
+  const variation = buildCreativeVariation(campaign, variantIndex, "video");
+  const preferredProvider = String(campaign.generationConfig?.videoProvider || process.env.UGC_VIDEO_PROVIDER || "wan");
 
-  if (KlingProvider) {
+  if (preferredProvider === "fal-wan" && FalVideoProvider) {
+    try {
+      const result = await FalVideoProvider.textToVideo({
+        companyId: job.companyId,
+        campaignId: campaign.id,
+        videoJobId: job.id,
+        prompt: variation.prompt,
+        negativePrompt: variation.negativePrompt,
+        duration: campaign.generationConfig?.videoDuration || 5,
+        aspectRatio: campaign.generationConfig?.aspectRatio || "9:16",
+        resolution: campaign.generationConfig?.videoResolution || "720p",
+        enablePromptExpansion: true,
+        enableSafetyChecker: true,
+        model: process.env.FAL_VIDEO_TEXT_MODEL
+      });
+      rawVideoUrl = result.url as string;
+      usedProvider = "fal-wan";
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[UGCVideoPipelineService] fal.ai video generation fallo: ${errMsg}`);
+    }
+  }
+
+  if (!rawVideoUrl && preferredProvider === "wan" && WanProvider) {
+    try {
+      const result = await WanProvider.generateVideo({
+        prompt: variation.prompt,
+        negativePrompt: variation.negativePrompt,
+        duration: campaign.generationConfig?.videoDuration || 5,
+        aspectRatio: campaign.generationConfig?.aspectRatio || "9:16",
+        companyId: job.companyId
+      });
+      rawVideoUrl = result.videoUrl as string;
+      usedProvider = "wan";
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[UGCVideoPipelineService] Wan video generation fallo: ${errMsg}`);
+    }
+  }
+
+  if (!rawVideoUrl && KlingProvider) {
     try {
       const result = await KlingProvider.generateVideo({
-        script: job.script,
+        prompt: variation.prompt || job.script,
         duration: campaign.generationConfig?.videoDuration || 30,
+        aspectRatio: campaign.generationConfig?.aspectRatio || "9:16",
+        mode: "standard",
         companyId: job.companyId
       });
       rawVideoUrl = result.videoUrl as string;
@@ -302,51 +393,15 @@ const handleComposition = async (
     throw new AppError("ERR_UGC_COMPOSITION_NO_SOURCE_VIDEO", 500);
   }
 
-  // Por ahora, el video compuesto es el mismo raw (hasta que haya FFmpeg/Creatomate)
-  // La composicion real se delega a ComposeUGCVideoService
-  const finalVideoUrl = sourceUrl;
-  const thumbnailUrl = `${sourceUrl.replace(/\.[^.]+$/, "")}_thumb.jpg`;
-
-  await job.update({
-    finalVideoUrl,
-    thumbnailUrl,
-    compositorProvider: "pass_through",
-    status: "processing"
+  await ComposeUGCVideoService({
+    companyId: job.companyId,
+    videoJobId: job.id,
+    rawVideoUrl: sourceUrl,
+    options: {
+      subtitles: Boolean(genConfig.subtitlesEnabled),
+      musicTrack: genConfig.musicEnabled ? String(genConfig.templateId || "") : undefined
+    }
   });
-
-  // Crear asset de video compuesto
-  await UGCVideoAsset.create({
-    companyId: job.companyId,
-    ugcVideoJobId: job.id,
-    ugcCampaignId: campaign.id,
-    assetType: "composed_final",
-    fileName: `ugc_${campaign.id}_${job.id}_final.mp4`,
-    localPath: finalVideoUrl,
-    originalUrl: sourceUrl,
-    fileSize: 0,
-    mimeType: "video/mp4",
-    duration: genConfig.videoDuration || 30,
-    version: 1,
-    isActive: true,
-    downloadCount: 0,
-    metadata: { compositorProvider: "pass_through" }
-  } as Partial<UGCVideoAsset> as UGCVideoAsset);
-
-  // Crear asset de thumbnail
-  await UGCVideoAsset.create({
-    companyId: job.companyId,
-    ugcVideoJobId: job.id,
-    ugcCampaignId: campaign.id,
-    assetType: "thumbnail",
-    fileName: `ugc_${campaign.id}_${job.id}_thumb.jpg`,
-    localPath: thumbnailUrl,
-    fileSize: 0,
-    mimeType: "image/jpeg",
-    version: 1,
-    isActive: true,
-    downloadCount: 0,
-    metadata: {}
-  } as Partial<UGCVideoAsset> as UGCVideoAsset);
 
   const durationMs = Date.now() - startTime;
   job.addLogEntry("composition", "completed", "Video compuesto exitosamente", {

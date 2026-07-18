@@ -1,34 +1,31 @@
 import { useState, useEffect } from 'react'
 import {
-  Box,
-  Typography,
-  Sheet,
-  Card,
-  Chip,
-  Button,
-  Divider,
-  Input,
-  Select,
-  Option,
-  Stack,
-  Switch,
-  FormControl,
-  FormLabel,
-  FormHelperText,
-  IconButton,
-} from '@mui/joy'
-import {
-  TuneOutlined as TuneIcon,
+  SlidersHorizontal,
+  Cloud,
+  ShieldCheck,
+  MagicWand,
+  LinkSimple,
+  VideoCamera,
   CheckCircle,
-  Cancel,
-  Visibility,
-  VisibilityOff,
-  Link as LinkIcon,
-  Cloud as CloudIcon,
-  Security as SecurityIcon,
-  AutoFixHigh as AutoFixIcon,
-} from '@mui/icons-material'
+  XCircle,
+  Eye,
+  EyeSlash,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+import api from '../services/api'
 
 const isDev = import.meta.env.DEV
 const devLog = (...args: unknown[]) => { if (isDev) console.log(...args) }
@@ -44,6 +41,12 @@ interface ProviderConfig {
 
 interface UGCSettingsData {
   // Providers
+  falApiKey: string
+  falImageModel: string
+  falTextVideoModel: string
+  falImageVideoModel: string
+  falPremiumVideoModel: string
+  falWebhookUrl: string
   heygenApiKey: string
   klingApiKey: string
   runwayApiKey: string
@@ -66,6 +69,12 @@ interface UGCSettingsData {
 const SETTINGS_KEY = 'ugc_settings_v1'
 
 const DEFAULT_SETTINGS: UGCSettingsData = {
+  falApiKey: '',
+  falImageModel: 'fal-ai/flux/schnell',
+  falTextVideoModel: 'fal-ai/wan-25-preview/text-to-video',
+  falImageVideoModel: 'fal-ai/wan-25-preview/image-to-video',
+  falPremiumVideoModel: 'fal-ai/seedance/v2/image-to-video',
+  falWebhookUrl: '',
   heygenApiKey: '',
   klingApiKey: '',
   runwayApiKey: '',
@@ -83,6 +92,7 @@ const DEFAULT_SETTINGS: UGCSettingsData = {
 }
 
 const VIDEO_PROVIDERS: ProviderConfig[] = [
+  { key: 'fal',         label: 'Fal.ai',       description: 'Proveedor base para imagen y video UGC dinamico desde base de datos', field: 'falApiKey' },
   { key: 'heygen',      label: 'HeyGen',       description: 'Avatares IA — Videos con presentadores virtuales realistas',    field: 'heygenApiKey' },
   { key: 'kling',       label: 'Kling AI',      description: 'Video generativo — Convierte texto e imagenes en videos',       field: 'klingApiKey' },
   { key: 'runway',      label: 'Runway ML',     description: 'Cinematic AI — Generacion de video cinematografico de alta calidad', field: 'runwayApiKey' },
@@ -96,6 +106,47 @@ function maskKey(key: string): string {
   return key.slice(0, 4) + '•'.repeat(Math.min(key.length - 8, 20)) + key.slice(-4)
 }
 
+// ─── Switch (toggle accesible con tokens del design system) ────────────────────
+
+function Toggle({
+  checked,
+  onCheckedChange,
+  disabled,
+  tone = 'primary',
+  ariaLabel,
+}: {
+  checked: boolean
+  onCheckedChange: (v: boolean) => void
+  disabled?: boolean
+  tone?: 'primary' | 'warning'
+  ariaLabel: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer appearance-none items-center rounded-full border-0 p-0 outline-none transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'disabled:cursor-not-allowed disabled:opacity-55',
+        checked ? (tone === 'warning' ? 'bg-warning' : 'bg-primary') : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 transform rounded-full bg-card shadow-sm transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
 // ─── Provider Card ─────────────────────────────────────────────────────────────
 
 interface ProviderCardProps {
@@ -106,94 +157,89 @@ interface ProviderCardProps {
   onTest: (providerKey: string) => void
   testLoading: string | null
   saveLoading: string | null
+  configuredOverride?: boolean
 }
 
-function ProviderCard({ provider, value, onChange, onSave, onTest, testLoading, saveLoading }: ProviderCardProps) {
+// Colores de marca por proveedor (identidad, no tokens de superficie)
+const PROVIDER_COLORS: Record<string, string> = {
+  heygen:     '#1565C0',
+  fal:        '#0F766E',
+  kling:      '#2E7D32',
+  runway:     '#6A1B9A',
+  creatomate: '#B45309',
+}
+
+function ProviderCard({ provider, value, onChange, onSave, onTest, testLoading, saveLoading, configuredOverride }: ProviderCardProps) {
   const [showKey, setShowKey] = useState(false)
-  const isConfigured = !!value.trim()
-
-  const PROVIDER_COLORS: Record<string, string> = {
-    heygen:     '#1565C0',
-    kling:      '#2E7D32',
-    runway:     '#6A1B9A',
-    creatomate: '#B45309',
-  }
-
+  const isConfigured = configuredOverride || !!value.trim()
   const color = PROVIDER_COLORS[provider.key] ?? '#6B7280'
 
   return (
-    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-        <Box sx={{ flex: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
-            <Box
-              sx={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                bgcolor: color,
-                flexShrink: 0,
-              }}
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1">
+          <div className="mb-0.5 flex items-center gap-2">
+            <span
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: color }}
+              aria-hidden
             />
-            <Typography level="title-sm" fontWeight="lg">{provider.label}</Typography>
-          </Box>
-          <Typography level="body-xs" color="neutral">{provider.description}</Typography>
-        </Box>
-        <Chip
-          size="sm"
-          variant="soft"
-          color={isConfigured ? 'success' : 'neutral'}
-          startDecorator={isConfigured ? <CheckCircle sx={{ fontSize: 12 }} /> : <Cancel sx={{ fontSize: 12 }} />}
-        >
+            <span className="text-sm font-semibold text-foreground">{provider.label}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">{provider.description}</p>
+        </div>
+        <Badge variant={isConfigured ? 'success' : 'neutral'}>
+          {isConfigured
+            ? <CheckCircle className="size-3" weight="fill" aria-hidden />
+            : <XCircle className="size-3" weight="fill" aria-hidden />}
           {isConfigured ? 'Configurado' : 'No configurado'}
-        </Chip>
-      </Box>
+        </Badge>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <Input
-          type={showKey ? 'text' : 'password'}
-          placeholder={`API Key de ${provider.label}...`}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="neutral" onClick={() => setShowKey(s => !s)}>
-              {showKey ? <VisibilityOff sx={{ fontSize: 16 }} /> : <Visibility sx={{ fontSize: 16 }} />}
-            </IconButton>
-          }
-          sx={{ flex: 1 }}
-        />
-      </Box>
+      <Input
+        type={showKey ? 'text' : 'password'}
+        placeholder={`API Key de ${provider.label}...`}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rightSlot={
+          <button
+            type="button"
+            onClick={() => setShowKey(s => !s)}
+            aria-label={showKey ? 'Ocultar API Key' : 'Mostrar API Key'}
+            aria-pressed={showKey}
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {showKey ? <EyeSlash className="size-[18px]" aria-hidden /> : <Eye className="size-[18px]" aria-hidden />}
+          </button>
+        }
+      />
 
       {isConfigured && !showKey && (
-        <Typography level="body-xs" color="neutral" sx={{ fontFamily: 'monospace', fontSize: 10 }}>
-          {maskKey(value)}
-        </Typography>
+        <p className="font-mono text-[10px] text-muted-foreground">{maskKey(value)}</p>
       )}
 
-      <Box sx={{ display: 'flex', gap: 1 }}>
+      <div className="flex gap-2">
         <Button
           size="sm"
-          variant="outlined"
-          color="neutral"
+          variant="outline"
+          className="flex-1"
           onClick={() => onTest(provider.key)}
           loading={testLoading === provider.key}
           disabled={!isConfigured || saveLoading === provider.key}
-          sx={{ flex: 1 }}
         >
           Probar Conexion
         </Button>
         <Button
           size="sm"
-          color="primary"
+          className="flex-1"
           onClick={() => onSave(provider.key)}
           loading={saveLoading === provider.key}
-          disabled={!value.trim()}
-          sx={{ flex: 1 }}
+          disabled={!isConfigured && provider.key !== 'fal'}
         >
           Guardar
         </Button>
-      </Box>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -201,13 +247,15 @@ function ProviderCard({ provider, value, onChange, onSave, onTest, testLoading, 
 
 function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle?: string }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-      <Box sx={{ color: 'primary.500' }}>{icon}</Box>
-      <Box>
-        <Typography level="title-md">{title}</Typography>
-        {subtitle && <Typography level="body-xs" color="neutral">{subtitle}</Typography>}
-      </Box>
-    </Box>
+    <div className="mb-4 flex items-center gap-3">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+        {icon}
+      </span>
+      <div>
+        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      </div>
+    </div>
   )
 }
 
@@ -217,6 +265,7 @@ export default function UGCSettings() {
   const [settings, setSettings] = useState<UGCSettingsData>(DEFAULT_SETTINGS)
   const [testLoading, setTestLoading] = useState<string | null>(null)
   const [saveLoading, setSaveLoading] = useState<string | null>(null)
+  const [falConfigured, setFalConfigured] = useState(false)
 
   // Cargar desde localStorage
   useEffect(() => {
@@ -230,6 +279,28 @@ export default function UGCSettings() {
     } catch {
       devLog('[UGCSettings] No se pudo cargar configuracion guardada')
     }
+
+    api.get('/ugc/settings')
+      .then(({ data }) => {
+        const fal = data.data?.fal
+        if (!fal) return
+        setSettings(prev => ({
+          ...prev,
+          falApiKey: '',
+          falImageModel: fal.settings?.imageModel || prev.falImageModel,
+          falTextVideoModel: fal.settings?.textVideoModel || prev.falTextVideoModel,
+          falImageVideoModel: fal.settings?.imageVideoModel || prev.falImageVideoModel,
+          falPremiumVideoModel: fal.settings?.premiumVideoModel || prev.falPremiumVideoModel,
+          falWebhookUrl: fal.settings?.webhookUrl || prev.falWebhookUrl,
+        }))
+        setFalConfigured(Boolean(fal.configured))
+        if (fal.configured) {
+          toast.success(`Fal.ai cargado desde base de datos (${fal.apiKeyMasked})`)
+        }
+      })
+      .catch(() => {
+        toast.error('No se pudo cargar la configuracion UGC desde backend')
+      })
   }, [])
 
   const updateField = <K extends keyof UGCSettingsData>(field: K, value: UGCSettingsData[K]) => {
@@ -254,10 +325,36 @@ export default function UGCSettings() {
     return VIDEO_PROVIDERS.find(p => p.key === providerKey)?.field ?? ''
   }
 
-  const handleSaveProvider = (providerKey: string) => {
+  const handleSaveProvider = async (providerKey: string) => {
     setSaveLoading(providerKey)
     const field = getProviderField(providerKey)
     const value = getProviderValue(field)
+
+    if (providerKey === 'fal') {
+      try {
+        await api.put('/ugc/settings', {
+          fal: {
+            apiKey: value,
+            isActive: true,
+            settings: {
+              imageModel: settings.falImageModel,
+              textVideoModel: settings.falTextVideoModel,
+              imageVideoModel: settings.falImageVideoModel,
+              premiumVideoModel: settings.falPremiumVideoModel,
+              webhookUrl: settings.falWebhookUrl,
+            },
+          },
+        })
+        setFalConfigured(true)
+        toast.success('Fal.ai guardado en base de datos')
+      } catch (err: any) {
+        toast.error(err?.response?.data?.message || 'No se pudo guardar Fal.ai')
+      } finally {
+        setSaveLoading(null)
+      }
+      return
+    }
+
     setTimeout(() => {
       saveToLocalStorage({ [field]: value })
       toast.success(`${VIDEO_PROVIDERS.find(p => p.key === providerKey)?.label} guardado correctamente`)
@@ -265,8 +362,20 @@ export default function UGCSettings() {
     }, 600)
   }
 
-  const handleTestProvider = (providerKey: string) => {
+  const handleTestProvider = async (providerKey: string) => {
     setTestLoading(providerKey)
+    if (providerKey === 'fal') {
+      try {
+        const { data } = await api.post('/ugc/settings/test-fal')
+        toast.success(data.message || 'Fal.ai listo para el pipeline')
+      } catch (err: any) {
+        toast.error(err?.response?.data?.message || 'Fal.ai no esta configurado')
+      } finally {
+        setTestLoading(null)
+      }
+      return
+    }
+
     setTimeout(() => {
       // Placeholder — cuando el endpoint exista, llamar a /ugc/settings/test/:provider
       const providerLabel = VIDEO_PROVIDERS.find(p => p.key === providerKey)?.label
@@ -318,329 +427,324 @@ export default function UGCSettings() {
   const cloudinaryConfigured = !!(settings.cloudinaryCloudName && settings.cloudinaryApiKey && settings.cloudinaryApiSecret)
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1000, mx: 'auto' }}>
-      {/* ── Header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-        <TuneIcon sx={{ fontSize: 28, color: 'primary.500' }} />
-        <Box>
-          <Typography level="h3">Configuracion UGC</Typography>
-          <Typography level="body-sm" color="neutral">
-            Providers, integraciones y limites del pipeline de contenido
-          </Typography>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1000px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* ── Header ── */}
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <SlidersHorizontal className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Configuracion UGC</h1>
+            <p className="text-sm text-muted-foreground">
+              Providers, integraciones y limites del pipeline de contenido
+            </p>
+          </div>
+        </div>
 
-      <Sheet variant="soft" color="neutral" sx={{ p: 1.5, borderRadius: 'sm', mb: 3 }}>
-        <Typography level="body-xs" color="neutral">
-          La configuracion se guarda localmente como placeholder. En proximas versiones se sincronizara con el backend via <code>/ugc/settings</code>.
-        </Typography>
-      </Sheet>
+        <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+          La configuracion se guarda localmente como placeholder. En proximas versiones se sincronizara con el backend via{' '}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">/ugc/settings</code>.
+        </div>
 
-      {/* ═══════════════════════════════════════════════════
-          SECCION 1: Providers de Video
-      ═══════════════════════════════════════════════════ */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <SectionHeader
-          icon={<VideoIcon />}
-          title="Providers de Video"
-          subtitle="Configura las API keys de los proveedores de generacion de video"
-        />
+        {/* Fal.ai base */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <SectionHeader
+            icon={<Cloud className="size-5" weight="fill" aria-hidden />}
+            title="Fal.ai Base del Pipeline"
+            subtitle="Modelo y webhook usados por los jobs UGC sin depender del archivo .env"
+          />
 
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' },
-            gap: 2,
-          }}
-        >
-          {VIDEO_PROVIDERS.map(provider => (
-            <ProviderCard
-              key={provider.key}
-              provider={provider}
-              value={getProviderValue(provider.field)}
-              onChange={val => setProviderValue(provider.field, val)}
-              onSave={handleSaveProvider}
-              onTest={handleTestProvider}
-              testLoading={testLoading}
-              saveLoading={saveLoading}
-            />
-          ))}
-        </Box>
-      </Card>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="fal-image-model">Modelo imagen</Label>
+              <Input id="fal-image-model" value={settings.falImageModel} onChange={e => updateField('falImageModel', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fal-text-video">Texto a video</Label>
+              <Input id="fal-text-video" value={settings.falTextVideoModel} onChange={e => updateField('falTextVideoModel', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fal-image-video">Imagen a video</Label>
+              <Input id="fal-image-video" value={settings.falImageVideoModel} onChange={e => updateField('falImageVideoModel', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fal-premium">Render premium</Label>
+              <Input id="fal-premium" value={settings.falPremiumVideoModel} onChange={e => updateField('falPremiumVideoModel', e.target.value)} />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="fal-webhook">Webhook publico</Label>
+              <Input id="fal-webhook" value={settings.falWebhookUrl} onChange={e => updateField('falWebhookUrl', e.target.value)} placeholder="https://tu-dominio.com/api/fal/webhook" />
+            </div>
+          </div>
+        </section>
 
-      {/* ═══════════════════════════════════════════════════
-          SECCION 2: Redes Sociales
-      ═══════════════════════════════════════════════════ */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <SectionHeader
-          icon={<LinkIcon sx={{ fontSize: 22 }} />}
-          title="Redes Sociales"
-          subtitle="Gestiona las cuentas sociales conectadas al pipeline"
-        />
+        {/* ═══ SECCION 1: Providers de Video ═══ */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <SectionHeader
+            icon={<VideoCamera className="size-5" weight="fill" aria-hidden />}
+            title="Providers de Video"
+            subtitle="Configura las API keys de los proveedores de generacion de video"
+          />
 
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-          <Box>
-            <Typography level="body-sm" fontWeight="md">Cuentas Sociales Conectadas</Typography>
-            <Typography level="body-xs" color="neutral">
-              Administra las cuentas de Instagram, TikTok, Facebook y YouTube
-            </Typography>
-          </Box>
-          <Button
-            size="sm"
-            variant="outlined"
-            color="primary"
-            component="a"
-            href="/ugc/social-accounts"
-          >
-            Gestionar Cuentas
-          </Button>
-        </Box>
-      </Card>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {VIDEO_PROVIDERS.map(provider => (
+              <ProviderCard
+                key={provider.key}
+                provider={provider}
+                value={getProviderValue(provider.field)}
+                onChange={val => setProviderValue(provider.field, val)}
+                onSave={handleSaveProvider}
+                onTest={handleTestProvider}
+                testLoading={testLoading}
+                saveLoading={saveLoading}
+                configuredOverride={provider.key === 'fal' ? falConfigured : undefined}
+              />
+            ))}
+          </div>
+        </section>
 
-      {/* ═══════════════════════════════════════════════════
-          SECCION 3: Cloudinary
-      ═══════════════════════════════════════════════════ */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <CloudIcon sx={{ fontSize: 22, color: 'primary.500' }} />
-            <Box>
-              <Typography level="title-md">Cloudinary</Typography>
-              <Typography level="body-xs" color="neutral">Almacenamiento y transformacion de assets multimedia</Typography>
-            </Box>
-          </Box>
-          <Chip
-            size="sm"
-            variant="soft"
-            color={cloudinaryConfigured ? 'success' : 'neutral'}
-            startDecorator={cloudinaryConfigured ? <CheckCircle sx={{ fontSize: 12 }} /> : <Cancel sx={{ fontSize: 12 }} />}
-          >
-            {cloudinaryConfigured ? 'Configurado' : 'No configurado'}
-          </Chip>
-        </Box>
+        {/* ═══ SECCION 2: Redes Sociales ═══ */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <SectionHeader
+            icon={<LinkSimple className="size-5" weight="bold" aria-hidden />}
+            title="Redes Sociales"
+            subtitle="Gestiona las cuentas sociales conectadas al pipeline"
+          />
 
-        <Stack spacing={1.5}>
-          <FormControl>
-            <FormLabel>Cloud Name</FormLabel>
-            <Input
-              placeholder="my-cloud-name"
-              value={settings.cloudinaryCloudName}
-              onChange={e => updateField('cloudinaryCloudName', e.target.value)}
-            />
-          </FormControl>
-          <FormControl>
-            <FormLabel>API Key</FormLabel>
-            <Input
-              placeholder="123456789012345"
-              value={settings.cloudinaryApiKey}
-              onChange={e => updateField('cloudinaryApiKey', e.target.value)}
-            />
-          </FormControl>
-          <FormControl>
-            <FormLabel>API Secret</FormLabel>
-            <CloudinarySecretInput
-              value={settings.cloudinaryApiSecret}
-              onChange={val => updateField('cloudinaryApiSecret', val)}
-            />
-          </FormControl>
+          <div className="flex items-center justify-between gap-4 rounded-lg bg-muted/50 p-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Cuentas Sociales Conectadas</p>
+              <p className="text-xs text-muted-foreground">
+                Administra las cuentas de Instagram, TikTok, Facebook y YouTube
+              </p>
+            </div>
+            <a href="/ugc/social-accounts">
+              <Button size="sm" variant="outline">Gestionar Cuentas</Button>
+            </a>
+          </div>
+        </section>
 
-          <Box sx={{ display: 'flex', gap: 1, pt: 0.5 }}>
-            <Button
-              size="sm"
-              variant="outlined"
-              color="neutral"
-              onClick={handleTestCloudinary}
-              loading={testLoading === 'cloudinary'}
-              disabled={!cloudinaryConfigured || saveLoading === 'cloudinary'}
-              sx={{ flex: 1 }}
-            >
-              Probar Conexion
-            </Button>
-            <Button
-              size="sm"
-              color="primary"
-              onClick={handleSaveCloudinary}
-              loading={saveLoading === 'cloudinary'}
-              disabled={!settings.cloudinaryCloudName}
-              sx={{ flex: 1 }}
-            >
-              Guardar
-            </Button>
-          </Box>
-        </Stack>
-      </Card>
+        {/* ═══ SECCION 3: Cloudinary ═══ */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Cloud className="size-5" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Cloudinary</h2>
+                <p className="text-xs text-muted-foreground">Almacenamiento y transformacion de assets multimedia</p>
+              </div>
+            </div>
+            <Badge variant={cloudinaryConfigured ? 'success' : 'neutral'}>
+              {cloudinaryConfigured
+                ? <CheckCircle className="size-3" weight="fill" aria-hidden />
+                : <XCircle className="size-3" weight="fill" aria-hidden />}
+              {cloudinaryConfigured ? 'Configurado' : 'No configurado'}
+            </Badge>
+          </div>
 
-      {/* ═══════════════════════════════════════════════════
-          SECCION 4: Optimizacion Autonoma
-      ═══════════════════════════════════════════════════ */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <SectionHeader
-          icon={<AutoFixIcon sx={{ fontSize: 22 }} />}
-          title="Optimizacion Autonoma"
-          subtitle="El sistema analiza resultados y ajusta estrategias automaticamente"
-        />
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="cloudinary-cloud">Cloud Name</Label>
+              <Input
+                id="cloudinary-cloud"
+                placeholder="my-cloud-name"
+                value={settings.cloudinaryCloudName}
+                onChange={e => updateField('cloudinaryCloudName', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cloudinary-key">API Key</Label>
+              <Input
+                id="cloudinary-key"
+                placeholder="123456789012345"
+                value={settings.cloudinaryApiKey}
+                onChange={e => updateField('cloudinaryApiKey', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cloudinary-secret">API Secret</Label>
+              <PasswordInput
+                id="cloudinary-secret"
+                placeholder="API Secret de Cloudinary..."
+                value={settings.cloudinaryApiSecret}
+                onChange={e => updateField('cloudinaryApiSecret', e.target.value)}
+              />
+            </div>
 
-        <Stack spacing={2}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography level="body-sm" fontWeight="md">Feedback loop automatico</Typography>
-              <Typography level="body-xs" color="neutral">
-                El pipeline analiza metricas de rendimiento y propone mejoras periodicamente
-              </Typography>
-            </Box>
-            <Switch
-              checked={settings.feedbackLoopEnabled}
-              onChange={e => updateField('feedbackLoopEnabled', e.target.checked)}
-              color="primary"
-            />
-          </Box>
+            <div className="flex gap-2 pt-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={handleTestCloudinary}
+                loading={testLoading === 'cloudinary'}
+                disabled={!cloudinaryConfigured || saveLoading === 'cloudinary'}
+              >
+                Probar Conexion
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={handleSaveCloudinary}
+                loading={saveLoading === 'cloudinary'}
+                disabled={!settings.cloudinaryCloudName}
+              >
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </section>
 
-          <Divider />
+        {/* ═══ SECCION 4: Optimizacion Autonoma ═══ */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <SectionHeader
+            icon={<MagicWand className="size-5" weight="fill" aria-hidden />}
+            title="Optimizacion Autonoma"
+            subtitle="El sistema analiza resultados y ajusta estrategias automaticamente"
+          />
 
-          <FormControl disabled={!settings.feedbackLoopEnabled}>
-            <FormLabel>Intervalo de optimizacion</FormLabel>
-            <Select
-              value={settings.optimizationInterval}
-              onChange={(_, v) => v && updateField('optimizationInterval', v as UGCSettingsData['optimizationInterval'])}
-              disabled={!settings.feedbackLoopEnabled}
-            >
-              <Option value="2h">Cada 2 horas</Option>
-              <Option value="4h">Cada 4 horas</Option>
-              <Option value="6h">Cada 6 horas</Option>
-              <Option value="12h">Cada 12 horas</Option>
-              <Option value="24h">Cada 24 horas</Option>
-            </Select>
-            <FormHelperText>Con que frecuencia el sistema analiza y propone cambios</FormHelperText>
-          </FormControl>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-foreground">Feedback loop automatico</p>
+                <p className="text-xs text-muted-foreground">
+                  El pipeline analiza metricas de rendimiento y propone mejoras periodicamente
+                </p>
+              </div>
+              <Toggle
+                ariaLabel="Feedback loop automatico"
+                checked={settings.feedbackLoopEnabled}
+                onCheckedChange={v => updateField('feedbackLoopEnabled', v)}
+              />
+            </div>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography level="body-sm" fontWeight="md">Auto-aplicar recomendaciones de alto impacto</Typography>
-              <Typography level="body-xs" color="neutral">
-                Aplica automaticamente cambios con impacto estimado mayor al 20% sin aprobacion manual
-              </Typography>
-            </Box>
-            <Switch
-              checked={settings.autoApplyHighImpact}
-              onChange={e => updateField('autoApplyHighImpact', e.target.checked)}
-              color="warning"
-              disabled={!settings.feedbackLoopEnabled}
-            />
-          </Box>
+            <div className="border-t border-border" />
 
-          <Button size="sm" color="primary" onClick={handleSaveAutonomia} sx={{ alignSelf: 'flex-end' }}>
-            Guardar Configuracion
-          </Button>
-        </Stack>
-      </Card>
+            <div className={cn('space-y-1.5', !settings.feedbackLoopEnabled && 'opacity-55')}>
+              <Label htmlFor="opt-interval">Intervalo de optimizacion</Label>
+              <Select
+                value={settings.optimizationInterval}
+                onValueChange={v => updateField('optimizationInterval', v as UGCSettingsData['optimizationInterval'])}
+                disabled={!settings.feedbackLoopEnabled}
+              >
+                <SelectTrigger id="opt-interval" className="max-w-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2h">Cada 2 horas</SelectItem>
+                  <SelectItem value="4h">Cada 4 horas</SelectItem>
+                  <SelectItem value="6h">Cada 6 horas</SelectItem>
+                  <SelectItem value="12h">Cada 12 horas</SelectItem>
+                  <SelectItem value="24h">Cada 24 horas</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Con que frecuencia el sistema analiza y propone cambios</p>
+            </div>
 
-      {/* ═══════════════════════════════════════════════════
-          SECCION 5: Limites Anti-Ban
-      ═══════════════════════════════════════════════════ */}
-      <Card variant="outlined">
-        <SectionHeader
-          icon={<SecurityIcon sx={{ fontSize: 22 }} />}
-          title="Limites Anti-Ban"
-          subtitle="Configura los umbrales de actividad para evitar penalizaciones en redes sociales"
-        />
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-foreground">Auto-aplicar recomendaciones de alto impacto</p>
+                <p className="text-xs text-muted-foreground">
+                  Aplica automaticamente cambios con impacto estimado mayor al 20% sin aprobacion manual
+                </p>
+              </div>
+              <Toggle
+                ariaLabel="Auto-aplicar recomendaciones de alto impacto"
+                tone="warning"
+                checked={settings.autoApplyHighImpact}
+                onCheckedChange={v => updateField('autoApplyHighImpact', v)}
+                disabled={!settings.feedbackLoopEnabled}
+              />
+            </div>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
-          <FormControl>
-            <FormLabel>Limite diario de acciones por dispositivo</FormLabel>
-            <Input
-              type="number"
-              value={settings.dailyActionsLimit}
-              onChange={e => updateField('dailyActionsLimit', e.target.value)}
-              endDecorator={<Typography level="body-xs" color="neutral">acciones/dia</Typography>}
-              slotProps={{ input: { min: 1, max: 500 } }}
-            />
-            <FormHelperText>Recomendado: 80-120 para cuentas nuevas</FormHelperText>
-          </FormControl>
+            <div className="flex justify-end">
+              <Button size="sm" onClick={handleSaveAutonomia}>Guardar Configuracion</Button>
+            </div>
+          </div>
+        </section>
 
-          <FormControl>
-            <FormLabel>Cooldown despues de X acciones</FormLabel>
-            <Input
-              type="number"
-              value={settings.cooldownAfterActions}
-              onChange={e => updateField('cooldownAfterActions', e.target.value)}
-              endDecorator={<Typography level="body-xs" color="neutral">minutos</Typography>}
-              slotProps={{ input: { min: 1, max: 120 } }}
-            />
-            <FormHelperText>Pausa automatica para simular comportamiento humano</FormHelperText>
-          </FormControl>
+        {/* ═══ SECCION 5: Limites Anti-Ban ═══ */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <SectionHeader
+            icon={<ShieldCheck className="size-5" weight="fill" aria-hidden />}
+            title="Limites Anti-Ban"
+            subtitle="Configura los umbrales de actividad para evitar penalizaciones en redes sociales"
+          />
 
-          <FormControl>
-            <FormLabel>Limite de comentarios/hora en Instagram</FormLabel>
-            <Input
-              type="number"
-              value={settings.instagramCommentsPerHour}
-              onChange={e => updateField('instagramCommentsPerHour', e.target.value)}
-              endDecorator={<Typography level="body-xs" color="neutral">comentarios/h</Typography>}
-              slotProps={{ input: { min: 1, max: 100 } }}
-            />
-            <FormHelperText>Instagram penaliza sobre los 60 comentarios/hora</FormHelperText>
-          </FormControl>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="daily-limit">Limite diario de acciones por dispositivo</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="daily-limit"
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={settings.dailyActionsLimit}
+                  onChange={e => updateField('dailyActionsLimit', e.target.value)}
+                />
+                <span className="whitespace-nowrap text-xs text-muted-foreground">acciones/dia</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Recomendado: 80-120 para cuentas nuevas</p>
+            </div>
 
-          <FormControl>
-            <FormLabel>Limite de acciones/hora en TikTok</FormLabel>
-            <Input
-              type="number"
-              value={settings.tiktokActionsPerHour}
-              onChange={e => updateField('tiktokActionsPerHour', e.target.value)}
-              endDecorator={<Typography level="body-xs" color="neutral">acciones/h</Typography>}
-              slotProps={{ input: { min: 1, max: 200 } }}
-            />
-            <FormHelperText>TikTok es mas restrictivo — se recomienda maximo 50</FormHelperText>
-          </FormControl>
-        </Box>
+            <div className="space-y-1.5">
+              <Label htmlFor="cooldown">Cooldown despues de X acciones</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="cooldown"
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={settings.cooldownAfterActions}
+                  onChange={e => updateField('cooldownAfterActions', e.target.value)}
+                />
+                <span className="whitespace-nowrap text-xs text-muted-foreground">minutos</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Pausa automatica para simular comportamiento humano</p>
+            </div>
 
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-          <Button size="sm" color="primary" onClick={handleSaveAntiBan}>
-            Guardar Limites
-          </Button>
-        </Box>
-      </Card>
-    </Box>
-  )
-}
+            <div className="space-y-1.5">
+              <Label htmlFor="ig-comments">Limite de comentarios/hora en Instagram</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="ig-comments"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={settings.instagramCommentsPerHour}
+                  onChange={e => updateField('instagramCommentsPerHour', e.target.value)}
+                />
+                <span className="whitespace-nowrap text-xs text-muted-foreground">comentarios/h</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Instagram penaliza sobre los 60 comentarios/hora</p>
+            </div>
 
-// ─── Sub-componentes auxiliares ───────────────────────────────────────────────
+            <div className="space-y-1.5">
+              <Label htmlFor="tiktok-actions">Limite de acciones/hora en TikTok</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="tiktok-actions"
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={settings.tiktokActionsPerHour}
+                  onChange={e => updateField('tiktokActionsPerHour', e.target.value)}
+                />
+                <span className="whitespace-nowrap text-xs text-muted-foreground">acciones/h</span>
+              </div>
+              <p className="text-xs text-muted-foreground">TikTok es mas restrictivo — se recomienda maximo 50</p>
+            </div>
+          </div>
 
-function VideoIcon() {
-  return (
-    <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--joy-palette-primary-500)' }}>
-        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-      </svg>
-    </Box>
-  )
-}
-
-function CloudinarySecretInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [show, setShow] = useState(false)
-  return (
-    <Input
-      type={show ? 'text' : 'password'}
-      placeholder="API Secret de Cloudinary..."
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      endDecorator={
-        <Box
-          component="button"
-          onClick={() => setShow(s => !s)}
-          sx={{
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            color: 'text.secondary',
-            p: 0.25,
-          }}
-        >
-          {show ? <VisibilityOff sx={{ fontSize: 16 }} /> : <Visibility sx={{ fontSize: 16 }} />}
-        </Box>
-      }
-    />
+          <div className="mt-4 flex justify-end">
+            <Button size="sm" onClick={handleSaveAntiBan}>Guardar Limites</Button>
+          </div>
+        </section>
+      </div>
+    </div>
   )
 }

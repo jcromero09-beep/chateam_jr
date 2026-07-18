@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box, Typography, Card, CardContent, Grid, CircularProgress, Alert, Chip, Select, Option
-} from '@mui/joy'
+  CurrencyDollar,
+  TrendUp,
+  TrendDown,
+  ChartPie,
+  ChartBar,
+  ChartLineUp,
+} from '@phosphor-icons/react'
 import {
-  DollarSign, TrendingUp, TrendingDown, PieChart, BarChart3
-} from 'lucide-react'
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -36,51 +47,67 @@ interface DashboardData {
   trends: TrendDay[]
 }
 
+type KPITone = 'primary' | 'success' | 'destructive'
+
+const toneStyles: Record<KPITone, string> = {
+  primary: 'bg-primary/10 text-primary',
+  success: 'bg-success/14 text-success-text',
+  destructive: 'bg-destructive/12 text-destructive-text',
+}
+
 const KPICard = ({
-  title, value, icon, color, subtitle, trend
+  title, value, icon, tone, subtitle, trend
 }: {
   title: string
   value: string | number
   icon: React.ReactNode
-  color: string
+  tone: KPITone
   subtitle?: string
   trend?: 'up' | 'down' | 'neutral'
 }) => (
-  <Card variant="outlined" sx={{ height: '100%' }}>
-    <CardContent>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Box>
-          <Typography level="body-sm" sx={{ color: 'neutral.500', mb: 0.5 }}>
-            {title}
-          </Typography>
-          <Typography level="h3" sx={{ fontWeight: 700 }}>
-            {value}
-          </Typography>
-          {subtitle && (
-            <Typography level="body-xs" sx={{ color: 'neutral.400', mt: 0.5 }}>
-              {subtitle}
-            </Typography>
+  <div className="h-full rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-sm text-muted-foreground">{title}</p>
+        <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+          {value}
+        </p>
+        {subtitle && (
+          <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
+      <span
+        className={cn(
+          'flex size-10 shrink-0 items-center justify-center rounded-lg',
+          toneStyles[tone],
+        )}
+        aria-hidden
+      >
+        {icon}
+      </span>
+    </div>
+    {trend && (
+      <div className="mt-2 flex items-center gap-1">
+        {trend === 'up' ? (
+          <TrendUp className="size-4 text-success-text" aria-hidden />
+        ) : trend === 'down' ? (
+          <TrendDown className="size-4 text-destructive-text" aria-hidden />
+        ) : null}
+        <span
+          className={cn(
+            'text-xs',
+            trend === 'up'
+              ? 'text-success-text'
+              : trend === 'down'
+                ? 'text-destructive-text'
+                : 'text-muted-foreground',
           )}
-        </Box>
-        <Box sx={{
-          p: 1, borderRadius: 'md',
-          bgcolor: `${color}15`,
-          color: color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}>
-          {icon}
-        </Box>
-      </Box>
-      {trend && (
-        <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 0.5 }}>
-          {trend === 'up' ? <TrendingUp size={16} color="#52b788" /> : trend === 'down' ? <TrendingDown size={16} color="#f85149" /> : null}
-          <Typography level="body-xs" sx={{ color: trend === 'up' ? '#52b788' : trend === 'down' ? '#f85149' : 'neutral.400' }}>
-            {subtitle}
-          </Typography>
-        </Box>
-      )}
-    </CardContent>
-  </Card>
+        >
+          {subtitle}
+        </span>
+      </div>
+    )}
+  </div>
 )
 
 export default function AIRentabilityDashboard() {
@@ -121,104 +148,118 @@ export default function AIRentabilityDashboard() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     )
   }
 
   if (error) {
     return (
-      <Alert color="danger" sx={{ m: 2 }}>
+      <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
         {error}
-      </Alert>
+      </div>
     )
   }
 
-  const { summary, trends } = data || { summary: {}, trends: [] }
+  const { summary, trends } = data || { summary: {} as CostSummary, trends: [] }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography level="h2">Rentabilidad IA</Typography>
-        <Select value={period} onChange={(_, v) => v && setPeriod(v)} sx={{ minWidth: 150 }}>
-          <Option value="daily">Hoy</Option>
-          <Option value="weekly">Última semana</Option>
-          <Option value="monthly">Último mes</Option>
-          <Option value="yearly">Último año</Option>
-        </Select>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ChartLineUp className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Rentabilidad IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Costos, ingresos y margen del consumo de IA
+              </p>
+            </div>
+          </div>
+          <Select value={period} onValueChange={(v) => v && setPeriod(v)}>
+            <SelectTrigger className="w-[180px]" aria-label="Periodo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="daily">Hoy</SelectItem>
+              <SelectItem value="weekly">Última semana</SelectItem>
+              <SelectItem value="monthly">Último mes</SelectItem>
+              <SelectItem value="yearly">Último año</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
+        {/* KPIs */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             title="Tokens Facturados"
             value={summary.totalTokensBilled?.toLocaleString() || 0}
-            icon={<BarChart3 size={24} />}
-            color="#3b82f6"
+            icon={<ChartBar className="size-6" aria-hidden />}
+            tone="primary"
             subtitle={`${summary.transactionCount || 0} transacciones`}
           />
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
           <KPICard
             title="Costo IA (USD)"
             value={`$${(summary.totalTokensCost || 0).toFixed(2)}`}
-            icon={<DollarSign size={24} />}
-            color="#f85149"
+            icon={<CurrencyDollar className="size-6" aria-hidden />}
+            tone="destructive"
           />
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
           <KPICard
             title="Ingresos (USD)"
             value={`$${(summary.totalRevenue || 0).toFixed(2)}`}
-            icon={<TrendingUp size={24} />}
-            color="#52b788"
+            icon={<TrendUp className="size-6" aria-hidden />}
+            tone="success"
             subtitle="1 crédito = $0.01"
           />
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
           <KPICard
             title="Margen"
             value={`$${(summary.margin || 0).toFixed(2)}`}
-            icon={<PieChart size={24} />}
-            color={(summary.margin || 0) >= 0 ? '#52b788' : '#f85149'}
+            icon={<ChartPie className="size-6" aria-hidden />}
+            tone={(summary.margin || 0) >= 0 ? 'success' : 'destructive'}
             subtitle={`${(summary.marginPercent || 0).toFixed(1)}%`}
             trend={(summary.margin || 0) >= 0 ? 'up' : 'down'}
           />
-        </Grid>
-      </Grid>
+        </div>
 
-      <Card variant="outlined">
-        <CardContent>
-          <Typography level="h4" sx={{ mb: 2 }}>Tendencias Diarias</Typography>
-          <Box sx={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {/* Tendencias Diarias */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">Tendencias Diarias</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Fecha</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Tokens</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Costo</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Ingresos</th>
-                  <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #e0e0e0' }}>Margen</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fecha</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tokens</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Costo</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ingresos</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Margen</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {(trends as TrendDay[]).slice(-10).map((day) => (
-                  <tr key={day.date}>
-                    <td style={{ padding: '8px', borderBottom: '1px solid #f0f0f0' }}>{day.date}</td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0' }}>{day.tokensBilled.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0', color: '#f85149' }}>${day.tokensCost.toFixed(2)}</td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0', color: '#52b788' }}>${day.revenue.toFixed(2)}</td>
-                    <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #f0f0f0', color: (day.margin || 0) >= 0 ? '#52b788' : '#f85149' }}>
+                  <tr key={day.date} className="transition-colors hover:bg-accent/40">
+                    <td className="whitespace-nowrap px-4 py-3 text-foreground">{day.date}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{day.tokensBilled.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-destructive-text">${day.tokensCost.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-success-text">${day.revenue.toFixed(2)}</td>
+                    <td className={cn('px-4 py-3 text-right tabular-nums', (day.margin || 0) >= 0 ? 'text-success-text' : 'text-destructive-text')}>
                       ${(day.margin || 0).toFixed(2)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </Box>
-        </CardContent>
-      </Card>
-    </Box>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

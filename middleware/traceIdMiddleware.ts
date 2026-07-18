@@ -37,8 +37,8 @@ export const traceIdMiddleware = (
   };
 
   // Intentar extraer companyId desde JWT ya resuelto si existe
-  if ((req as any).user?.companyId) {
-    ctx.companyId = (req as any).user.companyId;
+  if (req.user?.companyId) {
+    ctx.companyId = req.user.companyId;
   }
 
   // Envolver el resto de la cadena

@@ -273,6 +273,8 @@ export const oauthUrl = async (req: Request, res: Response): Promise<Response> =
 
     return res.status(200).json({
       success: true,
+      authUrl,
+      state,
       data: { authUrl, state },
     });
   } catch (error: any) {
@@ -289,10 +291,12 @@ export const oauthUrl = async (req: Request, res: Response): Promise<Response> =
 export const listPosts = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { companyId } = req.user;
+    const { tiktokId } = req.params;
     const { page, limit } = req.query;
 
     const result = await ListTikTokPostsService({
       companyId,
+      tiktokId: Number(tiktokId),
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
     });
@@ -427,6 +431,8 @@ export const businessOAuthUrl = async (req: Request, res: Response): Promise<Res
 
     return res.status(200).json({
       success: true,
+      authUrl,
+      state,
       data: { authUrl, state },
     });
   } catch (error: any) {

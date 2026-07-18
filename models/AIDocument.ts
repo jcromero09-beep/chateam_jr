@@ -14,6 +14,7 @@ import {
   Index
 } from "sequelize-typescript";
 import Company from "./Company";
+import AIChunk from "./AIChunk";
 
 @Table({
   tableName: "AIDocuments",
@@ -86,7 +87,7 @@ class AIDocument extends Model<AIDocument> {
   @BelongsTo(() => Company)
   company!: Company;
 
-  @HasMany(() => require("./AIChunk").default)
+  @HasMany(() => AIChunk)
   chunks!: any[];
 }
 

@@ -1,52 +1,53 @@
-import { useState, useEffect } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Chip,
-  Table,
-  IconButton,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Input,
+  useState,
+  useEffect,
+  useId,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
+// [Fase2·G] Conservado a propósito: no hay equivalente Radix para el spinner.
+import { CircularProgress } from '@mui/joy'
+import {
+  Package,
+  Plus,
+  PencilSimple,
+  Trash,
+  Eye,
+  MagnifyingGlass,
+  CheckCircle,
+  XCircle,
+  ArrowClockwise,
+  Warning,
+  CreditCard,
+  Users,
+  LinkSimple,
+  Queue,
+  Flask,
+  CurrencyDollar,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
   Select,
-  Option,
-  CircularProgress,
-  Divider,
-  Alert,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Switch,
-  Checkbox
-} from '@mui/joy'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  Inventory as PlansIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Visibility as ViewIcon,
-  Search as SearchIcon,
-  CheckCircle as CheckIcon,
-  Cancel as CancelIcon,
-  Refresh as RefreshIcon,
-  Warning as WarningIcon,
-  Payment as PaymentIcon,
-  People as PeopleIcon,
-  Link as ConnectionIcon,
-  Queue as QueueIcon,
-  Public as PublicIcon,
-  Science as TrialIcon
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 interface Plan {
@@ -73,6 +74,7 @@ interface Plan {
   trialDays: number
   recurrence: string
   stripePriceId: string
+  allowRecurringPayments: boolean
   createdAt: string
   updatedAt: string
 }
@@ -84,6 +86,7 @@ interface FormData {
   queues: number
   amount: string
   recurrence: string
+  allowRecurringPayments: boolean
   useWhatsapp: boolean
   useFacebook: boolean
   useInstagram: boolean
@@ -117,6 +120,7 @@ const initialFormData: FormData = {
   queues: 3,
   amount: '0',
   recurrence: 'MENSUAL',
+  allowRecurringPayments: false,
   useWhatsapp: true,
   useFacebook: false,
   useInstagram: false,
@@ -133,6 +137,382 @@ const initialFormData: FormData = {
   trial: false,
   trialDays: 7
 }
+
+const columns = ['ID', 'Nombre', 'Precio', 'Recurrencia', 'Límites', 'Estado', 'Cobro', '']
+
+/* -------------------------------------------------------------------------- */
+/* Presentational helpers (design system)                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Botón de acción de fila (mismo look que RowAction del prototipo, con onClick). */
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+type NoticeTone = 'primary' | 'warning' | 'destructive' | 'neutral'
+
+const noticeTone: Record<NoticeTone, string> = {
+  primary: 'border-primary/25 bg-primary/10 text-foreground',
+  warning: 'border-warning/30 bg-warning/12 text-foreground',
+  destructive: 'border-destructive/30 bg-destructive/10 text-destructive-text',
+  neutral: 'border-border bg-muted text-muted-foreground',
+}
+
+/** Reemplazo del <Alert> de Joy con tokens del design system. */
+function Notice({
+  tone = 'neutral',
+  className,
+  children,
+}: {
+  tone?: NoticeTone
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      role={tone === 'destructive' ? 'alert' : undefined}
+      className={cn(
+        'rounded-md border px-3.5 py-2.5 text-sm leading-relaxed',
+        noticeTone[tone],
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** Separador opcionalmente etiquetado (reemplazo del <Divider> de Joy). */
+function SectionDivider({ label }: { label?: string }) {
+  if (!label) return <div className="border-t border-border" aria-hidden />
+  return (
+    <div className="flex items-center gap-3" role="separator" aria-label={label}>
+      <span className="h-px flex-1 bg-border" aria-hidden />
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="h-px flex-1 bg-border" aria-hidden />
+    </div>
+  )
+}
+
+/** Chip de característica habilitada/deshabilitada. */
+function FeatureChip({ enabled, label }: { enabled: boolean; label: string }) {
+  return (
+    <Badge variant={enabled ? 'success' : 'neutral'}>
+      {enabled ? (
+        <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+      ) : (
+        <XCircle className="size-3.5" weight="fill" aria-hidden />
+      )}
+      {label}
+    </Badge>
+  )
+}
+
+/**
+ * Toggle de característica. El <Switch> de Joy no tiene equivalente en el
+ * design system: se usa el Checkbox accesible (role=checkbox) del wrapper.
+ */
+function FeatureToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  const id = useId()
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label htmlFor={id} className="cursor-pointer">
+        {label}
+      </Label>
+      <Checkbox id={id} checked={checked} onCheckedChange={onChange} />
+    </div>
+  )
+}
+
+/** Campo etiquetado. */
+function Field({
+  label,
+  htmlFor,
+  required,
+  children,
+}: {
+  label: string
+  htmlFor: string
+  required?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={htmlFor}>
+        {label}
+        {required && (
+          <span className="ml-0.5 text-destructive-text" aria-hidden>
+            *
+          </span>
+        )}
+      </Label>
+      {children}
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/* Formulario compartido por los modales Crear / Editar                        */
+/* -------------------------------------------------------------------------- */
+
+function PlanFormTabs({
+  idPrefix,
+  formData,
+  setFormData,
+  namePlaceholder,
+  featuresHint,
+  publicLabel,
+}: {
+  idPrefix: string
+  formData: FormData
+  setFormData: Dispatch<SetStateAction<FormData>>
+  namePlaceholder?: string
+  featuresHint?: string
+  publicLabel: string
+}) {
+  return (
+    <Tabs defaultValue="basica">
+      <TabsList>
+        <TabsTrigger value="basica">Información Básica</TabsTrigger>
+        <TabsTrigger value="features">Características</TabsTrigger>
+        <TabsTrigger value="opciones">Opciones</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="basica">
+        <div className="space-y-4 pt-2">
+          <Field label="Nombre del Plan" htmlFor={`${idPrefix}-name`} required>
+            <Input
+              id={`${idPrefix}-name`}
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder={namePlaceholder}
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Precio (USD)" htmlFor={`${idPrefix}-amount`} required>
+              <Input
+                id={`${idPrefix}-amount`}
+                type="number"
+                min={0}
+                step={0.01}
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                leftIcon={<CurrencyDollar aria-hidden />}
+              />
+            </Field>
+            <Field label="Recurrencia" htmlFor={`${idPrefix}-recurrence`}>
+              <Select
+                value={formData.recurrence}
+                onValueChange={(value) => setFormData({ ...formData, recurrence: value })}
+              >
+                <SelectTrigger id={`${idPrefix}-recurrence`} className="h-11">
+                  <SelectValue placeholder="Selecciona recurrencia" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RECURRENCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          <FeatureToggle
+            label="Activar pagos recurrentes para este plan"
+            checked={formData.allowRecurringPayments}
+            onChange={(v) => setFormData({ ...formData, allowRecurringPayments: v })}
+          />
+
+          <Notice tone={formData.allowRecurringPayments ? 'primary' : 'neutral'}>
+            {formData.allowRecurringPayments
+              ? 'Stripe y PayPal crearán suscripciones. Cada renovación pagada generará una nueva factura y extenderá el vencimiento.'
+              : 'Los pagos de este plan serán pagos únicos. No se crearán suscripciones automáticas.'}
+          </Notice>
+
+          <SectionDivider label="Límites del Plan" />
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Field label="Usuarios" htmlFor={`${idPrefix}-users`}>
+              <Input
+                id={`${idPrefix}-users`}
+                type="number"
+                min={1}
+                value={formData.users}
+                onChange={(e) =>
+                  setFormData({ ...formData, users: parseInt(e.target.value) || 0 })
+                }
+                leftIcon={<Users aria-hidden />}
+              />
+            </Field>
+            <Field label="Conexiones" htmlFor={`${idPrefix}-connections`}>
+              <Input
+                id={`${idPrefix}-connections`}
+                type="number"
+                min={1}
+                value={formData.connections}
+                onChange={(e) =>
+                  setFormData({ ...formData, connections: parseInt(e.target.value) || 0 })
+                }
+                leftIcon={<LinkSimple aria-hidden />}
+              />
+            </Field>
+            <Field label="Colas" htmlFor={`${idPrefix}-queues`}>
+              <Input
+                id={`${idPrefix}-queues`}
+                type="number"
+                min={1}
+                value={formData.queues}
+                onChange={(e) =>
+                  setFormData({ ...formData, queues: parseInt(e.target.value) || 0 })
+                }
+                leftIcon={<Queue aria-hidden />}
+              />
+            </Field>
+          </div>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="features">
+        <div className="space-y-4 pt-2">
+          {featuresHint && <p className="text-sm text-muted-foreground">{featuresHint}</p>}
+          <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+            <FeatureToggle
+              label="WhatsApp"
+              checked={formData.useWhatsapp}
+              onChange={(v) => setFormData({ ...formData, useWhatsapp: v })}
+            />
+            <FeatureToggle
+              label="API Externa"
+              checked={formData.useExternalApi}
+              onChange={(v) => setFormData({ ...formData, useExternalApi: v })}
+            />
+            <FeatureToggle
+              label="Facebook"
+              checked={formData.useFacebook}
+              onChange={(v) => setFormData({ ...formData, useFacebook: v })}
+            />
+            <FeatureToggle
+              label="Kanban"
+              checked={formData.useKanban}
+              onChange={(v) => setFormData({ ...formData, useKanban: v })}
+            />
+            <FeatureToggle
+              label="Instagram"
+              checked={formData.useInstagram}
+              onChange={(v) => setFormData({ ...formData, useInstagram: v })}
+            />
+            <FeatureToggle
+              label="OpenAI"
+              checked={formData.useOpenAi}
+              onChange={(v) => setFormData({ ...formData, useOpenAi: v })}
+            />
+            <FeatureToggle
+              label="Campañas"
+              checked={formData.useCampaigns}
+              onChange={(v) => setFormData({ ...formData, useCampaigns: v })}
+            />
+            <FeatureToggle
+              label="Integraciones"
+              checked={formData.useIntegrations}
+              onChange={(v) => setFormData({ ...formData, useIntegrations: v })}
+            />
+            <FeatureToggle
+              label="Horarios"
+              checked={formData.useSchedules}
+              onChange={(v) => setFormData({ ...formData, useSchedules: v })}
+            />
+            <FeatureToggle
+              label="Marketing"
+              checked={formData.useMarketing}
+              onChange={(v) => setFormData({ ...formData, useMarketing: v })}
+            />
+            <FeatureToggle
+              label="Chat Interno"
+              checked={formData.useInternalChat}
+              onChange={(v) => setFormData({ ...formData, useInternalChat: v })}
+            />
+            <FeatureToggle
+              label="Leads"
+              checked={formData.useLeads}
+              onChange={(v) => setFormData({ ...formData, useLeads: v })}
+            />
+          </div>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="opciones">
+        <div className="space-y-4 pt-2">
+          <FeatureToggle
+            label={publicLabel}
+            checked={formData.isPublic}
+            onChange={(v) => setFormData({ ...formData, isPublic: v })}
+          />
+
+          <SectionDivider />
+
+          <FeatureToggle
+            label="Habilitar período de prueba (Trial)"
+            checked={formData.trial}
+            onChange={(v) => setFormData({ ...formData, trial: v })}
+          />
+
+          {formData.trial && (
+            <Field label="Días de prueba" htmlFor={`${idPrefix}-trial-days`}>
+              <Input
+                id={`${idPrefix}-trial-days`}
+                type="number"
+                min={1}
+                max={90}
+                value={formData.trialDays}
+                onChange={(e) =>
+                  setFormData({ ...formData, trialDays: parseInt(e.target.value) || 7 })
+                }
+              />
+            </Field>
+          )}
+        </div>
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 
 export default function Plans() {
   const [plans, setPlans] = useState<Plan[]>([])
@@ -251,6 +631,7 @@ export default function Plans() {
       queues: plan.queues || 3,
       amount: plan.amount || '0',
       recurrence: plan.recurrence || 'MENSUAL',
+      allowRecurringPayments: plan.allowRecurringPayments ?? false,
       useWhatsapp: plan.useWhatsapp ?? true,
       useFacebook: plan.useFacebook ?? false,
       useInstagram: plan.useInstagram ?? false,
@@ -285,777 +666,510 @@ export default function Plans() {
     return isNaN(num) ? '$0.00' : `$${num.toFixed(2)}`
   }
 
-  const FeatureChip = ({ enabled, label }: { enabled: boolean; label: string }) => (
-    <Chip
-      size="sm"
-      variant="soft"
-      color={enabled ? 'success' : 'neutral'}
-      startDecorator={enabled ? <CheckIcon sx={{ fontSize: 14 }} /> : <CancelIcon sx={{ fontSize: 14 }} />}
-    >
-      {label}
-    </Chip>
-  )
-
-  const FeatureSwitch = ({
-    label,
-    checked,
-    onChange
-  }: {
-    label: string;
-    checked: boolean;
-    onChange: (checked: boolean) => void
-  }) => (
-    <FormControl>
-      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-        <FormLabel>{label}</FormLabel>
-        <Switch checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      </Stack>
-    </FormControl>
-  )
-
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <PlansIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Planes</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Gestión de planes de suscripción con integración Stripe
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" onClick={fetchPlans}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={() => setCreateModalOpen(true)}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Package className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Planes
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestión de planes de suscripción con integración Stripe y PayPal
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchPlans}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={() => setCreateModalOpen(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nuevo Plan
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
-        {/* Statistics Cards */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Total Planes</Typography>
-                <Typography level="h2">{count}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Públicos</Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {plans.filter(p => p.isPublic).length}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Con Trial</Typography>
-                <Typography level="h2" sx={{ color: 'warning.main' }}>
-                  {plans.filter(p => p.trial).length}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Con Stripe</Typography>
-                <Typography level="h2" sx={{ color: 'primary.main' }}>
-                  {plans.filter(p => p.stripePriceId).length}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Planes" value={String(count)} />
+          <StatTile
+            label="Públicos"
+            value={String(plans.filter((p) => p.isPublic).length)}
+            tone="success"
+          />
+          <StatTile
+            label="Con Trial"
+            value={String(plans.filter((p) => p.trial).length)}
+            tone="warning"
+          />
+          <StatTile
+            label="Recurrentes"
+            value={String(plans.filter((p) => p.allowRecurringPayments).length)}
+            tone="primary"
+          />
+        </div>
 
         {/* Search */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Input
-                placeholder="Buscar por nombre..."
-                startDecorator={<SearchIcon />}
-                value={searchParam}
-                onChange={(e) => setSearchParam(e.target.value)}
-                sx={{ minWidth: 300 }}
-              />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                {count} planes encontrados
-              </Typography>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative max-w-md flex-1">
+            <MagnifyingGlass
+              className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              placeholder="Buscar por nombre..."
+              aria-label="Buscar planes por nombre"
+              value={searchParam}
+              onChange={(e) => setSearchParam(e.target.value)}
+              className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">{count} planes encontrados</p>
+        </div>
 
         {/* Plans Table */}
-        <Card>
-          <CardContent>
-            {loading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress />
-              </Box>
-            ) : plans.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography level="body-lg">No hay planes registrados</Typography>
-                <Button
-                  startDecorator={<AddIcon />}
-                  sx={{ mt: 2 }}
-                  onClick={() => setCreateModalOpen(true)}
-                >
-                  Crear primer plan
-                </Button>
-              </Box>
-            ) : (
-              <Box sx={{ overflowX: 'auto' }}>
-                <Table
-                  hoverRow
-                  sx={{
-                    tableLayout: 'fixed',
-                    minWidth: 900,
-                    '& th, & td': {
-                      py: 1.5,
-                      px: 1,
-                      verticalAlign: 'middle'
-                    },
-                    '& th': {
-                      fontWeight: 600,
-                      backgroundColor: 'background.level1'
-                    }
-                  }}
-                >
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <CircularProgress />
+            </div>
+          ) : plans.length === 0 ? (
+            <div className="flex flex-col items-center gap-4 py-12">
+              <p className="text-muted-foreground">No hay planes registrados</p>
+              <Button size="sm" onClick={() => setCreateModalOpen(true)}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Crear primer plan
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-sm">
                   <thead>
-                    <tr>
-                      <th style={{ width: 50 }}>ID</th>
-                      <th style={{ width: 180 }}>Nombre</th>
-                      <th style={{ width: 100 }}>Precio</th>
-                      <th style={{ width: 110 }}>Recurrencia</th>
-                      <th style={{ width: 180 }}>Límites</th>
-                      <th style={{ width: 90 }}>Estado</th>
-                      <th style={{ width: 100 }}>Stripe</th>
-                      <th style={{ width: 100 }}>Acciones</th>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                          {c}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border">
                     {plans.map((plan) => (
-                      <tr key={plan.id}>
-                        <td>
-                          <Typography level="body-sm">{plan.id}</Typography>
+                      <tr key={plan.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                          {plan.id}
                         </td>
-                        <td>
-                          <Stack spacing={0.5}>
-                            <Typography level="body-sm" fontWeight="lg" noWrap>{plan.name}</Typography>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-medium text-foreground">{plan.name}</span>
                             {plan.trial && (
-                              <Chip size="sm" color="warning" variant="soft">
-                                Trial {plan.trialDays}d
-                              </Chip>
+                              <Badge variant="warning">Trial {plan.trialDays}d</Badge>
                             )}
-                          </Stack>
+                          </div>
                         </td>
-                        <td>
-                          <Typography level="title-sm" color="primary" fontWeight="lg">
-                            {formatCurrency(plan.amount)}
-                          </Typography>
+                        <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums text-primary">
+                          {formatCurrency(plan.amount)}
                         </td>
-                        <td>
-                          <Chip size="sm" variant="outlined">
-                            {plan.recurrence || 'MENSUAL'}
-                          </Chip>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline">{plan.recurrence || 'MENSUAL'}</Badge>
                         </td>
-                        <td>
-                          <Stack spacing={0.5}>
-                            <Typography level="body-xs">
-                              <strong>{plan.users}</strong> usuarios
-                            </Typography>
-                            <Typography level="body-xs">
-                              <strong>{plan.connections}</strong> conexiones
-                            </Typography>
-                            <Typography level="body-xs">
-                              <strong>{plan.queues}</strong> colas
-                            </Typography>
-                          </Stack>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                            <span>
+                              <strong className="text-foreground">{plan.users}</strong> usuarios
+                            </span>
+                            <span>
+                              <strong className="text-foreground">{plan.connections}</strong>{' '}
+                              conexiones
+                            </span>
+                            <span>
+                              <strong className="text-foreground">{plan.queues}</strong> colas
+                            </span>
+                          </div>
                         </td>
-                        <td>
-                          {plan.isPublic ? (
-                            <Chip size="sm" color="success">
-                              Público
-                            </Chip>
-                          ) : (
-                            <Chip size="sm" color="neutral">
-                              Privado
-                            </Chip>
-                          )}
+                        <td className="px-4 py-3">
+                          <Badge variant={plan.isPublic ? 'success' : 'neutral'} dot>
+                            {plan.isPublic ? 'Público' : 'Privado'}
+                          </Badge>
                         </td>
-                        <td>
-                          {plan.stripePriceId ? (
-                            <Chip size="sm" color="primary" variant="soft">
-                              Vinculado
-                            </Chip>
-                          ) : (
-                            <Chip size="sm" color="warning" variant="soft">
-                              Pendiente
-                            </Chip>
-                          )}
+                        <td className="px-4 py-3">
+                          <Badge variant={plan.allowRecurringPayments ? 'primary' : 'neutral'}>
+                            {plan.allowRecurringPayments ? 'Recurrente' : 'Único'}
+                          </Badge>
                         </td>
-                        <td>
-                          <Stack direction="row" spacing={0.5}>
-                            <IconButton size="sm" variant="plain" color="primary" onClick={() => openViewModal(plan)} title="Ver detalles">
-                              <ViewIcon />
-                            </IconButton>
-                            <IconButton size="sm" variant="plain" color="warning" onClick={() => openEditModal(plan)} title="Editar">
-                              <EditIcon />
-                            </IconButton>
-                            <IconButton size="sm" variant="plain" color="danger" onClick={() => openDeleteModal(plan)}>
-                              <DeleteIcon />
-                            </IconButton>
-                          </Stack>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <ActionBtn
+                              label="Ver detalles"
+                              onClick={() => openViewModal(plan)}
+                              className="hover:bg-primary/10 hover:text-primary"
+                            >
+                              <Eye className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                            <ActionBtn
+                              label="Editar"
+                              onClick={() => openEditModal(plan)}
+                              className="hover:bg-warning/10 hover:text-warning-text"
+                            >
+                              <PencilSimple className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                            <ActionBtn
+                              label="Eliminar"
+                              onClick={() => openDeleteModal(plan)}
+                              className="hover:bg-destructive/10 hover:text-destructive-text"
+                            >
+                              <Trash className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
-                </Table>
+                </table>
+              </div>
 
-                {/* Pagination */}
-                <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 2 }}>
-                  <Button
-                    variant="outlined"
-                    size="sm"
-                    disabled={pageNumber === 1}
-                    onClick={() => setPageNumber(p => Math.max(1, p - 1))}
-                  >
-                    Anterior
-                  </Button>
-                  <Typography level="body-sm" sx={{ alignSelf: 'center' }}>
-                    Página {pageNumber}
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    size="sm"
-                    disabled={!hasMore}
-                    onClick={() => setPageNumber(p => p + 1)}
-                  >
-                    Siguiente
-                  </Button>
-                </Stack>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
+              {/* Pagination */}
+              <div className="flex items-center justify-center gap-4 border-t border-border px-4 py-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pageNumber === 1}
+                  onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">Página {pageNumber}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasMore}
+                  onClick={() => setPageNumber((p) => p + 1)}
+                >
+                  Siguiente
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
-        {/* Create Modal */}
-        <Modal open={createModalOpen} onClose={() => { setCreateModalOpen(false); setError(''); }}>
-          <ModalDialog sx={{ maxWidth: 700, maxHeight: '90vh', overflow: 'auto' }}>
-            <ModalClose />
-            <Typography level="h4" startDecorator={<AddIcon />}>Nuevo Plan</Typography>
+      {/* Create Modal */}
+      <Dialog
+        open={createModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCreateModalOpen(false)
+            setError('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="size-5" weight="bold" aria-hidden />
+              Nuevo Plan
+            </DialogTitle>
+          </DialogHeader>
 
-            <Alert color="primary" sx={{ mb: 2 }}>
-              Al crear un plan se generará automáticamente un producto y precio en Stripe.
-              Asegúrate de tener configurada la clave privada de Stripe en Configuraciones.
-            </Alert>
+          <Notice tone="primary">
+            Al crear un plan se generará automáticamente un producto y precio en Stripe.
+            Asegúrate de tener configurada la clave privada de Stripe en Configuraciones.
+          </Notice>
 
-            {error && <Alert color="danger" sx={{ mb: 2 }}>{error}</Alert>}
+          {error && <Notice tone="destructive">{error}</Notice>}
 
-            <Tabs defaultValue={0}>
-              <TabList>
-                <Tab>Información Básica</Tab>
-                <Tab>Características</Tab>
-                <Tab>Opciones</Tab>
-              </TabList>
+          <PlanFormTabs
+            idPrefix="create-plan"
+            formData={formData}
+            setFormData={setFormData}
+            namePlaceholder="Ej: Plan Básico, Plan Pro, Plan Enterprise"
+            featuresHint="Selecciona las características incluidas en este plan"
+            publicLabel="Plan Público (visible para nuevos registros)"
+          />
 
-              <TabPanel value={0}>
-                <Stack spacing={2}>
-                  <FormControl required>
-                    <FormLabel>Nombre del Plan</FormLabel>
-                    <Input
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Ej: Plan Básico, Plan Pro, Plan Enterprise"
-                    />
-                  </FormControl>
+          <SectionDivider />
 
-                  <Grid container spacing={2}>
-                    <Grid xs={6}>
-                      <FormControl required>
-                        <FormLabel>Precio (USD)</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.amount}
-                          onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                          startDecorator="$"
-                          slotProps={{ input: { min: 0, step: 0.01 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={6}>
-                      <FormControl>
-                        <FormLabel>Recurrencia</FormLabel>
-                        <Select
-                          value={formData.recurrence}
-                          onChange={(_, value) => setFormData({ ...formData, recurrence: value as string })}
-                        >
-                          {RECURRENCE_OPTIONS.map((opt) => (
-                            <Option key={opt.value} value={opt.value}>{opt.label}</Option>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                  </Grid>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCreateModalOpen(false)
+                setError('')
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleCreate} loading={saving}>
+              Crear Plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-                  <Divider>Límites del Plan</Divider>
+      {/* Edit Modal */}
+      <Dialog
+        open={editModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditModalOpen(false)
+            setError('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PencilSimple className="size-5" aria-hidden />
+              Editar Plan
+            </DialogTitle>
+          </DialogHeader>
 
-                  <Grid container spacing={2}>
-                    <Grid xs={4}>
-                      <FormControl>
-                        <FormLabel>Usuarios</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.users}
-                          onChange={(e) => setFormData({ ...formData, users: parseInt(e.target.value) || 0 })}
-                          startDecorator={<PeopleIcon />}
-                          slotProps={{ input: { min: 1 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={4}>
-                      <FormControl>
-                        <FormLabel>Conexiones</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.connections}
-                          onChange={(e) => setFormData({ ...formData, connections: parseInt(e.target.value) || 0 })}
-                          startDecorator={<ConnectionIcon />}
-                          slotProps={{ input: { min: 1 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={4}>
-                      <FormControl>
-                        <FormLabel>Colas</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.queues}
-                          onChange={(e) => setFormData({ ...formData, queues: parseInt(e.target.value) || 0 })}
-                          startDecorator={<QueueIcon />}
-                          slotProps={{ input: { min: 1 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Stack>
-              </TabPanel>
+          <Notice tone="warning">
+            Los cambios de precio no se reflejarán en Stripe automáticamente.
+            El precio en Stripe quedará fijo con el valor original.
+          </Notice>
 
-              <TabPanel value={1}>
-                <Typography level="body-sm" sx={{ mb: 2, color: 'text.tertiary' }}>
-                  Selecciona las características incluidas en este plan
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid xs={6}>
-                    <Stack spacing={1.5}>
-                      <FeatureSwitch label="WhatsApp" checked={formData.useWhatsapp} onChange={(v) => setFormData({ ...formData, useWhatsapp: v })} />
-                      <FeatureSwitch label="Facebook" checked={formData.useFacebook} onChange={(v) => setFormData({ ...formData, useFacebook: v })} />
-                      <FeatureSwitch label="Instagram" checked={formData.useInstagram} onChange={(v) => setFormData({ ...formData, useInstagram: v })} />
-                      <FeatureSwitch label="Campañas" checked={formData.useCampaigns} onChange={(v) => setFormData({ ...formData, useCampaigns: v })} />
-                      <FeatureSwitch label="Horarios" checked={formData.useSchedules} onChange={(v) => setFormData({ ...formData, useSchedules: v })} />
-                      <FeatureSwitch label="Chat Interno" checked={formData.useInternalChat} onChange={(v) => setFormData({ ...formData, useInternalChat: v })} />
-                    </Stack>
-                  </Grid>
-                  <Grid xs={6}>
-                    <Stack spacing={1.5}>
-                      <FeatureSwitch label="API Externa" checked={formData.useExternalApi} onChange={(v) => setFormData({ ...formData, useExternalApi: v })} />
-                      <FeatureSwitch label="Kanban" checked={formData.useKanban} onChange={(v) => setFormData({ ...formData, useKanban: v })} />
-                      <FeatureSwitch label="OpenAI" checked={formData.useOpenAi} onChange={(v) => setFormData({ ...formData, useOpenAi: v })} />
-                      <FeatureSwitch label="Integraciones" checked={formData.useIntegrations} onChange={(v) => setFormData({ ...formData, useIntegrations: v })} />
-                      <FeatureSwitch label="Marketing" checked={formData.useMarketing} onChange={(v) => setFormData({ ...formData, useMarketing: v })} />
-                      <FeatureSwitch label="Leads" checked={formData.useLeads} onChange={(v) => setFormData({ ...formData, useLeads: v })} />
-                    </Stack>
-                  </Grid>
-                </Grid>
-              </TabPanel>
+          {error && <Notice tone="destructive">{error}</Notice>}
 
-              <TabPanel value={2}>
-                <Stack spacing={2}>
-                  <FeatureSwitch
-                    label="Plan Público (visible para nuevos registros)"
-                    checked={formData.isPublic}
-                    onChange={(v) => setFormData({ ...formData, isPublic: v })}
-                  />
+          <PlanFormTabs
+            idPrefix="edit-plan"
+            formData={formData}
+            setFormData={setFormData}
+            publicLabel="Plan Público"
+          />
 
-                  <Divider />
+          <SectionDivider />
 
-                  <FeatureSwitch
-                    label="Habilitar período de prueba (Trial)"
-                    checked={formData.trial}
-                    onChange={(v) => setFormData({ ...formData, trial: v })}
-                  />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditModalOpen(false)
+                setError('')
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleUpdate} loading={saving}>
+              Guardar Cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-                  {formData.trial && (
-                    <FormControl>
-                      <FormLabel>Días de prueba</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.trialDays}
-                        onChange={(e) => setFormData({ ...formData, trialDays: parseInt(e.target.value) || 7 })}
-                        slotProps={{ input: { min: 1, max: 90 } }}
-                      />
-                    </FormControl>
-                  )}
-                </Stack>
-              </TabPanel>
-            </Tabs>
-
-            <Divider sx={{ my: 2 }} />
-
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button variant="outlined" color="neutral" onClick={() => { setCreateModalOpen(false); setError(''); }}>
-                Cancelar
-              </Button>
-              <Button color="primary" onClick={handleCreate} loading={saving}>
-                Crear Plan
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-
-        {/* Edit Modal */}
-        <Modal open={editModalOpen} onClose={() => { setEditModalOpen(false); setError(''); }}>
-          <ModalDialog sx={{ maxWidth: 700, maxHeight: '90vh', overflow: 'auto' }}>
-            <ModalClose />
-            <Typography level="h4" startDecorator={<EditIcon />}>Editar Plan</Typography>
-
-            <Alert color="warning" sx={{ mb: 2 }}>
-              Los cambios de precio no se reflejarán en Stripe automáticamente.
-              El precio en Stripe quedará fijo con el valor original.
-            </Alert>
-
-            {error && <Alert color="danger" sx={{ mb: 2 }}>{error}</Alert>}
-
-            <Tabs defaultValue={0}>
-              <TabList>
-                <Tab>Información Básica</Tab>
-                <Tab>Características</Tab>
-                <Tab>Opciones</Tab>
-              </TabList>
-
-              <TabPanel value={0}>
-                <Stack spacing={2}>
-                  <FormControl required>
-                    <FormLabel>Nombre del Plan</FormLabel>
-                    <Input
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    />
-                  </FormControl>
-
-                  <Grid container spacing={2}>
-                    <Grid xs={6}>
-                      <FormControl required>
-                        <FormLabel>Precio (USD)</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.amount}
-                          onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                          startDecorator="$"
-                          slotProps={{ input: { min: 0, step: 0.01 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={6}>
-                      <FormControl>
-                        <FormLabel>Recurrencia</FormLabel>
-                        <Select
-                          value={formData.recurrence}
-                          onChange={(_, value) => setFormData({ ...formData, recurrence: value as string })}
-                        >
-                          {RECURRENCE_OPTIONS.map((opt) => (
-                            <Option key={opt.value} value={opt.value}>{opt.label}</Option>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-
-                  <Divider>Límites del Plan</Divider>
-
-                  <Grid container spacing={2}>
-                    <Grid xs={4}>
-                      <FormControl>
-                        <FormLabel>Usuarios</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.users}
-                          onChange={(e) => setFormData({ ...formData, users: parseInt(e.target.value) || 0 })}
-                          startDecorator={<PeopleIcon />}
-                          slotProps={{ input: { min: 1 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={4}>
-                      <FormControl>
-                        <FormLabel>Conexiones</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.connections}
-                          onChange={(e) => setFormData({ ...formData, connections: parseInt(e.target.value) || 0 })}
-                          startDecorator={<ConnectionIcon />}
-                          slotProps={{ input: { min: 1 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={4}>
-                      <FormControl>
-                        <FormLabel>Colas</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.queues}
-                          onChange={(e) => setFormData({ ...formData, queues: parseInt(e.target.value) || 0 })}
-                          startDecorator={<QueueIcon />}
-                          slotProps={{ input: { min: 1 } }}
-                        />
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Stack>
-              </TabPanel>
-
-              <TabPanel value={1}>
-                <Grid container spacing={2}>
-                  <Grid xs={6}>
-                    <Stack spacing={1.5}>
-                      <FeatureSwitch label="WhatsApp" checked={formData.useWhatsapp} onChange={(v) => setFormData({ ...formData, useWhatsapp: v })} />
-                      <FeatureSwitch label="Facebook" checked={formData.useFacebook} onChange={(v) => setFormData({ ...formData, useFacebook: v })} />
-                      <FeatureSwitch label="Instagram" checked={formData.useInstagram} onChange={(v) => setFormData({ ...formData, useInstagram: v })} />
-                      <FeatureSwitch label="Campañas" checked={formData.useCampaigns} onChange={(v) => setFormData({ ...formData, useCampaigns: v })} />
-                      <FeatureSwitch label="Horarios" checked={formData.useSchedules} onChange={(v) => setFormData({ ...formData, useSchedules: v })} />
-                      <FeatureSwitch label="Chat Interno" checked={formData.useInternalChat} onChange={(v) => setFormData({ ...formData, useInternalChat: v })} />
-                    </Stack>
-                  </Grid>
-                  <Grid xs={6}>
-                    <Stack spacing={1.5}>
-                      <FeatureSwitch label="API Externa" checked={formData.useExternalApi} onChange={(v) => setFormData({ ...formData, useExternalApi: v })} />
-                      <FeatureSwitch label="Kanban" checked={formData.useKanban} onChange={(v) => setFormData({ ...formData, useKanban: v })} />
-                      <FeatureSwitch label="OpenAI" checked={formData.useOpenAi} onChange={(v) => setFormData({ ...formData, useOpenAi: v })} />
-                      <FeatureSwitch label="Integraciones" checked={formData.useIntegrations} onChange={(v) => setFormData({ ...formData, useIntegrations: v })} />
-                      <FeatureSwitch label="Marketing" checked={formData.useMarketing} onChange={(v) => setFormData({ ...formData, useMarketing: v })} />
-                      <FeatureSwitch label="Leads" checked={formData.useLeads} onChange={(v) => setFormData({ ...formData, useLeads: v })} />
-                    </Stack>
-                  </Grid>
-                </Grid>
-              </TabPanel>
-
-              <TabPanel value={2}>
-                <Stack spacing={2}>
-                  <FeatureSwitch
-                    label="Plan Público"
-                    checked={formData.isPublic}
-                    onChange={(v) => setFormData({ ...formData, isPublic: v })}
-                  />
-
-                  <Divider />
-
-                  <FeatureSwitch
-                    label="Habilitar período de prueba (Trial)"
-                    checked={formData.trial}
-                    onChange={(v) => setFormData({ ...formData, trial: v })}
-                  />
-
-                  {formData.trial && (
-                    <FormControl>
-                      <FormLabel>Días de prueba</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.trialDays}
-                        onChange={(e) => setFormData({ ...formData, trialDays: parseInt(e.target.value) || 7 })}
-                        slotProps={{ input: { min: 1, max: 90 } }}
-                      />
-                    </FormControl>
-                  )}
-                </Stack>
-              </TabPanel>
-            </Tabs>
-
-            <Divider sx={{ my: 2 }} />
-
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button variant="outlined" color="neutral" onClick={() => { setEditModalOpen(false); setError(''); }}>
-                Cancelar
-              </Button>
-              <Button color="primary" onClick={handleUpdate} loading={saving}>
-                Guardar Cambios
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-
-        {/* View Modal */}
-        <Modal open={viewModalOpen} onClose={() => setViewModalOpen(false)}>
-          <ModalDialog sx={{ maxWidth: 600, maxHeight: '90vh', overflow: 'auto' }}>
-            <ModalClose />
-            <Typography level="h4" startDecorator={<PlansIcon />}>
+      {/* View Modal */}
+      <Dialog open={viewModalOpen} onOpenChange={(open) => !open && setViewModalOpen(false)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="size-5" weight="fill" aria-hidden />
               Detalles del Plan
-            </Typography>
+            </DialogTitle>
+          </DialogHeader>
 
-            {selectedPlan && (
-              <Stack spacing={3}>
-                <Card variant="soft">
-                  <CardContent>
-                    <Grid container spacing={2}>
-                      <Grid xs={6}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>ID</Typography>
-                        <Typography level="body-md">{selectedPlan.id}</Typography>
-                      </Grid>
-                      <Grid xs={6}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Estado</Typography>
-                        {selectedPlan.isPublic ? (
-                          <Chip size="sm" color="success">Público</Chip>
-                        ) : (
-                          <Chip size="sm" color="neutral">Privado</Chip>
-                        )}
-                      </Grid>
-                      <Grid xs={12}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Nombre</Typography>
-                        <Typography level="h3">{selectedPlan.name}</Typography>
-                      </Grid>
-                      <Grid xs={6}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Precio</Typography>
-                        <Typography level="h4" color="primary">{formatCurrency(selectedPlan.amount)}</Typography>
-                      </Grid>
-                      <Grid xs={6}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Recurrencia</Typography>
-                        <Typography level="body-md">{selectedPlan.recurrence || 'MENSUAL'}</Typography>
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
+          {selectedPlan && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted/50 p-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">ID</p>
+                    <p className="tabular-nums text-foreground">{selectedPlan.id}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Estado</p>
+                    <div className="mt-0.5">
+                      <Badge variant={selectedPlan.isPublic ? 'success' : 'neutral'} dot>
+                        {selectedPlan.isPublic ? 'Público' : 'Privado'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground">Nombre</p>
+                    <p className="text-xl font-semibold tracking-tight text-foreground">
+                      {selectedPlan.name}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Precio</p>
+                    <p className="text-lg font-semibold tabular-nums text-primary">
+                      {formatCurrency(selectedPlan.amount)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Recurrencia</p>
+                    <p className="text-foreground">{selectedPlan.recurrence || 'MENSUAL'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Cobro</p>
+                    <div className="mt-0.5">
+                      <Badge variant={selectedPlan.allowRecurringPayments ? 'primary' : 'neutral'}>
+                        {selectedPlan.allowRecurringPayments ? 'Recurrente' : 'Pago único'}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                <Card variant="outlined">
-                  <CardContent>
-                    <Typography level="title-md" sx={{ mb: 2 }}>Límites</Typography>
-                    <Grid container spacing={2}>
-                      <Grid xs={4}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Usuarios</Typography>
-                        <Typography level="h4">{selectedPlan.users}</Typography>
-                      </Grid>
-                      <Grid xs={4}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Conexiones</Typography>
-                        <Typography level="h4">{selectedPlan.connections}</Typography>
-                      </Grid>
-                      <Grid xs={4}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Colas</Typography>
-                        <Typography level="h4">{selectedPlan.queues}</Typography>
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-3 font-medium text-foreground">Límites</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Usuarios</p>
+                    <p className="text-lg font-semibold tabular-nums text-foreground">
+                      {selectedPlan.users}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Conexiones</p>
+                    <p className="text-lg font-semibold tabular-nums text-foreground">
+                      {selectedPlan.connections}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Colas</p>
+                    <p className="text-lg font-semibold tabular-nums text-foreground">
+                      {selectedPlan.queues}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-                <Card variant="outlined">
-                  <CardContent>
-                    <Typography level="title-md" sx={{ mb: 2 }}>Características</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      <FeatureChip enabled={selectedPlan.useWhatsapp} label="WhatsApp" />
-                      <FeatureChip enabled={selectedPlan.useFacebook} label="Facebook" />
-                      <FeatureChip enabled={selectedPlan.useInstagram} label="Instagram" />
-                      <FeatureChip enabled={selectedPlan.useCampaigns} label="Campañas" />
-                      <FeatureChip enabled={selectedPlan.useSchedules} label="Horarios" />
-                      <FeatureChip enabled={selectedPlan.useInternalChat} label="Chat Interno" />
-                      <FeatureChip enabled={selectedPlan.useExternalApi} label="API Externa" />
-                      <FeatureChip enabled={selectedPlan.useKanban} label="Kanban" />
-                      <FeatureChip enabled={selectedPlan.useOpenAi} label="OpenAI" />
-                      <FeatureChip enabled={selectedPlan.useIntegrations} label="Integraciones" />
-                      <FeatureChip enabled={selectedPlan.useMarketing} label="Marketing" />
-                      <FeatureChip enabled={selectedPlan.useLeads} label="Leads" />
-                    </Box>
-                  </CardContent>
-                </Card>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-3 font-medium text-foreground">Características</h3>
+                <div className="flex flex-wrap gap-2">
+                  <FeatureChip enabled={selectedPlan.useWhatsapp} label="WhatsApp" />
+                  <FeatureChip enabled={selectedPlan.useFacebook} label="Facebook" />
+                  <FeatureChip enabled={selectedPlan.useInstagram} label="Instagram" />
+                  <FeatureChip enabled={selectedPlan.useCampaigns} label="Campañas" />
+                  <FeatureChip enabled={selectedPlan.useSchedules} label="Horarios" />
+                  <FeatureChip enabled={selectedPlan.useInternalChat} label="Chat Interno" />
+                  <FeatureChip enabled={selectedPlan.useExternalApi} label="API Externa" />
+                  <FeatureChip enabled={selectedPlan.useKanban} label="Kanban" />
+                  <FeatureChip enabled={selectedPlan.useOpenAi} label="OpenAI" />
+                  <FeatureChip enabled={selectedPlan.useIntegrations} label="Integraciones" />
+                  <FeatureChip enabled={selectedPlan.useMarketing} label="Marketing" />
+                  <FeatureChip enabled={selectedPlan.useLeads} label="Leads" />
+                </div>
+              </div>
 
-                {selectedPlan.trial && (
-                  <Card variant="outlined" color="warning">
-                    <CardContent>
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <TrialIcon color="warning" />
-                        <Box>
-                          <Typography level="title-md">Período de Prueba Habilitado</Typography>
-                          <Typography level="body-sm">{selectedPlan.trialDays} días de prueba gratis</Typography>
-                        </Box>
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                )}
+              {selectedPlan.trial && (
+                <div className="flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
+                  <Flask className="size-6 shrink-0 text-warning-text" weight="fill" aria-hidden />
+                  <div>
+                    <p className="font-medium text-foreground">Período de Prueba Habilitado</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedPlan.trialDays} días de prueba gratis
+                    </p>
+                  </div>
+                </div>
+              )}
 
-                {selectedPlan.stripePriceId && (
-                  <Card variant="outlined" color="primary">
-                    <CardContent>
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <PaymentIcon color="primary" />
-                        <Box>
-                          <Typography level="title-md">Stripe ID</Typography>
-                          <Typography level="body-xs" sx={{ fontFamily: 'monospace' }}>
-                            {selectedPlan.stripePriceId}
-                          </Typography>
-                        </Box>
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                )}
+              {selectedPlan.stripePriceId && (
+                <div className="flex items-center gap-3 rounded-lg border border-primary/25 bg-primary/10 p-4">
+                  <CreditCard className="size-6 shrink-0 text-primary" weight="fill" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">Stripe ID</p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {selectedPlan.stripePriceId}
+                    </p>
+                  </div>
+                </div>
+              )}
 
-                <Stack direction="row" spacing={2} justifyContent="flex-end">
-                  <Button variant="outlined" onClick={() => setViewModalOpen(false)}>Cerrar</Button>
-                  <Button
-                    color="warning"
-                    startDecorator={<EditIcon />}
-                    onClick={() => {
-                      setViewModalOpen(false)
-                      openEditModal(selectedPlan)
-                    }}
-                  >
-                    Editar
-                  </Button>
-                </Stack>
-              </Stack>
-            )}
-          </ModalDialog>
-        </Modal>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setViewModalOpen(false)}>
+                  Cerrar
+                </Button>
+                <Button
+                  onClick={() => {
+                    setViewModalOpen(false)
+                    openEditModal(selectedPlan)
+                  }}
+                >
+                  <PencilSimple className="size-4" aria-hidden />
+                  Editar
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
-        {/* Delete Confirmation Modal */}
-        <Modal open={deleteModalOpen} onClose={() => setDeleteModalOpen(false)}>
-          <ModalDialog variant="outlined" role="alertdialog">
-            <Typography level="h4" startDecorator={<WarningIcon color="warning" />}>
+      {/* Delete Confirmation Modal */}
+      <Dialog
+        open={deleteModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteModalOpen(false)
+            setError('')
+          }
+        }}
+      >
+        <DialogContent role="alertdialog" hideClose className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Warning className="size-5 text-warning-text" weight="fill" aria-hidden />
               Confirmar Eliminación
-            </Typography>
-            <Divider />
-            <Typography sx={{ my: 2 }}>
-              ¿Estás seguro de que deseas eliminar el plan <strong>{selectedPlan?.name}</strong>?
-            </Typography>
-            {selectedPlan?.stripePriceId && (
-              <Alert color="warning" sx={{ mb: 2 }}>
-                Este plan tiene un precio vinculado en Stripe ({selectedPlan.stripePriceId}).
-                El precio será desactivado en Stripe automáticamente.
-              </Alert>
-            )}
-            <Alert color="danger" sx={{ mb: 2 }}>
-              Esta acción no se puede deshacer. Las empresas con este plan asignado
-              podrían quedar sin plan válido.
-            </Alert>
-            {error && <Alert color="danger" sx={{ mb: 2 }}>{error}</Alert>}
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button variant="outlined" color="neutral" onClick={() => { setDeleteModalOpen(false); setError(''); }}>
-                Cancelar
-              </Button>
-              <Button color="danger" onClick={handleDelete} loading={saving}>
-                Eliminar
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+            </DialogTitle>
+          </DialogHeader>
+
+          <SectionDivider />
+
+          <p className="text-sm text-foreground">
+            ¿Estás seguro de que deseas eliminar el plan{' '}
+            <strong className="font-semibold">{selectedPlan?.name}</strong>?
+          </p>
+
+          {selectedPlan?.stripePriceId && (
+            <Notice tone="warning">
+              Este plan tiene un precio vinculado en Stripe ({selectedPlan.stripePriceId}).
+              El precio será desactivado en Stripe automáticamente.
+            </Notice>
+          )}
+
+          <Notice tone="destructive">
+            Esta acción no se puede deshacer. Las empresas con este plan asignado
+            podrían quedar sin plan válido.
+          </Notice>
+
+          {error && <Notice tone="destructive">{error}</Notice>}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteModalOpen(false)
+                setError('')
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleDelete}
+              loading={saving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

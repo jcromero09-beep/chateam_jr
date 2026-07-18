@@ -26,6 +26,10 @@ interface WhatsappData {
   timeInactiveMessage?: string;
   inactiveMessage?: string;
   ratingMessage?: string;
+  npsEnabled?: boolean | null;
+  acceptAudio?: boolean | null;
+  callRejectMessage?: string;
+  rejectAudioMessage?: string;
   maxUseBotQueuesNPS?: number;
   expiresTicketNPS?: number;
   whenExpiresTicket?: string;
@@ -83,6 +87,10 @@ const UpdateWhatsAppServiceAdmin = async ({
     timeInactiveMessage = 0,
     inactiveMessage,
     ratingMessage,
+    npsEnabled,
+    acceptAudio,
+    callRejectMessage,
+    rejectAudioMessage,
     maxUseBotQueuesNPS,
     expiresTicketNPS = 0,
     whenExpiresTicket,
@@ -144,6 +152,10 @@ const UpdateWhatsAppServiceAdmin = async ({
     timeInactiveMessage: String(timeInactiveMessage || ""),
     inactiveMessage,
     ratingMessage,
+    ...(npsEnabled !== undefined && { npsEnabled }),
+    ...(acceptAudio !== undefined && { acceptAudio }),
+    ...(callRejectMessage !== undefined && { callRejectMessage }),
+    ...(rejectAudioMessage !== undefined && { rejectAudioMessage }),
     maxUseBotQueuesNPS,
     expiresTicketNPS,
     whenExpiresTicket,

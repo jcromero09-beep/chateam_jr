@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Job: VideoGeneration
  * Procesa la generación de videos con OpenAI Sora en background

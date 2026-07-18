@@ -1,7 +1,25 @@
 import EmailProviderConfig from "../../models/EmailMarketing/EmailProviderConfig";
 import { ProviderFactory } from "./providers/ProviderFactory";
+import { EmailMarketingFactory } from "./providers/EmailMarketingFactory";
 import AppError from "../../errors/AppError";
 import logger from "../../utils/logger";
+
+// ============================================================================
+// Whitelist de providers permitidos en Email Marketing
+// ============================================================================
+
+const ALLOWED_PROVIDERS = ["acelle", "listmonk"] as const;
+type AllowedProvider = typeof ALLOWED_PROVIDERS[number];
+
+function assertAllowedProvider(provider: string): void {
+  if (!EmailMarketingFactory.isAllowed(provider)) {
+    throw new AppError(
+      `Provider no permitido para Email Marketing: '${provider}'. ` +
+      `Use: ${ALLOWED_PROVIDERS.join(" | ")}.`,
+      400
+    );
+  }
+}
 
 // ============================================================================
 // Interfaces
@@ -82,6 +100,9 @@ const EmailProviderConfigService = {
       );
     }
 
+    // Solo acelle y listmonk permitidos
+    assertAllowedProvider(data.provider);
+
     // Si se marca como activo, desactivar los demas
     if (data.isActive !== false) {
       await EmailProviderConfig.update(
@@ -127,6 +148,11 @@ const EmailProviderConfigService = {
 
     if (!config) {
       throw new AppError("ERR_EMAIL_PROVIDER_CONFIG_NOT_FOUND", 404);
+    }
+
+    // Si cambian el provider, validar
+    if (data.provider !== undefined) {
+      assertAllowedProvider(data.provider);
     }
 
     // Si se activa este proveedor, desactivar los demas
@@ -203,12 +229,27 @@ const EmailProviderConfigService = {
       throw new AppError("ERR_EMAIL_PROVIDER_CONFIG_NOT_FOUND", 404);
     }
 
-    const isValid = await ProviderFactory.testProvider(config.provider, {
-      apiKey: config.apiKey,
-      apiSecret: config.apiSecret || undefined,
-      domain: config.domain || undefined,
-      region: config.region || undefined
-    });
+    // Si es provider permitido en Email Marketing, usamos EmailMarketingFactory
+    // (mas estricto y testea operaciones reales del provider)
+    let isValid = false;
+    if (EmailMarketingFactory.isAllowed(config.provider)) {
+      const result = await EmailMarketingFactory.testProvider(config.provider, {
+        apiKey: config.apiKey,
+        apiSecret: config.apiSecret || undefined,
+        ...(typeof config.settings === "object" && config.settings !== null
+          ? (config.settings as Record<string, unknown>)
+          : {})
+      });
+      isValid = result.success;
+    } else {
+      // Fallback al factory clasico (legacy SendGrid/Mailgun/SES/Carbonio)
+      isValid = await ProviderFactory.testProvider(config.provider, {
+        apiKey: config.apiKey,
+        apiSecret: config.apiSecret || undefined,
+        domain: config.domain || undefined,
+        region: config.region || undefined
+      });
+    }
 
     logger.info(
       `[EmailProviderConfigService] Test conexion: id=${id}, ` +
@@ -221,6 +262,62 @@ const EmailProviderConfigService = {
       message: isValid
         ? `Conexion con ${config.provider} verificada exitosamente`
         : `No se pudo verificar la conexion con ${config.provider}. ` +
+          `Revise las credenciales y configuracion.`
+    };
+  },
+
+  /**
+   * Prueba una conexion con datos AD-HOC (aun no guardados en BD).
+   * Permite al usuario "Probar conexion" antes de crear la configuracion.
+   */
+  async testConnectionAdHoc(
+    companyId: number,
+    data: {
+      provider: string;
+      apiKey?: string;
+      apiSecret?: string;
+      domain?: string;
+      region?: string;
+      settings?: Record<string, unknown>;
+    }
+  ): Promise<TestConnectionResponse> {
+    const { provider, apiKey, apiSecret, domain, region, settings } = data;
+
+    if (!provider || !apiKey) {
+      throw new AppError(
+        "Debe indicar proveedor y apiKey para probar la conexion",
+        400
+      );
+    }
+
+    let isValid = false;
+    if (EmailMarketingFactory.isAllowed(provider)) {
+      const result = await EmailMarketingFactory.testProvider(provider, {
+        apiKey,
+        apiSecret: apiSecret || undefined,
+        ...(typeof settings === "object" && settings !== null ? settings : {})
+      });
+      isValid = result.success;
+    } else {
+      isValid = await ProviderFactory.testProvider(provider, {
+        apiKey,
+        apiSecret: apiSecret || undefined,
+        domain: domain || undefined,
+        region: region || undefined
+      });
+    }
+
+    logger.info(
+      `[EmailProviderConfigService] Test ad-hoc: companyId=${companyId}, ` +
+      `provider=${provider}, resultado=${isValid}`
+    );
+
+    return {
+      success: isValid,
+      provider,
+      message: isValid
+        ? `Conexion con ${provider} verificada exitosamente`
+        : `No se pudo verificar la conexion con ${provider}. ` +
           `Revise las credenciales y configuracion.`
     };
   }

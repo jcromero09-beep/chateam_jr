@@ -31,6 +31,13 @@ export const handleSmbAppStateSync = async (entry: any, value: any): Promise<voi
       return;
     }
 
+    if (whatsapp.coexistenceEnabled && whatsapp.receiveChannel === "baileys") {
+      console.warn(
+        `[SmbAppStateSync] ⛔ Ignorado: receiveChannel=baileys para whatsappId=${whatsapp.id}`
+      );
+      return;
+    }
+
     const companyId = whatsapp.companyId;
 
     // Procesar actualizaciones de contactos

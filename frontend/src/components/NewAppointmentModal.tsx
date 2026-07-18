@@ -14,7 +14,6 @@ import {
   Textarea,
   Button,
   Alert,
-  CircularProgress,
 } from '@mui/joy'
 import { toast } from 'react-toastify'
 import appointmentService, { CreateAppointmentData } from '../services/appointmentService'
@@ -435,7 +434,7 @@ export default function NewAppointmentModal({
                 loading={loading}
                 disabled={loading}
               >
-                {loading ? <CircularProgress size="sm" /> : 'Crear Cita'}
+                Crear Cita
               </Button>
             </Box>
           </Box>

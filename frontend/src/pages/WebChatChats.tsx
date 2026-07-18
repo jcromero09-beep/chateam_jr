@@ -1,587 +1,426 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  Select,
-  Option,
-  Chip,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemContent,
-  Avatar,
-  IconButton,
-  Badge,
-} from '@mui/joy'
-import {
-  Chat as ChatIcon,
-  Send as SendIcon,
-  AttachFile as AttachIcon,
-  MoreVert as MoreIcon,
-  Close as CloseIcon,
-  CheckCircle as ResolvedIcon,
-  Schedule as PendingIcon,
-  Person as PersonIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  ChatCircleDots,
+  ArrowClockwise,
+  MagnifyingGlass,
+  PaperPlaneTilt,
+  CheckCircle,
+} from '@phosphor-icons/react'
+import DateRangePicker from '../components/DateRangePicker'
+import { Avatar } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
+import api from '../services/api'
 
-interface Message {
+interface WebChatWidget {
   id: number
-  text: string
-  sender: 'user' | 'agent'
-  timestamp: string
-  read: boolean
+  name: string
 }
 
-interface Conversation {
+interface WebChatConversation {
   id: number
-  contactName: string
-  contactEmail: string
-  contactAvatar?: string
-  lastMessage: string
-  lastMessageTime: string
-  unreadCount: number
-  status: 'active' | 'pending' | 'resolved'
-  agent?: string
-  tags: string[]
-  messages: Message[]
+  uuid: string
+  widgetId: number
+  sessionId: string
+  visitorName: string
+  status: 'open' | 'resolved' | 'closed'
+  unreadMessages: number
+  lastMessage?: string
+  lastMessageAt?: string
+  createdAt: string
+  updatedAt: string
+  widget?: WebChatWidget
+  metadata?: Record<string, any>
+}
+
+interface WebChatMessage {
+  id: number
+  conversationId: number
+  direction: 'inbound' | 'outbound'
+  body: string
+  senderId?: number
+  sender?: { id: number; name: string }
+  createdAt: string
 }
 
 export default function WebChatChats() {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: 1,
-      contactName: 'María González',
-      contactEmail: 'maria@example.com',
-      lastMessage: '¿Cuándo llegará mi pedido?',
-      lastMessageTime: '2025-01-13T14:30:00Z',
-      unreadCount: 2,
-      status: 'active',
-      agent: 'Juan Pérez',
-      tags: ['urgente', 'pedido'],
-      messages: [
-        {
-          id: 1,
-          text: 'Hola, necesito ayuda con mi pedido',
-          sender: 'user',
-          timestamp: '2025-01-13T14:25:00Z',
-          read: true,
-        },
-        {
-          id: 2,
-          text: 'Por supuesto, ¿cuál es tu número de pedido?',
-          sender: 'agent',
-          timestamp: '2025-01-13T14:26:00Z',
-          read: true,
-        },
-        {
-          id: 3,
-          text: 'Es el #12345',
-          sender: 'user',
-          timestamp: '2025-01-13T14:27:00Z',
-          read: true,
-        },
-        {
-          id: 4,
-          text: '¿Cuándo llegará mi pedido?',
-          sender: 'user',
-          timestamp: '2025-01-13T14:30:00Z',
-          read: false,
-        },
-      ],
-    },
-    {
-      id: 2,
-      contactName: 'Carlos Rodríguez',
-      contactEmail: 'carlos@example.com',
-      lastMessage: 'Gracias por la ayuda',
-      lastMessageTime: '2025-01-13T13:15:00Z',
-      unreadCount: 0,
-      status: 'resolved',
-      agent: 'Ana López',
-      tags: ['consulta'],
-      messages: [
-        {
-          id: 1,
-          text: 'Tengo una consulta sobre los precios',
-          sender: 'user',
-          timestamp: '2025-01-13T13:00:00Z',
-          read: true,
-        },
-        {
-          id: 2,
-          text: 'Claro, déjame ayudarte con eso',
-          sender: 'agent',
-          timestamp: '2025-01-13T13:05:00Z',
-          read: true,
-        },
-        {
-          id: 3,
-          text: 'Gracias por la ayuda',
-          sender: 'user',
-          timestamp: '2025-01-13T13:15:00Z',
-          read: true,
-        },
-      ],
-    },
-    {
-      id: 3,
-      contactName: 'Ana Martínez',
-      contactEmail: 'ana@example.com',
-      lastMessage: 'Esperando respuesta...',
-      lastMessageTime: '2025-01-13T12:00:00Z',
-      unreadCount: 1,
-      status: 'pending',
-      tags: ['nuevo'],
-      messages: [
-        {
-          id: 1,
-          text: '¿Tienen disponibilidad para mañana?',
-          sender: 'user',
-          timestamp: '2025-01-13T12:00:00Z',
-          read: false,
-        },
-      ],
-    },
-  ])
+  const [conversations, setConversations] = useState<WebChatConversation[]>([])
+  const [selected, setSelected] = useState<WebChatConversation | null>(null)
+  const [messages, setMessages] = useState<WebChatMessage[]>([])
+  const [message, setMessage] = useState('')
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('all')
+  // Filtro por rango de fechas (default: últimos 30 días), igual que en Tickets.
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return d.toISOString().slice(0, 10)
+  })
+  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [loading, setLoading] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(
-    conversations[0]
-  )
-  const [messageText, setMessageText] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [searchTerm, setSearchTerm] = useState('')
+  const selectedId = selected?.id
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'success'
-      case 'pending':
-        return 'warning'
-      case 'resolved':
-        return 'neutral'
-      default:
-        return 'neutral'
+  useEffect(() => {
+    void fetchConversations()
+  }, [status, startDate, endDate])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  useEffect(() => {
+    if (!selectedId) return
+
+    const timer = window.setInterval(() => {
+      void fetchMessages(selectedId, false)
+      void fetchConversations(false)
+    }, 5000)
+
+    return () => window.clearInterval(timer)
+  }, [selectedId, status])
+
+  const fetchConversations = async (showLoading = true) => {
+    try {
+      if (showLoading) setLoading(true)
+      const { data } = await api.get('/webchat/conversations', {
+        params: {
+          status,
+          search: search.trim() || undefined,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+        },
+      })
+
+      const records = data.records || []
+      setConversations(records)
+
+      if (selected) {
+        const freshSelected = records.find((item: WebChatConversation) => item.id === selected.id)
+        if (freshSelected) setSelected(freshSelected)
+      }
+    } catch (error) {
+      console.error('Error loading webchat conversations:', error)
+      setConversations([])
+    } finally {
+      if (showLoading) setLoading(false)
     }
   }
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'Activa'
-      case 'pending':
-        return 'Pendiente'
-      case 'resolved':
-        return 'Resuelta'
-      default:
-        return status
+  const fetchMessages = async (conversationId: number, markRead = true) => {
+    try {
+      const { data } = await api.get(`/webchat/conversations/${conversationId}/messages`)
+      setMessages(data.records || [])
+
+      if (markRead) {
+        await api.post(`/webchat/conversations/${conversationId}/read`)
+        setConversations(prev =>
+          prev.map(item => item.id === conversationId ? { ...item, unreadMessages: 0 } : item)
+        )
+      }
+    } catch (error) {
+      console.error('Error loading webchat messages:', error)
+      setMessages([])
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <ChatIcon />
-      case 'pending':
-        return <PendingIcon />
-      case 'resolved':
-        return <ResolvedIcon />
-      default:
-        return <ChatIcon />
+  const handleSelect = async (conversation: WebChatConversation) => {
+    setSelected(conversation)
+    await fetchMessages(conversation.id)
+  }
+
+  const handleSend = async () => {
+    const text = message.trim()
+    if (!text || !selected) return
+
+    setMessage('')
+
+    try {
+      const { data } = await api.post(`/webchat/conversations/${selected.id}/messages`, {
+        message: text,
+      })
+
+      setMessages(prev => [...prev, data])
+      setConversations(prev =>
+        prev.map(item =>
+          item.id === selected.id
+            ? { ...item, lastMessage: text, lastMessageAt: data.createdAt, status: 'open' }
+            : item
+        )
+      )
+    } catch (error) {
+      console.error('Error sending webchat message:', error)
+      setMessage(text)
     }
   }
 
-  const filteredConversations = conversations
-    .filter((c) => filterStatus === 'all' || c.status === filterStatus)
-    .filter((c) =>
-      searchTerm
-        ? c.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          c.contactEmail.toLowerCase().includes(searchTerm.toLowerCase())
-        : true
+  const handleStatusChange = async (nextStatus: 'open' | 'resolved' | 'closed') => {
+    if (!selected) return
+
+    try {
+      const { data } = await api.put(`/webchat/conversations/${selected.id}/status`, {
+        status: nextStatus,
+      })
+      setSelected(data)
+      setConversations(prev => prev.map(item => item.id === data.id ? data : item))
+    } catch (error) {
+      console.error('Error updating webchat status:', error)
+    }
+  }
+
+  const filteredConversations = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return conversations
+
+    return conversations.filter(item =>
+      item.visitorName.toLowerCase().includes(term) ||
+      item.sessionId.toLowerCase().includes(term) ||
+      (item.lastMessage || '').toLowerCase().includes(term)
     )
+  }, [conversations, search])
 
-  const handleSendMessage = () => {
-    if (!messageText.trim() || !selectedConversation) return
-
-    const newMessage: Message = {
-      id: selectedConversation.messages.length + 1,
-      text: messageText,
-      sender: 'agent',
-      timestamp: new Date().toISOString(),
-      read: true,
-    }
-
-    const updatedConversation = {
-      ...selectedConversation,
-      messages: [...selectedConversation.messages, newMessage],
-      lastMessage: messageText,
-      lastMessageTime: new Date().toISOString(),
-    }
-
-    setConversations(
-      conversations.map((c) => (c.id === selectedConversation.id ? updatedConversation : c))
-    )
-    setSelectedConversation(updatedConversation)
-    setMessageText('')
+  const formatTime = (value?: string) => {
+    if (!value) return ''
+    const date = new Date(value)
+    const now = new Date()
+    const sameDay = date.toDateString() === now.toDateString()
+    return sameDay
+      ? date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
   }
 
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-  }
-
-  const formatDate = (timestamp: string) => {
-    const date = new Date(timestamp)
-    const today = new Date()
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-
-    if (date.toDateString() === today.toDateString()) {
-      return 'Hoy'
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Ayer'
-    } else {
-      return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
-    }
-  }
-
-  const stats = {
-    total: conversations.length,
-    active: conversations.filter((c) => c.status === 'active').length,
-    pending: conversations.filter((c) => c.status === 'pending').length,
-    resolved: conversations.filter((c) => c.status === 'resolved').length,
-    unread: conversations.reduce((acc, c) => acc + c.unreadCount, 0),
+  const statusLabel = (value: string) => {
+    if (value === 'resolved') return 'Resuelto'
+    if (value === 'closed') return 'Cerrado'
+    return 'Abierto'
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-4 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ChatIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Conversaciones WebChat</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Gestión de conversaciones activas con Socket.IO en tiempo real
-              </Typography>
-            </Box>
-          </Stack>
-          <Button variant="outlined" color="neutral" startDecorator={<RefreshIcon />}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ChatCircleDots className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                WebChat
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Conversaciones recibidas desde los widgets instalados en landings.
+              </p>
+            </div>
+          </div>
+
+          <Button variant="outline" size="sm" loading={loading} onClick={() => fetchConversations()}>
+            <ArrowClockwise className="size-4" aria-hidden />
             Actualizar
           </Button>
-        </Stack>
+        </div>
 
-        {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Total Conversaciones
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Activas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.active}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Pendientes
-                </Typography>
-                <Typography level="h2" sx={{ color: 'warning.main' }}>
-                  {stats.pending}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Sin Leer
-                </Typography>
-                <Typography level="h2" sx={{ color: 'danger.main' }}>
-                  {stats.unread}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Chat Interface */}
-        <Card>
-          <Box sx={{ display: 'flex', height: 600 }}>
-            {/* Conversations List */}
-            <Box
-              sx={{
-                width: 350,
-                borderRight: '1px solid',
-                borderColor: 'divider',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {/* Search and Filters */}
-              <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Input
-                  placeholder="Buscar conversaciones..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  startDecorator={<SearchIcon />}
-                  size="sm"
-                  sx={{ mb: 1 }}
+        {/* Panel principal */}
+        <div className="grid min-h-[calc(100vh-190px)] grid-cols-1 overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02] md:grid-cols-[360px_1fr]">
+          {/* Columna izquierda: lista de conversaciones */}
+          <div className="flex min-h-0 flex-col border-b border-border md:border-b-0 md:border-r">
+            <div className="space-y-3 p-4">
+              <div className="relative">
+                <MagnifyingGlass
+                  className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
                 />
-                <Select
-                  value={filterStatus}
-                  onChange={(_, value) => setFilterStatus(value as string)}
-                  size="sm"
-                >
-                  <Option value="all">Todas ({stats.total})</Option>
-                  <Option value="active">Activas ({stats.active})</Option>
-                  <Option value="pending">Pendientes ({stats.pending})</Option>
-                  <Option value="resolved">Resueltas ({stats.resolved})</Option>
-                </Select>
-              </Box>
+                <input
+                  placeholder="Buscar conversación"
+                  aria-label="Buscar conversación"
+                  value={search}
+                  onChange={event => setSearch(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') void fetchConversations()
+                  }}
+                  className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-              {/* Conversations */}
-              <List sx={{ flexGrow: 1, overflow: 'auto', p: 0 }}>
-                {filteredConversations.map((conversation) => (
-                  <ListItem key={conversation.id} sx={{ p: 0 }}>
-                    <ListItemButton
-                      selected={selectedConversation?.id === conversation.id}
-                      onClick={() => setSelectedConversation(conversation)}
-                      sx={{ p: 2 }}
+              {/* Filtro por estado DESHABILITADO (fallaba al cambiar). Reemplazado por el filtro
+                  de rango de fechas (default últimos 30 días), igual que en Tickets. */}
+              <div className="space-y-1.5">
+                <Label htmlFor="webchat-daterange">Rango de fechas</Label>
+                <DateRangePicker
+                  since={startDate}
+                  until={endDate}
+                  presetLabel=""
+                  months={1}
+                  showPresets={false}
+                  align="left"
+                  allowClear
+                  showRangeInTrigger
+                  fullWidth
+                  placeholder="Últimos 30 días"
+                  onApply={(s, u) => {
+                    setStartDate(s)
+                    setEndDate(u)
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-border" />
+
+            <div className="flex-1 overflow-auto p-1.5">
+              {filteredConversations.map(conversation => {
+                const isSelected = selected?.id === conversation.id
+                return (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    onClick={() => handleSelect(conversation)}
+                    className={cn(
+                      'flex w-full items-start gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-accent/60',
+                      isSelected && 'bg-accent'
+                    )}
+                  >
+                    <div className="relative shrink-0">
+                      <Avatar name={conversation.visitorName} size="sm" />
+                      {conversation.unreadMessages > 0 && (
+                        <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-4 text-destructive-foreground">
+                          {conversation.unreadMessages}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="truncate text-sm font-semibold text-foreground">
+                          {conversation.visitorName}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatTime(conversation.lastMessageAt || conversation.updatedAt)}
+                        </span>
+                      </div>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {conversation.widget?.name || 'Widget'} · {statusLabel(conversation.status)}
+                      </p>
+                      <p className="truncate text-sm text-foreground">
+                        {conversation.lastMessage || 'Sin mensajes'}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+
+              {filteredConversations.length === 0 && (
+                <div className="p-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No hay conversaciones WebChat.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Columna derecha: conversación seleccionada */}
+          {selected ? (
+            <div className="flex min-h-0 flex-col">
+              {/* Cabecera de la conversación */}
+              <div className="flex items-center justify-between gap-4 border-b border-border p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar name={selected.visitorName} />
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold text-foreground">{selected.visitorName}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {selected.widget?.name || 'Widget'} · {selected.metadata?.pageUrl || selected.metadata?.origin || 'Landing'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Badge variant={selected.status === 'open' ? 'success' : 'neutral'}>
+                    {statusLabel(selected.status)}
+                  </Badge>
+                  <button
+                    type="button"
+                    aria-label="Marcar como resuelto"
+                    title="Marcar como resuelto"
+                    onClick={() => handleStatusChange('resolved')}
+                    disabled={selected.status === 'resolved'}
+                    className="flex size-9 items-center justify-center rounded-md border border-input bg-card text-success-text transition-colors hover:bg-success/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <CheckCircle className="size-[18px]" aria-hidden />
+                  </button>
+                </div>
+              </div>
+
+              {/* Mensajes */}
+              <div className="flex-1 space-y-2.5 overflow-auto bg-muted/30 p-4">
+                {messages.map(item => {
+                  const outbound = item.direction === 'outbound'
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn('flex', outbound ? 'justify-end' : 'justify-start')}
                     >
-                      <Badge
-                        badgeContent={conversation.unreadCount}
-                        color="danger"
-                        size="sm"
-                        sx={{ mr: 2 }}
+                      <div
+                        className={cn(
+                          'max-w-[72%] rounded-lg px-3 py-2',
+                          outbound
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'border border-border bg-card text-foreground'
+                        )}
                       >
-                        <Avatar src={conversation.contactAvatar}>
-                          {conversation.contactName.charAt(0)}
-                        </Avatar>
-                      </Badge>
-                      <ListItemContent>
-                        <Stack direction="row" justifyContent="space-between">
-                          <Typography level="body-md" fontWeight="bold">
-                            {conversation.contactName}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {formatDate(conversation.lastMessageTime)}
-                          </Typography>
-                        </Stack>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }} noWrap>
-                          {conversation.lastMessage}
-                        </Typography>
-                        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
-                          <Chip
-                            size="sm"
-                            variant="soft"
-                            color={getStatusColor(conversation.status)}
-                            startDecorator={getStatusIcon(conversation.status)}
-                          >
-                            {getStatusLabel(conversation.status)}
-                          </Chip>
-                          {conversation.agent && (
-                            <Chip size="sm" variant="outlined" color="neutral">
-                              {conversation.agent}
-                            </Chip>
+                        <p className="whitespace-pre-wrap text-sm">
+                          {item.body}
+                        </p>
+                        <p
+                          className={cn(
+                            'mt-1 text-xs',
+                            outbound ? 'text-primary-foreground/75' : 'text-muted-foreground'
                           )}
-                        </Stack>
-                      </ListItemContent>
-                    </ListItemButton>
-                  </ListItem>
-                ))}
-              </List>
-            </Box>
-
-            {/* Chat Area */}
-            {selectedConversation ? (
-              <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                {/* Chat Header */}
-                <Box
-                  sx={{
-                    p: 2,
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <Stack direction="row" spacing={2} alignItems="center">
-                    <Avatar src={selectedConversation.contactAvatar}>
-                      {selectedConversation.contactName.charAt(0)}
-                    </Avatar>
-                    <Box>
-                      <Typography level="body-md" fontWeight="bold">
-                        {selectedConversation.contactName}
-                      </Typography>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                        {selectedConversation.contactEmail}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                  <Stack direction="row" spacing={1}>
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color={getStatusColor(selectedConversation.status)}
-                    >
-                      {getStatusLabel(selectedConversation.status)}
-                    </Chip>
-                    <IconButton size="sm" variant="plain">
-                      <MoreIcon />
-                    </IconButton>
-                    <IconButton size="sm" variant="plain" onClick={() => setSelectedConversation(null)}>
-                      <CloseIcon />
-                    </IconButton>
-                  </Stack>
-                </Box>
-
-                {/* Messages */}
-                <Box sx={{ flexGrow: 1, p: 2, overflow: 'auto', bgcolor: 'background.level1' }}>
-                  <Stack spacing={2}>
-                    {selectedConversation.messages.map((message) => (
-                      <Box
-                        key={message.id}
-                        sx={{
-                          display: 'flex',
-                          justifyContent: message.sender === 'agent' ? 'flex-end' : 'flex-start',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            maxWidth: '70%',
-                            p: 1.5,
-                            borderRadius: 'sm',
-                            bgcolor:
-                              message.sender === 'agent' ? 'primary.main' : 'neutral.softBg',
-                            color: message.sender === 'agent' ? 'white' : 'text.primary',
-                          }}
                         >
-                          <Typography level="body-sm">{message.text}</Typography>
-                          <Typography
-                            level="body-xs"
-                            sx={{
-                              mt: 0.5,
-                              color: message.sender === 'agent' ? 'white' : 'text.tertiary',
-                              opacity: 0.8,
-                            }}
-                          >
-                            {formatTime(message.timestamp)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    ))}
-                  </Stack>
-                </Box>
+                          {outbound ? item.sender?.name || 'Equipo' : selected.visitorName} · {formatTime(item.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div ref={messagesEndRef} />
+              </div>
 
-                {/* Contact Info Sidebar */}
-                <Box
-                  sx={{
-                    p: 2,
-                    borderTop: '1px solid',
-                    borderColor: 'divider',
-                    bgcolor: 'background.level2',
+              {/* Composer */}
+              <div className="flex items-end gap-2 border-t border-border p-4">
+                <textarea
+                  rows={1}
+                  placeholder="Responder desde WebChat"
+                  aria-label="Responder desde WebChat"
+                  value={message}
+                  onChange={event => setMessage(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      void handleSend()
+                    }
                   }}
-                >
-                  <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-                    {selectedConversation.tags.map((tag) => (
-                      <Chip key={tag} size="sm" variant="soft">
-                        {tag}
-                      </Chip>
-                    ))}
-                  </Stack>
-                  {selectedConversation.agent && (
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <PersonIcon sx={{ fontSize: 16, color: 'text.tertiary' }} />
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Atendido por: {selectedConversation.agent}
-                      </Typography>
-                    </Stack>
-                  )}
-                </Box>
-
-                {/* Message Input */}
-                <Box
-                  sx={{
-                    p: 2,
-                    borderTop: '1px solid',
-                    borderColor: 'divider',
-                  }}
-                >
-                  <Stack direction="row" spacing={1}>
-                    <IconButton variant="plain" color="neutral">
-                      <AttachIcon />
-                    </IconButton>
-                    <Input
-                      placeholder="Escribe un mensaje..."
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          handleSendMessage()
-                        }
-                      }}
-                      sx={{ flexGrow: 1 }}
-                    />
-                    <Button
-                      variant="solid"
-                      color="primary"
-                      onClick={handleSendMessage}
-                      disabled={!messageText.trim()}
-                      startDecorator={<SendIcon />}
-                    >
-                      Enviar
-                    </Button>
-                  </Stack>
-                </Box>
-              </Box>
-            ) : (
-              <Box
-                sx={{
-                  flexGrow: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Stack alignItems="center" spacing={2}>
-                  <ChatIcon sx={{ fontSize: 64, color: 'text.tertiary' }} />
-                  <Typography level="body-lg" sx={{ color: 'text.tertiary' }}>
-                    Selecciona una conversación para comenzar
-                  </Typography>
-                </Stack>
-              </Box>
-            )}
-          </Box>
-        </Card>
-      </Stack>
-    </Container>
+                  className="max-h-32 min-h-11 flex-1 resize-none rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+                <Button onClick={handleSend} disabled={!message.trim()}>
+                  Enviar
+                  <PaperPlaneTilt className="size-4" weight="fill" aria-hidden />
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-h-[360px] flex-col items-center justify-center gap-2 p-6 text-center">
+              <ChatCircleDots className="size-14 text-muted-foreground" aria-hidden />
+              <p className="text-base font-semibold text-foreground">Selecciona una conversación</p>
+              <p className="text-sm text-muted-foreground">
+                Las respuestas se entregan al widget instalado en la landing.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

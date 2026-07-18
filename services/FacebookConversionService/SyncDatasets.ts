@@ -1,12 +1,109 @@
 import Company from "../../models/Company";
 import Whatsapp from "../../models/Whatsapp";
 import FacebookDataset from "../../models/FacebookDataset";
+import { GRAPH_API_VERSION } from "../../config/metaGraph"; // [Fase2·A2.1] fuente única versión
+import CompaniesSettings from "../../models/CompaniesSettings";
 import { MetaMarketing } from "../../meta-marketing/src";
 import {
     getCompanyAccessToken,
-    getWABAId,
-    getChannelIdentifier
+    getWABAId
 } from "./FacebookAuthHelper";
+
+type DatasetSyncMode = "auto";
+
+interface SyncDatasetForConnectionOptions {
+    mode?: DatasetSyncMode;
+    datasetName?: string;
+}
+
+const SUPPORTED_CHANNELS = ["facebook", "instagram", "whatsapp", "meta"];
+
+const getChannelLabel = (channel?: string): string => {
+    switch ((channel || "").toLowerCase()) {
+        case "facebook":
+            return "Facebook";
+        case "instagram":
+            return "Instagram";
+        case "meta":
+            return "Meta";
+        case "whatsapp":
+            return "WhatsApp";
+        default:
+            return channel || "Canal";
+    }
+};
+
+const buildDefaultDatasetName = (company: Company, connection: Whatsapp): string => {
+    const companyName = (company.name || `Company ${company.id}`).trim();
+    const connectionName = (connection.name || `Conexion ${connection.id}`).trim();
+    return `Chateam - ${companyName} - ${connectionName} - ${getChannelLabel(connection.channel)}`;
+};
+
+const getConnectionIdentifier = async (connection: Whatsapp): Promise<string> => {
+    if (connection.channel === "facebook") {
+        if (!connection.facebookPageUserId) {
+            throw new Error("Facebook connection missing facebookPageUserId");
+        }
+        return String(connection.facebookPageUserId).trim();
+    }
+
+    if (connection.channel === "instagram") {
+        if (!connection.facebookUserId) {
+            throw new Error("Instagram connection missing facebookUserId");
+        }
+        return String(connection.facebookUserId).trim();
+    }
+
+    if (connection.channel === "whatsapp" || connection.channel === "meta") {
+        const explicitWaba = String(connection.facebookUserId || "").trim();
+        if (/^\d{8,30}$/.test(explicitWaba)) return explicitWaba;
+
+        if (!connection.tokenMeta) {
+            throw new Error(`${connection.channel} connection missing tokenMeta (System User Token required)`);
+        }
+
+        const wabaId = await getWABAId(connection.tokenMeta, connection.phoneNumberId);
+        if (!wabaId) {
+            throw new Error("Could not retrieve WABA ID for WhatsApp connection");
+        }
+
+        return String(wabaId).trim();
+    }
+
+    throw new Error(`Unsupported channel type: ${connection.channel}`);
+};
+
+const getClientForConnection = async (
+    companyId: number,
+    connection: Whatsapp,
+    appClient?: MetaMarketing
+): Promise<MetaMarketing> => {
+    const settings = await CompaniesSettings.findOne({ where: { companyId } });
+    const systemToken = settings?.facebookSystemUserToken;
+    const connectionToken = connection.tokenMeta;
+
+    if ((connection.channel === "whatsapp" || connection.channel === "meta") && (connectionToken || systemToken)) {
+        return new MetaMarketing({
+            accessToken: connectionToken || systemToken!,
+            apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || GRAPH_API_VERSION
+        });
+    }
+
+    if (systemToken) {
+        return new MetaMarketing({
+            accessToken: systemToken,
+            apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || GRAPH_API_VERSION
+        });
+    }
+
+    if (appClient) return appClient;
+
+    const accessToken = await getCompanyAccessToken(companyId);
+    return new MetaMarketing({
+        accessToken,
+        apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || GRAPH_API_VERSION
+    });
+};
 
 /**
  * Sync Facebook datasets for companies with social media connections
@@ -66,7 +163,7 @@ const SyncDatasets = async (companyId?: number): Promise<{
                 model: Whatsapp,
                 as: "whatsapps",
                 where: {
-                    channel: ["facebook", "instagram", "whatsapp", "meta"]
+                    channel: SUPPORTED_CHANNELS
                 },
                 required: true
             }
@@ -107,7 +204,7 @@ const SyncDatasets = async (companyId?: number): Promise<{
 
             const metaClient = new MetaMarketing({
                 accessToken,
-                apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || "v18.0"
+                apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || GRAPH_API_VERSION
             });
 
             for (const connection of company.whatsapps) {
@@ -127,7 +224,43 @@ const SyncDatasets = async (companyId?: number): Promise<{
                     });
 
                     if (dataset) {
-                        console.log(`  ⏭️ [SyncDatasets] Dataset ya existe (ID: ${dataset.id}, datasetId: ${dataset.datasetId})`);
+                        console.log("  ⏭️ [SyncDatasets] Dataset ya existe (ID: " + dataset.id + ", datasetId: " + dataset.datasetId + ")");
+
+                        const metadataPatch: any = {};
+                        if (!(dataset as any).datasetName) {
+                            metadataPatch.datasetName = buildDefaultDatasetName(company, connection);
+                        }
+                        if (!(dataset as any).datasetSource) {
+                            metadataPatch.datasetSource = "legacy";
+                        }
+                        if (!(dataset as any).validationStatus) {
+                            metadataPatch.validationStatus = "pending";
+                        }
+
+                        if (connection.channel === "whatsapp" || connection.channel === "meta") {
+                            const connectionWabaId = String(connection.facebookUserId || "").trim();
+                            const hasNumericWaba = /^\d{8,30}$/.test(connectionWabaId);
+                            const datasetWabaId = String(dataset.channelIdentifier || dataset.channelSpecificId || "").trim();
+
+                            if (!datasetWabaId && hasNumericWaba) {
+                                Object.assign(metadataPatch, {
+                                  channelIdentifier: connectionWabaId,
+                                  channelSpecificId: connectionWabaId,
+                                  channel: connection.channel,
+                                  status: "active"
+                                });
+                                console.log("  🔧 [SyncDatasets] Dataset existente actualizado con WABA ID: " + connectionWabaId);
+                            } else if (!datasetWabaId && connectionWabaId && !hasNumericWaba) {
+                                const errMsg = connection.channel + " connection " + connection.id + " (" + connection.name + ") has invalid facebookUserId for WABA ID: " + connectionWabaId + ". Use numeric WhatsApp Business Account ID.";
+                                console.error("  ❌ [SyncDatasets] " + errMsg);
+                                errors.push(errMsg);
+                            }
+                        }
+
+                        if (Object.keys(metadataPatch).length) {
+                            await dataset.update(metadataPatch);
+                        }
+
                         synced++;
                         continue;
                     }
@@ -152,7 +285,9 @@ const SyncDatasets = async (companyId?: number): Promise<{
 
                         // Get or create dataset for Facebook Page
                         console.log(`  🔄 [SyncDatasets] Llamando a getOrCreateDataset(${channelIdentifier})...`);
-                        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
+                        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier, {
+                            name: buildDefaultDatasetName(company, connection)
+                        });
                         console.log(`  ✅ [SyncDatasets] Dataset obtenido: ${datasetId}`);
 
                     } else if (connection.channel === "instagram") {
@@ -169,7 +304,9 @@ const SyncDatasets = async (companyId?: number): Promise<{
 
                         // Get or create dataset for Instagram Account
                         console.log(`  🔄 [SyncDatasets] Llamando a getOrCreateDataset(${channelIdentifier})...`);
-                        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
+                        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier, {
+                            name: buildDefaultDatasetName(company, connection)
+                        });
                         console.log(`  ✅ [SyncDatasets] Dataset obtenido: ${datasetId}`);
 
                     } else if (connection.channel === "whatsapp" || connection.channel === "meta") {
@@ -195,8 +332,14 @@ const SyncDatasets = async (companyId?: number): Promise<{
                             continue;
                         }
 
-                        const wabaId = connection.facebookUserId;
-                        console.log(`  ✅ [SyncDatasets] WABA ID a usar: ${wabaId}`);
+                        const wabaId = String(connection.facebookUserId).trim();
+                        if (!/^\d{8,30}$/.test(wabaId)) {
+                            const errMsg = connection.channel + " connection " + connection.id + " (" + connection.name + ") has invalid facebookUserId for WABA ID: " + wabaId + ". Use numeric WhatsApp Business Account ID.";
+                            console.error("  ❌ [SyncDatasets] " + errMsg);
+                            errors.push(errMsg);
+                            continue;
+                        }
+                        console.log("  ✅ [SyncDatasets] WABA ID a usar: " + wabaId);
                         channelIdentifier = wabaId;
 
                         // Para WhatsApp/Meta, usar el tokenMeta (System User Token) en lugar del App Access Token
@@ -204,12 +347,14 @@ const SyncDatasets = async (companyId?: number): Promise<{
                         console.log(`  🔑 [SyncDatasets] Creando cliente Meta con tokenMeta (System User Token)...`);
                         const whatsappClient = new MetaMarketing({
                             accessToken: connection.tokenMeta,
-                            apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || "v20.0"
+                            apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || GRAPH_API_VERSION
                         });
 
                         // Get or create dataset for WABA usando el System User Token
                         console.log(`  🔄 [SyncDatasets] Llamando a getOrCreateDataset(${wabaId}) con System User Token...`);
-                        datasetId = await whatsappClient.conversions.getOrCreateDataset(wabaId);
+                        datasetId = await whatsappClient.conversions.getOrCreateDataset(wabaId, {
+                            name: buildDefaultDatasetName(company, connection)
+                        });
                         console.log(`  ✅ [SyncDatasets] Dataset obtenido: ${datasetId}`);
                     }
 
@@ -219,6 +364,11 @@ const SyncDatasets = async (companyId?: number): Promise<{
                         companyId: company.id,
                         whatsappId: connection.id,
                         datasetId: datasetId,
+                        datasetName: buildDefaultDatasetName(company, connection),
+                        datasetSource: "auto",
+                        validationStatus: "valid",
+                        validationError: null,
+                        validatedAt: new Date(),
                         channel: connection.channel,
                         channelIdentifier: channelIdentifier,
                         channelSpecificId: channelIdentifier,
@@ -262,9 +412,28 @@ const SyncDatasets = async (companyId?: number): Promise<{
  */
 export const SyncDatasetForConnection = async (
     companyId: number,
-    whatsappId: number
+    whatsappId: number,
+    options: SyncDatasetForConnectionOptions = {}
 ): Promise<FacebookDataset> => {
-    // Check if dataset already exists
+    const mode: DatasetSyncMode = "auto";
+
+    const company = await Company.findByPk(companyId);
+    if (!company) {
+        throw new Error(`Company ${companyId} not found`);
+    }
+
+    // Get connection
+    const connection = await Whatsapp.findOne({
+        where: { id: whatsappId, companyId }
+    });
+    if (!connection) {
+        throw new Error(`Connection ${whatsappId} not found for company ${companyId}`);
+    }
+
+    if (!SUPPORTED_CHANNELS.includes(connection.channel)) {
+        throw new Error(`Unsupported channel type: ${connection.channel}`);
+    }
+
     let dataset = await FacebookDataset.findOne({
         where: {
             companyId,
@@ -272,64 +441,52 @@ export const SyncDatasetForConnection = async (
         }
     });
 
-    if (dataset) {
+    if (dataset && !options.datasetName && options.mode !== "auto") {
         return dataset;
     }
 
-    // Get connection
-    const connection = await Whatsapp.findByPk(whatsappId);
-    if (!connection) {
-        throw new Error(`Connection ${whatsappId} not found`);
-    }
+    const channelIdentifier = await getConnectionIdentifier(connection);
+    const metaClient = await getClientForConnection(companyId, connection);
+    const requestedName = String(options.datasetName || "").trim();
+    const datasetName = requestedName || buildDefaultDatasetName(company, connection);
 
-    // Get access token for company
-    const accessToken = await getCompanyAccessToken(companyId);
+    let datasetId = "";
+    let resolvedDatasetName = datasetName;
+    const now = new Date();
 
-    const metaClient = new MetaMarketing({
-        accessToken,
-        apiVersion: process.env.FACEBOOK_CONVERSIONS_API_VERSION || "v18.0"
+    datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier, {
+        name: datasetName
     });
 
-    let channelIdentifier = "";
-    let datasetId = "";
-
-    // Handle different channel types
-    if (connection.channel === "facebook") {
-        channelIdentifier = connection.facebookPageUserId;
-        if (!channelIdentifier) {
-            throw new Error("Facebook connection missing facebookPageUserId");
-        }
-        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
-
-    } else if (connection.channel === "instagram") {
-        channelIdentifier = connection.facebookUserId;
-        if (!channelIdentifier) {
-            throw new Error("Instagram connection missing facebookUserId");
-        }
-        datasetId = await metaClient.conversions.getOrCreateDataset(channelIdentifier);
-
-    } else if (connection.channel === "whatsapp") {
-        const wabaId = await getWABAId(connection.tokenMeta);
-        if (!wabaId) {
-            throw new Error("Could not retrieve WABA ID for WhatsApp connection");
-        }
-        channelIdentifier = wabaId;
-        datasetId = await metaClient.conversions.getOrCreateDataset(wabaId);
-
-    } else {
-        throw new Error(`Unsupported channel type: ${connection.channel}`);
+    try {
+        const details = await metaClient.conversions.getDatasetDetails(datasetId);
+        resolvedDatasetName = details.name || datasetName;
+    } catch (error: any) {
+        console.warn(
+            `⚠️ [SyncDatasetForConnection] Dataset ${datasetId} creado/obtenido, pero no se pudo leer nombre: ${error.message}`
+        );
     }
 
-    // Save dataset
-    dataset = await FacebookDataset.create({
+    const payload: any = {
         companyId,
         whatsappId,
         datasetId,
+        datasetName: resolvedDatasetName,
+        datasetSource: mode,
+        validationStatus: "valid",
+        validationError: null,
+        validatedAt: now,
         channel: connection.channel,
         channelIdentifier,
         channelSpecificId: channelIdentifier,
         status: "active"
-    });
+    };
+
+    if (dataset) {
+        await dataset.update(payload);
+    } else {
+        dataset = await FacebookDataset.create(payload);
+    }
 
     return dataset;
 };

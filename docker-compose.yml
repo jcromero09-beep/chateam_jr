@@ -26,7 +26,7 @@ services:
       - ./logs:/app/logs
     networks:
       - chateam-network
-    restart: unless-stopped
+    restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
@@ -80,8 +80,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: chateam-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -89,6 +91,7 @@ services:
     command: >
       redis-server
       --appendonly yes
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       --appendfsync everysec
       --save 900 1
       --save 300 10
@@ -97,7 +100,7 @@ services:
       --maxmemory-policy allkeys-lru
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 5s
       retries: 3

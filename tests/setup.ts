@@ -1,7 +1,16 @@
 import dotenv from 'dotenv';
 
-// Cargar variables de entorno de test
+// Cargar variables de entorno de test (si existe .env.test)
 dotenv.config({ path: '.env.test' });
+
+// Defaults seguros para tests: garantizan que config/auth.ts no aborte.
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  process.env.JWT_SECRET = 'jest_test_jwt_secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+}
+if (!process.env.JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET.length < 32) {
+  process.env.JWT_REFRESH_SECRET = 'jest_test_jwt_refresh_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+}
 
 // Configuración global de tests
 beforeAll(async () => {

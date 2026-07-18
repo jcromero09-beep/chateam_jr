@@ -13,10 +13,10 @@ const FindService = async ({ companyId, userId }: Params): Promise<QuickMessage[
       companyId,
       [Op.or]: [
         {
-          visao: true // Se "visao" é verdadeiro, todas as mensagens são visíveis
+          geral: true // "geral" es la fuente única de verdad para "Global" (lo que la UI marca). visao queda como espejo legado.
         },
         {
-          userId // Se "visao" é falso, apenas as mensagens do usuário atual são visíveis
+          userId // Si no es global, solo las mensajes del usuario actual son visibles
         }
       ]
     },

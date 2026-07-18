@@ -3,7 +3,8 @@ import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
 import AppError from "../errors/AppError";
 
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import User from "../models/User";
 import Setting from "../models/Setting";
 import UpdateSettingService from "../services/SettingServices/UpdateSettingService";
@@ -45,9 +46,6 @@ export const showOne = async (req: Request, res: Response): Promise<Response> =>
   const { companyId } = req.user;
   const { settingKey: key } = req.params;
 
-  // console.log("|======== GetPublicSettingService ========|")
-  // console.log("key", key)
-  // console.log("|=========================================|")
 
   
   const settingsTransfTicket = await ListSettingsServiceOne({ companyId: companyId, key: key });
@@ -56,10 +54,16 @@ export const showOne = async (req: Request, res: Response): Promise<Response> =>
 };
 
 export const showFacebook = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = req.user;
+  const { companyId, profile } = req.user;
+  const isPrivileged = req.user.super === true || profile === "admin";
 
-  
-  const FacebookCredentials = await getCompanyFacebookCredentials(companyId);
+  const FacebookCredentials: any = await getCompanyFacebookCredentials(companyId);
+
+  // [Ola 0.2] No exponer el App Secret a perfiles no-admin (fuga confirmada en vivo).
+  if (!isPrivileged && FacebookCredentials) {
+    delete FacebookCredentials.facebookAppSecret;
+    delete FacebookCredentials.appSecret;
+  }
 
   return res.status(200).json(FacebookCredentials);
 };
@@ -122,7 +126,6 @@ export const updateOne = async (
 };
 
 export const publicShow = async (req: Request, res: Response): Promise<Response> => {
-  //console.log("|=============== publicShow  ==============|")
   
   const { settingKey: key } = req.params;
   
@@ -138,7 +141,6 @@ export const storeLogo = async (req: Request, res: Response): Promise<Response> 
   const { companyId } = req.user;
   const validModes = [ "Light", "Dark", "Favicon" ];
 
-  //console.log("|=============== storeLogo  ==============|", storeLogo)
 
   if ( validModes.indexOf(mode) === -1 ) {
     return res.status(406);
@@ -182,7 +184,6 @@ export const certUpload = async (
 
   const files = req.files as Express.Multer.File[];
   const file = head(files);
- // console.log(file);
   return res.send({ mensagem: "Archivo adjunto" });
 };
 
@@ -192,7 +193,6 @@ export const storePrivateFile = async (req: Request, res: Response): Promise<Res
   const { companyId } = req.user;
 
 
- // console.log("|=============== storePrivateFile  ==============|", storeLogo)
 
   const setting = await UpdateSettingService({
     key: `_${settingKey}`,

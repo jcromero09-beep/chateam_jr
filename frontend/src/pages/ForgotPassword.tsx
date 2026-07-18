@@ -6,16 +6,16 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Box, Sheet, Typography, FormControl, FormLabel, Input, Button,
-  Stack, Divider, Alert
-} from '@mui/joy'
-import {
-  ArrowBack as BackIcon,
-  Email as EmailIcon,
-  CheckCircle as SuccessIcon,
-  Send as SendIcon
-} from '@mui/icons-material'
+  ArrowLeft,
+  Envelope,
+  CheckCircle,
+  PaperPlaneTilt,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 export default function ForgotPassword() {
@@ -43,159 +43,130 @@ export default function ForgotPassword() {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #1e293b 0%, #152030 40%, #1a2535 100%)',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
       {/* Burbujas decorativas */}
-      <Box sx={{
-        position: 'absolute', top: '-10%', right: '-5%',
-        width: 400, height: 400, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)',
-        pointerEvents: 'none',
-      }} />
-      <Box sx={{
-        position: 'absolute', bottom: '-15%', left: '-10%',
-        width: 500, height: 500, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 70%)',
-        pointerEvents: 'none',
-      }} />
+      <span
+        className="pointer-events-none absolute -right-[5%] -top-[10%] size-[400px] rounded-full bg-primary/[0.07] blur-3xl"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute -bottom-[15%] -left-[10%] size-[500px] rounded-full bg-brand-cyan/[0.06] blur-3xl"
+        aria-hidden
+      />
 
-      <Sheet
-        sx={{
-          maxWidth: 420,
-          width: '100%',
-          mx: 2,
-          p: { xs: 3, sm: 4 },
-          borderRadius: 'xl',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3), 0 0 40px rgba(59,130,246,0.08)',
-          bgcolor: 'background.surface',
-          position: 'relative',
-          zIndex: 1,
-          border: '1px solid',
-          borderColor: 'divider',
-        }}
-      >
-        <Stack spacing={3}>
+      <div className="relative z-[1] w-full max-w-[420px] rounded-xl border border-border bg-card p-6 shadow-2xl shadow-black/20 sm:p-8">
+        <div className="space-y-6">
           {/* Logo */}
-          <Stack spacing={2} alignItems="center" sx={{ pt: 1 }}>
-            <Box
-              component="img"
+          <div className="flex flex-col items-center gap-2 pt-1">
+            <img
               src="/logo.png"
               alt="Chateam"
-              sx={{
-                width: 64, height: 64,
-                filter: 'drop-shadow(0 4px 12px rgba(59,130,246,0.3))',
-              }}
+              width={64}
+              height={64}
+              className="drop-shadow-[0_4px_12px_rgba(0,81,102,0.3)]"
             />
-            <Box
-              component="img"
+            <img
               src="/chateam-logo.png"
               alt="Chateam Pro"
-              sx={{ height: 32, objectFit: 'contain' }}
+              className="h-8 w-auto object-contain"
             />
-            <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
+            <p className="text-center text-sm text-muted-foreground">
               Recuperacion de contrasena
-            </Typography>
-          </Stack>
+            </p>
+          </div>
 
-          <Divider />
+          <div className="border-t border-border" />
 
           {sent ? (
             /* ═══ ESTADO: EMAIL ENVIADO ═══ */
-            <Stack spacing={2.5} alignItems="center" sx={{ py: 2 }}>
-              <SuccessIcon sx={{ fontSize: 56, color: 'success.500' }} />
-              <Typography level="title-lg" sx={{ textAlign: 'center', fontWeight: 700 }}>
+            <div className="flex flex-col items-center gap-5 py-2">
+              <CheckCircle
+                className="size-14 text-success-text"
+                weight="fill"
+                aria-hidden
+              />
+              <h1 className="text-center text-xl font-bold text-foreground">
                 Revisa tu correo
-              </Typography>
-              <Alert color="success" variant="soft" sx={{ width: '100%' }}>
-                Si <strong>{email}</strong> esta registrado, recibiras un enlace para restablecer tu contrasena.
-                El enlace expira en 30 minutos.
-              </Alert>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
+              </h1>
+              <div className="w-full rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success-text">
+                Si <strong>{email}</strong> esta registrado, recibiras un enlace
+                para restablecer tu contrasena. El enlace expira en 30 minutos.
+              </div>
+              <p className="text-center text-sm text-muted-foreground">
                 No olvides revisar la carpeta de spam o correo no deseado.
-              </Typography>
+              </p>
 
-              <Stack spacing={1.5} sx={{ width: '100%', pt: 1 }}>
+              <div className="flex w-full flex-col gap-3 pt-1">
                 <Button
-                  variant="outlined"
-                  color="neutral"
-                  fullWidth
-                  onClick={() => { setSent(false); setEmail('') }}
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setSent(false)
+                    setEmail('')
+                  }}
                 >
                   Enviar a otro correo
                 </Button>
-                <Button
-                  variant="plain"
-                  color="neutral"
-                  fullWidth
-                  startDecorator={<BackIcon />}
-                  component={Link}
+                <Link
                   to="/login"
+                  className={cn(buttonVariants({ variant: 'ghost' }), 'w-full')}
                 >
+                  <ArrowLeft className="size-4" aria-hidden />
                   Volver al inicio de sesion
-                </Button>
-              </Stack>
-            </Stack>
+                </Link>
+              </div>
+            </div>
           ) : (
             /* ═══ ESTADO: FORMULARIO ═══ */
             <form onSubmit={handleSubmit}>
-              <Stack spacing={2.5}>
-                <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                  Ingresa el correo electronico asociado a tu cuenta y te enviaremos un enlace para restablecer tu contrasena.
-                </Typography>
+              <div className="space-y-5">
+                <p className="text-sm text-muted-foreground">
+                  Ingresa el correo electronico asociado a tu cuenta y te
+                  enviaremos un enlace para restablecer tu contrasena.
+                </p>
 
-                <FormControl required>
-                  <FormLabel>Correo Electronico</FormLabel>
+                <div className="space-y-1.5">
+                  <Label htmlFor="forgot-email">Correo Electronico</Label>
                   <Input
+                    id="forgot-email"
                     type="email"
                     placeholder="tu@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
-                    startDecorator={<EmailIcon sx={{ color: 'neutral.400' }} />}
-                    sx={{ '--Input-focusedThickness': '2px' }}
+                    leftIcon={<Envelope aria-hidden />}
                     autoFocus
+                    required
                   />
-                </FormControl>
+                </div>
 
                 <Button
                   type="submit"
-                  fullWidth
+                  className="w-full font-bold"
                   loading={loading}
                   size="lg"
-                  startDecorator={!loading ? <SendIcon /> : undefined}
-                  sx={{ fontWeight: 700, py: 1.5 }}
                 >
+                  {!loading && <PaperPlaneTilt className="size-5" aria-hidden />}
                   ENVIAR ENLACE
                 </Button>
 
-                <Button
-                  variant="plain"
-                  color="neutral"
-                  fullWidth
-                  startDecorator={<BackIcon />}
-                  component={Link}
+                <Link
                   to="/login"
+                  className={cn(buttonVariants({ variant: 'ghost' }), 'w-full')}
                 >
+                  <ArrowLeft className="size-4" aria-hidden />
                   Volver al inicio de sesion
-                </Button>
-              </Stack>
+                </Link>
+              </div>
             </form>
           )}
 
-          <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary' }}>
-            &copy; {new Date().getFullYear()} CodigoPlus — Todos los derechos reservados
-          </Typography>
-        </Stack>
-      </Sheet>
-    </Box>
+          <p className="text-center text-xs text-muted-foreground">
+            &copy; {new Date().getFullYear()} CodigoPlus — Todos los derechos
+            reservados
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }

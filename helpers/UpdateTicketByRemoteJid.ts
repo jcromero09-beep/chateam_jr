@@ -25,8 +25,8 @@ export const updateTicketByRemoteJid = async (remoteJid: string, queue: number, 
 
   messages.forEach(async (message) => {
 
-    let ticketId = message.ticketId;
-    let ticket = await Ticket.findOne({
+    const ticketId = message.ticketId;
+    const ticket = await Ticket.findOne({
       where: { id: ticketId },
       include: [
         {

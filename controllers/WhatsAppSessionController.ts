@@ -86,22 +86,97 @@ const update = async (req: Request, res: Response): Promise<Response> => {
       channel: whatsapp.channel
     });
 
-    console.log("🔄 [WhatsAppSessionController.update] Clearing session data...");
-    await whatsapp.update({ session: "" });
-    console.log("✅ [WhatsAppSessionController.update] Session data cleared");
+    // 🧹 LIMPIEZA PROFUNDA cuando la conexión está atascada
+    // (DISCONNECTED / OPENING / PENDING — los tres estados donde una sesión
+    // Baileys típicamente queda en bucle Starting → Connection Failure por
+    // credenciales zombie en Redis o wbot huérfano en memoria).
+    // Equivalente al procedimiento manual de "Jefe de Ventas" / "NominApp B"
+    // / "Bakan Demo":
+    //   1. Borrar claves Redis `sessions:<id>:*` (credenciales Baileys zombie)
+    //   2. removeWbot() del proceso (limpiar instancia en memoria)
+    //   3. Borrar snapshot legacy de Baileys (contacts/chats)
+    //   4. Reset completo en BD (session, qrcode, retries, battery, plugged)
+    //   5. Re-arrancar sesión limpia → genera QR estable sin loop
+    const stuckStatuses = ["DISCONNECTED", "OPENING", "PENDING"];
+    const needsDeepClean = stuckStatuses.includes(whatsapp.status);
+
+    if (needsDeepClean && whatsapp.channel === "whatsapp") {
+      console.log(
+        `🧹 [WhatsAppSessionController.update] Estado ${whatsapp.status} → limpieza profunda`
+      );
+      try {
+        const { removeWbot } = await import("../libs/wbot");
+        await removeWbot(+whatsappId, false);
+        console.log(
+          "✅ [WhatsAppSessionController.update] wbot removido de memoria"
+        );
+      } catch (err: any) {
+        console.log(
+          "⚠️ [WhatsAppSessionController.update] removeWbot (no crítico):",
+          err.message
+        );
+      }
+
+      try {
+        const cacheLayer = (await import("../libs/cache")).default;
+        await cacheLayer.delFromPattern(`sessions:${whatsappId}:*`);
+        console.log(
+          `✅ [WhatsAppSessionController.update] Claves Redis sessions:${whatsappId}:* eliminadas`
+        );
+      } catch (err: any) {
+        console.log(
+          "⚠️ [WhatsAppSessionController.update] Limpieza Redis (no crítico):",
+          err.message
+        );
+      }
+
+      try {
+        await DeleteBaileysService(whatsappId);
+        console.log(
+          "✅ [WhatsAppSessionController.update] Snapshot Baileys legacy eliminado"
+        );
+      } catch (err: any) {
+        console.log(
+          "⚠️ [WhatsAppSessionController.update] Limpieza Baileys legacy (no crítico):",
+          err.message
+        );
+      }
+
+      // Reset completo en BD
+      await whatsapp.update({
+        session: "",
+        qrcode: "",
+        retries: 0,
+        battery: "",
+        plugged: false
+      });
+      console.log(
+        "✅ [WhatsAppSessionController.update] BD reset (session, qrcode, retries, battery, plugged)"
+      );
+    } else {
+      // Reinicio normal — comportamiento legacy
+      console.log("🔄 [WhatsAppSessionController.update] Clearing session data...");
+      await whatsapp.update({ session: "" });
+      console.log("✅ [WhatsAppSessionController.update] Session data cleared");
+    }
 
     if (whatsapp.channel === "whatsapp") {
-      // Guard: evitar inicio duplicado
-      if (isSessionInitializing(whatsapp.id)) {
+      // Guard: evitar inicio duplicado (salvo cuando venimos de limpieza profunda;
+      // ahí el isSessionInitializing puede estar setteado por el bucle viejo).
+      if (!needsDeepClean && isSessionInitializing(whatsapp.id)) {
         console.log("⚠️ [WhatsAppSessionController.update] Session already initializing, ignoring");
         return res.status(409).json({ message: "La sesion ya se esta reiniciando. Espere un momento." });
       }
 
       console.log("🚀 [WhatsAppSessionController.update] Starting WhatsApp session (non-blocking)...");
-      // Start session in background - don't await, let socket handle QR updates
-      StartWhatsAppSession(whatsapp, companyId).catch(err => {
-        console.error("❌ [WhatsAppSessionController.update] Background session start error:", err.message);
-      });
+      // Pequeño delay si venimos de limpieza profunda, para asegurar que el wbot
+      // viejo terminó de cerrarse antes de instanciar el nuevo.
+      const startDelay = needsDeepClean ? 1000 : 0;
+      setTimeout(() => {
+        StartWhatsAppSession(whatsapp, companyId).catch(err => {
+          console.error("❌ [WhatsAppSessionController.update] Background session start error:", err.message);
+        });
+      }, startDelay);
       console.log("✅ [WhatsAppSessionController.update] Session start initiated");
     } else {
       console.log("⚠️ [WhatsAppSessionController.update] Skipping session start - channel is not whatsapp", {
@@ -110,7 +185,11 @@ const update = async (req: Request, res: Response): Promise<Response> => {
     }
 
     console.log("🎉 [WhatsAppSessionController.update] Returning immediately - QR will be sent via socket");
-    return res.status(200).json({ message: "Sesión reiniciándose. El código QR llegará por WebSocket." });
+    return res.status(200).json({
+      message: needsDeepClean
+        ? "Limpieza profunda completada. Generando nuevo código QR…"
+        : "Sesión reiniciándose. El código QR llegará por WebSocket."
+    });
 
   } catch (error) {
     console.error("❌ [WhatsAppSessionController.update] Error during session update:", {

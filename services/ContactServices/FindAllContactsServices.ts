@@ -9,7 +9,7 @@ type Param = {
 const FindAllContactService = async ({
   companyId
 }: Param): Promise<Contact[]> => {
-  let where: any = {
+  const where: any = {
     companyId
   };
   const contacts = await Contact.findAll({

@@ -1,33 +1,22 @@
 import { useState, useEffect } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-} from '@mui/joy'
-import {
-  Cable as ConnectionsIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as ConnectedIcon,
-  Cancel as DisconnectedIcon,
-  Error as ErrorIcon,
-  PowerSettingsNew as PowerIcon,
-  Facebook as FacebookIcon,
-  Instagram as InstagramIcon,
-  WhatsApp as WhatsAppIcon,
-  Telegram as TelegramIcon,
-  Business as CompanyIcon,
-  MusicNote as MusicNoteIcon,
-} from '@mui/icons-material'
+  PlugsConnected,
+  MagnifyingGlass,
+  ArrowClockwise,
+  CheckCircle,
+  XCircle,
+  WarningCircle,
+  Power,
+  Buildings,
+  WhatsappLogo,
+  TelegramLogo,
+  FacebookLogo,
+  InstagramLogo,
+  MusicNote,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import api from '../services/api'
 
 interface Connection {
@@ -45,6 +34,8 @@ interface Connection {
   createdAt: string
   updatedAt: string
 }
+
+const columns = ['Canal', 'Nombre', 'Número', 'Empresa', 'ID Emp.', 'Estado', 'Por Defecto', 'Última Actualización']
 
 export default function AllConnections() {
   const [connections, setConnections] = useState<Connection[]>([])
@@ -102,13 +93,13 @@ export default function AllConnections() {
     companies: companiesMap.size,
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'CONNECTED':
         return 'success'
       case 'DISCONNECTED':
       case 'TIMEOUT':
-        return 'danger'
+        return 'destructive'
       case 'OPENING':
       case 'PAIRING':
         return 'warning'
@@ -122,202 +113,166 @@ export default function AllConnections() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'CONNECTED':
-        return <ConnectedIcon />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'DISCONNECTED':
       case 'TIMEOUT':
-        return <DisconnectedIcon />
+        return <XCircle className="size-3.5" weight="fill" aria-hidden />
       case 'OPENING':
       case 'PAIRING':
-        return <PowerIcon />
+        return <Power className="size-3.5" weight="fill" aria-hidden />
       default:
-        return <ErrorIcon />
+        return <WarningCircle className="size-3.5" weight="fill" aria-hidden />
     }
   }
 
   const getChannelIcon = (channel?: string) => {
     switch (channel) {
       case 'facebook':
-        return <FacebookIcon sx={{ color: '#1877F2' }} />
+        return <FacebookLogo className="size-5 text-[#1877f2]" weight="fill" aria-hidden />
       case 'instagram':
-        return <InstagramIcon sx={{ color: '#E4405F' }} />
+        return <InstagramLogo className="size-5 text-[#e4405f]" weight="fill" aria-hidden />
       case 'telegram':
-        return <TelegramIcon sx={{ color: '#0088CC' }} />
+        return <TelegramLogo className="size-5 text-[#0088cc]" weight="fill" aria-hidden />
       case 'tiktok':
-        return <MusicNoteIcon sx={{ color: '#000000' }} />
+        return <MusicNote className="size-5 text-foreground" weight="fill" aria-hidden />
       default:
-        return <WhatsAppIcon sx={{ color: '#25D366' }} />
+        return <WhatsappLogo className="size-5 text-wa" weight="fill" aria-hidden />
     }
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ConnectionsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Todas las Conexiones</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <PlugsConnected className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Todas las Conexiones
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Vista global de todas las conexiones (Solo Super Admin)
-              </Typography>
-            </Box>
-          </Stack>
-          <IconButton variant="outlined" color="neutral" onClick={fetchAllConnections}>
-            <RefreshIcon />
-          </IconButton>
-        </Stack>
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+            onClick={fetchAllConnections}
+          >
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
         {/* Error Message */}
         {error && (
-          <Card color="danger" variant="soft">
-            <CardContent>
-              <Typography level="body-md" sx={{ color: 'danger.700' }}>
-                {error}
-              </Typography>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-destructive/30 bg-destructive/12 p-4 text-sm text-destructive-text">
+            {error}
+          </div>
         )}
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Total Global</Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Conectadas</Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>{stats.connected}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>Desconectadas</Typography>
-                <Typography level="h2" sx={{ color: 'danger.main' }}>{stats.disconnected}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <CompanyIcon sx={{ color: 'primary.main' }} />
-                  <Typography level="body-sm">Empresas</Typography>
-                </Stack>
-                <Typography level="h2">{stats.companies}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Global" value={String(stats.total)} />
+          <StatTile label="Conectadas" value={String(stats.connected)} tone="success" />
+          <StatTile label="Desconectadas" value={String(stats.disconnected)} tone="destructive" />
+          <StatTile label="Empresas" value={String(stats.companies)} />
+        </div>
 
         {/* Search */}
-        <Card>
-          <CardContent>
-            <Input
-              placeholder="Buscar por nombre, número o empresa..."
-              startDecorator={<SearchIcon />}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </CardContent>
-        </Card>
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            placeholder="Buscar por nombre, número o empresa..."
+            aria-label="Buscar conexiones"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
 
         {/* Connections Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 60 }}>Canal</th>
-                  <th style={{ width: 200 }}>Nombre</th>
-                  <th style={{ width: 150 }}>Número</th>
-                  <th style={{ width: 200 }}>Empresa</th>
-                  <th style={{ width: 80 }}>ID Emp.</th>
-                  <th style={{ width: 120 }}>Estado</th>
-                  <th style={{ width: 100 }}>Por Defecto</th>
-                  <th style={{ width: 180 }}>Última Actualización</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando todas las conexiones...</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      Cargando todas las conexiones...
                     </td>
                   </tr>
                 ) : filteredConnections.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>
-                        {error ? 'Sin acceso' : 'No se encontraron conexiones'}
-                      </Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      {error ? 'Sin acceso' : 'No se encontraron conexiones'}
                     </td>
                   </tr>
                 ) : (
                   filteredConnections.map((connection) => (
-                    <tr key={connection.id}>
-                      <td>
-                        <IconButton size="sm" variant="plain" color="neutral">
+                    <tr key={connection.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <span className="flex size-8 items-center justify-center">
                           {getChannelIcon(connection.channel)}
-                        </IconButton>
+                        </span>
                       </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {connection.name}
-                        </Typography>
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {connection.name}
                       </td>
-                      <td>
-                        <Typography level="body-xs">{connection.number || '-'}</Typography>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                        {connection.number || '-'}
                       </td>
-                      <td>
-                        <Chip size="sm" variant="soft" color="primary" startDecorator={<CompanyIcon />}>
+                      <td className="px-4 py-3">
+                        <Badge variant="primary">
+                          <Buildings className="size-3.5" aria-hidden />
                           {connection.company?.name || `Empresa ${connection.companyId}`}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Chip size="sm" variant="outlined">
-                          {connection.companyId}
-                        </Chip>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">{connection.companyId}</Badge>
                       </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(connection.status)}
-                          startDecorator={getStatusIcon(connection.status)}
-                        >
+                      <td className="px-4 py-3">
+                        <Badge variant={getStatusVariant(connection.status)}>
+                          {getStatusIcon(connection.status)}
                           {connection.status}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={connection.isDefault ? 'success' : 'neutral'}
-                          variant="soft"
-                        >
+                      <td className="px-4 py-3">
+                        <Badge variant={connection.isDefault ? 'success' : 'neutral'}>
                           {connection.isDefault ? 'Sí' : 'No'}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {new Date(connection.updatedAt).toLocaleString('es-ES')}
-                        </Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {new Date(connection.updatedAt).toLocaleString('es-ES')}
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
-      </Stack>
-    </Container>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

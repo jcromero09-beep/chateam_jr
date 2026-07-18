@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * AdCopyGeneratorService
  *
@@ -317,8 +321,8 @@ Responde SOLO con JSON válido:
   "variations": [array de ${count} variaciones]
 }`;
 
-    const model = this.provider?.settings?.defaultModel || "gpt-4o";
-    const jsonModeModels = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo-1106", "gpt-4-turbo-preview", "gpt-4-turbo"];
+    const model = this.provider?.settings?.defaultModel || "gpt-5.5";
+    const jsonModeModels = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo-1106", "gpt-4-turbo-preview", "gpt-4-turbo"];
     const supportsJsonMode = jsonModeModels.some(m => model.includes(m));
 
     logger.info(`${LOG_PREFIX} Generando ${count} variaciones para nivel ${consciousnessLevel}`);

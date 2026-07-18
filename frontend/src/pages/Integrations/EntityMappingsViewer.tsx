@@ -1,36 +1,34 @@
 import React, { useState, useEffect } from 'react';
+// [Fase2·G] CircularProgress se conserva en MUI Joy a propósito (no hay equivalente
+// en el design system Tailwind/Radix todavía). El resto de la pantalla ya está migrado.
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Button,
-  Card,
-  Chip,
-  Sheet,
-  Table,
-  Typography,
-  Input,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Alert,
-  CircularProgress,
-  Stack,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel
-} from '@mui/joy';
-import {
-  Refresh as RefreshIcon,
-  Search as SearchIcon,
-  Link as LinkIcon,
-  LinkOff as _UnlinkIcon,
-  ArrowForward as ArrowIcon
-} from '@mui/icons-material';
+  ArrowClockwise,
+  ArrowRight,
+  Info,
+  LinkSimple,
+  MagnifyingGlass,
+} from '@phosphor-icons/react';
 import { toast } from 'react-toastify';
+import { StatTile } from '@/components/ui/stat-tile';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import api from '../../services/api';
 
 interface EntityMapping {
@@ -68,6 +66,35 @@ const ENTITY_TYPES = [
   { value: 'tag', label: 'Etiqueta' },
   { value: 'campaign', label: 'Campaña' }
 ];
+
+const columns = [
+  'Conexión',
+  'Tipo de Entidad',
+  'ID Local',
+  '',
+  'ID Externo',
+  'Estado Sync',
+  'Última Sincronización',
+  'Acciones'
+];
+
+/** Par etiqueta/valor de la ficha de detalle. */
+function DetailField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <div className="mt-1 text-sm text-foreground">{children}</div>
+    </div>
+  );
+}
 
 const EntityMappingsViewer: React.FC = () => {
   const [mappings, setMappings] = useState<EntityMapping[]>([]);
@@ -177,12 +204,12 @@ const EntityMappingsViewer: React.FC = () => {
     }
   };
 
-  const getSyncStatusColor = (status: string) => {
+  const getSyncStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'synced':
         return 'success';
       case 'failed':
-        return 'danger';
+        return 'destructive';
       case 'pending':
         return 'warning';
       default:
@@ -218,376 +245,324 @@ const EntityMappingsViewer: React.FC = () => {
 
   if (loading && page === 1) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography level="h2">Mapeos de Entidades</Typography>
-        <Button
-          startDecorator={<RefreshIcon />}
-          variant="outlined"
-          onClick={() => fetchMappings()}
-        >
+    <div className="space-y-6 p-5 sm:p-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <LinkSimple className="size-6" weight="bold" aria-hidden />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Mapeos de Entidades
+          </h1>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => fetchMappings()}>
+          <ArrowClockwise className="size-4" aria-hidden />
           Actualizar
         </Button>
-      </Stack>
+      </div>
 
-      {/* Statistics Cards */}
-      <Stack direction="row" spacing={2} mb={3}>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Total Mapeos
-          </Typography>
-          <Typography level="h3">
-            {stats.total}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Sincronizados
-          </Typography>
-          <Typography level="h3" color="success">
-            {stats.synced}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Pendientes
-          </Typography>
-          <Typography level="h3" color="warning">
-            {stats.pending}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Fallidos
-          </Typography>
-          <Typography level="h3" color="danger">
-            {stats.failed}
-          </Typography>
-        </Card>
-      </Stack>
+      {/* Statistics */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile label="Total Mapeos" value={String(stats.total)} />
+        <StatTile label="Sincronizados" value={String(stats.synced)} tone="success" />
+        <StatTile label="Pendientes" value={String(stats.pending)} tone="warning" />
+        <StatTile label="Fallidos" value={String(stats.failed)} tone="destructive" />
+      </div>
 
       {/* Filters */}
-      <Card sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} flexWrap="wrap">
-          <FormControl sx={{ minWidth: 200 }}>
-            <FormLabel>Conexión</FormLabel>
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-[200px] space-y-1.5">
+            <Label htmlFor="filter-connection">Conexión</Label>
             <Select
               value={filters.connection_id}
-              onChange={(_, value) => setFilters({ ...filters, connection_id: value! })}
+              onValueChange={(value) => setFilters({ ...filters, connection_id: value })}
             >
-              <Option value="all">Todas</Option>
-              {connections.map((conn) => (
-                <Option key={conn.id} value={conn.id.toString()}>
-                  {conn.name}
-                </Option>
-              ))}
+              <SelectTrigger id="filter-connection">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {connections.map((conn) => (
+                  <SelectItem key={conn.id} value={conn.id.toString()}>
+                    {conn.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
+          </div>
 
-          <FormControl sx={{ minWidth: 200 }}>
-            <FormLabel>Tipo de Entidad</FormLabel>
+          <div className="min-w-[200px] space-y-1.5">
+            <Label htmlFor="filter-entity-type">Tipo de Entidad</Label>
             <Select
               value={filters.entity_type}
-              onChange={(_, value) => setFilters({ ...filters, entity_type: value! })}
+              onValueChange={(value) => setFilters({ ...filters, entity_type: value })}
             >
-              <Option value="all">Todas</Option>
-              {ENTITY_TYPES.map((entity) => (
-                <Option key={entity.value} value={entity.value}>
-                  {entity.label}
-                </Option>
-              ))}
+              <SelectTrigger id="filter-entity-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {ENTITY_TYPES.map((entity) => (
+                  <SelectItem key={entity.value} value={entity.value}>
+                    {entity.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
+          </div>
 
-          <FormControl sx={{ minWidth: 150 }}>
-            <FormLabel>Estado de Sync</FormLabel>
+          <div className="min-w-[150px] space-y-1.5">
+            <Label htmlFor="filter-sync-status">Estado de Sync</Label>
             <Select
               value={filters.sync_status}
-              onChange={(_, value) => setFilters({ ...filters, sync_status: value! })}
+              onValueChange={(value) => setFilters({ ...filters, sync_status: value })}
             >
-              <Option value="all">Todos</Option>
-              <Option value="synced">Sincronizado</Option>
-              <Option value="pending">Pendiente</Option>
-              <Option value="failed">Fallido</Option>
+              <SelectTrigger id="filter-sync-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="synced">Sincronizado</SelectItem>
+                <SelectItem value="pending">Pendiente</SelectItem>
+                <SelectItem value="failed">Fallido</SelectItem>
+              </SelectContent>
             </Select>
-          </FormControl>
+          </div>
 
-          <FormControl sx={{ minWidth: 250, flex: 1 }}>
-            <FormLabel>Buscar por ID</FormLabel>
+          <div className="min-w-[250px] flex-1 space-y-1.5">
+            <Label htmlFor="filter-search">Buscar por ID</Label>
             <Input
+              id="filter-search"
+              className="h-9"
               placeholder="ID local o externo..."
               value={filters.search}
               onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              startDecorator={<SearchIcon />}
+              leftIcon={<MagnifyingGlass aria-hidden />}
             />
-          </FormControl>
+          </div>
 
-          <Box sx={{ display: 'flex', alignItems: 'flex-end' }}>
-            <Button
-              variant="outlined"
-              color="neutral"
-              onClick={handleResetFilters}
-            >
-              Limpiar
-            </Button>
-          </Box>
-        </Stack>
-      </Card>
+          <Button variant="outline" size="sm" onClick={handleResetFilters}>
+            Limpiar
+          </Button>
+        </div>
+      </div>
 
       {/* Mappings Table */}
       {mappings.length === 0 ? (
-        <Alert color="neutral">
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+        >
+          <Info className="size-[18px] shrink-0" aria-hidden />
           No se encontraron mapeos con los filtros aplicados.
-        </Alert>
+        </div>
       ) : (
         <>
-          <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th>Conexión</th>
-                  <th>Tipo de Entidad</th>
-                  <th>ID Local</th>
-                  <th></th>
-                  <th>ID Externo</th>
-                  <th>Estado Sync</th>
-                  <th>Última Sincronización</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mappings.map((mapping) => (
-                  <tr key={mapping.id}>
-                    <td>
-                      <Typography level="body-sm" noWrap sx={{ maxWidth: 150 }}>
-                        {getConnectionName(mapping.connection_id)}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {getEntityTypeLabel(mapping.entity_type)}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft" color="primary">
-                        {mapping.local_id}
-                      </Chip>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <LinkIcon fontSize="small" color="action" />
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft" color="success">
-                        {mapping.external_id}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={getSyncStatusColor(mapping.sync_status)}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c, i) => (
+                      <th
+                        key={i}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                       >
-                        {mapping.sync_status}
-                      </Chip>
-                    </td>
-                    <td>{formatDate(mapping.last_synced_at)}</td>
-                    <td>
-                      <Stack direction="row" spacing={1}>
-                        <Button
-                          size="sm"
-                          variant="plain"
-                          onClick={() => handleShowDetails(mapping)}
-                        >
-                          Ver Detalles
-                        </Button>
-                        {mapping.sync_status === 'failed' && (
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="warning"
-                            onClick={() => handleResyncMapping(mapping.id)}
-                          >
-                            Resincronizar
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color="danger"
-                          onClick={() => handleUnlinkMapping(mapping.id)}
-                        >
-                          Desenlazar
-                        </Button>
-                      </Stack>
-                    </td>
+                        {c}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {mappings.map((mapping) => (
+                    <tr key={mapping.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <span className="block max-w-[150px] truncate text-foreground">
+                          {getConnectionName(mapping.connection_id)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">{getEntityTypeLabel(mapping.entity_type)}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="primary">{mapping.local_id}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <LinkSimple
+                          className="inline-block size-[18px] text-muted-foreground"
+                          aria-hidden
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="success">{mapping.external_id}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={getSyncStatusVariant(mapping.sync_status)} dot>
+                          {mapping.sync_status}
+                        </Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {formatDate(mapping.last_synced_at)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleShowDetails(mapping)}
+                          >
+                            Ver Detalles
+                          </Button>
+                          {mapping.sync_status === 'failed' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
+                              onClick={() => handleResyncMapping(mapping.id)}
+                            >
+                              Resincronizar
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+                            onClick={() => handleUnlinkMapping(mapping.id)}
+                          >
+                            Desenlazar
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* Pagination */}
-          <Stack direction="row" justifyContent="center" spacing={2} mt={3}>
+          <div className="flex items-center justify-center gap-4">
             <Button
-              variant="outlined"
+              variant="outline"
+              size="sm"
               disabled={page === 1}
               onClick={() => setPage(page - 1)}
             >
               Anterior
             </Button>
-            <Typography level="body-md" sx={{ display: 'flex', alignItems: 'center' }}>
+            <span className="text-sm text-muted-foreground">
               Página {page} de {totalPages}
-            </Typography>
+            </span>
             <Button
-              variant="outlined"
+              variant="outline"
+              size="sm"
               disabled={page === totalPages}
               onClick={() => setPage(page + 1)}
             >
               Siguiente
             </Button>
-          </Stack>
+          </div>
         </>
       )}
 
       {/* Details Modal */}
-      <Modal open={detailsModalOpen} onClose={() => setDetailsModalOpen(false)}>
-        <ModalDialog sx={{ width: 800, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" mb={2}>
-            Detalles del Mapeo de Entidad
-          </Typography>
+      <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
+        <DialogContent className="max-w-[800px]">
+          <DialogHeader>
+            <DialogTitle>Detalles del Mapeo de Entidad</DialogTitle>
+          </DialogHeader>
 
           {selectedMapping && (
-            <Tabs defaultValue={0}>
-              <TabList>
-                <Tab>Información del Mapeo</Tab>
-                <Tab>Detalles de la Entidad Local</Tab>
-              </TabList>
+            <Tabs defaultValue="mapping">
+              <TabsList>
+                <TabsTrigger value="mapping">Información del Mapeo</TabsTrigger>
+                <TabsTrigger value="entity">Detalles de la Entidad Local</TabsTrigger>
+              </TabsList>
 
-              <TabPanel value={0}>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={2}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        ID del Mapeo
-                      </Typography>
-                      <Typography level="body-md">{selectedMapping.id}</Typography>
-                    </Box>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        Conexión
-                      </Typography>
-                      <Typography level="body-md">
-                        {getConnectionName(selectedMapping.connection_id)}
-                      </Typography>
-                    </Box>
-                  </Stack>
+              <TabsContent value="mapping" className="mt-4 space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <DetailField label="ID del Mapeo">{selectedMapping.id}</DetailField>
+                  <DetailField label="Conexión">
+                    {getConnectionName(selectedMapping.connection_id)}
+                  </DetailField>
+                </div>
 
-                  <Box>
-                    <Typography level="body-sm" textColor="text.secondary">
-                      Tipo de Entidad
-                    </Typography>
-                    <Chip size="sm" variant="outlined">
-                      {getEntityTypeLabel(selectedMapping.entity_type)}
-                    </Chip>
-                  </Box>
+                <DetailField label="Tipo de Entidad">
+                  <Badge variant="outline">
+                    {getEntityTypeLabel(selectedMapping.entity_type)}
+                  </Badge>
+                </DetailField>
 
-                  <Stack direction="row" spacing={2} alignItems="center">
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        ID Local (Sistema JR Chateam)
-                      </Typography>
-                      <Chip size="md" variant="soft" color="primary">
-                        {selectedMapping.local_id}
-                      </Chip>
-                    </Box>
-                    <ArrowIcon fontSize="large" />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        ID Externo (Sistema Integrado)
-                      </Typography>
-                      <Chip size="md" variant="soft" color="success">
-                        {selectedMapping.external_id}
-                      </Chip>
-                    </Box>
-                  </Stack>
+                <div className="flex items-center gap-4">
+                  <DetailField label="ID Local (Sistema JR Chateam)" className="flex-1">
+                    <Badge variant="primary">{selectedMapping.local_id}</Badge>
+                  </DetailField>
+                  <ArrowRight className="size-6 shrink-0 text-muted-foreground" aria-hidden />
+                  <DetailField label="ID Externo (Sistema Integrado)" className="flex-1">
+                    <Badge variant="success">{selectedMapping.external_id}</Badge>
+                  </DetailField>
+                </div>
 
-                  <Box>
-                    <Typography level="body-sm" textColor="text.secondary">
-                      Estado de Sincronización
-                    </Typography>
-                    <Chip
-                      size="md"
-                      variant="soft"
-                      color={getSyncStatusColor(selectedMapping.sync_status)}
-                    >
-                      {selectedMapping.sync_status}
-                    </Chip>
-                  </Box>
+                <DetailField label="Estado de Sincronización">
+                  <Badge variant={getSyncStatusVariant(selectedMapping.sync_status)} dot>
+                    {selectedMapping.sync_status}
+                  </Badge>
+                </DetailField>
 
-                  <Stack direction="row" spacing={2}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        Última Sincronización
-                      </Typography>
-                      <Typography level="body-md">
-                        {formatDate(selectedMapping.last_synced_at)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography level="body-sm" textColor="text.secondary">
-                        Creado
-                      </Typography>
-                      <Typography level="body-md">
-                        {formatDate(selectedMapping.created_at)}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </Stack>
-              </TabPanel>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <DetailField label="Última Sincronización">
+                    {formatDate(selectedMapping.last_synced_at)}
+                  </DetailField>
+                  <DetailField label="Creado">
+                    {formatDate(selectedMapping.created_at)}
+                  </DetailField>
+                </div>
+              </TabsContent>
 
-              <TabPanel value={1}>
+              <TabsContent value="entity" className="mt-4">
                 {loadingDetails ? (
-                  <Box display="flex" justifyContent="center" p={4}>
+                  <div className="flex justify-center p-8">
                     <CircularProgress />
-                  </Box>
+                  </div>
                 ) : entityDetails ? (
-                  <Box>
-                    <Alert color="primary" sx={{ mb: 2 }}>
-                      Datos de la entidad local (ID: {selectedMapping.local_id})
-                    </Alert>
-                    <Sheet
-                      variant="outlined"
-                      sx={{
-                        p: 2,
-                        borderRadius: 'sm',
-                        maxHeight: 400,
-                        overflow: 'auto'
-                      }}
+                  <div className="space-y-3">
+                    <div
+                      role="status"
+                      className="flex items-center gap-2 rounded-lg border border-border bg-accent/60 px-4 py-3 text-sm text-accent-foreground"
                     >
-                      <pre style={{ margin: 0, fontSize: '0.875rem' }}>
+                      <Info className="size-[18px] shrink-0" aria-hidden />
+                      Datos de la entidad local (ID: {selectedMapping.local_id})
+                    </div>
+                    <div className="max-h-[400px] overflow-auto rounded-lg border border-border bg-muted/40 p-4">
+                      <pre className="m-0 whitespace-pre-wrap break-words font-mono text-sm text-foreground">
                         {JSON.stringify(entityDetails, null, 2)}
                       </pre>
-                    </Sheet>
-                  </Box>
+                    </div>
+                  </div>
                 ) : (
-                  <Alert color="neutral">
+                  <div
+                    role="status"
+                    className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+                  >
+                    <Info className="size-[18px] shrink-0" aria-hidden />
                     No se pudieron cargar los detalles de la entidad.
-                  </Alert>
+                  </div>
                 )}
-              </TabPanel>
+              </TabsContent>
             </Tabs>
           )}
-        </ModalDialog>
-      </Modal>
-    </Box>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 

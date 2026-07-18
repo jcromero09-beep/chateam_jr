@@ -4,22 +4,16 @@
  */
 
 import { useState, useEffect, useCallback, useContext } from 'react';
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert
-} from '@mui/joy';
-import VideocamIcon from '@mui/icons-material/Videocam';
-import AddIcon from '@mui/icons-material/Add';
-import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import HistoryIcon from '@mui/icons-material/History';
+  VideoCamera,
+  Plus,
+  FilmStrip,
+  TrendUp,
+  ClockCounterClockwise,
+} from '@phosphor-icons/react';
 
+import { Button } from '@/components/ui/button';
 import CreditBalanceDisplay from '../components/CreditBalanceDisplay';
 import VideoGenerationModal from '../components/VideoGenerationModal';
 import VideoGenerationHistory from '../components/VideoGenerationHistory';
@@ -203,130 +197,116 @@ export default function AIVideoGeneration() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3
-        }}
-      >
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <VideocamIcon sx={{ color: 'primary.500' }} />
-            Generacion de Videos con IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Genera videos con IA usando OpenAI Sora
-          </Typography>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <VideoCamera className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Generacion de Videos con IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Genera videos con IA usando OpenAI Sora
+              </p>
+            </div>
+          </div>
 
-        <Button
-          size="lg"
-          startDecorator={<AddIcon />}
-          onClick={() => setModalOpen(true)}
-          disabled={loadingCredits || creditsBalance <= 0}
-        >
-          Nueva Generacion
-        </Button>
-      </Box>
+          <Button
+            size="lg"
+            onClick={() => setModalOpen(true)}
+            disabled={loadingCredits || creditsBalance <= 0}
+          >
+            <Plus className="size-4" weight="bold" aria-hidden />
+            Nueva Generacion
+          </Button>
+        </div>
 
-      {/* Error global */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+        {/* Error global */}
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+          >
+            {error}
+          </div>
+        )}
 
-      {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {/* Balance de Créditos */}
-        <Grid xs={12} sm={6} md={3}>
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+          {/* Balance de Créditos */}
           <CreditBalanceDisplay
             balance={creditsBalance}
             totalUsed={totalCreditsUsed}
             loading={loadingCredits}
           />
-        </Grid>
 
-        {/* Total Generaciones */}
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <HistoryIcon sx={{ fontSize: 20, color: 'primary.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Total Generaciones
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {formatNumber(stats.totalGenerations)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          {/* Total Generaciones */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <ClockCounterClockwise className="size-5 text-brand-teal" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                Total Generaciones
+              </span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {formatNumber(stats.totalGenerations)}
+              </p>
+            )}
+          </div>
 
-        {/* Total Videos */}
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <VideoLibraryIcon sx={{ fontSize: 20, color: 'success.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Videos Generados
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {formatNumber(stats.totalVideos)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          {/* Total Videos */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <FilmStrip className="size-5 text-success-text" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                Videos Generados
+              </span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {formatNumber(stats.totalVideos)}
+              </p>
+            )}
+          </div>
 
-        {/* Generaciones Recientes */}
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <TrendingUpIcon sx={{ fontSize: 20, color: 'warning.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Ultimas 24 Horas
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {formatNumber(stats.recentGenerations)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          {/* Generaciones Recientes */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <TrendUp className="size-5 text-warning-text" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                Ultimas 24 Horas
+              </span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {formatNumber(stats.recentGenerations)}
+              </p>
+            )}
+          </div>
+        </div>
 
-      {/* Historial */}
-      <Box sx={{ mb: 2 }}>
-        <Typography level="h4" sx={{ mb: 2 }}>
-          Historial de Generaciones
-        </Typography>
-        <VideoGenerationHistory
-          onRefresh={handleHistoryRefresh}
-          refreshTrigger={refreshTrigger}
-        />
-      </Box>
+        {/* Historial */}
+        <div>
+          <h2 className="mb-4 text-lg font-semibold text-foreground">
+            Historial de Generaciones
+          </h2>
+          <VideoGenerationHistory
+            onRefresh={handleHistoryRefresh}
+            refreshTrigger={refreshTrigger}
+          />
+        </div>
+      </div>
 
       {/* Modal de Generación */}
       <VideoGenerationModal
@@ -335,6 +315,6 @@ export default function AIVideoGeneration() {
         onSuccess={handleGenerationSuccess}
         currentBalance={creditsBalance}
       />
-    </Box>
+    </div>
   );
 }

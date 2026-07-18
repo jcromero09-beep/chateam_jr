@@ -1,54 +1,31 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  CircularProgress,
-  Menu,
-  MenuItem,
-  ListItemDecorator,
-  Dropdown,
-  MenuButton,
-} from '@mui/joy'
+  ShareNetwork,
+  ArrowClockwise,
+  Plus,
+  MagnifyingGlass,
+  WhatsappLogo,
+  TelegramLogo,
+  FacebookLogo,
+  InstagramLogo,
+  Cloud,
+  Power,
+  PencilSimple,
+  Trash,
+  QrCode,
+  CaretDown,
+  CircleNotch,
+  X,
+} from '@phosphor-icons/react'
 import UnifiedConnectionModal, { ConnectionType } from '../components/UnifiedConnectionModal'
+import ConfirmModal, { ConfirmColor } from '../components/ConfirmModal'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-toastify'
-import {
-  Cable as ConnectionsIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  QrCode as QrCodeIcon,
-  PowerSettingsNew as PowerIcon,
-  RestartAlt as RestartIcon,
-  CheckCircle as ConnectedIcon,
-  Cancel as DisconnectedIcon,
-  Error as ErrorIcon,
-  Settings as SettingsIcon,
-  Facebook as FacebookIcon,
-  Instagram as InstagramIcon,
-  WhatsApp as WhatsAppIcon,
-  Telegram as TelegramIcon,
-  Battery50 as BatteryIcon,
-  Cloud as CloudIcon,
-  KeyboardArrowDown as ArrowDownIcon,
-} from '@mui/icons-material'
 import QRCode from 'qrcode'
 import api from '../services/api'
 import socketService from '../services/socket'
@@ -82,6 +59,39 @@ interface Connection {
 const IG_AUTH_FLAG = 'ig_auth_started'
 const IG_STATE_KEY = 'ig_oauth_state'
 
+const columns = ['Tipo', 'Nombre', 'Número', 'Estado', 'Por defecto', 'Reintentos', 'Actualizado', '']
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
 export default function Connections() {
   const { user, socket } = useAuth()
   const location = useLocation()
@@ -89,6 +99,7 @@ export default function Connections() {
   const [connections, setConnections] = useState<Connection[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Modal unificado
   const [modalOpen, setModalOpen] = useState(false)
@@ -101,6 +112,27 @@ export default function Connections() {
   const [qrCodeData, setQrCodeData] = useState<string>('')
   const [qrLoading, setQrLoading] = useState(false)
   const [startingSessionId, setStartingSessionId] = useState<number | null>(null)
+
+  // Modal de confirmación reutilizable (reemplaza los window.confirm nativos)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string
+    message: string
+    confirmText: string
+    color: ConfirmColor
+    action: () => Promise<void> | void
+  } | null>(null)
+  const [confirmLoading, setConfirmLoading] = useState(false)
+
+  const handleRunConfirm = async () => {
+    if (!confirmDialog) return
+    try {
+      setConfirmLoading(true)
+      await confirmDialog.action()
+    } finally {
+      setConfirmLoading(false)
+      setConfirmDialog(null)
+    }
+  }
 
   useEffect(() => {
     fetchConnections()
@@ -304,30 +336,38 @@ export default function Connections() {
     }
   }
 
-  const handleModalSuccess = () => {
-    fetchConnections()
+  const handleDelete = (connectionId: number) => {
+    setConfirmDialog({
+      title: 'Eliminar conexión',
+      message: '¿Estás seguro de eliminar esta conexión? Esta acción no se puede deshacer.',
+      confirmText: 'Eliminar',
+      color: 'danger',
+      action: async () => {
+        try {
+          await api.delete(`/whatsapp/${connectionId}`)
+          fetchConnections()
+        } catch (error) {
+          console.error('Error deleting connection:', error)
+        }
+      },
+    })
   }
 
-  const handleDelete = async (connectionId: number) => {
-    if (confirm('¿Estás seguro de eliminar esta conexión?')) {
-      try {
-        await api.delete(`/whatsapp/${connectionId}`)
-        fetchConnections()
-      } catch (error) {
-        console.error('Error deleting connection:', error)
-      }
-    }
-  }
-
-  const handleRestart = async (connectionId: number) => {
-    if (confirm('¿Deseas reiniciar esta conexión?')) {
-      try {
-        await api.put(`/whatsappsession/${connectionId}`)
-        fetchConnections()
-      } catch (error) {
-        console.error('Error restarting connection:', error)
-      }
-    }
+  const handleRestart = (connectionId: number) => {
+    setConfirmDialog({
+      title: 'Reiniciar conexión',
+      message: '¿Deseas reiniciar esta conexión? Se restablecerá la sesión de WhatsApp.',
+      confirmText: 'Reiniciar',
+      color: 'primary',
+      action: async () => {
+        try {
+          await api.put(`/whatsappsession/${connectionId}`)
+          fetchConnections()
+        } catch (error) {
+          console.error('Error restarting connection:', error)
+        }
+      },
+    })
   }
 
   const handleStartSession = async (connectionId: number) => {
@@ -344,15 +384,21 @@ export default function Connections() {
     }
   }
 
-  const handleDisconnect = async (connectionId: number) => {
-    if (confirm('¿Deseas desconectar esta conexión?')) {
-      try {
-        await api.delete(`/whatsappsession/${connectionId}`)
-        fetchConnections()
-      } catch (error) {
-        console.error('Error disconnecting:', error)
-      }
-    }
+  const handleDisconnect = (connectionId: number) => {
+    setConfirmDialog({
+      title: 'Desconectar conexión',
+      message: '¿Deseas desconectar esta conexión? Dejará de recibir y enviar mensajes hasta reconectarla.',
+      confirmText: 'Desconectar',
+      color: 'warning',
+      action: async () => {
+        try {
+          await api.delete(`/whatsappsession/${connectionId}`)
+          fetchConnections()
+        } catch (error) {
+          console.error('Error disconnecting:', error)
+        }
+      },
+    })
   }
 
   // Iniciar sesion cuando está en OPENING (genera el QR en el backend)
@@ -406,6 +452,7 @@ export default function Connections() {
     setSelectedConnectionType(type)
     setSelectedConnectionId(connectionId || null)
     setModalOpen(true)
+    setMenuOpen(false)
   }
 
   const handleCloseModal = () => {
@@ -432,15 +479,21 @@ export default function Connections() {
     }
   }
 
-  const handleDeleteTelegram = async (telegramId: number) => {
-    if (confirm('¿Deseas eliminar este bot de Telegram?')) {
-      try {
-        await api.delete(`/telegram/${telegramId}`)
-        fetchConnections()
-      } catch (error) {
-        console.error('Error deleting Telegram:', error)
-      }
-    }
+  const handleDeleteTelegram = (telegramId: number) => {
+    setConfirmDialog({
+      title: 'Eliminar bot de Telegram',
+      message: '¿Deseas eliminar este bot de Telegram? Esta acción no se puede deshacer.',
+      confirmText: 'Eliminar',
+      color: 'danger',
+      action: async () => {
+        try {
+          await api.delete(`/telegram/${telegramId}`)
+          fetchConnections()
+        } catch (error) {
+          console.error('Error deleting Telegram:', error)
+        }
+      },
+    })
   }
 
   // Helper para obtener el icono del canal
@@ -448,15 +501,31 @@ export default function Connections() {
     const channel = connection.channel || connection.type || 'whatsapp'
     switch (channel) {
       case 'telegram':
-        return <TelegramIcon sx={{ color: '#0088cc' }} />
+        return <TelegramLogo className="size-5 text-[#0088cc]" weight="fill" aria-hidden />
       case 'facebook':
-        return <FacebookIcon sx={{ color: '#1877f2' }} />
+        return <FacebookLogo className="size-5 text-[#1877f2]" weight="fill" aria-hidden />
       case 'instagram':
-        return <InstagramIcon sx={{ color: '#e4405f' }} />
+        return <InstagramLogo className="size-5 text-[#e4405f]" weight="fill" aria-hidden />
       case 'meta':
-        return <CloudIcon sx={{ color: '#25d366' }} />
+        return <Cloud className="size-5 text-wa" weight="fill" aria-hidden />
       default:
-        return <WhatsAppIcon sx={{ color: '#25d366' }} />
+        return <WhatsappLogo className="size-5 text-wa" weight="fill" aria-hidden />
+    }
+  }
+
+  const getChannelLabel = (connection: Connection) => {
+    const channel = connection.channel || connection.type || 'whatsapp'
+    switch (channel) {
+      case 'telegram':
+        return 'Telegram'
+      case 'facebook':
+        return 'Facebook'
+      case 'instagram':
+        return 'Instagram'
+      case 'meta':
+        return 'Cloud API'
+      default:
+        return 'WhatsApp'
     }
   }
 
@@ -474,35 +543,22 @@ export default function Connections() {
     opening: connections.filter((c) => c.status === 'OPENING' || c.status === 'PAIRING').length,
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadge = (status: string): { label: string; variant: BadgeProps['variant'] } => {
     switch (status) {
       case 'CONNECTED':
-        return 'success'
+        return { label: 'Conectado', variant: 'success' }
       case 'DISCONNECTED':
       case 'TIMEOUT':
-        return 'danger'
+        return { label: 'Desconectado', variant: 'destructive' }
       case 'OPENING':
       case 'PAIRING':
-        return 'warning'
+        return { label: 'Conectando', variant: 'warning' }
       case 'qrcode':
-        return 'primary'
+        return { label: 'QR Code', variant: 'primary' }
+      case 'ERROR':
+        return { label: 'Error', variant: 'destructive' }
       default:
-        return 'neutral'
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'CONNECTED':
-        return <ConnectedIcon />
-      case 'DISCONNECTED':
-      case 'TIMEOUT':
-        return <DisconnectedIcon />
-      case 'OPENING':
-      case 'PAIRING':
-        return <PowerIcon />
-      default:
-        return <ErrorIcon />
+        return { label: status, variant: 'neutral' }
     }
   }
 
@@ -512,605 +568,385 @@ export default function Connections() {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ConnectionsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Conexiones</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Gestión de conexiones WhatsApp y redes sociales
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1.5} flexWrap="wrap" alignItems="center">
-            <Dropdown>
-              <MenuButton
-                variant="solid"
-                color="primary"
-                size="lg"
-                endDecorator={<ArrowDownIcon />}
-                startDecorator={<AddIcon />}
-                sx={{
-                  px: 3,
-                  py: 1,
-                  fontWeight: 600,
-                  borderRadius: 'lg',
-                  boxShadow: 'sm',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  '&:hover': {
-                    background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%)',
-                    boxShadow: 'md',
-                  },
-                }}
-              >
-                Nueva Conexion
-              </MenuButton>
-              <Menu
-                placement="bottom-end"
-                sx={{
-                  minWidth: 280,
-                  p: 1,
-                  borderRadius: 'lg',
-                  boxShadow: 'lg',
-                  '--ListItem-radius': '8px',
-                }}
-              >
-                {/* WhatsApp Section */}
-                <Typography
-                  level="body-xs"
-                  sx={{ px: 1.5, py: 0.5, color: 'text.tertiary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}
-                >
-                  WhatsApp
-                </Typography>
-                <MenuItem
-                  onClick={() => openConnectionModal('whatsapp')}
-                  sx={{
-                    py: 1.5,
-                    '&:hover': { bgcolor: '#25d36615' },
-                  }}
-                >
-                  <ListItemDecorator>
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '10px',
-                        bgcolor: '#25d36620',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <WhatsAppIcon sx={{ color: '#25d366', fontSize: 20 }} />
-                    </Box>
-                  </ListItemDecorator>
-                  <Box sx={{ ml: 0.5 }}>
-                    <Typography level="body-sm" fontWeight={600}>WhatsApp Baileys</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Conexion via QR Code</Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem
-                  onClick={() => openConnectionModal('meta')}
-                  sx={{
-                    py: 1.5,
-                    '&:hover': { bgcolor: '#25d36615' },
-                  }}
-                >
-                  <ListItemDecorator>
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '10px',
-                        bgcolor: '#25d36620',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <CloudIcon sx={{ color: '#25d366', fontSize: 20 }} />
-                    </Box>
-                  </ListItemDecorator>
-                  <Box sx={{ ml: 0.5 }}>
-                    <Typography level="body-sm" fontWeight={600}>Meta Cloud API</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>API oficial de WhatsApp Business</Typography>
-                  </Box>
-                </MenuItem>
-
-                <Box sx={{ my: 1, borderTop: '1px solid', borderColor: 'divider' }} />
-
-                {/* Social Section */}
-                <Typography
-                  level="body-xs"
-                  sx={{ px: 1.5, py: 0.5, color: 'text.tertiary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}
-                >
-                  Redes Sociales
-                </Typography>
-                <MenuItem
-                  onClick={() => openConnectionModal('facebook')}
-                  sx={{
-                    py: 1.5,
-                    '&:hover': { bgcolor: '#1877f215' },
-                  }}
-                >
-                  <ListItemDecorator>
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '10px',
-                        bgcolor: '#1877f220',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <FacebookIcon sx={{ color: '#1877f2', fontSize: 20 }} />
-                    </Box>
-                  </ListItemDecorator>
-                  <Box sx={{ ml: 0.5 }}>
-                    <Typography level="body-sm" fontWeight={600}>Facebook Messenger</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Conectar pagina de Facebook</Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem
-                  onClick={() => openConnectionModal('instagram')}
-                  sx={{
-                    py: 1.5,
-                    '&:hover': { bgcolor: '#e4405f15' },
-                  }}
-                >
-                  <ListItemDecorator>
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '10px',
-                        background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
-                        opacity: 0.2,
-                        position: 'absolute',
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '10px',
-                        bgcolor: '#e4405f20',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <InstagramIcon sx={{ color: '#e4405f', fontSize: 20 }} />
-                    </Box>
-                  </ListItemDecorator>
-                  <Box sx={{ ml: 0.5 }}>
-                    <Typography level="body-sm" fontWeight={600}>Instagram Direct</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Mensajes de Instagram Business</Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem
-                  onClick={() => openConnectionModal('telegram')}
-                  sx={{
-                    py: 1.5,
-                    '&:hover': { bgcolor: '#0088cc15' },
-                  }}
-                >
-                  <ListItemDecorator>
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '10px',
-                        bgcolor: '#0088cc20',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <TelegramIcon sx={{ color: '#0088cc', fontSize: 20 }} />
-                    </Box>
-                  </ListItemDecorator>
-                  <Box sx={{ ml: 0.5 }}>
-                    <Typography level="body-sm" fontWeight={600}>Telegram Bot</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Conectar bot de Telegram</Typography>
-                  </Box>
-                </MenuItem>
-              </Menu>
-            </Dropdown>
-            <IconButton
-              variant="soft"
-              color="neutral"
-              size="lg"
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ShareNetwork className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Conexiones
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestión de conexiones de WhatsApp y redes sociales
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
               onClick={fetchConnections}
-              sx={{
-                borderRadius: 'lg',
-                '&:hover': { bgcolor: 'neutral.200' },
-              }}
             >
-              <RefreshIcon />
-            </IconButton>
-          </Stack>
-        </Stack>
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            {/* Menú Nueva conexión */}
+            <div className="relative">
+              <Button size="sm" onClick={() => setMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={menuOpen}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Nueva conexión
+                <CaretDown className="size-4" aria-hidden />
+              </Button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-lg border border-border bg-card p-1.5 shadow-lg"
+                  >
+                    <p className="px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      WhatsApp
+                    </p>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openConnectionModal('whatsapp')}
+                      className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-wa/15">
+                        <WhatsappLogo className="size-5 text-wa" weight="fill" aria-hidden />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium text-foreground">WhatsApp Baileys</span>
+                        <span className="block text-xs text-muted-foreground">Conexión vía código QR</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openConnectionModal('meta')}
+                      className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-wa/15">
+                        <Cloud className="size-5 text-wa" weight="fill" aria-hidden />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium text-foreground">Meta Cloud API</span>
+                        <span className="block text-xs text-muted-foreground">API oficial de WhatsApp Business</span>
+                      </span>
+                    </button>
+
+                    <div className="my-1.5 border-t border-border" />
+
+                    <p className="px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Redes sociales
+                    </p>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openConnectionModal('facebook')}
+                      className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#1877f2]/15">
+                        <FacebookLogo className="size-5 text-[#1877f2]" weight="fill" aria-hidden />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium text-foreground">Facebook Messenger</span>
+                        <span className="block text-xs text-muted-foreground">Conectar página de Facebook</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openConnectionModal('instagram')}
+                      className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#e4405f]/15">
+                        <InstagramLogo className="size-5 text-[#e4405f]" weight="fill" aria-hidden />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium text-foreground">Instagram Direct</span>
+                        <span className="block text-xs text-muted-foreground">Mensajes de Instagram Business</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openConnectionModal('telegram')}
+                      className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#0088cc]/15">
+                        <TelegramLogo className="size-5 text-[#0088cc]" weight="fill" aria-hidden />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium text-foreground">Telegram Bot</span>
+                        <span className="block text-xs text-muted-foreground">Conectar bot de Telegram</span>
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Total Conexiones
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Conectadas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.connected}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Desconectadas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'danger.main' }}>
-                  {stats.disconnected}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Conectando
-                </Typography>
-                <Typography level="h2" sx={{ color: 'warning.main' }}>
-                  {stats.opening}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total conexiones" value={String(stats.total)} />
+          <StatTile label="Conectadas" value={String(stats.connected)} tone="success" />
+          <StatTile label="Desconectadas" value={String(stats.disconnected)} tone="destructive" />
+          <StatTile label="Conectando" value={String(stats.opening)} tone="warning" />
+        </div>
 
         {/* Search */}
-        <Card>
-          <CardContent>
-            <Input
-              placeholder="Buscar conexiones por nombre o número..."
-              startDecorator={<SearchIcon />}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </CardContent>
-        </Card>
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            placeholder="Buscar por nombre o número"
+            aria-label="Buscar conexiones"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
 
         {/* Connections Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 60 }}>Tipo</th>
-                  <th style={{ width: 200 }}>Nombre</th>
-                  <th style={{ width: 150 }}>Número</th>
-                  <th style={{ width: 120 }}>Estado</th>
-                  <th style={{ width: 100 }}>Batería</th>
-                  <th style={{ width: 100 }}>Por Defecto</th>
-                  <th style={{ width: 100 }}>Reintentos</th>
-                  <th style={{ width: 180 }}>Última Actualización</th>
-                  <th style={{ width: 250 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando conexiones...</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      Cargando conexiones...
                     </td>
                   </tr>
                 ) : filteredConnections.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron conexiones</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron conexiones
                     </td>
                   </tr>
                 ) : (
-                  filteredConnections.map((connection) => (
-                    <tr key={connection.id}>
-                      <td>
-                        <IconButton size="sm" variant="plain" color="neutral">
-                          {getChannelIcon(connection)}
-                        </IconButton>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {connection.name}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">{connection.number || '-'}</Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                          <Chip
-                            size="sm"
-                            color={getStatusColor(connection.status)}
-                            startDecorator={getStatusIcon(connection.status)}
-                          >
-                            {connection.status}
-                          </Chip>
-                          {connection.coexistenceEnabled && (
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={
-                                connection.coexistenceStatus === 'active' ? 'success'
-                                  : connection.coexistenceStatus === 'disabled' ? 'danger'
-                                  : 'warning'
-                              }
-                            >
-                              Coex: {connection.coexistenceStatus || 'N/A'}
-                            </Chip>
-                          )}
-                        </Stack>
-                      </td>
-                      <td>
-                        {connection.battery !== undefined ? (
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <BatteryIcon
-                              sx={{
-                                fontSize: 18,
-                                color:
-                                  connection.battery > 50
-                                    ? 'success.main'
-                                    : connection.battery > 20
-                                      ? 'warning.main'
-                                      : 'danger.main',
-                              }}
-                            />
-                            <Typography level="body-xs">{connection.battery}%</Typography>
-                            {connection.plugged && (
-                              <Chip size="sm" variant="soft" color="success">
-                                🔌
-                              </Chip>
+                  filteredConnections.map((connection) => {
+                    const status = getStatusBadge(connection.status)
+                    return (
+                      <tr key={connection.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            {getChannelIcon(connection)}
+                            <span>{getChannelLabel(connection)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-foreground">{connection.name}</td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                          {connection.number || '-'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant={status.variant} dot>{status.label}</Badge>
+                            {connection.coexistenceEnabled && (
+                              <Badge
+                                variant={
+                                  connection.coexistenceStatus === 'active'
+                                    ? 'success'
+                                    : connection.coexistenceStatus === 'disabled'
+                                      ? 'destructive'
+                                      : 'warning'
+                                }
+                              >
+                                Coex: {connection.coexistenceStatus || 'N/A'}
+                              </Badge>
                             )}
-                          </Stack>
-                        ) : (
-                          <Typography level="body-xs">-</Typography>
-                        )}
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={connection.isDefault ? 'success' : 'neutral'}
-                          variant="soft"
-                        >
-                          {connection.isDefault ? 'Sí' : 'No'}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={
-                            (connection.retries || 0) > 2
-                              ? 'danger'
-                              : (connection.retries || 0) > 0
-                                ? 'warning'
-                                : 'neutral'
-                          }
-                        >
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={connection.isDefault ? 'primary' : 'neutral'}>
+                            {connection.isDefault ? 'Sí' : 'No'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
                           {connection.retries || 0}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                           {new Date(connection.updatedAt).toLocaleString('es-ES')}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          {/* Acciones para Telegram */}
-                          {isTelegramConnection(connection) ? (
-                            <>
-                              {/* Reiniciar bot de Telegram */}
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="warning"
-                                onClick={() => handleRestartTelegram(connection.id)}
-                                title="Reiniciar Bot"
-                              >
-                                <RestartIcon />
-                              </IconButton>
-
-                              {/* Editar Telegram - Usa modal unificado */}
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="primary"
-                                onClick={() => openConnectionModal('telegram', connection.id)}
-                                title="Editar"
-                              >
-                                <EditIcon />
-                              </IconButton>
-
-                              {/* Eliminar Telegram */}
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="danger"
-                                onClick={() => handleDeleteTelegram(connection.id)}
-                                title="Eliminar"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </>
-                          ) : (
-                            <>
-                              {/* Acciones para WhatsApp/Meta/Facebook/Instagram */}
-                              {/* Boton para OPENING/PAIRING: inicia la sesion para generar QR */}
-                              {(connection.status === 'OPENING' || connection.status === 'PAIRING') && (
-                                <IconButton
-                                  size="sm"
-                                  variant="solid"
-                                  color="warning"
-                                  onClick={() => handleStartQrSession(connection)}
-                                  disabled={startingSessionId === connection.id}
-                                  title="Generar Código QR"
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-0.5">
+                            {isTelegramConnection(connection) ? (
+                              <>
+                                <ActionBtn
+                                  label="Reiniciar bot"
+                                  onClick={() => handleRestartTelegram(connection.id)}
                                 >
-                                  <QrCodeIcon />
-                                </IconButton>
-                              )}
-
-                              {/* Boton para qrcode: muestra el QR en modal */}
-                              {connection.status === 'qrcode' && (
-                                <IconButton
-                                  size="sm"
-                                  variant="solid"
-                                  color="primary"
-                                  onClick={() => handleShowQrCode(connection)}
-                                  title="Ver Código QR"
+                                  <ArrowClockwise className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                                <ActionBtn
+                                  label="Editar"
+                                  onClick={() => openConnectionModal('telegram', connection.id)}
                                 >
-                                  <QrCodeIcon />
-                                </IconButton>
-                              )}
-
-                              {/* Show Start Session button when status is DISCONNECTED or TIMEOUT */}
-                              {(connection.status === 'DISCONNECTED' || connection.status === 'TIMEOUT') && (
-                                <IconButton
-                                  size="sm"
-                                  variant="solid"
-                                  color="success"
-                                  onClick={() => handleStartSession(connection.id)}
-                                  title="Iniciar Sesión"
+                                  <PencilSimple className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                                <ActionBtn
+                                  label="Eliminar"
+                                  onClick={() => handleDeleteTelegram(connection.id)}
+                                  className="hover:bg-destructive/10 hover:text-destructive-text"
                                 >
-                                  <PowerIcon />
-                                </IconButton>
-                              )}
-
-                              {/* Show Disconnect button when CONNECTED */}
-                              {connection.status === 'CONNECTED' && (
-                                <IconButton
-                                  size="sm"
-                                  variant="plain"
-                                  color="danger"
-                                  onClick={() => handleDisconnect(connection.id)}
-                                  title="Desconectar"
+                                  <Trash className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </>
+                            ) : (
+                              <>
+                                {(connection.status === 'OPENING' || connection.status === 'PAIRING') && (
+                                  <ActionBtn
+                                    label="Generar código QR"
+                                    onClick={() => handleStartQrSession(connection)}
+                                    disabled={startingSessionId === connection.id}
+                                    className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
+                                  >
+                                    <QrCode className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                )}
+                                {connection.status === 'qrcode' && (
+                                  <ActionBtn
+                                    label="Ver código QR"
+                                    onClick={() => handleShowQrCode(connection)}
+                                    className="text-primary hover:bg-primary/10 hover:text-primary"
+                                  >
+                                    <QrCode className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                )}
+                                {(connection.status === 'DISCONNECTED' || connection.status === 'TIMEOUT') && (
+                                  <ActionBtn
+                                    label="Iniciar sesión"
+                                    onClick={() => handleStartSession(connection.id)}
+                                    className="text-success-text hover:bg-success/10 hover:text-success-text"
+                                  >
+                                    <Power className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                )}
+                                {connection.status === 'CONNECTED' && (
+                                  <ActionBtn
+                                    label="Desconectar"
+                                    onClick={() => handleDisconnect(connection.id)}
+                                    className="hover:bg-destructive/10 hover:text-destructive-text"
+                                  >
+                                    <Power className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                )}
+                                <ActionBtn label="Reiniciar" onClick={() => handleRestart(connection.id)}>
+                                  <ArrowClockwise className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                                <ActionBtn
+                                  label="Editar"
+                                  onClick={() => openConnectionModal(getConnectionType(connection), connection.id)}
                                 >
-                                  <PowerIcon />
-                                </IconButton>
-                              )}
-
-                              {/* Restart button - always visible */}
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="warning"
-                                onClick={() => handleRestart(connection.id)}
-                                title="Reiniciar"
-                              >
-                                <RestartIcon />
-                              </IconButton>
-
-                              {/* Editar - Usa modal unificado con tipo detectado */}
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="primary"
-                                onClick={() => openConnectionModal(getConnectionType(connection), connection.id)}
-                                title="Editar"
-                              >
-                                <EditIcon />
-                              </IconButton>
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="neutral"
-                                title="Configuración"
-                              >
-                                <SettingsIcon />
-                              </IconButton>
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="danger"
-                                onClick={() => handleDelete(connection.id)}
-                                title="Eliminar"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </>
-                          )}
-                        </Stack>
-                      </td>
-                    </tr>
-                  ))
+                                  <PencilSimple className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                                <ActionBtn
+                                  label="Eliminar"
+                                  onClick={() => handleDelete(connection.id)}
+                                  className="hover:bg-destructive/10 hover:text-destructive-text"
+                                >
+                                  <Trash className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Unificado para todas las conexiones */}
-        <UnifiedConnectionModal
-          open={modalOpen}
-          onClose={handleCloseModal}
-          connectionId={selectedConnectionId}
-          connectionType={selectedConnectionType}
-          onSuccess={fetchConnections}
-        />
+      {/* Modal Unificado para todas las conexiones */}
+      <UnifiedConnectionModal
+        open={modalOpen}
+        onClose={handleCloseModal}
+        connectionId={selectedConnectionId}
+        connectionType={selectedConnectionType}
+        onSuccess={fetchConnections}
+      />
 
-        {/* Modal QR Code */}
-        <Modal open={openQrModal} onClose={() => setOpenQrModal(false)}>
-          <ModalDialog sx={{ minWidth: 400, textAlign: 'center' }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Código QR - {selectedConnection?.name}
-            </Typography>
-            <Stack spacing={2} alignItems="center">
-              <Box
-                sx={{
-                  p: 2,
-                  bgcolor: 'background.surface',
-                  borderRadius: 'md',
-                  border: '2px solid',
-                  borderColor: 'divider',
-                }}
-              >
+      {/* Modal de confirmación (reemplaza window.confirm nativo) */}
+      <ConfirmModal
+        open={!!confirmDialog}
+        title={confirmDialog?.title || ''}
+        message={confirmDialog?.message || ''}
+        confirmText={confirmDialog?.confirmText}
+        color={confirmDialog?.color}
+        loading={confirmLoading}
+        onConfirm={handleRunConfirm}
+        onClose={() => setConfirmDialog(null)}
+      />
+
+      {/* Modal QR Code */}
+      {openQrModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setOpenQrModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                Código QR - {selectedConnection?.name}
+              </h2>
+              <ActionBtn label="Cerrar" onClick={() => setOpenQrModal(false)}>
+                <X className="size-[18px]" aria-hidden />
+              </ActionBtn>
+            </div>
+
+            <div className="flex flex-col items-center gap-4">
+              <div className="rounded-lg border-2 border-border bg-background p-3">
                 {qrLoading ? (
-                  <Box sx={{ width: 300, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 2 }}>
-                    <CircularProgress size="lg" />
-                    <Typography>Generando codigo QR...</Typography>
-                  </Box>
+                  <div className="flex size-[300px] flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <CircleNotch className="size-10 animate-spin" aria-hidden />
+                    <span className="text-sm">Generando código QR...</span>
+                  </div>
                 ) : qrCodeData ? (
                   <img
                     src={qrCodeData}
-                    alt="QR Code"
-                    style={{ width: 300, height: 300, objectFit: 'contain' }}
+                    alt="Código QR"
+                    className="size-[300px] object-contain"
                   />
                 ) : (
-                  <Box sx={{ width: 300, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 2 }}>
-                    <CircularProgress size="lg" />
-                    <Typography>Esperando codigo QR...</Typography>
-                  </Box>
+                  <div className="flex size-[300px] flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <CircleNotch className="size-10 animate-spin" aria-hidden />
+                    <span className="text-sm">Esperando código QR...</span>
+                  </div>
                 )}
-              </Box>
-              <Typography level="body-sm" sx={{ textAlign: 'center', maxWidth: 350 }}>
+              </div>
+              <div className="max-w-sm text-center text-sm text-muted-foreground">
                 1. Abre WhatsApp en tu teléfono
                 <br />
                 2. Ve a Ajustes → Dispositivos vinculados
@@ -1118,19 +954,14 @@ export default function Connections() {
                 3. Toca "Vincular un dispositivo"
                 <br />
                 4. Escanea este código QR
-              </Typography>
-              <Button
-                color="neutral"
-                variant="outlined"
-                onClick={() => setOpenQrModal(false)}
-                fullWidth
-              >
+              </div>
+              <Button variant="outline" size="sm" className="w-full" onClick={() => setOpenQrModal(false)}>
                 Cerrar
               </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

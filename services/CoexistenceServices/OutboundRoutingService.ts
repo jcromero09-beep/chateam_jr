@@ -21,6 +21,7 @@
  */
 import Ticket from "../../models/Ticket";
 import Whatsapp from "../../models/Whatsapp";
+import Message from "../../models/Message";
 import UnifiedConversation from "../../models/UnifiedConversation";
 import logger from "../../utils/logger";
 import { logRoute } from "../../utils/coexistenceLogger";
@@ -30,7 +31,16 @@ export type RequestedMode =
   | "auto"
   | "force_meta"
   | "force_baileys"
-  | "sticky_inbound";
+  | "sticky_inbound"
+  | "meta_first_baileys_after_23h";
+export type RequestedBy =
+  | "agent"
+  | "cron"
+  | "ai"
+  | "campaign"
+  | "followup"
+  | "automation"
+  | "webhook";
 
 export interface RoutingDecision {
   provider: OutboundProvider;
@@ -40,6 +50,10 @@ export interface RoutingDecision {
   fallbackApplied: boolean;
   requestedMode: RequestedMode;
   requestedProvider?: OutboundProvider;
+  /** FASE 7 — Info de ventana 24h Meta (cuando aplica). */
+  metaWindow?: MetaWindowInfo;
+  /** FASE 7 — Provider alternativo disponible para fallback de runtime. */
+  fallbackProvider?: OutboundProvider | null;
 }
 
 export interface ResolveOutboundInput {
@@ -52,13 +66,7 @@ export interface ResolveOutboundInput {
   /**
    * Caller opcional para logs estructurados.
    */
-  requestedBy?:
-    | "agent"
-    | "cron"
-    | "ai"
-    | "campaign"
-    | "followup"
-    | "automation";
+  requestedBy?: RequestedBy;
 }
 
 const isBaileysAlive = (wa: Whatsapp | null | undefined): boolean => {
@@ -76,52 +84,182 @@ const isMetaReady = (wa: Whatsapp | null | undefined): boolean => {
   );
 };
 
-/**
- * Encuentra la conexión Baileys/Meta hermana usando linkedWhatsappId.
- * Si no hay link, devuelve null.
- */
-const findLinkedWhatsapp = async (
-  wa: Whatsapp | null
+const resolveCoexistencePolicyWhatsapp = async (
+  seedWa: Whatsapp
 ): Promise<Whatsapp | null> => {
-  if (!wa) return null;
-  const linkedId = (wa as any).linkedWhatsappId;
-  if (!linkedId) return null;
-  return Whatsapp.findByPk(linkedId);
+  if ((seedWa as any).coexistenceEnabled) return seedWa;
+
+  if ((seedWa as any).channel === "meta") return null;
+
+  return Whatsapp.findOne({
+    where: {
+      companyId: (seedWa as any).companyId,
+      linkedWhatsappId: (seedWa as any).id,
+      channel: "meta",
+      coexistenceEnabled: true
+    } as any,
+    order: [["updatedAt", "DESC"]]
+  });
+};
+
+// ───────────────────────────────────────────────────────────────────
+// FASE 7 — Ventana de 24h Meta Cloud API
+// ───────────────────────────────────────────────────────────────────
+// Meta sólo permite mensajes libres (texto/media/interactive) dentro de
+// las 24 horas posteriores al ÚLTIMO mensaje del cliente. Pasada esa
+// ventana se debe enviar template aprobado o usar otro canal (Baileys).
+//
+// Política propia: damos 1 hora de margen — a partir de las 23h
+// preferimos Baileys porque Meta puede empezar a rechazar el mensaje
+// con error 131047 / 470 al estar cerca del límite oficial.
+export const META_WINDOW_HOURS = 24;
+export const META_WINDOW_BAILEYS_THRESHOLD_HOURS = 23;
+
+export interface MetaWindowInfo {
+  /** Fecha del último inbound del cliente (fromMe=false) en este ticket. */
+  lastCustomerMessageAt: Date | null;
+  /** Horas transcurridas desde lastCustomerMessageAt. null si no hay inbound. */
+  hoursSinceLastCustomerMessage: number | null;
+  /** Estado de la ventana 24h Meta. */
+  isOpen: boolean;
+  /** Cuándo expira la ventana (lastCustomerMessageAt + 24h). null si no hay inbound. */
+  expiresAt: Date | null;
+  /** Minutos que faltan para que expire. 0 si ya expiró, null si no hay inbound. */
+  minutesRemaining: number | null;
+}
+
+/**
+ * Calcula la ventana 24h Meta para un ticket dado.
+ * Busca el último inbound (fromMe=false) en Messages.
+ * Si no hay inbound: la ventana se considera CERRADA (preferir baileys/template).
+ */
+export const computeMetaWindow = async (
+  ticketId: number,
+  companyId: number
+): Promise<MetaWindowInfo> => {
+  if (!ticketId || !companyId) {
+    return {
+      lastCustomerMessageAt: null,
+      hoursSinceLastCustomerMessage: null,
+      isOpen: false,
+      expiresAt: null,
+      minutesRemaining: null
+    };
+  }
+
+  const lastInbound = await Message.findOne({
+    where: { ticketId, companyId, fromMe: false } as any,
+    order: [["createdAt", "DESC"]],
+    attributes: ["id", "createdAt"]
+  });
+
+  const lastAt =
+    lastInbound && (lastInbound as any).createdAt
+      ? new Date((lastInbound as any).createdAt)
+      : null;
+
+  if (!lastAt) {
+    return {
+      lastCustomerMessageAt: null,
+      hoursSinceLastCustomerMessage: null,
+      isOpen: false,
+      expiresAt: null,
+      minutesRemaining: null
+    };
+  }
+
+  const now = Date.now();
+  const elapsedMs = now - lastAt.getTime();
+  const hours = elapsedMs / (1000 * 60 * 60);
+  const expiresAt = new Date(
+    lastAt.getTime() + META_WINDOW_HOURS * 60 * 60 * 1000
+  );
+  const minutesRemaining = Math.max(
+    0,
+    Math.floor((expiresAt.getTime() - now) / (1000 * 60))
+  );
+  const isOpen = elapsedMs < META_WINDOW_HOURS * 60 * 60 * 1000;
+
+  return {
+    lastCustomerMessageAt: lastAt,
+    hoursSinceLastCustomerMessage: Math.round(hours * 100) / 100,
+    isOpen,
+    expiresAt,
+    minutesRemaining
+  };
 };
 
 /**
  * Dada una conexión origen y un proveedor objetivo, encuentra la
- * conexión correcta que habla ese proveedor. Puede ser la misma
- * (si ya coincide) o la linked.
+ * conexión correcta que habla ese proveedor. Puede ser la misma,
+ * la vinculada por linkedWhatsappId, la vinculada en sentido inverso
+ * o una conexión hermana con el mismo número dentro de la misma empresa.
  */
-const resolveProviderTarget = async (
+export const resolveProviderTarget = async (
   seedWa: Whatsapp,
   target: OutboundProvider
 ): Promise<Whatsapp | null> => {
   const seedProvider: OutboundProvider =
     (seedWa as any).channel === "meta" ? "meta" : "baileys";
   if (seedProvider === target) return seedWa;
-  const linked = await findLinkedWhatsapp(seedWa);
-  if (!linked) return null;
-  const linkedProvider: OutboundProvider =
-    (linked as any).channel === "meta" ? "meta" : "baileys";
-  return linkedProvider === target ? linked : null;
+
+  const companyId = (seedWa as any).companyId;
+  const targetChannel = target === "meta" ? "meta" : "whatsapp";
+  const linkedId = (seedWa as any).linkedWhatsappId;
+
+  if (linkedId) {
+    const linked = await Whatsapp.findOne({
+      where: { id: linkedId, companyId } as any
+    });
+    const linkedProvider: OutboundProvider =
+      (linked as any)?.channel === "meta" ? "meta" : "baileys";
+    if (linked && linkedProvider === target) return linked;
+  }
+
+  const reverseLinked = await Whatsapp.findOne({
+    where: {
+      companyId,
+      linkedWhatsappId: (seedWa as any).id,
+      channel: targetChannel
+    } as any
+  });
+  if (reverseLinked) return reverseLinked;
+
+  const number = ((seedWa as any).number || "").trim();
+  if (number) {
+    return Whatsapp.findOne({
+      where: {
+        companyId,
+        number,
+        channel: targetChannel
+      } as any,
+      order: [
+        ["status", "ASC"],
+        ["updatedAt", "DESC"]
+      ]
+    });
+  }
+
+  return null;
 };
 
 /**
  * Resuelve la política efectiva (mezclando ticket, conversación y conexión).
  */
+const VALID_REQUESTED_MODES: RequestedMode[] = [
+  "auto",
+  "force_meta",
+  "force_baileys",
+  "sticky_inbound",
+  "meta_first_baileys_after_23h"
+];
+
 const resolveEffectiveMode = async (
   ticket: Ticket,
   requestedMode?: RequestedMode
 ): Promise<{ mode: RequestedMode; source: string }> => {
   // Prioridad 1: override del agente en UI
-  if (
-    requestedMode &&
-    ["force_meta", "force_baileys", "auto", "sticky_inbound"].includes(
-      requestedMode
-    )
-  ) {
+  if (requestedMode && VALID_REQUESTED_MODES.includes(requestedMode)) {
     return { mode: requestedMode, source: "request" };
   }
   // Prioridad 2: política persistida en la conversación (FASE 3+5)
@@ -132,7 +270,7 @@ const resolveEffectiveMode = async (
     });
     if (conv) {
       const p = (conv as any).routingPolicy as RequestedMode;
-      if (p && p !== "auto") {
+      if (p && p !== "auto" && VALID_REQUESTED_MODES.includes(p)) {
         return { mode: p, source: "conversation" };
       }
     }
@@ -161,6 +299,11 @@ export const resolveOutbound = async (
     ticket,
     input.requestedMode
   );
+
+  // Pre-calcular ventana 24h Meta — la usaremos en varios modos.
+  const ticketCompanyId = (ticket as any).companyId;
+  const ticketIdNum = (ticket as any).id;
+  const metaWindow = await computeMetaWindow(ticketIdNum, ticketCompanyId);
 
   // Decisión inicial según mode
   let targetProvider: OutboundProvider | null = null;
@@ -196,15 +339,52 @@ export const resolveOutbound = async (
       }
       break;
     }
+    case "meta_first_baileys_after_23h": {
+      // Si hay inbound y la ventana sigue holgada (<23h) → Meta.
+      // Si no hay inbound o ya pasaron 23h → Baileys.
+      const hours = metaWindow.hoursSinceLastCustomerMessage;
+      if (
+        metaWindow.lastCustomerMessageAt &&
+        hours !== null &&
+        hours < META_WINDOW_BAILEYS_THRESHOLD_HOURS
+      ) {
+        targetProvider = "meta";
+        reasonBase = `meta_window_open(${hours}h<23h) (${source})`;
+      } else {
+        targetProvider = "baileys";
+        reasonBase = metaWindow.lastCustomerMessageAt
+          ? `meta_window_near_or_closed(${hours}h>=23h) (${source})`
+          : `meta_window_no_inbound (${source})`;
+      }
+      break;
+    }
     case "auto":
     default:
       // En modo auto: respetar sendChannel de la conexión si está
-      // coexistenceEnabled; de lo contrario usar el canal de la conexión.
-      if ((seedWa as any).coexistenceEnabled) {
-        const send = (seedWa as any).sendChannel;
+      // coexistenceEnabled. Si el ticket vive en Baileys, la política puede
+      // estar guardada en la Meta vinculada inversamente.
+      const policyWa = await resolveCoexistencePolicyWhatsapp(seedWa);
+      if (policyWa) {
+        const send = (policyWa as any).sendChannel;
         if (send === "meta" || send === "baileys") {
           targetProvider = send;
-          reasonBase = `coexistence.sendChannel=${send}`;
+          reasonBase = `coexistence.whatsappId=${(policyWa as any).id}.sendChannel=${send}`;
+        } else if (send === "meta_first_baileys_after_23h") {
+          // Aplicar misma regla que el modo dedicado
+          const hours = metaWindow.hoursSinceLastCustomerMessage;
+          if (
+            metaWindow.lastCustomerMessageAt &&
+            hours !== null &&
+            hours < META_WINDOW_BAILEYS_THRESHOLD_HOURS
+          ) {
+            targetProvider = "meta";
+            reasonBase = `coexistence.whatsappId=${(policyWa as any).id}.auto_window_open(${hours}h<23h)`;
+          } else {
+            targetProvider = "baileys";
+            reasonBase = metaWindow.lastCustomerMessageAt
+              ? `coexistence.whatsappId=${(policyWa as any).id}.auto_window_near_or_closed(${hours}h>=23h)`
+              : `coexistence.whatsappId=${(policyWa as any).id}.auto_window_no_inbound`;
+          }
         }
       }
       if (!targetProvider) {
@@ -216,7 +396,7 @@ export const resolveOutbound = async (
   }
 
   // Resolver Whatsapp físico correspondiente al provider objetivo.
-  let targetWa = await resolveProviderTarget(seedWa, targetProvider as OutboundProvider);
+  const targetWa = await resolveProviderTarget(seedWa, targetProvider as OutboundProvider);
 
   // Evaluar si está disponible; si no, aplicar fallback.
   let fallbackApplied = false;
@@ -247,6 +427,16 @@ export const resolveOutbound = async (
     }
   }
 
+  // Calcular fallback disponible en runtime (para uso del dispatcher
+  // si el envío principal falla por ventana cerrada u otro error).
+  const altProviderRuntime: OutboundProvider =
+    finalProvider === "meta" ? "baileys" : "meta";
+  const altWaRuntime = await resolveProviderTarget(seedWa, altProviderRuntime);
+  const altReadyRuntime =
+    altProviderRuntime === "meta"
+      ? isMetaReady(altWaRuntime)
+      : isBaileysAlive(altWaRuntime);
+
   const decision: RoutingDecision = {
     provider: finalProvider,
     whatsappId: (finalWa as any).id,
@@ -254,7 +444,9 @@ export const resolveOutbound = async (
     reason,
     fallbackApplied,
     requestedMode: mode,
-    requestedProvider: targetProvider as OutboundProvider
+    requestedProvider: targetProvider as OutboundProvider,
+    metaWindow,
+    fallbackProvider: altReadyRuntime ? altProviderRuntime : null
   };
 
   logRoute({

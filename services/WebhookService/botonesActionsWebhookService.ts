@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import AppError from "../../errors/AppError";
 import { WebhookModel } from "../../models/Webhook";
 import { sendMessageFlow } from "../../controllers/MessageController";
@@ -22,6 +28,7 @@ import SendWhatsAppMediaFlow, {
 import { randomizarCaminho } from "../../utils/randomizador";
 import { SendMessageFlow } from "../../helpers/SendMessageFlow";
 import formatBody from "../../helpers/Mustache";
+import formatBodyFlow from "../../helpers/FlowVariables";
 import SetTicketMessagesAsRead from "../../helpers/SetTicketMessagesAsRead";
 import SendWhatsAppMessage from "../WbotServices/SendWhatsAppMessage";
 import ShowTicketService from "../TicketServices/ShowTicketService";
@@ -41,10 +48,11 @@ import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import { delay } from "bluebird";
 import typebotListener from "../TypebotServices/typebotListener";
 import { getWbot } from "../../libs/wbot";
-import { proto } from "@whiskeysockets/baileys";
+import { proto } from "baileys";
 import { handleOpenAi } from "../IntegrationsServices/OpenAiService";
 import { IOpenAi } from "../../@types/openai";
-import { generateWAMessageFromContent } from "@whiskeysockets/baileys";
+import { chargeFlowExecution } from "../AICreditServices/AIUsagePricingService";
+import { generateWAMessageFromContent } from "baileys";
 interface IAddContact {
   companyId: number;
   name: string;
@@ -71,7 +79,6 @@ export const ActionsWebhookService = async (
   try {
     const io = getIO();
     let next = nextStage;
-    // console.log(
     //   "ActionWebhookService | 53",
     //   idFlowDb,
     //   companyId,
@@ -175,13 +182,13 @@ export const ActionsWebhookService = async (
 
     let execCount = 0;
 
-    let execFn = "";
+    const execFn = "";
 
     let ticket = null;
 
     let noAlterNext = false;
 
-    for (var i = 0; i < lengthLoop; i++) {
+    for (let i = 0; i < lengthLoop; i++) {
       let nodeSelected: any;
       let ticketInit: Ticket;
 
@@ -215,7 +222,6 @@ export const ActionsWebhookService = async (
           nodeSelected = otherNode;
         }
       }
-      //console.log("ticket id 1", ticket.id);
 
       if (nodeSelected.type === "message") {
 
@@ -232,6 +238,9 @@ export const ActionsWebhookService = async (
             body: nodeSelected.data.label
           };
         }
+
+        // Aplicar variables dinamicas del FlowBuilder ({name}, {email}, {empresa}, etc.)
+        msg.body = formatBodyFlow(msg.body, ticket as any, numberPhrase);
 
         await SendMessage(whatsapp, {
           number: numberClient,
@@ -259,7 +268,7 @@ export const ActionsWebhookService = async (
       }
 
       if (nodeSelected.type === "openai") {
-        let {
+        const {
           name,
           prompt,
           voice,
@@ -272,7 +281,7 @@ export const ActionsWebhookService = async (
           maxMessages
         } = nodeSelected.data.typebotIntegration as IOpenAi;
 
-        let openAiSettings = {
+        const openAiSettings = {
           name,
           prompt,
           voice,
@@ -298,15 +307,45 @@ export const ActionsWebhookService = async (
           whatsappId: whatsapp?.id
         });
 
-        await handleOpenAi(
-          openAiSettings,
-          msg,
-          wbot,
-          ticket,
-          contact,
-          null,
-          ticketTraking
-        );
+        let canRunFlowAI = true;
+        try {
+          await chargeFlowExecution({
+            companyId,
+            units: 1,
+            source: "flowbuilder_button_openai_node",
+            sourceId: ticket.id,
+            description: `Nodo OpenAI FlowBuilder botones ticket=${ticket.id}`,
+            metadata: { promptName: name, queueId }
+          });
+        } catch (creditErr: any) {
+          const isInsufficient =
+            creditErr instanceof AppError &&
+            (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+              creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+
+          if (isInsufficient) {
+            logger.warn(
+              `[FlowBuilder Button OpenAI] Sin creditos para flow_execution (company=${companyId} ticket=${ticket.id}); skip nodo IA`
+            );
+          } else {
+            logger.warn(
+              `[FlowBuilder Button OpenAI] Error cobrando flow_execution: ${creditErr?.message || creditErr}; skip nodo IA por seguridad`
+            );
+          }
+          canRunFlowAI = false;
+        }
+
+        if (canRunFlowAI) {
+          await handleOpenAi(
+            openAiSettings,
+            msg,
+            wbot,
+            ticket,
+            contact,
+            null,
+            ticketTraking
+          );
+        }
       }
 
       if (nodeSelected.type === "question") {
@@ -382,7 +421,6 @@ export const ActionsWebhookService = async (
       //   };
 
       //   const number = `${ticketDetails.contact.number}@${ticketDetails.isGroup ? "g.us" : "s.whatsapp.net"}`;
-      //   console.log('number', number)
       //   const newMsg = generateWAMessageFromContent(number, copyMessage, {
       //     userJid: whatsapp.number
       //   });
@@ -476,7 +514,7 @@ export const ActionsWebhookService = async (
           queueId: queue.id
         });
 
-        let settings = await CompaniesSettings.findOne({
+        const settings = await CompaniesSettings.findOne({
           where: {
             companyId: companyId
           }
@@ -523,7 +561,7 @@ export const ActionsWebhookService = async (
       }
 
       if (nodeSelected.type === "singleBlock") {
-        for (var iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
+        for (let iLoc = 0; iLoc < nodeSelected.data.seq.length; iLoc++) {
           const elementNowSelected = nodeSelected.data.seq[iLoc];
 
           ticket = await Ticket.findOne({
@@ -547,6 +585,9 @@ export const ActionsWebhookService = async (
               msg = bodyFor;
             }
 
+            // Aplicar variables dinamicas del FlowBuilder ({name}, {email}, {empresa}, custom fields, etc.)
+            msg = formatBodyFlow(msg, ticketDetails as any, numberPhrase);
+
             await delay(3000);
             await typeSimulation(ticket, "composing");
 
@@ -560,7 +601,7 @@ export const ActionsWebhookService = async (
             SetTicketMessagesAsRead(ticketDetails);
 
             await ticketDetails.update({
-              lastMessage: formatBody(bodyFor, ticket.contact)
+              lastMessage: msg
             });
 
             await intervalWhats("1");
@@ -581,11 +622,11 @@ export const ActionsWebhookService = async (
               body: "",
               mediaPath:
                 process.env.BACKEND_URL === "https://localhost:8090"
-                  ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                  ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                     item => item.number === elementNowSelected
                   )[0].value
                   }`
-                  : `${__dirname
+                  : `${currentDir
                     .split("dist")[0]
                     .split("\\")
                     .join("/")}public/${nodeSelected.data.elements.filter(
@@ -603,7 +644,7 @@ export const ActionsWebhookService = async (
               body: "", // Puedes agregar un texto como "Aquí tienes el archivo PDF"
               mediaPath:
                 process.env.BACKEND_URL === "https://localhost:8090"
-                  ? `${__dirname
+                  ? `${currentDir
                       .split("src")[0]
                       .split("\\")
                       .join("/")}public/${
@@ -611,7 +652,7 @@ export const ActionsWebhookService = async (
                         item => item.number === elementNowSelected
                       )?.value
                     }`
-                  : `${__dirname
+                  : `${currentDir
                       .split("dist")[0]
                       .split("\\")
                       .join("/")}public/${
@@ -628,11 +669,11 @@ export const ActionsWebhookService = async (
           if (elementNowSelected.includes("audio")) {
             const mediaDirectory =
               process.env.BACKEND_URL === "https://localhost:8090"
-                ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                   item => item.number === elementNowSelected
                 )[0].value
                 }`
-                : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                   item => item.number === elementNowSelected
                 )[0].value
                 }`;
@@ -655,11 +696,11 @@ export const ActionsWebhookService = async (
           if (elementNowSelected.includes("video")) {
             const mediaDirectory =
               process.env.BACKEND_URL === "https://localhost:8090"
-                ? `${__dirname.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                ? `${currentDir.split("src")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                   item => item.number === elementNowSelected
                 )[0].value
                 }`
-                : `${__dirname.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
+                : `${currentDir.split("dist")[0].split("\\").join("/")}public/${nodeSelected.data.elements.filter(
                   item => item.number === elementNowSelected
                 )[0].value
                 }`;
@@ -703,20 +744,16 @@ export const ActionsWebhookService = async (
       let isMenu: boolean;
 
       // if (nodeSelected.type === "menu") {
-      //   console.log(650, "menu",'pressKey', pressKey);
         
       //   if (pressKey === "999") {
-      //     console.log("⏭️ [menu] pressKey ya procesado, saltando envío duplicado.");
       //     continue; // Salta esta iteración del for principal
       //   }
         
 
       //   if (pressKey) {
-      //     console.log("🧩 [menu] Recibido pressKey:", pressKey);
         
       //     // Asegura que el nodo actual es un menú válido y tiene opciones
       //     if (!nodeSelected || !nodeSelected.data || !Array.isArray(nodeSelected.data.arrayOption)) {
-      //       console.error("❌ [menu] El nodo actual no tiene estructura válida:", nodeSelected);
       //       break;
       //     }
         
@@ -734,20 +771,16 @@ export const ActionsWebhookService = async (
         
       //     if (matchedOption) {
       //       pressKey = matchedOption.number.toString();
-      //       console.log(`🔁 [menu] pressKey textual "${originalPressKey}" mapeado a número "${pressKey}"`);
       //     } else {
-      //       console.warn(`⚠️ [menu] El valor "${pressKey}" no coincide con ninguna opción del menú`);
       //     }
         
       //     const filterOne = connectStatic.filter(confil => confil.source === next);
       //     const filterTwo = filterOne.filter(filt2 => filt2.sourceHandle === "a" + pressKey);
         
-      //     console.log("[menu] Conexiones filtradas para la opción seleccionada:", filterTwo);
         
       //     if (filterTwo.length > 0) {
       //       execFn = filterTwo[0].target;
       //     } else {
-      //       console.warn("⚠️ [menu] No se encontró conexión para pressKey:", pressKey);
       //       execFn = undefined;
       //     }
         
@@ -771,7 +804,6 @@ export const ActionsWebhookService = async (
       //   }
         
       //    else {
-      //     console.log(681, "menu");
       //     // let optionsMenu = "";
       //     // nodeSelected.data.arrayOption.map(item => {
       //     //   optionsMenu += `[${item.number}] ${item.value}\n`;
@@ -821,9 +853,7 @@ export const ActionsWebhookService = async (
       //           }
       //         ]
       //       });
-      //       console.log("✅ Lista enviada");
       //     } catch (err) {
-      //       console.error("❌ Error al enviar lista:", err);
       //     }
       //    // const menuCreate = `${nodeSelected.data.message}\n\n${JSON.stringify(listMessage, null, 2)}`;
       //    const optionsText = nodeSelected.data.arrayOption
@@ -934,7 +964,7 @@ export const ActionsWebhookService = async (
         console.log(587, "ActionsWebhookService | 587");
 
         pressKey = undefined;
-        let result = connects.filter(connect => connect.source === execFn)[0];
+        const result = connects.filter(connect => connect.source === execFn)[0];
         if (typeof result === "undefined") {
           next = "";
         } else {

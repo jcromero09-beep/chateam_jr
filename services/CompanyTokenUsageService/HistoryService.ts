@@ -1,6 +1,7 @@
 import { Op, where, fn, col } from "sequelize";
 import CompanyTokenUsage from "../../models/CompanyTokenUsage";
-import { isEmpty } from "lodash";
+import lodash from "lodash";
+const { isEmpty } = lodash;
 
 interface ListUsageRequest {
   companyId: number | string;

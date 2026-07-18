@@ -12,6 +12,7 @@
 import { Request, Response } from "express";
 import UGCVideoJob, { UGCVideoJobStatus } from "../models/UGCVideoJob";
 import UGCVideoAsset from "../models/UGCVideoAsset";
+import UGCCampaign from "../models/UGCCampaign";
 import { add } from "../queues";
 import AppError from "../errors/AppError";
 import logger from "../utils/logger";
@@ -51,9 +52,15 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
         {
           model: UGCVideoAsset,
           as: "assets",
-          attributes: ["id", "assetType", "fileName", "localPath", "mimeType", "isActive"],
+          attributes: ["id", "assetType", "fileName", "localPath", "originalUrl", "mimeType", "isActive"],
           required: false,
           where: { isActive: true }
+        },
+        {
+          model: UGCCampaign,
+          as: "ugcCampaign",
+          attributes: ["id", "name", "generationConfig"],
+          required: false
         }
       ],
       order: [["createdAt", "DESC"]],
@@ -105,6 +112,12 @@ export const show = async (req: Request, res: Response): Promise<Response> => {
           model: UGCVideoAsset,
           as: "assets",
           required: false
+        },
+        {
+          model: UGCCampaign,
+          as: "ugcCampaign",
+          attributes: ["id", "name", "generationConfig"],
+          required: false
         }
       ]
     });
@@ -147,7 +160,15 @@ export const retry = async (req: Request, res: Response): Promise<Response> => {
 
   try {
     const videoJob = await UGCVideoJob.findOne({
-      where: { id: Number(id), companyId }
+      where: { id: Number(id), companyId },
+      include: [
+        {
+          model: UGCCampaign,
+          as: "ugcCampaign",
+          attributes: ["id", "generationConfig"],
+          required: false
+        }
+      ]
     });
 
     if (!videoJob) {
@@ -173,6 +194,9 @@ export const retry = async (req: Request, res: Response): Promise<Response> => {
       status: "pending",
       stage: retryStage,
       errorMessage: null,
+      videoProviderJobId: null,
+      rawVideoUrl: null,
+      finalVideoUrl: null,
       retryCount: videoJob.retryCount + 1,
       metadata: {
         ...videoJob.metadata,
@@ -188,13 +212,36 @@ export const retry = async (req: Request, res: Response): Promise<Response> => {
 
     // Encolar nuevamente
     try {
-      await add("UGCVideoPipelineQueue", {
+      const campaign = videoJob.get("ugcCampaign") as UGCCampaign | undefined;
+      const generationConfig = campaign?.generationConfig || {};
+      const provider = String(
+        videoJob.videoProvider ||
+        generationConfig.videoProvider ||
+        process.env.UGC_VIDEO_PROVIDER ||
+        ""
+      );
+      const queueName = provider.startsWith("fal")
+        ? "UGCVideoGenerationQueue"
+        : "UGCVideoPipelineQueue";
+      const referenceImageUrl =
+        typeof videoJob.metadata?.referenceImageUrl === "string" &&
+        /^https?:\/\//i.test(videoJob.metadata.referenceImageUrl)
+          ? videoJob.metadata.referenceImageUrl
+          : null;
+
+      await add(queueName, {
         companyId,
         campaignId: videoJob.ugcCampaignId,
         videoJobId: videoJob.id,
         isRetry: true,
-        retryCount: videoJob.retryCount
+        retryCount: videoJob.retryCount,
+        ...(referenceImageUrl ? { characterImageUrl: referenceImageUrl } : {})
       });
+
+      logger.info(
+        `[UGCVideoController.retry] Reintento enviado a ${queueName}: ` +
+        `videoJob=${videoJob.id}, provider=${provider || "default"}`
+      );
     } catch (queueErr: unknown) {
       const errMsg = queueErr instanceof Error ? queueErr.message : String(queueErr);
       logger.warn(

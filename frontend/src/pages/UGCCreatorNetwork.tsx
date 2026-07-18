@@ -1,45 +1,47 @@
 import { useState, useEffect, useCallback } from 'react'
+// [Fase2·G] Migrado a Tailwind v4 + shadcn/Radix. Se conserva CircularProgress de
+// MUI Joy a propósito: no hay equivalente en el design system todavía.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Sheet,
-  Card,
-  Chip,
-  Avatar,
-  Button,
-  CircularProgress,
-  Divider,
-  IconButton,
-  Select,
-  Option,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Textarea,
-  Stack,
-  Badge,
-} from '@mui/joy'
-import {
-  Groups as GroupsIcon,
-  Add as AddIcon,
-  Refresh,
-  Star as StarIcon,
-  AttachMoney as MoneyIcon,
-  Campaign as CampaignIcon,
-  Edit as EditIcon,
-  Instagram,
-  Videocam,
-  YouTube as YouTubeIcon,
-  Facebook,
-  Search as SearchIcon,
-  Person as PersonIcon,
+  UsersThree,
+  Plus,
+  ArrowClockwise,
+  Star,
+  CurrencyDollar,
+  Megaphone,
+  PencilSimple,
+  InstagramLogo,
+  TiktokLogo,
+  YoutubeLogo,
+  FacebookLogo,
+  MagnifyingGlass,
+  User,
   CheckCircle,
-  HourglassEmpty,
-  Block as BlockIcon,
-  Verified,
-  Payments as PaymentsIcon,
-} from '@mui/icons-material'
+  Hourglass,
+  Prohibit,
+  SealCheck,
+  Money,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Avatar } from '@/components/ui/avatar'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -117,32 +119,46 @@ interface PayForm {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const NICHE_CONFIG: Record<CreatorNiche, { label: string; color: 'primary' | 'success' | 'warning' | 'danger' | 'neutral' }> = {
-  belleza:   { label: 'Belleza',   color: 'danger' },
-  fitness:   { label: 'Fitness',   color: 'success' },
-  tech:      { label: 'Tech',      color: 'primary' },
-  lifestyle: { label: 'Lifestyle', color: 'warning' },
-  food:      { label: 'Food',      color: 'warning' },
-  travel:    { label: 'Travel',    color: 'neutral' },
+const NICHE_CONFIG: Record<CreatorNiche, { label: string; variant: BadgeProps['variant'] }> = {
+  belleza:   { label: 'Belleza',   variant: 'destructive' },
+  fitness:   { label: 'Fitness',   variant: 'success' },
+  tech:      { label: 'Tech',      variant: 'primary' },
+  lifestyle: { label: 'Lifestyle', variant: 'warning' },
+  food:      { label: 'Food',      variant: 'warning' },
+  travel:    { label: 'Travel',    variant: 'neutral' },
 }
 
-const PLATFORM_CONFIG: Record<Platform, { label: string; color: string; icon: React.ReactNode }> = {
-  instagram: { label: 'Instagram', color: '#E1306C', icon: <Instagram sx={{ fontSize: 13 }} /> },
-  tiktok:    { label: 'TikTok',    color: '#010101', icon: <Videocam sx={{ fontSize: 13 }} /> },
-  youtube:   { label: 'YouTube',   color: '#FF0000', icon: <YouTubeIcon sx={{ fontSize: 13 }} /> },
-  facebook:  { label: 'Facebook',  color: '#1877F2', icon: <Facebook sx={{ fontSize: 13 }} /> },
+// Los colores de marca de cada red se mantienen como hex (mismo criterio que
+// Connections.tsx). TikTok usa `text-foreground`: su negro corporativo es
+// invisible en modo oscuro.
+const PLATFORM_CONFIG: Record<Platform, { label: string; className: string; icon: React.ReactNode }> = {
+  instagram: { label: 'Instagram', className: 'text-[#e4405f]',  icon: <InstagramLogo className="size-3.5" weight="fill" aria-hidden /> },
+  tiktok:    { label: 'TikTok',    className: 'text-foreground', icon: <TiktokLogo className="size-3.5" weight="fill" aria-hidden /> },
+  youtube:   { label: 'YouTube',   className: 'text-[#ff0000]',  icon: <YoutubeLogo className="size-3.5" weight="fill" aria-hidden /> },
+  facebook:  { label: 'Facebook',  className: 'text-[#1877f2]',  icon: <FacebookLogo className="size-3.5" weight="fill" aria-hidden /> },
 }
 
 const STATUS_CONFIG: Record<CreatorStatus, {
   label: string
-  color: 'warning' | 'primary' | 'success' | 'danger'
+  variant: BadgeProps['variant']
+  dotClass: string
   icon: React.ReactNode
 }> = {
-  pending:   { label: 'Pendiente',  color: 'warning', icon: <HourglassEmpty sx={{ fontSize: 13 }} /> },
-  verified:  { label: 'Verificado', color: 'primary', icon: <Verified sx={{ fontSize: 13 }} /> },
-  active:    { label: 'Activo',     color: 'success', icon: <CheckCircle sx={{ fontSize: 13 }} /> },
-  suspended: { label: 'Suspendido', color: 'danger',  icon: <BlockIcon sx={{ fontSize: 13 }} /> },
+  pending:   { label: 'Pendiente',  variant: 'warning',     dotClass: 'bg-warning',     icon: <Hourglass className="size-3.5" aria-hidden /> },
+  verified:  { label: 'Verificado', variant: 'primary',     dotClass: 'bg-primary',     icon: <SealCheck className="size-3.5" weight="fill" aria-hidden /> },
+  active:    { label: 'Activo',     variant: 'success',     dotClass: 'bg-success',     icon: <CheckCircle className="size-3.5" weight="fill" aria-hidden /> },
+  suspended: { label: 'Suspendido', variant: 'destructive', dotClass: 'bg-destructive', icon: <Prohibit className="size-3.5" aria-hidden /> },
 }
+
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  stripe: 'Stripe',
+  paypal: 'PayPal',
+  bank_transfer: 'Transferencia bancaria',
+}
+
+// Clases compartidas para los <textarea> (el design system solo expone <Input>).
+const textareaClass =
+  'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -150,18 +166,32 @@ function formatNumber(n: number): string {
   return String(n)
 }
 
-function renderStars(rating: number): React.ReactNode {
+function Stars({ rating }: { rating: number }) {
   const full = Math.floor(rating)
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+    <div className="flex items-center gap-0.5">
       {Array.from({ length: 5 }).map((_, i) => (
-        <StarIcon
+        <Star
           key={i}
-          sx={{ fontSize: 14, color: i < full ? 'warning.400' : 'neutral.300' }}
+          weight="fill"
+          className={cn('size-3.5', i < full ? 'text-warning-text' : 'text-muted-foreground/35')}
+          aria-hidden
         />
       ))}
-      <Typography level="body-xs" sx={{ ml: 0.5 }}>{rating.toFixed(1)}</Typography>
-    </Box>
+      <span className="ml-1 text-xs text-muted-foreground">{rating.toFixed(1)}</span>
+    </div>
+  )
+}
+
+// Aviso de error reutilizable dentro de los modales.
+function ErrorNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-md bg-destructive/12 px-3 py-2.5 text-sm text-destructive-text"
+    >
+      {children}
+    </div>
   )
 }
 
@@ -193,24 +223,29 @@ const EMPTY_PAY_FORM: PayForm = {
 
 function StatsStrip({ stats, loading }: { stats: CreatorStats | null; loading: boolean }) {
   const items = [
-    { label: 'Creadores Activos',    value: stats ? String(stats.totalActive) : '—',            color: 'primary'  as const },
-    { label: 'Campanas Asignadas',   value: stats ? String(stats.assignedCampaigns) : '—',      color: 'success'  as const },
-    { label: 'Pagos Este Mes',       value: stats ? `$${stats.paymentsThisMonth.toFixed(0)}` : '—', color: 'warning' as const },
-    { label: 'Rating Promedio',      value: stats ? `${stats.avgRating.toFixed(1)} ★` : '—',   color: 'neutral'  as const },
+    { label: 'Creadores Activos',  value: stats ? String(stats.totalActive) : '—',                tone: 'primary'  as const },
+    { label: 'Campanas Asignadas', value: stats ? String(stats.assignedCampaigns) : '—',          tone: 'success'  as const },
+    { label: 'Pagos Este Mes',     value: stats ? `$${stats.paymentsThisMonth.toFixed(0)}` : '—', tone: 'warning'  as const },
+    { label: 'Rating Promedio',    value: stats ? `${stats.avgRating.toFixed(1)} ★` : '—',        tone: 'neutral'  as const },
   ]
   return (
-    <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-      {items.map(item => (
-        <Card key={item.label} variant="soft" color={item.color} sx={{ flex: 1, minWidth: 150, py: 1.5, px: 2 }}>
-          {loading ? (
-            <CircularProgress size="sm" />
-          ) : (
-            <Typography level="h3" fontWeight={700}>{item.value}</Typography>
-          )}
-          <Typography level="body-xs" sx={{ opacity: 0.8 }}>{item.label}</Typography>
-        </Card>
-      ))}
-    </Box>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {items.map(item =>
+        loading ? (
+          <div
+            key={item.label}
+            className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+          >
+            <p className="text-sm text-muted-foreground">{item.label}</p>
+            <div className="mt-1.5 flex h-9 items-center">
+              <CircularProgress size="sm" />
+            </div>
+          </div>
+        ) : (
+          <StatTile key={item.label} label={item.label} value={item.value} tone={item.tone} />
+        ),
+      )}
+    </div>
   )
 }
 
@@ -228,112 +263,104 @@ function CreatorCard({ creator, onAssign, onPay, onEdit }: CreatorCardProps) {
   const statusConfig = STATUS_CONFIG[creator.status]
 
   return (
-    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
       {/* Header: avatar + nombre + status */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-        <Badge
-          badgeContent={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusConfig.color + '.400' }} />}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          sx={{ '--Badge-paddingX': '0px', '--Badge-minH': '10px' }}
-        >
-          <Avatar sx={{ width: 48, height: 48, fontSize: 20 }}>
-            {creator.name.charAt(0).toUpperCase()}
-          </Avatar>
-        </Badge>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography level="title-sm" fontWeight="lg" noWrap>{creator.name}</Typography>
-          <Typography level="body-xs" color="neutral" noWrap>{creator.email}</Typography>
-          <Box sx={{ display: 'flex', gap: 0.75, mt: 0.5, flexWrap: 'wrap' }}>
-            <Chip size="sm" variant="soft" color={nicheConfig.color}>{nicheConfig.label}</Chip>
-            <Chip
-              size="sm"
-              variant="soft"
-              color={statusConfig.color}
-              startDecorator={statusConfig.icon}
-            >
+      <div className="flex items-start gap-3">
+        <span className="relative shrink-0">
+          <Avatar name={creator.name} size="lg" />
+          <span
+            className={cn(
+              'absolute bottom-0 right-0 size-3 rounded-full border-2 border-card',
+              statusConfig.dotClass,
+            )}
+            aria-hidden
+          />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">{creator.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{creator.email}</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <Badge variant={nicheConfig.variant}>{nicheConfig.label}</Badge>
+            <Badge variant={statusConfig.variant}>
+              {statusConfig.icon}
               {statusConfig.label}
-            </Chip>
-          </Box>
-        </Box>
-      </Box>
+            </Badge>
+          </div>
+        </div>
+      </div>
 
       {/* Plataformas */}
-      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap gap-1.5">
         {creator.platforms.map(p => {
           const cfg = PLATFORM_CONFIG[p]
           return (
-            <Chip
-              key={p}
-              size="sm"
-              variant="outlined"
-              startDecorator={cfg.icon}
-              sx={{ color: cfg.color, borderColor: cfg.color, fontSize: 10 }}
-            >
+            <Badge key={p} variant="outline" className={cn('gap-1.5', cfg.className)}>
+              {cfg.icon}
               {cfg.label}
-            </Chip>
+            </Badge>
           )
         })}
-      </Box>
+      </div>
 
-      <Divider />
+      <div className="border-t border-border" />
 
       {/* Stats 2x2 */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-        <Box>
-          <Typography level="body-xs" color="neutral">Seguidores</Typography>
-          <Typography level="body-sm" fontWeight="lg">{formatNumber(creator.followers)}</Typography>
-        </Box>
-        <Box>
-          <Typography level="body-xs" color="neutral">Engagement</Typography>
-          <Typography level="body-sm" fontWeight="lg">{creator.engagementRate.toFixed(1)}%</Typography>
-        </Box>
-        <Box>
-          <Typography level="body-xs" color="neutral">Campanas Completadas</Typography>
-          <Typography level="body-sm" fontWeight="lg">{creator.completedCampaigns}</Typography>
-        </Box>
-        <Box>
-          <Typography level="body-xs" color="neutral">Rating</Typography>
-          {renderStars(creator.rating)}
-        </Box>
-      </Box>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-xs text-muted-foreground">Seguidores</p>
+          <p className="text-sm font-semibold tabular-nums text-foreground">
+            {formatNumber(creator.followers)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Engagement</p>
+          <p className="text-sm font-semibold tabular-nums text-foreground">
+            {creator.engagementRate.toFixed(1)}%
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Campanas Completadas</p>
+          <p className="text-sm font-semibold tabular-nums text-foreground">
+            {creator.completedCampaigns}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Rating</p>
+          <Stars rating={creator.rating} />
+        </div>
+      </div>
 
       {/* Tarifa */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <MoneyIcon sx={{ fontSize: 16, color: 'success.500' }} />
-        <Typography level="body-sm">
-          <Typography component="span" fontWeight="lg">${creator.baseRate}</Typography>
-          <Typography component="span" color="neutral"> / video</Typography>
-        </Typography>
-      </Box>
+      <div className="flex items-center gap-1.5">
+        <CurrencyDollar className="size-4 shrink-0 text-success-text" weight="bold" aria-hidden />
+        <p className="text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground">${creator.baseRate}</span> / video
+        </p>
+      </div>
 
-      <Divider />
+      <div className="border-t border-border" />
 
       {/* Acciones */}
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button
-          size="sm"
-          variant="soft"
-          color="primary"
-          startDecorator={<CampaignIcon sx={{ fontSize: 14 }} />}
-          onClick={() => onAssign(creator)}
-          sx={{ flex: 1 }}
-        >
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" className="flex-1" onClick={() => onAssign(creator)}>
+          <Megaphone className="size-4" weight="fill" aria-hidden />
           Asignar Campana
         </Button>
-        <Button
-          size="sm"
-          variant="soft"
-          color="success"
-          startDecorator={<PaymentsIcon sx={{ fontSize: 14 }} />}
-          onClick={() => onPay(creator)}
-        >
+        <Button size="sm" variant="outline" onClick={() => onPay(creator)}>
+          <Money className="size-4" weight="fill" aria-hidden />
           Ver Pagos
         </Button>
-        <IconButton size="sm" variant="plain" color="neutral" onClick={() => onEdit(creator)}>
-          <EditIcon sx={{ fontSize: 16 }} />
-        </IconButton>
-      </Box>
-    </Card>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0"
+          aria-label={`Editar ${creator.name}`}
+          onClick={() => onEdit(creator)}
+        >
+          <PencilSimple className="size-[18px]" aria-hidden />
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -389,104 +416,148 @@ function AddCreatorModal({ open, onClose, onSuccess }: AddCreatorModalProps) {
   }
 
   return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog sx={{ maxWidth: 500, width: '100%', overflow: 'auto', maxHeight: '90vh' }}>
-        <ModalClose />
-        <Typography level="title-lg">Agregar Creador</Typography>
-        <Divider />
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose() }}>
+      <DialogContent className="max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Agregar Creador</DialogTitle>
+        </DialogHeader>
+        <div className="border-t border-border" />
 
-        <Stack spacing={1.5} sx={{ mt: 1 }}>
-          {error && (
-            <Sheet variant="soft" color="danger" sx={{ p: 1.5, borderRadius: 'sm' }}>
-              <Typography level="body-sm" color="danger">{error}</Typography>
-            </Sheet>
-          )}
+        <div className="space-y-3">
+          {error && <ErrorNote>{error}</ErrorNote>}
 
-          <Input
-            placeholder="Nombre *"
-            value={form.name}
-            onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
-            startDecorator={<PersonIcon sx={{ fontSize: 16 }} />}
-          />
-          <Input
-            placeholder="Email *"
-            type="email"
-            value={form.email}
-            onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
-          />
-          <Input
-            placeholder="Telefono (opcional)"
-            value={form.phone}
-            onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="creator-name">Nombre *</Label>
+            <Input
+              id="creator-name"
+              placeholder="Nombre del creador"
+              value={form.name}
+              onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+              leftIcon={<User aria-hidden />}
+            />
+          </div>
 
-          <Select
-            placeholder="Nicho *"
-            value={form.niche || null}
-            onChange={(_, v) => v && setForm(prev => ({ ...prev, niche: v as CreatorNiche }))}
-          >
-            {(Object.entries(NICHE_CONFIG) as [CreatorNiche, typeof NICHE_CONFIG[CreatorNiche]][]).map(([key, cfg]) => (
-              <Option key={key} value={key}>{cfg.label}</Option>
-            ))}
-          </Select>
+          <div className="space-y-1.5">
+            <Label htmlFor="creator-email">Email *</Label>
+            <Input
+              id="creator-email"
+              type="email"
+              placeholder="correo@ejemplo.com"
+              value={form.email}
+              onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
+            />
+          </div>
 
-          <Box>
-            <Typography level="body-xs" color="neutral" sx={{ mb: 0.75 }}>Plataformas</Typography>
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-              {(Object.entries(PLATFORM_CONFIG) as [Platform, typeof PLATFORM_CONFIG[Platform]][]).map(([key, cfg]) => (
-                <Chip
-                  key={key}
-                  size="sm"
-                  variant={form.platforms.includes(key) ? 'solid' : 'outlined'}
-                  color={form.platforms.includes(key) ? 'primary' : 'neutral'}
-                  startDecorator={cfg.icon}
-                  onClick={() => togglePlatform(key)}
-                  sx={{ cursor: 'pointer' }}
-                >
-                  {cfg.label}
-                </Chip>
-              ))}
-            </Box>
-          </Box>
+          <div className="space-y-1.5">
+            <Label htmlFor="creator-phone">Telefono (opcional)</Label>
+            <Input
+              id="creator-phone"
+              placeholder="Telefono"
+              value={form.phone}
+              onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))}
+            />
+          </div>
 
-          <Input
-            placeholder="Tarifa base por video ($) *"
-            type="number"
-            value={form.baseRate}
-            onChange={e => setForm(prev => ({ ...prev, baseRate: e.target.value }))}
-            startDecorator={<MoneyIcon sx={{ fontSize: 16 }} />}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="creator-niche">Nicho *</Label>
+            <Select
+              value={form.niche}
+              onValueChange={v => v && setForm(prev => ({ ...prev, niche: v as CreatorNiche }))}
+            >
+              <SelectTrigger id="creator-niche" className="h-11">
+                <SelectValue placeholder="Selecciona un nicho" />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.entries(NICHE_CONFIG) as [CreatorNiche, typeof NICHE_CONFIG[CreatorNiche]][]).map(([key, cfg]) => (
+                  <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          <Select
-            placeholder="Metodo de pago *"
-            value={form.paymentMethod || null}
-            onChange={(_, v) => v && setForm(prev => ({ ...prev, paymentMethod: v as PaymentMethod }))}
-          >
-            <Option value="stripe">Stripe</Option>
-            <Option value="paypal">PayPal</Option>
-            <Option value="bank_transfer">Transferencia bancaria</Option>
-          </Select>
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium text-foreground">Plataformas</p>
+            <div className="flex flex-wrap gap-2">
+              {(Object.entries(PLATFORM_CONFIG) as [Platform, typeof PLATFORM_CONFIG[Platform]][]).map(([key, cfg]) => {
+                const selected = form.platforms.includes(key)
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={selected}
+                    onClick={() => togglePlatform(key)}
+                    className={cn(
+                      'inline-flex min-h-6 cursor-pointer appearance-none items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium leading-none transition-colors',
+                      '[font-family:inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+                      selected
+                        ? 'border-transparent bg-primary text-primary-foreground'
+                        : 'border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    <span className={cn(selected ? 'text-primary-foreground' : cfg.className)}>
+                      {cfg.icon}
+                    </span>
+                    {cfg.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="creator-rate">Tarifa base por video ($) *</Label>
+            <Input
+              id="creator-rate"
+              type="number"
+              placeholder="0"
+              value={form.baseRate}
+              onChange={e => setForm(prev => ({ ...prev, baseRate: e.target.value }))}
+              leftIcon={<CurrencyDollar aria-hidden />}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="creator-payment">Metodo de pago *</Label>
+            <Select
+              value={form.paymentMethod}
+              onValueChange={v => v && setForm(prev => ({ ...prev, paymentMethod: v as PaymentMethod }))}
+            >
+              <SelectTrigger id="creator-payment" className="h-11">
+                <SelectValue placeholder="Selecciona un metodo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="stripe">Stripe</SelectItem>
+                <SelectItem value="paypal">PayPal</SelectItem>
+                <SelectItem value="bank_transfer">Transferencia bancaria</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {form.paymentMethod === 'paypal' && (
-            <Input
-              placeholder="PayPal email"
-              type="email"
-              value={form.paypalEmail}
-              onChange={e => setForm(prev => ({ ...prev, paypalEmail: e.target.value }))}
-            />
+            <div className="space-y-1.5">
+              <Label htmlFor="creator-paypal">PayPal email</Label>
+              <Input
+                id="creator-paypal"
+                type="email"
+                placeholder="paypal@ejemplo.com"
+                value={form.paypalEmail}
+                onChange={e => setForm(prev => ({ ...prev, paypalEmail: e.target.value }))}
+              />
+            </div>
           )}
 
-          <Box sx={{ display: 'flex', gap: 1, pt: 0.5 }}>
-            <Button variant="plain" color="neutral" onClick={onClose} sx={{ flex: 1 }} disabled={saving}>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>
-            <Button color="primary" onClick={handleSubmit} loading={saving} sx={{ flex: 2 }}>
+            <Button className="flex-[2]" onClick={handleSubmit} loading={saving}>
               Agregar Creador
             </Button>
-          </Box>
-        </Stack>
-      </ModalDialog>
-    </Modal>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -541,73 +612,89 @@ function AssignModal({ open, creator, onClose, onSuccess }: AssignModalProps) {
   }
 
   return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog sx={{ maxWidth: 460, width: '100%' }}>
-        <ModalClose />
-        <Typography level="title-lg">
-          Asignar a Campana
-          {creator && <Typography component="span" color="neutral" fontWeight="normal"> — {creator.name}</Typography>}
-        </Typography>
-        <Divider />
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose() }}>
+      <DialogContent className="max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>
+            Asignar a Campana
+            {creator && (
+              <span className="font-normal text-muted-foreground"> — {creator.name}</span>
+            )}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="border-t border-border" />
 
-        <Stack spacing={1.5} sx={{ mt: 1 }}>
-          {error && (
-            <Sheet variant="soft" color="danger" sx={{ p: 1.5, borderRadius: 'sm' }}>
-              <Typography level="body-sm" color="danger">{error}</Typography>
-            </Sheet>
-          )}
+        <div className="space-y-3">
+          {error && <ErrorNote>{error}</ErrorNote>}
 
           {loadingCampaigns ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+            <div className="flex justify-center py-4">
               <CircularProgress size="sm" />
-            </Box>
+            </div>
           ) : (
-            <Select
-              placeholder="Campana activa *"
-              value={form.campaignId || null}
-              onChange={(_, v) => v && setForm(prev => ({ ...prev, campaignId: String(v) }))}
-            >
-              {campaigns.map(c => (
-                <Option key={c.id} value={String(c.id)}>{c.name}</Option>
-              ))}
-            </Select>
+            <div className="space-y-1.5">
+              <Label htmlFor="assign-campaign">Campana activa *</Label>
+              <Select
+                value={form.campaignId}
+                onValueChange={v => v && setForm(prev => ({ ...prev, campaignId: String(v) }))}
+              >
+                <SelectTrigger id="assign-campaign" className="h-11">
+                  <SelectValue placeholder="Selecciona una campana" />
+                </SelectTrigger>
+                <SelectContent>
+                  {campaigns.map(c => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
 
-          <Textarea
-            placeholder="Brief / instrucciones"
-            minRows={3}
-            value={form.brief}
-            onChange={e => setForm(prev => ({ ...prev, brief: e.target.value }))}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="assign-brief">Brief / instrucciones</Label>
+            <textarea
+              id="assign-brief"
+              rows={3}
+              placeholder="Brief / instrucciones"
+              value={form.brief}
+              onChange={e => setForm(prev => ({ ...prev, brief: e.target.value }))}
+              className={textareaClass}
+            />
+          </div>
 
-          <Box>
-            <Typography level="body-xs" color="neutral" sx={{ mb: 0.5 }}>Deadline *</Typography>
+          <div className="space-y-1.5">
+            <Label htmlFor="assign-deadline">Deadline *</Label>
             <Input
+              id="assign-deadline"
               type="date"
               value={form.deadline}
               onChange={e => setForm(prev => ({ ...prev, deadline: e.target.value }))}
             />
-          </Box>
+          </div>
 
-          <Input
-            placeholder="Tarifa acordada ($) *"
-            type="number"
-            value={form.agreedRate}
-            onChange={e => setForm(prev => ({ ...prev, agreedRate: e.target.value }))}
-            startDecorator={<MoneyIcon sx={{ fontSize: 16 }} />}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="assign-rate">Tarifa acordada ($) *</Label>
+            <Input
+              id="assign-rate"
+              type="number"
+              placeholder="0"
+              value={form.agreedRate}
+              onChange={e => setForm(prev => ({ ...prev, agreedRate: e.target.value }))}
+              leftIcon={<CurrencyDollar aria-hidden />}
+            />
+          </div>
 
-          <Box sx={{ display: 'flex', gap: 1, pt: 0.5 }}>
-            <Button variant="plain" color="neutral" onClick={onClose} sx={{ flex: 1 }} disabled={saving}>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>
-            <Button color="primary" onClick={handleSubmit} loading={saving} sx={{ flex: 2 }}>
+            <Button className="flex-[2]" onClick={handleSubmit} loading={saving}>
               Asignar
             </Button>
-          </Box>
-        </Stack>
-      </ModalDialog>
-    </Modal>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -664,103 +751,115 @@ function PayModal({ open, creator, onClose, onSuccess }: PayModalProps) {
     }
   }
 
-  const paymentMethodLabel: Record<PaymentMethod, string> = {
-    stripe: 'Stripe',
-    paypal: 'PayPal',
-    bank_transfer: 'Transferencia bancaria',
-  }
-
   return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog sx={{ maxWidth: 440, width: '100%' }}>
-        <ModalClose />
-        <Typography level="title-lg">Procesar Pago</Typography>
-        <Divider />
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose() }}>
+      <DialogContent className="max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Procesar Pago</DialogTitle>
+        </DialogHeader>
+        <div className="border-t border-border" />
 
-        <Stack spacing={1.5} sx={{ mt: 1 }}>
-          {error && (
-            <Sheet variant="soft" color="danger" sx={{ p: 1.5, borderRadius: 'sm' }}>
-              <Typography level="body-sm" color="danger">{error}</Typography>
-            </Sheet>
-          )}
+        <div className="space-y-3">
+          {error && <ErrorNote>{error}</ErrorNote>}
 
           {creator && (
-            <Sheet variant="soft" color="neutral" sx={{ p: 1.5, borderRadius: 'sm' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                <Typography level="body-xs" color="neutral">Creador</Typography>
-                <Typography level="body-xs" fontWeight="md">{creator.name}</Typography>
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                <Typography level="body-xs" color="neutral">Metodo</Typography>
-                <Typography level="body-xs" fontWeight="md">{paymentMethodLabel[creator.paymentMethod]}</Typography>
-              </Box>
+            <div className="space-y-1 rounded-md bg-muted px-3 py-2.5">
+              <div className="flex justify-between gap-3">
+                <span className="text-xs text-muted-foreground">Creador</span>
+                <span className="text-xs font-medium text-foreground">{creator.name}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-xs text-muted-foreground">Metodo</span>
+                <span className="text-xs font-medium text-foreground">
+                  {PAYMENT_METHOD_LABEL[creator.paymentMethod]}
+                </span>
+              </div>
               {creator.paymentMethod === 'paypal' && creator.paypalEmail && (
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography level="body-xs" color="neutral">PayPal</Typography>
-                  <Typography level="body-xs" fontWeight="md">{creator.paypalEmail}</Typography>
-                </Box>
+                <div className="flex justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">PayPal</span>
+                  <span className="truncate text-xs font-medium text-foreground">{creator.paypalEmail}</span>
+                </div>
               )}
               {creator.paymentMethod === 'stripe' && creator.stripeAccountId && (
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography level="body-xs" color="neutral">Stripe Account</Typography>
-                  <Typography level="body-xs" fontWeight="md">{creator.stripeAccountId}</Typography>
-                </Box>
+                <div className="flex justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">Stripe Account</span>
+                  <span className="truncate text-xs font-medium text-foreground">{creator.stripeAccountId}</span>
+                </div>
               )}
-            </Sheet>
+            </div>
           )}
 
-          <Input
-            placeholder="Monto ($) *"
-            type="number"
-            value={form.amount}
-            onChange={e => setForm(prev => ({ ...prev, amount: e.target.value }))}
-            startDecorator={<MoneyIcon sx={{ fontSize: 16 }} />}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="pay-amount">Monto ($) *</Label>
+            <Input
+              id="pay-amount"
+              type="number"
+              placeholder="0"
+              value={form.amount}
+              onChange={e => setForm(prev => ({ ...prev, amount: e.target.value }))}
+              leftIcon={<CurrencyDollar aria-hidden />}
+            />
+          </div>
 
           {grossAmount > 0 && (
-            <Sheet variant="soft" color="success" sx={{ p: 1.5, borderRadius: 'sm' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
-                <Typography level="body-xs" color="neutral">Fee plataforma (10%)</Typography>
-                <Typography level="body-xs" color="danger">-${feeAmount.toFixed(2)}</Typography>
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography level="body-xs" fontWeight="lg">Monto neto</Typography>
-                <Typography level="body-xs" color="success" fontWeight="lg">${netAmount.toFixed(2)}</Typography>
-              </Box>
-            </Sheet>
+            <div className="space-y-1 rounded-md bg-success/14 px-3 py-2.5">
+              <div className="flex justify-between gap-3">
+                <span className="text-xs text-muted-foreground">Fee plataforma (10%)</span>
+                <span className="text-xs font-medium tabular-nums text-destructive-text">
+                  -${feeAmount.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-xs font-semibold text-foreground">Monto neto</span>
+                <span className="text-xs font-semibold tabular-nums text-success-text">
+                  ${netAmount.toFixed(2)}
+                </span>
+              </div>
+            </div>
           )}
 
-          <Input
-            placeholder="Descripcion *"
-            value={form.description}
-            onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="pay-description">Descripcion *</Label>
+            <Input
+              id="pay-description"
+              placeholder="Descripcion del pago"
+              value={form.description}
+              onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
+            />
+          </div>
 
           {assignments.length > 0 && (
-            <Select
-              placeholder="Asignacion relacionada (opcional)"
-              value={form.assignmentId || null}
-              onChange={(_, v) => setForm(prev => ({ ...prev, assignmentId: v ? String(v) : '' }))}
-            >
-              {assignments.map(a => (
-                <Option key={a.id} value={String(a.id)}>
-                  {a.campaignName} — ${a.agreedRate}
-                </Option>
-              ))}
-            </Select>
+            <div className="space-y-1.5">
+              <Label htmlFor="pay-assignment">Asignacion relacionada (opcional)</Label>
+              <Select
+                value={form.assignmentId}
+                onValueChange={v => setForm(prev => ({ ...prev, assignmentId: v ? String(v) : '' }))}
+              >
+                <SelectTrigger id="pay-assignment" className="h-11">
+                  <SelectValue placeholder="Selecciona una asignacion" />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignments.map(a => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      {a.campaignName} — ${a.agreedRate}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
 
-          <Box sx={{ display: 'flex', gap: 1, pt: 0.5 }}>
-            <Button variant="plain" color="neutral" onClick={onClose} sx={{ flex: 1 }} disabled={saving}>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>
-            <Button color="success" onClick={handleSubmit} loading={saving} sx={{ flex: 2 }}>
+            <Button className="flex-[2]" onClick={handleSubmit} loading={saving}>
               Procesar Pago
             </Button>
-          </Box>
-        </Stack>
-      </ModalDialog>
-    </Modal>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -819,141 +918,163 @@ export default function UGCCreatorNetwork() {
   })
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: 'auto' }}>
-      {/* ── Header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <GroupsIcon sx={{ fontSize: 28, color: 'primary.500' }} />
-          <Box>
-            <Typography level="h3">Red de Creadores</Typography>
-            <Typography level="body-sm" color="neutral">
-              Gestiona tu red de creadores de contenido UGC
-            </Typography>
-          </Box>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <IconButton variant="outlined" color="neutral" size="sm" onClick={fetchData} disabled={loading}>
-            <Refresh />
-          </IconButton>
-          <Button
-            color="primary"
-            startDecorator={<AddIcon />}
-            onClick={() => setAddOpen(true)}
-          >
-            Agregar Creador
-          </Button>
-        </Box>
-      </Box>
-
-      {/* ── Stats strip ── */}
-      <StatsStrip stats={stats} loading={loading} />
-
-      {/* ── Error state ── */}
-      {error && (
-        <Sheet variant="soft" color="danger" sx={{ p: 2, borderRadius: 'md', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography level="body-sm" color="danger">{error}</Typography>
-            <Button size="sm" variant="plain" color="danger" onClick={fetchData}>Reintentar</Button>
-          </Box>
-        </Sheet>
-      )}
-
-      {/* ── Filtros ── */}
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Input
-          size="sm"
-          placeholder="Buscar por nombre o email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          startDecorator={<SearchIcon sx={{ fontSize: 16 }} />}
-          sx={{ minWidth: 220 }}
-        />
-        <Select
-          size="sm"
-          value={statusFilter}
-          onChange={(_, v) => v && setStatusFilter(v as CreatorStatus | 'all')}
-          sx={{ minWidth: 150 }}
-        >
-          <Option value="all">Todos los estados</Option>
-          <Option value="pending">Pendiente</Option>
-          <Option value="verified">Verificado</Option>
-          <Option value="active">Activo</Option>
-          <Option value="suspended">Suspendido</Option>
-        </Select>
-        <Select
-          size="sm"
-          value={nicheFilter}
-          onChange={(_, v) => v && setNicheFilter(v as CreatorNiche | 'all')}
-          sx={{ minWidth: 140 }}
-        >
-          <Option value="all">Todos los nichos</Option>
-          {(Object.entries(NICHE_CONFIG) as [CreatorNiche, typeof NICHE_CONFIG[CreatorNiche]][]).map(([key, cfg]) => (
-            <Option key={key} value={key}>{cfg.label}</Option>
-          ))}
-        </Select>
-        <Typography level="body-xs" color="neutral" sx={{ ml: 'auto', alignSelf: 'center' }}>
-          {filteredCreators.length} creador{filteredCreators.length !== 1 ? 'es' : ''}
-        </Typography>
-      </Box>
-
-      <Divider sx={{ mb: 3 }} />
-
-      {/* ── Content ── */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size="lg" />
-        </Box>
-      ) : filteredCreators.length === 0 ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 10, gap: 2 }}>
-          <GroupsIcon sx={{ fontSize: 64, color: 'text.tertiary' }} />
-          <Typography level="h3" textAlign="center">Sin creadores</Typography>
-          <Typography level="body-md" color="neutral" textAlign="center" sx={{ maxWidth: 380 }}>
-            {creators.length === 0
-              ? 'No hay creadores registrados. Agrega tu primer creador de contenido.'
-              : 'No hay creadores que coincidan con los filtros seleccionados.'}
-          </Typography>
-          {creators.length === 0 && (
-            <Button startDecorator={<AddIcon />} onClick={() => setAddOpen(true)}>
-              Agregar Primer Creador
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* ── Header ── */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <UsersThree className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Red de Creadores
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestiona tu red de creadores de contenido UGC
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchData}
+              disabled={loading}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
             </Button>
-          )}
-        </Box>
-      ) : (
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, 1fr)',
-              lg: 'repeat(3, 1fr)',
-              xl: 'repeat(4, 1fr)',
-            },
-            gap: 2,
-          }}
-        >
-          {filteredCreators.map(creator => (
-            <CreatorCard
-              key={creator.id}
-              creator={creator}
-              onAssign={c => setAssignCreator(c)}
-              onPay={c => setPayCreator(c)}
-              onEdit={c => setEditCreator(c)}
-            />
-          ))}
-        </Box>
-      )}
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Agregar Creador
+            </Button>
+          </div>
+        </div>
 
-      {/* ── Edit placeholder info ── */}
-      {editCreator && (
-        <Sheet
-          variant="soft"
-          color="neutral"
-          sx={{ p: 2, borderRadius: 'md', mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-        >
-          <Typography level="body-sm">Editando: <strong>{editCreator.name}</strong> — Funcionalidad de edicion disponible en la proxima version.</Typography>
-          <Button size="sm" variant="plain" color="neutral" onClick={() => setEditCreator(null)}>Cerrar</Button>
-        </Sheet>
-      )}
+        {/* ── Stats strip ── */}
+        <StatsStrip stats={stats} loading={loading} />
+
+        {/* ── Error state ── */}
+        {error && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-destructive/12 px-4 py-3"
+          >
+            <p className="text-sm text-destructive-text">{error}</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+              onClick={fetchData}
+            >
+              Reintentar
+            </Button>
+          </div>
+        )}
+
+        {/* ── Filtros ── */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* <Input> renderiza su propio wrapper relativo: el ancho se controla desde fuera. */}
+          <div className="w-full min-w-[220px] sm:w-auto sm:max-w-xs sm:flex-1">
+            <Input
+              className="h-10"
+              placeholder="Buscar por nombre o email..."
+              aria-label="Buscar creadores"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              leftIcon={<MagnifyingGlass aria-hidden />}
+            />
+          </div>
+          <div className="min-w-[150px]">
+            <Select
+              value={statusFilter}
+              onValueChange={v => v && setStatusFilter(v as CreatorStatus | 'all')}
+            >
+              <SelectTrigger className="h-10" aria-label="Filtrar por estado">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                <SelectItem value="pending">Pendiente</SelectItem>
+                <SelectItem value="verified">Verificado</SelectItem>
+                <SelectItem value="active">Activo</SelectItem>
+                <SelectItem value="suspended">Suspendido</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-[140px]">
+            <Select
+              value={nicheFilter}
+              onValueChange={v => v && setNicheFilter(v as CreatorNiche | 'all')}
+            >
+              <SelectTrigger className="h-10" aria-label="Filtrar por nicho">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los nichos</SelectItem>
+                {(Object.entries(NICHE_CONFIG) as [CreatorNiche, typeof NICHE_CONFIG[CreatorNiche]][]).map(([key, cfg]) => (
+                  <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="ml-auto self-center text-xs text-muted-foreground">
+            {filteredCreators.length} creador{filteredCreators.length !== 1 ? 'es' : ''}
+          </p>
+        </div>
+
+        <div className="border-t border-border" />
+
+        {/* ── Content ── */}
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <CircularProgress size="lg" />
+          </div>
+        ) : filteredCreators.length === 0 ? (
+          <div className="flex flex-col items-center gap-4 py-20">
+            <UsersThree className="size-16 text-muted-foreground/50" aria-hidden />
+            <h2 className="text-center text-xl font-semibold text-foreground">Sin creadores</h2>
+            <p className="max-w-[380px] text-center text-sm text-muted-foreground">
+              {creators.length === 0
+                ? 'No hay creadores registrados. Agrega tu primer creador de contenido.'
+                : 'No hay creadores que coincidan con los filtros seleccionados.'}
+            </p>
+            {creators.length === 0 && (
+              <Button onClick={() => setAddOpen(true)}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Agregar Primer Creador
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filteredCreators.map(creator => (
+              <CreatorCard
+                key={creator.id}
+                creator={creator}
+                onAssign={c => setAssignCreator(c)}
+                onPay={c => setPayCreator(c)}
+                onEdit={c => setEditCreator(c)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── Edit placeholder info ── */}
+        {editCreator && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Editando: <strong className="font-semibold text-foreground">{editCreator.name}</strong>
+              {' '}— Funcionalidad de edicion disponible en la proxima version.
+            </p>
+            <Button size="sm" variant="ghost" onClick={() => setEditCreator(null)}>
+              Cerrar
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* ── Modales ── */}
       <AddCreatorModal
@@ -973,6 +1094,6 @@ export default function UGCCreatorNetwork() {
         onClose={() => setPayCreator(null)}
         onSuccess={fetchData}
       />
-    </Box>
+    </div>
   )
 }

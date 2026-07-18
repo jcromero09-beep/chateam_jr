@@ -3,132 +3,14 @@ import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea
 import api from "../services/api";
 import { toast } from "react-toastify";
 import { useNavigate } from 'react-router-dom';
-import { Facebook, Instagram, WhatsApp } from "@material-ui/icons";
-import {
-  Tooltip,
-  Typography,
-  Button,
-  TextField,
-  Paper,
-  Card,
-  CardContent,
-  Chip
-} from "@material-ui/core";
-import { makeStyles } from "@material-ui/core/styles";
+import { Facebook, Instagram, WhatsApp } from "@mui/icons-material";
 import { format, isSameDay, parseISO } from "date-fns";
 import { useAuth } from "../hooks/useAuth";
-
-const useStyles = makeStyles(theme => ({
-  root: {
-    display: "flex",
-    flexDirection: "column",
-    padding: theme.spacing(2),
-    height: "100%",
-    overflow: "hidden",
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: theme.spacing(2),
-    flexWrap: 'wrap',
-    gap: theme.spacing(1),
-  },
-  headerLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1),
-  },
-  kanbanContainer: {
-    display: "flex",
-    gap: theme.spacing(2),
-    overflowX: "auto",
-    flex: 1,
-    paddingBottom: theme.spacing(2),
-  },
-  lane: {
-    minWidth: 280,
-    maxWidth: 320,
-    backgroundColor: "#f4f5f7",
-    borderRadius: 8,
-    display: "flex",
-    flexDirection: "column",
-    maxHeight: "calc(100vh - 200px)",
-  },
-  laneHeader: {
-    padding: theme.spacing(1.5),
-    fontWeight: 600,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  laneContent: {
-    padding: theme.spacing(1),
-    flex: 1,
-    overflowY: "auto",
-    minHeight: 100,
-  },
-  ticketCard: {
-    marginBottom: theme.spacing(1),
-    cursor: "pointer",
-    "&:hover": {
-      boxShadow: theme.shadows[4],
-    },
-  },
-  ticketHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: theme.spacing(0.5),
-    marginBottom: theme.spacing(0.5),
-  },
-  ticketName: {
-    fontWeight: 500,
-    fontSize: "0.9rem",
-    wordBreak: "break-word",
-  },
-  ticketNumber: {
-    color: theme.palette.text.secondary,
-    fontSize: "0.75rem",
-  },
-  ticketMessage: {
-    fontSize: "0.8rem",
-    color: theme.palette.text.secondary,
-    marginTop: theme.spacing(0.5),
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  ticketFooter: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: theme.spacing(1),
-  },
-  userBadge: {
-    backgroundColor: "#000",
-    color: "#fff",
-    fontSize: "0.6rem",
-    padding: "2px 6px",
-    borderRadius: 3,
-  },
-  timeUnread: {
-    color: theme.palette.success.main,
-    fontWeight: "bold",
-    fontSize: "0.75rem",
-  },
-  timeRead: {
-    color: theme.palette.text.secondary,
-    fontSize: "0.75rem",
-  },
-  countBadge: {
-    backgroundColor: "rgba(255,255,255,0.3)",
-    padding: "2px 8px",
-    borderRadius: 12,
-    fontSize: "0.8rem",
-  },
-}));
+import DateRangePicker from "../components/DateRangePicker";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 
 interface Tag {
   id: number;
@@ -165,13 +47,17 @@ interface Lane {
 }
 
 const Kanban = () => {
-  const classes = useStyles();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tags, setTags] = useState<Tag[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [lanes, setLanes] = useState<Lane[]>([]);
-  const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  // Por defecto: último 1 mes (no "todas las fechas").
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return format(d, "yyyy-MM-dd");
+  });
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   const jsonString = (user as any)?.queues?.map((queue: any) => queue.UserQueue?.queueId || queue.id) || [];
@@ -324,48 +210,56 @@ const Kanban = () => {
   };
 
   return (
-    <div className={classes.root}>
+    <div className="flex h-full flex-col overflow-hidden bg-background p-4 text-foreground">
       {/* Header */}
-      <div className={classes.header}>
-        <div className={classes.headerLeft}>
-          <TextField
-            label="Fecha inicio"
-            type="date"
-            value={startDate}
-            onChange={handleStartDateChange}
-            InputLabelProps={{ shrink: true }}
-            variant="outlined"
-            size="small"
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {/* Filtro de rango de fechas (mismo componente que Tickets). Por defecto
+              muestra el último mes; al Aplicar/Limpiar refresca automáticamente. */}
+          <DateRangePicker
+            since={startDate}
+            until={endDate}
+            presetLabel=""
+            months={1}
+            showPresets={false}
+            align="left"
+            allowClear
+            showRangeInTrigger
+            placeholder="Todas las fechas"
+            onApply={(s, u) => {
+              setStartDate(s);
+              setEndDate(u);
+            }}
           />
-          <TextField
-            label="Fecha final"
-            type="date"
-            value={endDate}
-            onChange={handleEndDateChange}
-            InputLabelProps={{ shrink: true }}
-            variant="outlined"
-            size="small"
-          />
-          <Button variant="contained" color="primary" onClick={handleSearchClick}>
-            Buscar
-          </Button>
         </div>
-        <Button variant="contained" color="primary" onClick={handleAddConnectionClick}>
+        <Button size="sm" onClick={handleAddConnectionClick}>
           Añadir columnas
         </Button>
       </div>
 
       {/* Kanban Board */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div className={classes.kanbanContainer}>
+        <div className="flex flex-1 gap-4 overflow-x-auto pb-4">
           {lanes.map(lane => (
-            <Paper key={lane.id} className={classes.lane} elevation={1}>
-              <div
-                className={classes.laneHeader}
-                style={{ backgroundColor: lane.color, color: "#fff" }}
-              >
-                <span>{lane.title}</span>
-                <span className={classes.countBadge}>{lane.tickets.length}</span>
+            <div
+              key={lane.id}
+              className="flex max-h-[calc(100vh-200px)] w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-muted/40"
+            >
+              {/* [Barrido UI · ref. kanban shadcn] Cabecera neutra: antes cada columna
+                  llevaba una banda de color saturado a todo lo ancho con texto blanco,
+                  asi que el tablero eran N bloques gritando a la vez. El color de la
+                  etapa se conserva como punto de acento (sigue codificando la etapa)
+                  y el peso visual vuelve a las tarjetas, que es donde esta la info. */}
+              <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: lane.color }}
+                />
+                <span className="truncate text-sm font-semibold text-foreground">{lane.title}</span>
+                <span className="ml-auto rounded-full bg-background px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                  {lane.tickets.length}
+                </span>
               </div>
 
               <Droppable droppableId={lane.id}>
@@ -373,10 +267,10 @@ const Kanban = () => {
                   <div
                     ref={provided.innerRef}
                     {...provided.droppableProps}
-                    className={classes.laneContent}
-                    style={{
-                      backgroundColor: snapshot.isDraggingOver ? "#e3f2fd" : undefined,
-                    }}
+                    className={cn(
+                      "min-h-[100px] flex-1 space-y-2 overflow-y-auto p-2 transition-colors",
+                      snapshot.isDraggingOver && "bg-primary/5"
+                    )}
                   >
                     {lane.tickets.map((ticket, index) => (
                       <Draggable
@@ -385,63 +279,63 @@ const Kanban = () => {
                         index={index}
                       >
                         {(provided, snapshot) => (
-                          <Card
+                          <div
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            className={classes.ticketCard}
-                            style={{
-                              ...provided.draggableProps.style,
-                              boxShadow: snapshot.isDragging ? "0 5px 15px rgba(0,0,0,0.3)" : undefined,
-                            }}
+                            style={provided.draggableProps.style}
                             onClick={() => handleCardClick(ticket.uuid)}
+                            className={cn(
+                              "cursor-pointer rounded-md border border-border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
+                              snapshot.isDragging && "ring-2 ring-primary shadow-lg"
+                            )}
                           >
-                            <CardContent style={{ padding: 12 }}>
-                              <div className={classes.ticketHeader}>
-                                <Tooltip title={ticket.whatsapp?.name || ticket.channel}>
-                                  <span>{IconChannel(ticket.channel)}</span>
-                                </Tooltip>
-                                <Typography className={classes.ticketName}>
-                                  {ticket.contact?.name || "Sin nombre"}
-                                </Typography>
-                              </div>
+                            <div className="flex items-center gap-2">
+                              <Avatar name={ticket.contact?.name || "?"} size="sm" />
+                              <span
+                                className="inline-flex shrink-0"
+                                title={ticket.whatsapp?.name || ticket.channel}
+                              >
+                                {IconChannel(ticket.channel)}
+                              </span>
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {ticket.contact?.name || "Sin nombre"}
+                              </span>
+                            </div>
 
-                              <Typography className={classes.ticketNumber}>
-                                #{ticket.id} • {ticket.contact?.number}
-                              </Typography>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              #{ticket.id} • {ticket.contact?.number}
+                            </p>
 
-                              {ticket.lastMessage && (
-                                <Typography className={classes.ticketMessage}>
-                                  {ticket.lastMessage}
-                                </Typography>
+                            {ticket.lastMessage && (
+                              <p className="mt-1 truncate text-xs text-muted-foreground">
+                                {ticket.lastMessage}
+                              </p>
+                            )}
+
+                            <div className="mt-2.5 flex items-center justify-between gap-2">
+                              {ticket.user && (
+                                <Badge variant="neutral" className="uppercase">
+                                  {ticket.user.name}
+                                </Badge>
                               )}
-
-                              <div className={classes.ticketFooter}>
-                                {ticket.user && (
-                                  <span className={classes.userBadge}>
-                                    {ticket.user.name.toUpperCase()}
-                                  </span>
+                              <span
+                                className={cn(
+                                  "ml-auto flex items-center gap-1 text-[11px]",
+                                  Number(ticket.unreadMessages) > 0
+                                    ? "font-bold text-success-text"
+                                    : "text-muted-foreground"
                                 )}
-                                <span
-                                  className={
-                                    Number(ticket.unreadMessages) > 0
-                                      ? classes.timeUnread
-                                      : classes.timeRead
-                                  }
-                                >
-                                  {formatTime(ticket.updatedAt)}
-                                  {Number(ticket.unreadMessages) > 0 && (
-                                    <Chip
-                                      size="small"
-                                      label={ticket.unreadMessages}
-                                      color="primary"
-                                      style={{ marginLeft: 4, height: 18, fontSize: "0.7rem" }}
-                                    />
-                                  )}
-                                </span>
-                              </div>
-                            </CardContent>
-                          </Card>
+                              >
+                                {formatTime(ticket.updatedAt)}
+                                {Number(ticket.unreadMessages) > 0 && (
+                                  <Badge variant="primary">
+                                    {ticket.unreadMessages}
+                                  </Badge>
+                                )}
+                              </span>
+                            </div>
+                          </div>
                         )}
                       </Draggable>
                     ))}
@@ -449,7 +343,7 @@ const Kanban = () => {
                   </div>
                 )}
               </Droppable>
-            </Paper>
+            </div>
           ))}
         </div>
       </DragDropContext>

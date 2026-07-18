@@ -4,33 +4,26 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Box,
-  Typography,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  Chip,
-  Alert,
-  CircularProgress,
-  Sheet,
-  Table,
-  Select,
-  Option,
-  Divider,
-  IconButton,
-} from '@mui/joy'
-import {
-  ArrowBack as ArrowBackIcon,
-  Refresh as RefreshIcon,
-  ThumbUp as ThumbUpIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Delete as DeleteIcon,
-  Facebook as FacebookIcon,
-  Instagram as InstagramIcon,
-  Forum as ForumIcon,
-} from '@mui/icons-material'
+  ArrowLeft,
+  ArrowClockwise,
+  ThumbsUp,
+  EyeSlash,
+  Trash,
+  FacebookLogo,
+  InstagramLogo,
+  ChatsCircle,
+  CircleNotch,
+} from '@phosphor-icons/react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 const devLog = (...args: unknown[]) => { if (import.meta.env.DEV) console.log(...args) }
@@ -69,6 +62,8 @@ interface LogEntry {
   processedAt: string
 }
 
+type BadgeVariant = NonNullable<BadgeProps['variant']>
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const truncate = (text: string | null | undefined, max: number) => {
@@ -84,10 +79,10 @@ const formatDate = (iso: string) => {
   } catch { return iso }
 }
 
-const statusColor = (s: PublicReplyStatus): 'success' | 'danger' | 'warning' | 'neutral' => {
-  const map: Record<PublicReplyStatus, 'success' | 'danger' | 'warning' | 'neutral'> = {
+const statusVariant = (s: PublicReplyStatus): BadgeVariant => {
+  const map: Record<PublicReplyStatus, BadgeVariant> = {
     sent: 'success',
-    failed: 'danger',
+    failed: 'destructive',
     skipped: 'warning',
     pending: 'neutral',
   }
@@ -101,12 +96,12 @@ const statusLabel: Record<string, string> = {
   pending: 'Pendiente',
 }
 
-const sourceColor = (s: ReplySource): 'primary' | 'success' | 'neutral' | 'danger' => {
-  const map: Record<ReplySource, 'primary' | 'success' | 'neutral' | 'danger'> = {
+const sourceVariant = (s: ReplySource): BadgeVariant => {
+  const map: Record<ReplySource, BadgeVariant> = {
     keyword: 'primary',
     ai: 'success',
     default: 'neutral',
-    offensive: 'danger',
+    offensive: 'destructive',
   }
   return map[s] ?? 'neutral'
 }
@@ -118,7 +113,7 @@ const sourceLabel: Record<string, string> = {
   offensive: 'Ofensivo',
 }
 
-const campaignStatusColor = (s: string): 'success' | 'warning' | 'neutral' => {
+const campaignStatusVariant = (s: string): BadgeVariant => {
   if (s === 'active') return 'success'
   if (s === 'paused') return 'warning'
   return 'neutral'
@@ -172,282 +167,255 @@ export default function CommentAutoReplyLogs() {
 
   const totalPages = Math.ceil(total / LIMIT)
 
+  const stats = campaign
+    ? [
+        { label: 'Total Procesados', value: campaign.totalReplies, tone: 'text-primary' },
+        { label: 'Públicas Enviadas', value: campaign.publicRepliesSent, tone: 'text-success-text' },
+        { label: 'Privadas Enviadas', value: campaign.privateRepliesSent, tone: 'text-brand-teal dark:text-brand-cyan' },
+      ]
+    : []
+
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto' }}>
-      {/* Header */}
-      <Stack direction="row" alignItems="center" gap={1.5} mb={3}>
-        <IconButton
-          variant="outlined"
-          color="neutral"
-          onClick={() => navigate('/comment-autoreply/campaigns')}
-          title="Volver a campañas"
-        >
-          <ArrowBackIcon />
-        </IconButton>
-        <Box sx={{ flex: 1 }}>
-          <Typography level="h3" fontWeight={700}>
-            Logs de Campaña
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-            Historial detallado de comentarios procesados
-          </Typography>
-        </Box>
-        <IconButton variant="outlined" color="neutral" onClick={fetchData} title="Actualizar">
-          <RefreshIcon />
-        </IconButton>
-      </Stack>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] p-4 sm:p-6">
+        {/* Header */}
+        <div className="mb-6 flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Volver a campañas"
+            onClick={() => navigate('/comment-autoreply/campaigns')}
+          >
+            <ArrowLeft className="size-5" aria-hidden />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Logs de Campaña
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Historial detallado de comentarios procesados
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Actualizar"
+            onClick={fetchData}
+          >
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-      {/* Campaign Info Card */}
-      {campaign && (
-        <Card variant="outlined" sx={{ mb: 2 }}>
-          <CardContent>
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              alignItems={{ sm: 'center' }}
-              justifyContent="space-between"
-              gap={2}
-            >
-              <Stack direction="row" alignItems="center" gap={1.5}>
+        {/* Campaign Info Card */}
+        {campaign && (
+          <div className="mb-4 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3">
                 {campaign.platform === 'facebook' ? (
-                  <FacebookIcon sx={{ color: '#1877f2', fontSize: 28 }} />
+                  <FacebookLogo className="size-7 text-[#1877f2]" weight="fill" aria-hidden />
                 ) : (
-                  <InstagramIcon sx={{ color: '#e1306c', fontSize: 28 }} />
+                  <InstagramLogo className="size-7 text-[#e4405f]" weight="fill" aria-hidden />
                 )}
-                <Box>
-                  <Typography level="title-md" fontWeight={700}>{campaign.name}</Typography>
-                  <Stack direction="row" gap={1} mt={0.5} flexWrap="wrap">
-                    <Chip size="sm" variant="soft" color="neutral" sx={{ textTransform: 'capitalize' }}>
+                <div>
+                  <p className="text-base font-bold text-foreground">{campaign.name}</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <Badge variant="neutral">
                       {campaign.campaignType === 'post' ? 'Por Post' : 'Por Página'}
-                    </Chip>
-                    <Chip size="sm" variant="soft" color={campaignStatusColor(campaign.status)} sx={{ textTransform: 'capitalize' }}>
+                    </Badge>
+                    <Badge variant={campaignStatusVariant(campaign.status)}>
                       {campaign.status === 'active' ? 'Activa' : campaign.status === 'paused' ? 'Pausada' : 'Borrador'}
-                    </Chip>
-                  </Stack>
-                </Box>
-              </Stack>
-              <Stack direction="row" gap={3} flexWrap="wrap">
-                {[
-                  { label: 'Total Procesados', value: campaign.totalReplies, color: '#3b82f6' },
-                  { label: 'Públicas Enviadas', value: campaign.publicRepliesSent, color: '#52b788' },
-                  { label: 'Privadas Enviadas', value: campaign.privateRepliesSent, color: '#7c3aed' },
-                ].map(stat => (
-                  <Box key={stat.label} sx={{ textAlign: 'center' }}>
-                    <Typography level="h3" sx={{ color: stat.color, fontWeight: 700 }}>
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-6">
+                {stats.map(stat => (
+                  <div key={stat.label} className="text-center">
+                    <p className={`text-2xl font-bold tabular-nums ${stat.tone}`}>
                       {stat.value.toLocaleString()}
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                      {stat.label}
-                    </Typography>
-                  </Box>
+                    </p>
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                  </div>
                 ))}
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
+              </div>
+            </div>
+          </div>
+        )}
 
-      {/* Filter Bar */}
-      <Card variant="outlined" sx={{ mb: 2 }}>
-        <CardContent sx={{ py: 1.5 }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
+        {/* Filter Bar */}
+        <div className="mb-4 rounded-xl border border-border bg-card p-3 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Select
-              size="sm"
               value={publicStatusFilter}
-              onChange={(_, v) => { setPublicStatusFilter(v ?? 'all'); setPage(1) }}
-              sx={{ minWidth: 200 }}
-              placeholder="Estado de Respuesta Pública"
+              onValueChange={(v) => { setPublicStatusFilter(v); setPage(1) }}
             >
-              <Option value="all">Todos los estados</Option>
-              <Option value="sent">Enviado</Option>
-              <Option value="failed">Fallido</Option>
-              <Option value="skipped">Omitido</Option>
-              <Option value="pending">Pendiente</Option>
+              <SelectTrigger className="w-full sm:w-[220px]" aria-label="Estado de respuesta pública">
+                <SelectValue placeholder="Estado de Respuesta Pública" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                <SelectItem value="sent">Enviado</SelectItem>
+                <SelectItem value="failed">Fallido</SelectItem>
+                <SelectItem value="skipped">Omitido</SelectItem>
+                <SelectItem value="pending">Pendiente</SelectItem>
+              </SelectContent>
             </Select>
             <Select
-              size="sm"
               value={sourceFilter}
-              onChange={(_, v) => { setSourceFilter(v ?? 'all'); setPage(1) }}
-              sx={{ minWidth: 180 }}
-              placeholder="Fuente de Respuesta"
+              onValueChange={(v) => { setSourceFilter(v); setPage(1) }}
             >
-              <Option value="all">Todas las fuentes</Option>
-              <Option value="keyword">Keyword</Option>
-              <Option value="ai">IA</Option>
-              <Option value="default">Por Defecto</Option>
-              <Option value="offensive">Ofensivo</Option>
+              <SelectTrigger className="w-full sm:w-[200px]" aria-label="Fuente de respuesta">
+                <SelectValue placeholder="Fuente de Respuesta" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las fuentes</SelectItem>
+                <SelectItem value="keyword">Keyword</SelectItem>
+                <SelectItem value="ai">IA</SelectItem>
+                <SelectItem value="default">Por Defecto</SelectItem>
+                <SelectItem value="offensive">Ofensivo</SelectItem>
+              </SelectContent>
             </Select>
-            <Box sx={{ flex: 1 }} />
-            <Typography level="body-xs" sx={{ color: 'text.secondary', alignSelf: 'center' }}>
+            <div className="flex-1" />
+            <span className="self-center text-xs text-muted-foreground">
               {total} registros
-            </Typography>
-          </Stack>
-        </CardContent>
-      </Card>
+            </span>
+          </div>
+        </div>
 
-      {/* Error */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+        {/* Error */}
+        {error && (
+          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
+            {error}
+          </div>
+        )}
 
-      {/* Loading */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : logs.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent>
-            <Box sx={{ py: 8, textAlign: 'center' }}>
-              <ForumIcon sx={{ fontSize: 56, color: 'text.secondary', mb: 1.5 }} />
-              <Typography level="title-md" sx={{ mb: 0.5 }}>Sin logs</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+        {/* Loading */}
+        {loading ? (
+          <div className="flex justify-center py-16 text-muted-foreground">
+            <CircleNotch className="size-10 animate-spin" aria-hidden />
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="py-16 text-center">
+              <ChatsCircle className="mx-auto mb-3 size-14 text-muted-foreground" aria-hidden />
+              <p className="mb-0.5 text-base font-semibold text-foreground">Sin logs</p>
+              <p className="text-sm text-muted-foreground">
                 No hay registros con los filtros seleccionados
-              </Typography>
-            </Box>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card variant="outlined">
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table
-              hoverRow
-              stickyHeader
-              sx={{ '--TableCell-paddingY': '10px', '--TableCell-paddingX': '12px' }}
-            >
-              <thead>
-                <tr>
-                  <th style={{ minWidth: 130 }}>Comentarista</th>
-                  <th style={{ minWidth: 200 }}>Comentario</th>
-                  <th style={{ width: 120 }}>Keyword</th>
-                  <th style={{ minWidth: 160 }}>Respuesta Pública</th>
-                  <th style={{ width: 110 }}>Estado Público</th>
-                  <th style={{ minWidth: 160 }}>Respuesta Privada</th>
-                  <th style={{ width: 110 }}>Estado Privado</th>
-                  <th style={{ width: 100 }}>Fuente</th>
-                  <th style={{ width: 90 }}>Acciones</th>
-                  <th style={{ width: 140 }}>Fecha</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map(log => (
-                  <tr key={log.id}>
-                    <td>
-                      <Typography level="body-sm" fontWeight={600}>
-                        {log.commenterName}
-                      </Typography>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        {log.commenterId}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        {truncate(log.commentText, 80)}
-                      </Typography>
-                    </td>
-                    <td>
-                      {log.matchedKeyword ? (
-                        <Chip size="sm" variant="soft" color="primary">
-                          {log.matchedKeyword}
-                        </Chip>
-                      ) : (
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>—</Typography>
-                      )}
-                    </td>
-                    <td>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        {truncate(log.publicReply, 50)}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft" color={statusColor(log.publicReplyStatus)}>
-                        {statusLabel[log.publicReplyStatus] ?? log.publicReplyStatus}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        {truncate(log.privateReply, 50)}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft" color={statusColor(log.privateReplyStatus)}>
-                        {statusLabel[log.privateReplyStatus] ?? log.privateReplyStatus}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft" color={sourceColor(log.replySource)}>
-                        {sourceLabel[log.replySource] ?? log.replySource}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Stack direction="row" gap={0.25}>
-                        {log.likeExecuted && (
-                          <ThumbUpIcon
-                            sx={{ fontSize: 16, color: '#3b82f6' }}
-                            titleAccess="Like ejecutado"
-                          />
-                        )}
-                        {log.hideExecuted && (
-                          <VisibilityOffIcon
-                            sx={{ fontSize: 16, color: '#f3a43b' }}
-                            titleAccess="Comentario oculto"
-                          />
-                        )}
-                        {log.deleteExecuted && (
-                          <DeleteIcon
-                            sx={{ fontSize: 16, color: '#ef4444' }}
-                            titleAccess="Comentario eliminado"
-                          />
-                        )}
-                        {!log.likeExecuted && !log.hideExecuted && !log.deleteExecuted && (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>—</Typography>
-                        )}
-                      </Stack>
-                    </td>
-                    <td>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        {formatDate(log.processedAt)}
-                      </Typography>
-                    </td>
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1100px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="min-w-[130px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comentarista</th>
+                    <th className="min-w-[200px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comentario</th>
+                    <th className="w-[120px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Keyword</th>
+                    <th className="min-w-[160px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Respuesta Pública</th>
+                    <th className="w-[110px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado Público</th>
+                    <th className="min-w-[160px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Respuesta Privada</th>
+                    <th className="w-[110px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado Privado</th>
+                    <th className="w-[100px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fuente</th>
+                    <th className="w-[90px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acciones</th>
+                    <th className="w-[140px] whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fecha</th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {logs.map(log => (
+                    <tr key={log.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-3 py-2.5 align-top">
+                        <p className="text-sm font-semibold text-foreground">{log.commenterName}</p>
+                        <p className="text-xs text-muted-foreground">{log.commenterId}</p>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <p className="text-xs text-muted-foreground">{truncate(log.commentText, 80)}</p>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        {log.matchedKeyword ? (
+                          <Badge variant="primary">{log.matchedKeyword}</Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <p className="text-xs text-muted-foreground">{truncate(log.publicReply, 50)}</p>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <Badge variant={statusVariant(log.publicReplyStatus)}>
+                          {statusLabel[log.publicReplyStatus] ?? log.publicReplyStatus}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <p className="text-xs text-muted-foreground">{truncate(log.privateReply, 50)}</p>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <Badge variant={statusVariant(log.privateReplyStatus)}>
+                          {statusLabel[log.privateReplyStatus] ?? log.privateReplyStatus}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <Badge variant={sourceVariant(log.replySource)}>
+                          {sourceLabel[log.replySource] ?? log.replySource}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <div className="flex items-center gap-1">
+                          {log.likeExecuted && (
+                            <ThumbsUp className="size-4 text-primary" weight="fill" aria-label="Like ejecutado" />
+                          )}
+                          {log.hideExecuted && (
+                            <EyeSlash className="size-4 text-warning-text" weight="fill" aria-label="Comentario oculto" />
+                          )}
+                          {log.deleteExecuted && (
+                            <Trash className="size-4 text-destructive-text" weight="fill" aria-label="Comentario eliminado" />
+                          )}
+                          {!log.likeExecuted && !log.hideExecuted && !log.deleteExecuted && (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 align-top">
+                        <p className="text-xs text-muted-foreground">{formatDate(log.processedAt)}</p>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <Box sx={{ px: 2, py: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                  Página {page} de {totalPages} — {total} registros
-                </Typography>
-                <Stack direction="row" gap={0.5}>
-                  <Button
-                    size="sm"
-                    variant="outlined"
-                    color="neutral"
-                    disabled={page <= 1}
-                    onClick={() => setPage(p => p - 1)}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outlined"
-                    color="neutral"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage(p => p + 1)}
-                  >
-                    Siguiente
-                  </Button>
-                </Stack>
-              </Stack>
-            </Box>
-          )}
-        </Card>
-      )}
-    </Box>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="border-t border-border px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    Página {page} de {totalPages} — {total} registros
+                  </span>
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page <= 1}
+                      onClick={() => setPage(p => p - 1)}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage(p => p + 1)}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

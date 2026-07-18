@@ -4,22 +4,16 @@
  */
 
 import { useState, useEffect, useCallback, useContext } from 'react';
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert
-} from '@mui/joy';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import AddIcon from '@mui/icons-material/Add';
-import ImageIcon from '@mui/icons-material/Image';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import HistoryIcon from '@mui/icons-material/History';
+  Sparkle,
+  Plus,
+  Image as ImageIcon,
+  TrendUp,
+  ClockCounterClockwise,
+} from '@phosphor-icons/react';
 
+import { Button } from '@/components/ui/button';
 import CreditBalanceDisplay from '../components/CreditBalanceDisplay';
 import ImageGenerationModal from '../components/ImageGenerationModal';
 import ImageGenerationHistory from '../components/ImageGenerationHistory';
@@ -204,130 +198,114 @@ export default function AIImageGeneration() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <div className="p-6">
       {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3
-        }}
-      >
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AutoAwesomeIcon sx={{ color: 'primary.500' }} />
-            {i18n.t("aiModules.imageGeneration.title")}
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            {i18n.t("aiModules.imageGeneration.description")}
-          </Typography>
-        </Box>
+      <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <Sparkle className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              {i18n.t("aiModules.imageGeneration.title")}
+            </h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {i18n.t("aiModules.imageGeneration.description")}
+            </p>
+          </div>
+        </div>
 
         <Button
           size="lg"
-          startDecorator={<AddIcon />}
           onClick={() => setModalOpen(true)}
           disabled={loadingCredits || creditsBalance <= 0}
         >
+          <Plus className="size-4" weight="bold" aria-hidden />
           {i18n.t("aiModules.imageGeneration.buttons.newGeneration")}
         </Button>
-      </Box>
+      </div>
 
       {/* Error global */}
       {error && (
-        <Alert color="danger" sx={{ mb: 3 }}>
+        <div
+          role="alert"
+          className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+        >
           {error}
-        </Alert>
+        </div>
       )}
 
       {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Balance de Créditos */}
-        <Grid xs={12} sm={6} md={3}>
-          <CreditBalanceDisplay
-            balance={creditsBalance}
-            totalUsed={totalCreditsUsed}
-            loading={loadingCredits}
-          />
-        </Grid>
+        <CreditBalanceDisplay
+          balance={creditsBalance}
+          totalUsed={totalCreditsUsed}
+          loading={loadingCredits}
+        />
 
         {/* Total Generaciones */}
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <HistoryIcon sx={{ fontSize: 20, color: 'primary.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  {i18n.t("aiModules.imageGeneration.stats.totalGenerations")}
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {formatNumber(stats.totalGenerations)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-1 flex items-center gap-2">
+            <ClockCounterClockwise className="size-5 text-primary" aria-hidden />
+            <span className="text-sm text-muted-foreground">
+              {i18n.t("aiModules.imageGeneration.stats.totalGenerations")}
+            </span>
+          </div>
+          {loading ? (
+            <CircularProgress size="sm" />
+          ) : (
+            <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+              {formatNumber(stats.totalGenerations)}
+            </p>
+          )}
+        </div>
 
         {/* Total Imágenes */}
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <ImageIcon sx={{ fontSize: 20, color: 'success.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  {i18n.t("aiModules.imageGeneration.stats.imagesGenerated")}
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {formatNumber(stats.totalImages)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-1 flex items-center gap-2">
+            <ImageIcon className="size-5 text-success" aria-hidden />
+            <span className="text-sm text-muted-foreground">
+              {i18n.t("aiModules.imageGeneration.stats.imagesGenerated")}
+            </span>
+          </div>
+          {loading ? (
+            <CircularProgress size="sm" />
+          ) : (
+            <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+              {formatNumber(stats.totalImages)}
+            </p>
+          )}
+        </div>
 
         {/* Generaciones Recientes */}
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <TrendingUpIcon sx={{ fontSize: 20, color: 'warning.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  {i18n.t("aiModules.imageGeneration.stats.last24Hours")}
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {formatNumber(stats.recentGenerations)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-1 flex items-center gap-2">
+            <TrendUp className="size-5 text-warning" aria-hidden />
+            <span className="text-sm text-muted-foreground">
+              {i18n.t("aiModules.imageGeneration.stats.last24Hours")}
+            </span>
+          </div>
+          {loading ? (
+            <CircularProgress size="sm" />
+          ) : (
+            <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+              {formatNumber(stats.recentGenerations)}
+            </p>
+          )}
+        </div>
+      </div>
 
       {/* Historial */}
-      <Box sx={{ mb: 2 }}>
-        <Typography level="h4" sx={{ mb: 2 }}>
+      <div className="mb-4">
+        <h2 className="mb-4 text-lg font-semibold text-foreground">
           {i18n.t("aiModules.imageGeneration.history.title")}
-        </Typography>
+        </h2>
         <ImageGenerationHistory
           onRefresh={handleHistoryRefresh}
           refreshTrigger={refreshTrigger}
         />
-      </Box>
+      </div>
 
       {/* Modal de Generación */}
       <ImageGenerationModal
@@ -336,6 +314,6 @@ export default function AIImageGeneration() {
         onSuccess={handleGenerationSuccess}
         currentBalance={creditsBalance}
       />
-    </Box>
+    </div>
   );
 }

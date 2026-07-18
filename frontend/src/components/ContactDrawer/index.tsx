@@ -30,7 +30,6 @@ import {
   Close as CloseIcon,
   Edit as EditIcon,
   Block as BlockIcon,
-  CheckCircle as UnblockIcon,
   Phone as PhoneIcon,
   Email as EmailIcon,
   Notes as NotesIcon,
@@ -46,6 +45,7 @@ import {
 } from '@mui/icons-material'
 import api from '../../services/api'
 import { toast } from 'react-toastify'
+import translateBackendError from '../../utils/translateBackendError'
 import { TagsContainer } from '../TagsContainer'
 import CreateAppointmentModal from '../CreateAppointmentModal'
 
@@ -59,6 +59,7 @@ interface Contact {
   active?: boolean
   acceptAudioMessage?: boolean
   disableBot?: boolean
+  tags?: Tag[]
   extraInfo?: Array<{ id: number; name: string; value: string }>
 }
 
@@ -69,11 +70,19 @@ interface Tag {
   kanban?: number
 }
 
+interface Queue {
+  id: number
+  name: string
+  color?: string
+}
+
 interface Ticket {
   id: number
   uuid: string
   status: string
   contactId: number
+  queueId?: number | null
+  queue?: Queue | null
   contact: Contact
   tags?: Tag[]
   followupEnabled?: boolean
@@ -108,6 +117,14 @@ interface ContactDrawerProps {
   contact: Contact | null
   ticket: Ticket | null
   loading?: boolean
+  /**
+   * Callbacks opcionales para reflejar los cambios en tiempo real en el
+   * componente padre (header de la conversación + lista de tickets), sin
+   * esperar el rebote del socket. Son opcionales: si no se pasan, el drawer
+   * funciona igual que antes (retrocompatible).
+   */
+  onContactPatched?: (patch: Partial<Contact>) => void
+  onTicketPatched?: (patch: Partial<Ticket>) => void
 }
 
 export default function ContactDrawer({
@@ -116,16 +133,20 @@ export default function ContactDrawer({
   contact,
   ticket,
   loading = false,
+  onContactPatched,
+  onTicketPatched,
 }: ContactDrawerProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editedContact, setEditedContact] = useState<Partial<Contact>>({})
-  const [acceptAudio, setAcceptAudio] = useState(contact?.acceptAudioMessage ?? true)
-  const [isBlocked, setIsBlocked] = useState(!contact?.active)
   const [saving, setSaving] = useState(false)
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [notes, setNotes] = useState('')
   const [tags, setTags] = useState<Tag[]>([])
   const [kanbanTags, setKanbanTags] = useState<Tag[]>([])
   const [selectedKanbanTag, setSelectedKanbanTag] = useState<string>('')
+  const [availableQueues, setAvailableQueues] = useState<Queue[]>([])
+  const [selectedQueueId, setSelectedQueueId] = useState<string>('')
+  const [updatingQueue, setUpdatingQueue] = useState(false)
   const [openAppointmentModal, setOpenAppointmentModal] = useState(false)
   const [existingAppointment, setExistingAppointment] = useState<ExistingAppointment | null>(null)
   const [checkingAppointment, setCheckingAppointment] = useState(false)
@@ -148,16 +169,20 @@ export default function ContactDrawer({
         email: contact.email,
         number: contact.number,
       })
-      setAcceptAudio(contact.acceptAudioMessage ?? true)
-      setIsBlocked(!contact.active)
     }
   }, [contact])
 
   useEffect(() => {
     if (ticket?.id) {
       fetchKanbanTags()
+      fetchAvailableQueues()
     }
   }, [ticket?.id])
+
+  // Sincronizar selectedQueueId con la cola actual del ticket
+  useEffect(() => {
+    setSelectedQueueId(ticket?.queueId ? String(ticket.queueId) : '')
+  }, [ticket?.queueId])
 
   // Fetch existing appointment when drawer opens
   useEffect(() => {
@@ -190,6 +215,27 @@ export default function ContactDrawer({
     fetchAppointment()
   }, [contact?.id, open])
 
+  // Recarga la cita activa del contacto (reutilizable tras crear/reprogramar)
+  const refreshExistingAppointment = async () => {
+    if (!contact?.id) {
+      setExistingAppointment(null)
+      return
+    }
+    try {
+      const response = await api.get('/appointments/appointments', {
+        params: {
+          contactId: contact.id,
+          status: 'pending,confirmed,scheduled',
+          limit: 1,
+        },
+      })
+      const appointments = response.data.appointments || []
+      setExistingAppointment(appointments.length > 0 ? appointments[0] : null)
+    } catch (error) {
+      console.error('Error refreshing appointment:', error)
+    }
+  }
+
   // Usar las tags del ticket directamente
   useEffect(() => {
     if (ticket?.tags) {
@@ -221,6 +267,55 @@ export default function ContactDrawer({
     }
   }
 
+  const fetchAvailableQueues = async () => {
+    try {
+      const response = await api.get('/queues')
+      const list = Array.isArray(response.data)
+        ? response.data
+        : response.data?.queues || []
+      setAvailableQueues(list)
+    } catch (error) {
+      console.error('Error fetching queues:', error)
+    }
+  }
+
+  const handleChangeQueue = async (
+    _event: React.SyntheticEvent | null,
+    value: string | null
+  ) => {
+    if (!ticket?.id) return
+    const nextValue = value ?? ''
+    // Guardas anti-cambio-espurio del Select controlado (evitan remover la cola sin
+    // que el usuario la toque de verdad):
+    //  1) si el valor no cambió respecto a lo ya seleccionado, no hacer nada.
+    if (nextValue === selectedQueueId) return
+    //  2) si intenta poner "Sin cola" pero las colas aún NO cargaron, es un reset
+    //     espurio (el value no estaba entre las <Option>) → ignorar, NO remover.
+    if (nextValue === '' && availableQueues.length === 0) return
+    const newQueueId = value ? Number(value) : null
+    const previousQueueId = selectedQueueId
+    setSelectedQueueId(value ?? '')
+    setUpdatingQueue(true)
+    try {
+      await api.put(`/tickets/${ticket.id}`, { queueId: newQueueId })
+      // Reflejar al instante en el padre (header + lista)
+      const newQueue = newQueueId
+        ? availableQueues.find((q) => q.id === newQueueId) ?? null
+        : null
+      onTicketPatched?.({ queueId: newQueueId, queue: newQueue })
+      toast.success(newQueueId ? 'Cola actualizada' : 'Cola removida')
+    } catch (error: any) {
+      // Rollback visual si backend rechaza
+      setSelectedQueueId(previousQueueId)
+      const apiMsg =
+        error?.response?.data?.error || error?.response?.data?.message
+      toast.error(apiMsg || 'Error al actualizar la cola')
+      console.error('Error updating queue:', error)
+    } finally {
+      setUpdatingQueue(false)
+    }
+  }
+
   const handleKanbanTagChange = async (_event: React.SyntheticEvent | null, value: string | null) => {
     if (!ticket?.id) return
 
@@ -242,37 +337,21 @@ export default function ContactDrawer({
           const updatedTags = tags.filter(t => t.kanban !== 1)
           updatedTags.push(newTag)
           setTags(updatedTags)
+          // Reflejar al instante en el padre
+          onTicketPatched?.({ tags: updatedTags })
         }
 
         toast.success('Etapa Kanban actualizada')
       } else {
         setSelectedKanbanTag('')
         // Remover tag kanban del estado local
-        setTags(tags.filter(t => t.kanban !== 1))
+        const updatedTags = tags.filter(t => t.kanban !== 1)
+        setTags(updatedTags)
+        onTicketPatched?.({ tags: updatedTags })
       }
     } catch (error) {
       console.error('Error updating kanban tag:', error)
       toast.error('Error al actualizar etapa Kanban')
-    }
-  }
-
-  const handleToggleAcceptAudio = async () => {
-    if (!contact?.id) return
-    try {
-      const response = await api.put(`/contacts/toggleAcceptAudio/${contact.id}`)
-      setAcceptAudio(response.data.acceptAudioMessage)
-    } catch (error) {
-      console.error('Error toggling accept audio:', error)
-    }
-  }
-
-  const handleToggleBlock = async () => {
-    if (!contact?.id) return
-    try {
-      await api.put(`/contacts/block/${contact.id}`, { active: isBlocked })
-      setIsBlocked(!isBlocked)
-    } catch (error) {
-      console.error('Error toggling block:', error)
     }
   }
 
@@ -282,6 +361,7 @@ export default function ContactDrawer({
     try {
       const response = await api.put(`/tickets/${ticket.id}/followup`)
       setFollowupEnabled(response.data.followupEnabled)
+      onTicketPatched?.({ followupEnabled: response.data.followupEnabled })
       toast.success(response.data.followupEnabled ? 'Seguimiento activado' : 'Seguimiento desactivado')
     } catch (error) {
       console.error('Error toggling followup:', error)
@@ -354,16 +434,70 @@ export default function ContactDrawer({
     }
   }
 
-  const handleSaveContact = async () => {
-    if (!contact?.id) return
+  const handleSaveContact = async (): Promise<boolean> => {
+    if (!contact?.id) return false
     setSaving(true)
     try {
-      await api.put(`/contacts/${contact.id}`, editedContact)
+      const response = await api.put(`/contacts/${contact.id}`, editedContact)
+      // Reflejar al instante en el padre (header de la conversación + lista).
+      // Preferimos el contacto devuelto por el backend; si no, el editado local.
+      const updated = response?.data?.contact || response?.data || editedContact
+      onContactPatched?.({
+        name: updated.name ?? editedContact.name,
+        email: updated.email ?? editedContact.email,
+        number: updated.number ?? editedContact.number,
+      })
       setIsEditing(false)
+      return true
     } catch (error) {
+      toast.error(translateBackendError(error, 'Error al guardar el contacto'))
       console.error('Error saving contact:', error)
+      return false
     } finally {
       setSaving(false)
+    }
+  }
+
+  // ─── Modo edición global + cierre con cambios sin guardar ──────────────────
+  // "Dirty" = en modo edición y con nombre/email modificados respecto al original.
+  // (Cola/Kanban/Etiquetas/Seguimiento se auto-guardan al instante, así que nunca
+  // quedan "pendientes"; solo nombre/email usan el botón Guardar.)
+  const isDirty =
+    isEditing &&
+    !!contact &&
+    (((editedContact.name ?? '') !== (contact.name ?? '')) ||
+      ((editedContact.email ?? '') !== (contact.email ?? '')))
+
+  const handleCancelEdit = () => {
+    if (contact) {
+      setEditedContact({
+        name: contact.name,
+        email: contact.email,
+        number: contact.number,
+      })
+    }
+    setIsEditing(false)
+  }
+
+  const handleRequestClose = () => {
+    if (isDirty) {
+      setShowCloseConfirm(true)
+    } else {
+      onClose()
+    }
+  }
+
+  const handleDiscardAndClose = () => {
+    handleCancelEdit()
+    setShowCloseConfirm(false)
+    onClose()
+  }
+
+  const handleSaveAndClose = async () => {
+    const ok = await handleSaveContact()
+    if (ok) {
+      setShowCloseConfirm(false)
+      onClose()
     }
   }
 
@@ -427,16 +561,11 @@ export default function ContactDrawer({
 
   const formatPhoneNumber = (number: string) => {
     if (!number) return ''
-    // Format: +1 (757) 708-9033
+    // Formato plano internacional: +593987009472 (sin espacios ni paréntesis).
+    // El formato anterior asumía 10 dígitos nacionales (US) y partía mal números
+    // como Ecuador (+593 + 9 dígitos) mostrando "+59 (398) 700-9472".
     const cleaned = number.replace(/\D/g, '')
-    if (cleaned.length >= 10) {
-      const country = cleaned.slice(0, cleaned.length - 10)
-      const area = cleaned.slice(-10, -7)
-      const first = cleaned.slice(-7, -4)
-      const last = cleaned.slice(-4)
-      return `+${country} (${area}) ${first}-${last}`
-    }
-    return number
+    return cleaned ? `+${cleaned}` : number
   }
 
   if (!contact && !loading) {
@@ -447,7 +576,7 @@ export default function ContactDrawer({
     <Drawer
       anchor="right"
       open={open}
-      onClose={onClose}
+      onClose={handleRequestClose}
       slotProps={{
         content: {
           sx: {
@@ -471,11 +600,44 @@ export default function ContactDrawer({
         >
           <Typography level="title-lg">Datos del contacto</Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {contact && !loading && (
+              isEditing ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="solid"
+                    color="primary"
+                    onClick={handleSaveContact}
+                    loading={saving}
+                  >
+                    Guardar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="plain"
+                    color="neutral"
+                    onClick={handleCancelEdit}
+                  >
+                    Cancelar
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outlined"
+                  startDecorator={<EditIcon />}
+                  onClick={() => setIsEditing(true)}
+                >
+                  Editar
+                </Button>
+              )
+            )}
             {ticket && (
               <>
                 <IconButton
                   variant="plain"
                   onClick={(e) => setOpenTransferMenu(e.currentTarget)}
+                  aria-label="Más opciones"
                 >
                   <MoreVertIcon />
                 </IconButton>
@@ -497,7 +659,7 @@ export default function ContactDrawer({
                 </Menu>
               </>
             )}
-            <IconButton variant="plain" onClick={onClose}>
+            <IconButton variant="plain" onClick={handleRequestClose} aria-label="Cerrar">
               <CloseIcon />
             </IconButton>
           </Box>
@@ -572,58 +734,18 @@ export default function ContactDrawer({
                   ) : null}
 
                   <Stack direction="row" spacing={1}>
-                    {isEditing ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="solid"
-                          color="primary"
-                          onClick={handleSaveContact}
-                          loading={saving}
-                        >
-                          Guardar
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color="neutral"
-                          onClick={() => setIsEditing(false)}
-                        >
-                          Cancelar
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          startDecorator={<EditIcon />}
-                          onClick={() => setIsEditing(true)}
-                        >
-                          Editar
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color={isBlocked ? 'success' : 'danger'}
-                          startDecorator={isBlocked ? <UnblockIcon /> : <BlockIcon />}
-                          onClick={handleToggleBlock}
-                        >
-                          {isBlocked ? 'Desbloquear' : 'Bloquear'}
-                        </Button>
-                        <Tooltip title={existingAppointment ? "Reagendar cita" : "Agendar cita"} placement="top">
-                          <IconButton
-                            size="sm"
-                            variant="outlined"
-                            color="primary"
-                            onClick={handleOpenAppointmentModal}
-                            loading={checkingAppointment}
-                          >
-                            <CalendarIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </>
-                    )}
+                    <Tooltip title={existingAppointment ? "Reagendar cita" : "Agendar cita"} placement="top">
+                      <IconButton
+                        size="sm"
+                        variant="outlined"
+                        color="primary"
+                        onClick={handleOpenAppointmentModal}
+                        loading={checkingAppointment}
+                        aria-label={existingAppointment ? 'Reagendar cita' : 'Agendar cita'}
+                      >
+                        <CalendarIcon />
+                      </IconButton>
+                    </Tooltip>
                   </Stack>
                 </Stack>
               </Card>
@@ -713,20 +835,7 @@ export default function ContactDrawer({
                   Configuraciones
                 </Typography>
                 <Stack spacing={1}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Typography level="body-sm">Aceptar mensajes de audio</Typography>
-                    <Switch
-                      checked={acceptAudio}
-                      onChange={handleToggleAcceptAudio}
-                      size="sm"
-                    />
-                  </Box>
+                  {/* "Aceptar mensajes de audio" oculto por requerimiento: siempre habilitado. */}
                   {ticket && (
                     <Box
                       sx={{
@@ -741,7 +850,7 @@ export default function ContactDrawer({
                       <Switch
                         checked={followupEnabled}
                         onChange={handleToggleFollowup}
-                        disabled={togglingFollowup}
+                        disabled={!isEditing || togglingFollowup}
                         size="sm"
                         color={followupEnabled ? 'success' : 'danger'}
                       />
@@ -763,6 +872,45 @@ export default function ContactDrawer({
                 </Stack>
               </Card>
 
+              {/* Queue Selector */}
+              <Card variant="outlined" sx={{ p: 2 }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                  <TransferIcon sx={{ fontSize: 18 }} />
+                  <Typography level="title-sm">Cola</Typography>
+                </Stack>
+                <FormControl size="sm">
+                  <Select
+                    value={selectedQueueId}
+                    onChange={handleChangeQueue}
+                    placeholder="Seleccionar cola"
+                    disabled={!isEditing || updatingQueue}
+                  >
+                    <Option value="">Sin cola</Option>
+                    {availableQueues.map(queue => (
+                      <Option key={queue.id} value={String(queue.id)}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {queue.color && (
+                            <Chip
+                              size="sm"
+                              sx={{
+                                bgcolor: queue.color,
+                                color: 'white',
+                                minWidth: 14,
+                                minHeight: 14,
+                                p: 0,
+                              }}
+                            >
+                              {' '}
+                            </Chip>
+                          )}
+                          {queue.name}
+                        </Box>
+                      </Option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Card>
+
               {/* Kanban Stage Selector */}
               <Card variant="outlined" sx={{ p: 2 }}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
@@ -774,6 +922,7 @@ export default function ContactDrawer({
                     value={selectedKanbanTag}
                     onChange={handleKanbanTagChange}
                     placeholder="Seleccionar etapa"
+                    disabled={!isEditing}
                     renderValue={(option) => {
                       if (!option) return null
                       const selectedTag = kanbanTags.find(t => String(t.id) === option.value)
@@ -817,7 +966,13 @@ export default function ContactDrawer({
                   <TagIcon sx={{ fontSize: 18 }} />
                   <Typography level="title-sm">Etiquetas</Typography>
                 </Stack>
-                {contact && <TagsContainer contact={contact} />}
+                {contact && (
+                  <TagsContainer
+                    contact={contact}
+                    disabled={!isEditing}
+                    onTagsChange={(newTags) => onContactPatched?.({ tags: newTags })}
+                  />
+                )}
               </Card>
 
               {/* Notes Section */}
@@ -830,6 +985,7 @@ export default function ContactDrawer({
                   placeholder="Agregar notas sobre este contacto..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
+                  disabled={!isEditing}
                   minRows={3}
                   maxRows={6}
                 />
@@ -865,8 +1021,14 @@ export default function ContactDrawer({
           setOpenAppointmentModal(false)
           setExistingAppointment(null)
         }}
+        onSuccess={() => {
+          // Refrescar la cita del contacto al instante tras crear/reprogramar
+          setOpenAppointmentModal(false)
+          void refreshExistingAppointment()
+        }}
         preselectedContact={contact}
         lockContact={true}
+        ticketId={ticket?.id}
         existingAppointment={existingAppointment}
         mode={existingAppointment ? 'reschedule' : 'create'}
       />
@@ -969,6 +1131,27 @@ export default function ContactDrawer({
               loading={transferring}
             >
               Transferir
+            </Button>
+          </Stack>
+        </ModalDialog>
+      </Modal>
+
+      {/* Confirmación: intento de cerrar con cambios sin guardar */}
+      <Modal open={showCloseConfirm} onClose={() => setShowCloseConfirm(false)}>
+        <ModalDialog role="alertdialog" sx={{ maxWidth: 420 }}>
+          <Typography level="title-lg">Cambios sin guardar</Typography>
+          <Typography level="body-sm" sx={{ mt: 1, mb: 2, color: 'text.secondary' }}>
+            Hiciste cambios en el contacto que aún no se han guardado. ¿Deseas guardarlos antes de cerrar?
+          </Typography>
+          <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+            <Button variant="plain" color="neutral" onClick={() => setShowCloseConfirm(false)}>
+              Seguir editando
+            </Button>
+            <Button variant="outlined" color="danger" onClick={handleDiscardAndClose}>
+              Cerrar sin guardar
+            </Button>
+            <Button variant="solid" color="primary" loading={saving} onClick={handleSaveAndClose}>
+              Guardar y cerrar
             </Button>
           </Stack>
         </ModalDialog>

@@ -112,8 +112,9 @@ function formatDate(date: Date): string {
   return `${year}-${month}-${day}`
 }
 
-// Helper: format date as DD MMM YYYY
+// Helper: format date as DD MMM YYYY (defensivo ante fechas vacías)
 function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return ''
   const monthsShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
   const [year, month, day] = dateStr.split('-')
   return `${day} ${monthsShort[parseInt(month) - 1]} ${year}`
@@ -122,7 +123,6 @@ function formatDisplayDate(dateStr: string): string {
 // Helper: get days in month grid (including padding from prev/next months)
 function getCalendarDays(year: number, month: number): { date: Date; isCurrentMonth: boolean }[] {
   const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
 
   // Get day of week for first day (0 = Sunday, 1 = Monday, etc.)
   let firstDayOfWeek = firstDay.getDay()
@@ -153,9 +153,35 @@ interface DateRangePickerProps {
   until: string
   presetLabel: string
   onApply: (since: string, until: string, presetLabel: string) => void
+  /** Nº de meses visibles en el calendario (default 2). */
+  months?: 1 | 2
+  /** Mostrar la barra lateral de presets (default true). */
+  showPresets?: boolean
+  /** Alineación horizontal del desplegable respecto al trigger (default 'right'). */
+  align?: 'left' | 'right'
+  /** Mostrar botón "Limpiar" que quita el filtro (onApply con fechas vacías) (default false). */
+  allowClear?: boolean
+  /** Mostrar el rango de fechas en el botón en vez del presetLabel (default false). */
+  showRangeInTrigger?: boolean
+  /** Texto del botón cuando no hay rango seleccionado (default 'Fechas'). */
+  placeholder?: string
+  /** El trigger ocupa el ancho completo del contenedor (default false). */
+  fullWidth?: boolean
 }
 
-export default function DateRangePicker({ since, until, presetLabel, onApply }: DateRangePickerProps) {
+export default function DateRangePicker({
+  since,
+  until,
+  presetLabel,
+  onApply,
+  months = 2,
+  showPresets = true,
+  align = 'right',
+  allowClear = false,
+  showRangeInTrigger = false,
+  placeholder = 'Fechas',
+  fullWidth = false,
+}: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [tempSince, setTempSince] = useState(since)
   const [tempUntil, setTempUntil] = useState(until)
@@ -189,6 +215,17 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
       setTempLabel(presetLabel)
     }
   }, [since, until, presetLabel, open])
+
+  // Al abrir, posicionar el calendario en el mes de la fecha inicial (si existe)
+  useEffect(() => {
+    if (open && since) {
+      const [y, m] = since.split('-')
+      if (y && m) {
+        setViewYear(parseInt(y))
+        setViewMonth(parseInt(m) - 1)
+      }
+    }
+  }, [open, since])
 
   // Handle preset click - apply immediately
   const handlePresetClick = (preset: typeof DATE_PRESETS[number]) => {
@@ -250,6 +287,16 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
     setOpen(false)
   }
 
+  // Clear filter (fechas vacías)
+  const handleClear = () => {
+    setTempSince('')
+    setTempUntil('')
+    setTempLabel(placeholder)
+    setSelectingEnd(false)
+    onApply('', '', placeholder)
+    setOpen(false)
+  }
+
   // Render a single month calendar
   const renderMonth = (year: number, month: number) => {
     const days = getCalendarDays(year, month)
@@ -273,10 +320,11 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0 }}>
           {days.map((day, i) => {
             const dateStr = formatDate(day.date)
-            const isStart = dateStr === tempSince
-            const isEnd = dateStr === tempUntil
-            const isInRange = dateStr > tempSince && dateStr < tempUntil
-            const isSingleDay = tempSince === tempUntil && dateStr === tempSince
+            const hasSelection = Boolean(tempSince && tempUntil)
+            const isStart = hasSelection && dateStr === tempSince
+            const isEnd = hasSelection && dateStr === tempUntil
+            const isInRange = hasSelection && dateStr > tempSince && dateStr < tempUntil
+            const isSingleDay = hasSelection && tempSince === tempUntil && dateStr === tempSince
 
             // Hover range calculation when selecting end date
             let isHoverRange = false
@@ -356,8 +404,17 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
   const nextMonth = viewMonth === 11 ? 0 : viewMonth + 1
   const nextYear = viewMonth === 11 ? viewYear + 1 : viewYear
 
+  // Texto del botón trigger
+  const hasRange = Boolean(since && until)
+  const triggerText = showRangeInTrigger
+    ? (hasRange ? `${formatDisplayDate(since)} — ${formatDisplayDate(until)}` : placeholder)
+    : presetLabel
+
   return (
-    <Box ref={containerRef} sx={{ position: 'relative', display: 'inline-block' }}>
+    <Box
+      ref={containerRef}
+      sx={{ position: 'relative', display: fullWidth ? 'block' : 'inline-block', width: fullWidth ? '100%' : undefined }}
+    >
       {/* Trigger Button */}
       <Button
         variant="outlined"
@@ -366,9 +423,9 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
         endDecorator={<DropdownIcon />}
         onClick={() => setOpen(!open)}
         size="sm"
-        sx={{ minWidth: 200, justifyContent: 'space-between' }}
+        sx={{ minWidth: fullWidth ? 0 : 200, width: fullWidth ? '100%' : undefined, justifyContent: 'space-between' }}
       >
-        {presetLabel}
+        {triggerText}
       </Button>
 
       {/* Dropdown */}
@@ -378,7 +435,7 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
           sx={{
             position: 'absolute',
             top: '100%',
-            right: 0,
+            ...(align === 'left' ? { left: 0 } : { right: 0 }),
             mt: 0.5,
             zIndex: 1300,
             borderRadius: 'md',
@@ -390,24 +447,26 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
         >
           <Box sx={{ display: 'flex' }}>
             {/* Presets sidebar */}
-            <Box sx={{ width: 180, borderRight: '1px solid', borderColor: 'divider', py: 1 }}>
-              {DATE_PRESETS.map(preset => (
-                <Box
-                  key={preset.key}
-                  onClick={() => handlePresetClick(preset)}
-                  sx={{
-                    px: 2,
-                    py: 0.75,
-                    cursor: 'pointer',
-                    bgcolor: tempLabel === preset.label ? 'primary.softBg' : 'transparent',
-                    color: tempLabel === preset.label ? 'primary.600' : 'text.primary',
-                    '&:hover': { bgcolor: tempLabel === preset.label ? 'primary.softBg' : 'neutral.softHoverBg' },
-                  }}
-                >
-                  <Typography level="body-sm">{preset.label}</Typography>
-                </Box>
-              ))}
-            </Box>
+            {showPresets && (
+              <Box sx={{ width: 180, borderRight: '1px solid', borderColor: 'divider', py: 1 }}>
+                {DATE_PRESETS.map(preset => (
+                  <Box
+                    key={preset.key}
+                    onClick={() => handlePresetClick(preset)}
+                    sx={{
+                      px: 2,
+                      py: 0.75,
+                      cursor: 'pointer',
+                      bgcolor: tempLabel === preset.label ? 'primary.softBg' : 'transparent',
+                      color: tempLabel === preset.label ? 'primary.600' : 'text.primary',
+                      '&:hover': { bgcolor: tempLabel === preset.label ? 'primary.softBg' : 'neutral.softHoverBg' },
+                    }}
+                  >
+                    <Typography level="body-sm">{preset.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
 
             {/* Calendars */}
             <Box sx={{ p: 2 }}>
@@ -421,19 +480,33 @@ export default function DateRangePicker({ since, until, presetLabel, onApply }: 
               </Stack>
               <Stack direction="row" spacing={3}>
                 {renderMonth(viewYear, viewMonth)}
-                {renderMonth(nextYear, nextMonth)}
+                {months === 2 && renderMonth(nextYear, nextMonth)}
               </Stack>
             </Box>
           </Box>
 
           <Divider />
 
-          {/* Footer */}
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 1.5 }}>
-            <Typography level="body-sm" sx={{ fontWeight: 500 }}>
-              {formatDisplayDate(tempSince)} — {formatDisplayDate(tempUntil)}
+          {/* Footer — en 1 mes se apila (texto arriba, botones abajo) para
+              que no se desordene en el panel angosto; en 2 meses va en fila */}
+          <Stack
+            direction={months === 1 ? 'column' : 'row'}
+            spacing={1}
+            justifyContent="space-between"
+            alignItems={months === 1 ? 'stretch' : 'center'}
+            sx={{ p: 1.5 }}
+          >
+            <Typography level="body-sm" noWrap sx={{ fontWeight: 500 }}>
+              {tempSince && tempUntil
+                ? `${formatDisplayDate(tempSince)} — ${formatDisplayDate(tempUntil)}`
+                : 'Selecciona un rango'}
             </Typography>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexShrink: 0 }}>
+              {allowClear && (
+                <Button size="sm" variant="plain" color="danger" onClick={handleClear}>
+                  Limpiar
+                </Button>
+              )}
               <Button size="sm" variant="plain" color="neutral" onClick={handleCancel}>
                 Cancelar
               </Button>

@@ -8,7 +8,7 @@ export interface SearchContactParams {
 }
 
 const NumberSimpleListService = async ({ number, companyId }: SearchContactParams): Promise<Contact[]> => {
-  let options: FindOptions = {
+  const options: FindOptions = {
     order: [
       ['name', 'ASC']
     ]

@@ -21,7 +21,7 @@ const UpdateFlowCampaignService = async ({
   id,
   status,
   whatsappId
-}: Request): Promise<String> => {
+}: Request): Promise<string> => {
   try {
 
     const flow = await FlowCampaignModel.update({ name, phrase, flowId, status, whatsappId }, {

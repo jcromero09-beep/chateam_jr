@@ -1,4 +1,4 @@
-import { proto, WASocket } from "@whiskeysockets/baileys";
+import { proto, WASocket } from "baileys";
 import cacheLayer from "../libs/cache";
 import { getIO } from "../libs/socket";
 import Message from "../models/Message";
@@ -10,7 +10,6 @@ import ShowWhatsAppService from "../services/WhatsappService/ShowWhatsAppService
 const SetTicketMessagesAsRead = async (ticket: Ticket): Promise<void> => {
 
   if (ticket.whatsappId) {
-    // console.log("SETTING MESSAGES AS READ", ticket.whatsappId)
     const whatsapp = await ShowWhatsAppService(
       ticket.whatsappId,
 
@@ -53,7 +52,7 @@ const SetTicketMessagesAsRead = async (ticket: Ticket): Promise<void> => {
           }
         );
 
-        await ticket.update({ unreadMessages: 0 });
+        await ticket.update({ unreadMessages: 0 }, { silent: true });
         await cacheLayer.set(`contacts:${ticket.contactId}:unreads`, "0");
 
         const io = getIO();

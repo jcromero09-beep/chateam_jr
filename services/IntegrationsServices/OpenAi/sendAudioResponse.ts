@@ -1,11 +1,14 @@
 import fs from "fs";
-import { proto } from "@whiskeysockets/baileys";
+import { proto } from "baileys";
 import Ticket from "../../../models/Ticket";
 import Contact from "../../../models/Contact";
 import Message from "../../../models/Message";
 import TicketTraking from "../../../models/TicketTraking";
 import { isCapabilityAllowed, AICapability } from "../../../helpers/AICapabilitiesValidator";
 import { transcribeAudio } from "../../AIClientService";
+import AppError from "../../../errors/AppError";
+import logger from "../../../utils/logger";
+import { chargeAIUsage, chargeMessage } from "../../AICreditServices/AIUsagePricingService";
 import {
   convertTextToSpeechAndSaveToFile,
   keepOnlySpecifiedChars,
@@ -53,11 +56,68 @@ export const sendAudioResponse = async (
   const mediaUrl = mediaSent!.mediaUrl!.split("/").pop();
   const audioBuffer = fs.readFileSync(`${publicFolder}/${mediaUrl}`);
 
+  // 💳 COBRO UNIFICADO: STT cobra por minuto (audio_minute, configurable).
+  // Como aun no medimos duracion exacta aqui, cobramos 1 minuto minimo (rate=1).
+  // Fail-closed: sin saldo no se transcribe.
+  try {
+    await chargeAIUsage({
+      companyId: ticket.companyId,
+      creditTypeKey: "audio_minute",
+      units: 1,
+      source: "openai_classic_stt",
+      sourceId: ticket.id,
+      description: `STT audio ticket=${ticket.id}`,
+      metadata: { mediaUrl }
+    });
+  } catch (creditErr: any) {
+    const isInsufficient =
+      creditErr instanceof AppError &&
+      (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+        creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+    if (isInsufficient) {
+      logger.warn(
+        `[OpenAI clasico audio] Sin creditos para audio_minute (company=${ticket.companyId}); skip transcripcion`
+      );
+      return;
+    }
+    logger.warn(
+      `[OpenAI clasico audio] Error cobrando audio_minute: ${creditErr?.message || creditErr}; skip transcripcion por seguridad`
+    );
+    return;
+  }
+
   const transcription = await transcribeAudio({
     audioBuffer,
     language: 'es',
     companyId: ticket.companyId
   });
+
+  // 💳 COBRO UNIFICADO: la respuesta IA al audio cobra como 'message' (configurable).
+  try {
+    await chargeMessage({
+      companyId: ticket.companyId,
+      units: 1,
+      source: "openai_classic_audio_chat",
+      sourceId: ticket.id,
+      description: `OpenAI clasico (audio) ticket=${ticket.id}`,
+      metadata: { transcribedLength: transcription.text?.length || 0 }
+    });
+  } catch (creditErr: any) {
+    const isInsufficient =
+      creditErr instanceof AppError &&
+      (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+        creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+    if (isInsufficient) {
+      logger.warn(
+        `[OpenAI clasico audio] Sin creditos para message (company=${ticket.companyId}); skip respuesta`
+      );
+      return;
+    }
+    logger.warn(
+      `[OpenAI clasico audio] Error cobrando message: ${creditErr?.message || creditErr}; skip respuesta por seguridad`
+    );
+    return;
+  }
 
   const messagesOpenAi = buildAudioPrompt(
     openAiSettings,

@@ -10,15 +10,17 @@ import Whatsapp from "../../models/Whatsapp";
 import Message from "../../models/Message";
 import Contact from "../../models/Contact";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
-import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import CompaniesSettings from "../../models/CompaniesSettings";
 import { getIO } from "../../libs/socket";
+import { processMetaMessageEdit } from "./processMetaMessageEdit";
 // FASE 2 Coexistencia — dedupe e idempotencia
 import InboundEventLedgerService from "../CoexistenceServices/InboundEventLedgerService";
 import {
   logInbound as coexLogInbound
 } from "../../utils/coexistenceLogger";
+// Servicio central de coexistencia — ticket canónico único + dedupe cross-provider
+import CoexistenceTicketRoutingService from "../CoexistenceServices/CoexistenceTicketRoutingService";
 
 /**
  * Procesa el webhook smb_message_echoes de Meta Coexistencia
@@ -42,6 +44,13 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
 
     if (!whatsapp) {
       console.error("[SmbEchoes] ❌ Conexión no encontrada para phoneNumberId:", phoneNumberId);
+      return;
+    }
+
+    if (whatsapp.coexistenceEnabled && whatsapp.receiveChannel === "baileys") {
+      console.warn(
+        `[SmbEchoes] ⛔ Ignorado: receiveChannel=baileys para whatsappId=${whatsapp.id}`
+      );
       return;
     }
 
@@ -72,6 +81,19 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
     }
 
     for (const echo of messageEchoes) {
+      // ═══ DETECCIÓN DE MENSAJES EDITADOS (type: "edit") ═══
+      // Cuando el staff edita un mensaje desde WA Business App,
+      // Meta envía un echo con type="edit" + edit.original_message_id
+      if (echo?.type === "edit") {
+        console.log(`[SmbEchoes] ✏️ Detectado echo type=edit, delegando a processMetaMessageEdit`);
+        try {
+          await processMetaMessageEdit(echo, companyId);
+        } catch (editErr: any) {
+          console.error(`[SmbEchoes] ❌ Error procesando edit: ${editErr.message}`);
+        }
+        continue;
+      }
+
       // ═══ FASE 2 Coexistencia — DEDUPE PRE-PROCESAMIENTO ═══
       const echoMessageId = echo?.id as string | undefined;
       let ledgerEntryId: number | null = null;
@@ -178,21 +200,56 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
         };
         const contact = await CreateOrUpdateContactService(contactData);
 
-        // ===== Buscar/crear ticket =====
+        // ═══ TICKET CANÓNICO ÚNICO (coexistencia) ═══
+        // Resolver UnifiedConversation y reutilizar el ticket abierto de la
+        // conversación (aunque viva en el transporte Baileys hermano). Evita
+        // que el echo del staff abra un segundo ticket para la misma charla.
         const settings = await CompaniesSettings.findOne({ where: { companyId } });
-        const ticket = await FindOrCreateTicketService(
-          contact,
-          effectiveWhatsapp,
-          0, // unreadMessages: 0 (es mensaje propio)
-          companyId,
-          0,
-          0,
-          null,
-          effectiveChannel,
-          null,
-          false,
-          settings
-        );
+        const { ticket, conversationId } =
+          await CoexistenceTicketRoutingService.resolveOrCreateCanonicalTicket({
+            contact,
+            whatsapp: effectiveWhatsapp,
+            companyId,
+            unreadMessages: 0, // es mensaje propio
+            inboundChannel: effectiveChannel === "meta" ? "meta" : "baileys",
+            channel: effectiveChannel,
+            settings
+          });
+
+        // ═══ DEDUPE CROSS-PROVIDER: meta_echo vs baileys_fromme ═══
+        // Si Baileys YA guardó este mismo mensaje saliente (mismo ticket,
+        // mismo body normalizado, ventana corta), NO crear otro mensaje.
+        const equivalent =
+          await CoexistenceTicketRoutingService.findEquivalentOutboundMessage({
+            companyId,
+            ticketId: ticket.id,
+            body,
+            windowMs: 120_000,
+            excludeSourceChannels: ["business_app", "cloud_api"]
+          });
+        if (equivalent) {
+          console.log(
+            `[SmbEchoes] ⏭️  Dedup cross-provider: echo ${messageId} equivale a msg#${(equivalent as any).id} (${(equivalent as any).sourceChannel}) en ticket #${ticket.id}; no se duplica`
+          );
+          coexLogInbound({
+            provider: "meta",
+            companyId,
+            ticketId: ticket.id,
+            conversationId,
+            wid: messageId,
+            phoneNumberId,
+            fromMe: true,
+            sourceChannel: "business_app",
+            outcome: "duplicate",
+            reason: "cross_provider.baileys_fromme_recent"
+          });
+          await InboundEventLedgerService.markDropped(
+            ledgerEntryId,
+            "cross_provider.baileys_fromme_recent",
+            { provider: "meta_echo", companyId, wid: messageId }
+          );
+          continue;
+        }
 
         // ===== Crear mensaje con fromMe: true =====
         const messageData = {
@@ -206,6 +263,7 @@ export const handleSmbMessageEchoes = async (entry: any, value: any): Promise<vo
           ack: 3, // Enviado desde Business App = ya entregado
           dataJson: JSON.stringify(echo),
           channel: "meta",
+          provider: "meta",
           sourceChannel: "business_app" as string,
         };
 

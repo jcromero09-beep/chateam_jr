@@ -18,26 +18,42 @@ interface DataReturn {
   horario?: string;
 }
 
+// [Seguridad] Igual que TicketsAttendance: fechas normalizadas + SQL parametrizado.
+// Antes se interpolaban crudas (inyección vía query) y sin fechas daba 'undefined' => 500.
+const isValidDate = (s?: string): boolean => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+
+const normalizeRange = (initialDate?: string, finalDate?: string) => {
+  const today = new Date();
+  const fallbackFinal = today.toISOString().slice(0, 10);
+  const fallbackInitial = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  return {
+    from: isValidDate(initialDate) ? (initialDate as string) : fallbackInitial,
+    to: isValidDate(finalDate) ? (finalDate as string) : fallbackFinal
+  };
+};
+
 export const TicketsDayService = async ({ initialDate, finalDate, companyId }: Request): Promise<Return> => {
 
   let sql = '';
   let count = 0;
 
-  if (initialDate && initialDate.trim() === finalDate && finalDate.trim()) {
+  const { from, to } = normalizeRange(initialDate, finalDate);
+  // Mismo día => desglose por hora; rango => desglose por día.
+  const sameDay = from === to;
+
+  if (sameDay) {
     sql = `
     SELECT
       COUNT(*) AS total,
       extract(hour from tick."createdAt") AS horario
-      --to_char(DATE(tick."createdAt"), 'dd-mm-YYYY') as horario
     FROM
       "Tickets" tick
     WHERE
-      tick."companyId" = ${companyId}
-      and DATE(tick."createdAt") >= '${initialDate} 00:00:00'
-      AND DATE(tick."createdAt") <= '${finalDate} 23:59:59'
+      tick."companyId" = :companyId
+      and DATE(tick."createdAt") >= :from
+      AND DATE(tick."createdAt") <= :to
     GROUP BY
       extract(hour from tick."createdAt")
-      --to_char(DATE(tick."createdAt"), 'dd-mm-YYYY')
     ORDER BY
       horario asc;
     `
@@ -49,9 +65,9 @@ export const TicketsDayService = async ({ initialDate, finalDate, companyId }: R
   FROM
     "Tickets" tick
   WHERE
-    tick."companyId" = ${companyId}
-    and DATE(tick."createdAt") >= '${initialDate}'
-    AND DATE(tick."createdAt") <= '${finalDate}'
+    tick."companyId" = :companyId
+    and DATE(tick."createdAt") >= :from
+    AND DATE(tick."createdAt") <= :to
   GROUP BY
     to_char(DATE(tick."createdAt"), 'dd/mm/YYYY')
   ORDER BY
@@ -59,7 +75,10 @@ export const TicketsDayService = async ({ initialDate, finalDate, companyId }: R
   `
   }
 
-  const data: DataReturn[] = await sequelize.query(sql, { type: QueryTypes.SELECT });
+  const data: DataReturn[] = await sequelize.query(sql, {
+    replacements: { companyId, from, to },
+    type: QueryTypes.SELECT
+  });
 
   data.forEach((register) => {
     count += Number(register.total);

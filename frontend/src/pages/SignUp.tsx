@@ -1,34 +1,25 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import {
-  Box,
-  Sheet,
-  Typography,
-  FormControl,
-  FormLabel,
-  Input,
-  Button,
-  Stack,
-  Divider,
-  Select,
-  Option,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  ArrowBack as BackIcon,
-  WhatsApp as WhatsAppIcon,
-} from '@mui/icons-material'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { ArrowLeft, WhatsappLogo } from '@phosphor-icons/react'
 import { toast } from 'react-toastify'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
-interface Plan {
-  id: number
-  name: string
-  amount: string
-  recurrence: string
-  trial: boolean
-  trialDays: number
-  isPublic: boolean
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (config: Record<string, unknown>) => void
+          renderButton: (element: HTMLElement, options: Record<string, unknown>) => void
+        }
+      }
+    }
+  }
 }
 
 export default function SignUp() {
@@ -39,49 +30,81 @@ export default function SignUp() {
     confirmPassword: '',
     companyName: '',
     phone: '',
-    planId: '',
   })
+  const [googleIdToken, setGoogleIdToken] = useState('')
   const [loading, setLoading] = useState(false)
-  const [plans, setPlans] = useState<Plan[]>([])
-  const [loadingPlans, setLoadingPlans] = useState(true)
+  const googleButtonRef = useRef<HTMLDivElement | null>(null)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const referralSlug = searchParams.get('ref') || ''
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+  const whatsappNumber = import.meta.env.VITE_WHATSAPP_CONTACT || '5491234567890'
 
   useEffect(() => {
-    fetchPublicPlans()
-  }, [])
+    if (!googleClientId || !googleButtonRef.current) return
 
-  const fetchPublicPlans = async () => {
-    try {
-      setLoadingPlans(true)
-      const response = await api.get('/plans/list', { params: { listPublic: 'false' } })
-      const publicPlans = Array.isArray(response.data) ? response.data : (response.data?.plans || [])
-      setPlans(publicPlans)
-      if (publicPlans.length > 0) {
-        setFormData(prev => ({ ...prev, planId: String(publicPlans[0].id) }))
-      }
-    } catch {
-      toast.error('Error al cargar los planes disponibles')
-    } finally {
-      setLoadingPlans(false)
+    const initGoogle = () => {
+      const googleId = window.google?.accounts?.id
+      if (!googleId || !googleButtonRef.current) return
+
+      googleId.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCredential,
+      })
+      googleId.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 492,
+        text: 'continue_with',
+        locale: 'es',
+      })
     }
-  }
 
-  const formatPlanPrice = (plan: Plan) => {
-    const amount = parseFloat(plan.amount)
-    if (amount === 0 || plan.trial) {
-      return plan.trial ? `Gratis (${plan.trialDays} días trial)` : 'Gratis'
+    if (window.google?.accounts?.id) {
+      initGoogle()
+      return
     }
-    const recurrenceLabel =
-      plan.recurrence === 'MENSUAL' ? '/mes' :
-      plan.recurrence === 'ANUAL' ? '/año' :
-      `/${plan.recurrence.toLowerCase()}`
-    return `$${amount.toFixed(2)}${recurrenceLabel}`
-  }
 
-  const whatsappNumber = import.meta.env.VITE_WHATSAPP_CONTACT || '5491234567890'
+    const existingScript = document.getElementById('google-identity-services')
+    if (existingScript) {
+      existingScript.addEventListener('load', initGoogle, { once: true })
+      return
+    }
+
+    const script = document.createElement('script')
+    script.id = 'google-identity-services'
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.onload = initGoogle
+    document.head.appendChild(script)
+  }, [googleClientId])
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleGoogleCredential = async (response: { credential?: string }) => {
+    if (!response.credential) {
+      toast.error('No se pudo validar Google')
+      return
+    }
+
+    try {
+      const { data } = await api.post('/api/auth/google/verify', {
+        credential: response.credential,
+      })
+      setGoogleIdToken(response.credential)
+      setFormData(prev => ({
+        ...prev,
+        email: data.email || prev.email,
+        name: prev.name || data.name || '',
+      }))
+      toast.success('Correo verificado con Google')
+    } catch {
+      setGoogleIdToken('')
+      toast.error('No se pudo verificar tu correo con Google')
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -106,7 +129,9 @@ export default function SignUp() {
         password: formData.password,
         companyName: formData.companyName,
         phone: formData.phone,
-        planId: parseInt(formData.planId),
+        planId: 1,
+        ...(googleIdToken ? { googleIdToken } : {}),
+        ...(referralSlug ? { referralSlug, ref: referralSlug } : {}),
       })
 
       toast.success('¡Registro exitoso! Por favor inicia sesión')
@@ -126,222 +151,184 @@ export default function SignUp() {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: '#1e293b',
-        background: 'linear-gradient(135deg, #1e293b 0%, #152030 50%, #1a2535 100%)',
-        py: { xs: 1.5, sm: 2 },
-      }}
-    >
-      <Sheet
-        sx={{
-          maxWidth: 540,
-          width: '100%',
-          mx: 2,
-          p: { xs: 2.5, sm: 3 },
-          borderRadius: 'xl',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          bgcolor: 'background.surface',
-        }}
-      >
-        <Stack spacing={1.5}>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary to-primary-hover px-4 py-6">
+      <div className="mx-2 w-full max-w-[540px] rounded-xl border border-border bg-card p-6 shadow-2xl shadow-black/40 sm:p-7">
+        <div className="space-y-3">
           {/* Logo + Branding */}
-          <Stack spacing={0.75} alignItems="center">
-            <Box
-              component="img"
-              src="/logo.png"
-              alt="ChatEAM"
-              sx={{ width: 48, height: 48 }}
-            />
-            <Box
-              component="img"
-              src="/chateam-logo.png"
-              alt="Chateam"
-              sx={{ height: 18 }}
-            />
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-              Registro de nueva cuenta
-            </Typography>
-          </Stack>
+          <div className="flex flex-col items-center gap-1.5">
+            <img src="/logo.png" alt="ChatEAM" width={48} height={48} className="size-12" />
+            <img src="/chateam-logo.png" alt="Chateam" height={18} className="h-[18px] w-auto" />
+            <p className="text-xs text-muted-foreground">Registro de nueva cuenta</p>
+            {referralSlug && (
+              <span className="rounded-sm bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                Llegaste por una invitación: {referralSlug}
+              </span>
+            )}
+          </div>
 
           <form onSubmit={handleSubmit}>
-            <Stack spacing={1.25}>
+            <div className="space-y-2.5">
               {/* Fila 1: Nombre + Email */}
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                <FormControl required sx={{ flex: 1 }}>
-                  <FormLabel sx={{ fontSize: '0.8rem' }}>Nombre Completo</FormLabel>
+              <div className="flex flex-col gap-2.5 sm:flex-row">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="signup-name" className="text-[0.8rem]">
+                    Nombre Completo
+                  </Label>
                   <Input
+                    id="signup-name"
                     type="text"
                     placeholder="Juan Pérez"
                     value={formData.name}
                     onChange={(e) => handleChange('name', e.target.value)}
                     disabled={loading}
-                    size="md"
+                    required
                   />
-                </FormControl>
-                <FormControl required sx={{ flex: 1 }}>
-                  <FormLabel sx={{ fontSize: '0.8rem' }}>Correo Electrónico</FormLabel>
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="signup-email" className="text-[0.8rem]">
+                    Correo Electrónico
+                  </Label>
                   <Input
+                    id="signup-email"
                     type="email"
                     placeholder="tu@email.com"
                     value={formData.email}
                     onChange={(e) => handleChange('email', e.target.value)}
                     disabled={loading}
-                    size="md"
+                    required
                   />
-                </FormControl>
-              </Stack>
+                </div>
+              </div>
 
               {/* Fila 2: Empresa + Teléfono */}
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                <FormControl required sx={{ flex: 1 }}>
-                  <FormLabel sx={{ fontSize: '0.8rem' }}>Nombre de Empresa</FormLabel>
+              <div className="flex flex-col gap-2.5 sm:flex-row">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="signup-company" className="text-[0.8rem]">
+                    Nombre de Empresa
+                  </Label>
                   <Input
+                    id="signup-company"
                     type="text"
                     placeholder="Mi Empresa S.A."
                     value={formData.companyName}
                     onChange={(e) => handleChange('companyName', e.target.value)}
                     disabled={loading}
-                    size="md"
+                    required
                   />
-                </FormControl>
-                <FormControl required sx={{ flex: 1 }}>
-                  <FormLabel sx={{ fontSize: '0.8rem' }}>Teléfono / WhatsApp</FormLabel>
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="signup-phone" className="text-[0.8rem]">
+                    Teléfono / WhatsApp
+                  </Label>
                   <Input
+                    id="signup-phone"
                     type="tel"
                     placeholder="+54 9 11 1234-5678"
                     value={formData.phone}
                     onChange={(e) => handleChange('phone', e.target.value)}
                     disabled={loading}
-                    size="md"
+                    required
                   />
-                </FormControl>
-              </Stack>
+                </div>
+              </div>
 
-              {/* Plan */}
-              <FormControl required>
-                <FormLabel sx={{ fontSize: '0.8rem' }}>Plan</FormLabel>
-                {loadingPlans ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                    <CircularProgress size="sm" />
-                    <Typography level="body-xs">Cargando planes...</Typography>
-                  </Box>
-                ) : plans.length === 0 ? (
-                  <Typography level="body-xs" color="warning">
-                    No hay planes disponibles. Contacta al administrador.
-                  </Typography>
-                ) : (
-                  <Select
-                    value={formData.planId}
-                    onChange={(_, value) => handleChange('planId', value as string)}
-                    disabled={loading}
-                    size="md"
-                  >
-                    {plans.map((plan) => (
-                      <Option key={plan.id} value={String(plan.id)}>
-                        {plan.name} — {formatPlanPrice(plan)}
-                      </Option>
-                    ))}
-                  </Select>
-                )}
-              </FormControl>
+              <div className="rounded-md bg-accent px-3 py-2 text-accent-foreground">
+                <p className="text-sm font-semibold">Plan Demo incluido al inicio</p>
+                <p className="text-xs">Podrás cambiar de plan después desde facturación.</p>
+              </div>
+
+              {googleClientId && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-3">
+                    <span className="h-px flex-1 bg-border" aria-hidden />
+                    <span className="text-xs text-muted-foreground">Verificación opcional</span>
+                    <span className="h-px flex-1 bg-border" aria-hidden />
+                  </div>
+                  <div ref={googleButtonRef} className="flex min-h-10 justify-center [&>div]:max-w-full" />
+                  {googleIdToken && (
+                    <p className="text-center text-xs text-success-text">
+                      Correo verificado con Google para el email de bienvenida.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Fila 3: Contraseña + Confirmar */}
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                <FormControl required sx={{ flex: 1 }}>
-                  <FormLabel sx={{ fontSize: '0.8rem' }}>Contraseña</FormLabel>
-                  <Input
-                    type="password"
+              <div className="flex flex-col gap-2.5 sm:flex-row">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="signup-password" className="text-[0.8rem]">
+                    Contraseña
+                  </Label>
+                  <PasswordInput
+                    id="signup-password"
                     placeholder="Mínimo 6 caracteres"
                     value={formData.password}
                     onChange={(e) => handleChange('password', e.target.value)}
                     disabled={loading}
-                    size="md"
+                    required
                   />
-                </FormControl>
-                <FormControl required sx={{ flex: 1 }}>
-                  <FormLabel sx={{ fontSize: '0.8rem' }}>Confirmar Contraseña</FormLabel>
-                  <Input
-                    type="password"
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="signup-confirm" className="text-[0.8rem]">
+                    Confirmar Contraseña
+                  </Label>
+                  <PasswordInput
+                    id="signup-confirm"
                     placeholder="Repite tu contraseña"
                     value={formData.confirmPassword}
                     onChange={(e) => handleChange('confirmPassword', e.target.value)}
                     disabled={loading}
-                    size="md"
+                    required
                   />
-                </FormControl>
-              </Stack>
+                </div>
+              </div>
 
-              <Button
-                type="submit"
-                fullWidth
-                loading={loading}
-                size="md"
-                sx={{
-                  mt: 0.5,
-                  bgcolor: '#1e293b',
-                  '&:hover': { bgcolor: '#152030' },
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                }}
-              >
+              <Button type="submit" loading={loading} className="mt-0.5 w-full font-semibold">
                 Crear Cuenta
               </Button>
 
-              <Divider sx={{ my: 0 }}>o</Divider>
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-border" aria-hidden />
+                <span className="text-xs text-muted-foreground">o</span>
+                <span className="h-px flex-1 bg-border" aria-hidden />
+              </div>
 
               {/* WhatsApp + Volver en fila */}
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+              <div className="flex flex-col gap-2.5 sm:flex-row">
                 <Button
-                  variant="soft"
-                  color="success"
-                  fullWidth
+                  type="button"
+                  variant="whatsapp"
                   size="sm"
-                  startDecorator={<WhatsAppIcon sx={{ fontSize: 18 }} />}
+                  className="w-full"
                   onClick={handleWhatsAppContact}
                 >
+                  <WhatsappLogo className="size-[18px]" weight="fill" aria-hidden />
                   WhatsApp
                 </Button>
-                <Button
-                  variant="outlined"
-                  color="neutral"
-                  fullWidth
-                  size="sm"
-                  startDecorator={<BackIcon sx={{ fontSize: 18 }} />}
-                  component={Link}
+                <Link
                   to="/login"
+                  className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'w-full')}
                 >
+                  <ArrowLeft className="size-[18px]" aria-hidden />
                   Volver al Login
-                </Button>
-              </Stack>
-            </Stack>
+                </Link>
+              </div>
+            </div>
           </form>
 
-          <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary', mt: -0.5 }}>
+          <p className="text-center text-xs text-muted-foreground">
             Al registrarte aceptas nuestros{' '}
-            <Typography
-              component="span"
-              level="body-xs"
-              sx={{ color: 'primary.500', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-            >
+            <span className="cursor-pointer text-primary hover:underline">
               Términos y Condiciones
-            </Typography>
-            {' '}y{' '}
-            <Typography
-              component="span"
-              level="body-xs"
-              sx={{ color: 'primary.500', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-            >
+            </span>{' '}
+            y{' '}
+            <span className="cursor-pointer text-primary hover:underline">
               Política de Privacidad
-            </Typography>
-            {' '}— Copyright {new Date().getFullYear()} CodigoPlus
-          </Typography>
-        </Stack>
-      </Sheet>
-    </Box>
+            </span>{' '}
+            — Copyright {new Date().getFullYear()} CodigoPlus
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }

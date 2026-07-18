@@ -7,7 +7,7 @@ import CompaniesSettings from "../../models/CompaniesSettings";
 
 interface Request {
   companyId: number;
-};
+}
 
 const FindCompanySettingsService = async ({
   companyId

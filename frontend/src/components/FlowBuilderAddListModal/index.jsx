@@ -1,153 +1,165 @@
 import React, { useState, useEffect } from "react";
-import { makeStyles } from "@material-ui/core/styles";
-import Button from "@material-ui/core/Button";
-import TextField from "@material-ui/core/TextField";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import Typography from "@material-ui/core/Typography";
-import IconButton from "@material-ui/core/IconButton";
-import Grid from "@material-ui/core/Grid";
-import CloseIcon from "@material-ui/icons/Close";
-import ViewListOutlinedIcon from "@material-ui/icons/ViewListOutlined";
-import { Add, Delete } from "@material-ui/icons";
+import { styled } from "@mui/material/styles";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import GridLegacy from "@mui/material/GridLegacy";
+import CloseIcon from "@mui/icons-material/Close";
+import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
+import { Add, Delete } from "@mui/icons-material";
 import toastError from "../../errors/toastError";
 
-const useStyles = makeStyles(theme => ({
-  dialog: {
-    "& .MuiDialog-paper": {
-      borderRadius: 16,
-      overflow: "hidden",
-      maxWidth: 520,
-    },
+const StyledDialog = styled(Dialog)({
+  "& .MuiDialog-paper": {
+    borderRadius: 16,
+    overflow: "hidden",
+    maxWidth: 520,
   },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 24px 12px",
-  },
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    background: "linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    "& svg": { fontSize: 22 },
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#fff" : "#1a1a2e",
-    lineHeight: 1.3,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#aaa" : "#888",
-    marginTop: 2,
-  },
-  closeBtn: {
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
-    padding: 8,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
-    },
-  },
-  content: {
-    padding: "16px 24px 20px",
-  },
-  textField: {
-    "& .MuiOutlinedInput-root": {
-      borderRadius: 10,
-      fontSize: 14,
-      "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: "#66a6ff",
-      },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-        borderColor: "#66a6ff",
-      },
-    },
-    "& .MuiInputLabel-root.Mui-focused": {
-      color: "#66a6ff",
-    },
-  },
-  optionsLabel: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#e0e0e0" : "#344054",
-    marginBottom: 8,
-  },
-  optionRow: {
-    display: "flex",
-    alignItems: "center",
-    marginBottom: 8,
-    gap: 8,
-  },
-  deleteBtn: {
-    color: theme.palette.type === "dark" ? "#ff6b6b" : "#e55353",
-    padding: 6,
-    "&:hover": {
-      background: "rgba(229,83,83,0.08)",
-    },
-  },
-  addOptionBtn: {
-    borderRadius: 10,
-    padding: "6px 16px",
-    textTransform: "none",
-    fontWeight: 500,
-    fontSize: 13,
-    color: "#66a6ff",
-    borderColor: "#66a6ff",
-    "&:hover": {
-      borderColor: "#5590e8",
-      background: "rgba(102,166,255,0.06)",
-    },
-  },
-  actions: {
-    padding: "12px 24px 20px",
-    display: "flex",
-    gap: 10,
-    justifyContent: "flex-end",
-    borderTop: "none",
-  },
-  cancelBtn: {
-    borderRadius: 10,
-    padding: "8px 20px",
-    textTransform: "none",
-    fontWeight: 500,
-    fontSize: 14,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#d0d5dd"}`,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
-    },
-  },
-  saveBtn: {
-    borderRadius: 10,
-    padding: "8px 24px",
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: 14,
-    background: "linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)",
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(102,166,255,0.3)",
-    "&:hover": {
-      background: "linear-gradient(135deg, #7ae4eb 0%, #5590e8 100%)",
-      boxShadow: "0 4px 12px rgba(102,166,255,0.4)",
-    },
+});
+
+const Header = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "20px 24px 12px",
+});
+
+const HeaderLeft = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+});
+
+const HeaderIcon = styled("div")({
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#fff",
+  "& svg": { fontSize: 22 },
+});
+
+const HeaderTitle = styled(Typography)(({ theme }) => ({
+  fontSize: 18,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#fff" : "#1a1a2e",
+  lineHeight: 1.3,
+}));
+
+const HeaderSubtitle = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#888",
+  marginTop: 2,
+}));
+
+const CloseBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
+  padding: 8,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
   },
 }));
 
+const Content = styled(DialogContent)({
+  padding: "16px 24px 20px",
+});
+
+const StyledTextField = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 10,
+    fontSize: 14,
+    "&:hover .MuiOutlinedInput-notchedOutline": {
+      borderColor: "#66a6ff",
+    },
+    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+      borderColor: "#66a6ff",
+    },
+  },
+  "& .MuiInputLabel-root.Mui-focused": {
+    color: "#66a6ff",
+  },
+});
+
+const OptionsLabel = styled(Typography)(({ theme }) => ({
+  fontSize: 14,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#e0e0e0" : "#344054",
+  marginBottom: 8,
+}));
+
+const OptionRow = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  marginBottom: 8,
+  gap: 8,
+});
+
+const DeleteBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#ff6b6b" : "#e55353",
+  padding: 6,
+  "&:hover": {
+    background: "rgba(229,83,83,0.08)",
+  },
+}));
+
+const AddOptionBtn = styled(Button)({
+  borderRadius: 10,
+  padding: "6px 16px",
+  textTransform: "none",
+  fontWeight: 500,
+  fontSize: 13,
+  color: "#66a6ff",
+  borderColor: "#66a6ff",
+  "&:hover": {
+    borderColor: "#5590e8",
+    background: "rgba(102,166,255,0.06)",
+  },
+});
+
+const Actions = styled(DialogActions)({
+  padding: "12px 24px 20px",
+  display: "flex",
+  gap: 10,
+  justifyContent: "flex-end",
+  borderTop: "none",
+});
+
+const CancelBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 20px",
+  textTransform: "none",
+  fontWeight: 500,
+  fontSize: 14,
+  color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+  border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#d0d5dd"}`,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
+  },
+}));
+
+const SaveBtn = styled(Button)({
+  borderRadius: 10,
+  padding: "8px 24px",
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: 14,
+  background: "linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)",
+  color: "#fff",
+  boxShadow: "0 2px 8px rgba(102,166,255,0.3)",
+  "&:hover": {
+    background: "linear-gradient(135deg, #7ae4eb 0%, #5590e8 100%)",
+    boxShadow: "0 4px 12px rgba(102,166,255,0.4)",
+  },
+});
+
 const FlowBuilderAddListModal = ({ open, onClose, onSave, onUpdate, data, close }) => {
-  const classes = useStyles();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [options, setOptions] = useState([""]);
@@ -234,45 +246,43 @@ const FlowBuilderAddListModal = ({ open, onClose, onSave, onUpdate, data, close 
   };
 
   return (
-    <Dialog
+    <StyledDialog
       open={activeModal}
       onClose={handleClose}
-      className={classes.dialog}
       fullWidth
       maxWidth="sm"
     >
       {/* Header */}
-      <div className={classes.header}>
-        <div className={classes.headerLeft}>
-          <div className={classes.headerIcon}>
+      <Header>
+        <HeaderLeft>
+          <HeaderIcon>
             <ViewListOutlinedIcon />
-          </div>
+          </HeaderIcon>
           <div>
-            <Typography className={classes.headerTitle}>{labels.title}</Typography>
-            <Typography className={classes.headerSubtitle}>Configura título, descripción y opciones</Typography>
+            <HeaderTitle>{labels.title}</HeaderTitle>
+            <HeaderSubtitle>Configura título, descripción y opciones</HeaderSubtitle>
           </div>
-        </div>
-        <IconButton className={classes.closeBtn} onClick={handleClose} size="small">
+        </HeaderLeft>
+        <CloseBtn onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
-        </IconButton>
-      </div>
+        </CloseBtn>
+      </Header>
 
       {/* Content */}
-      <DialogContent className={classes.content}>
-        <Grid container spacing={2}>
-          <Grid item xs={12}>
-            <TextField
+      <Content>
+        <GridLegacy container spacing={2}>
+          <GridLegacy item xs={12}>
+            <StyledTextField
               fullWidth
               label="Título"
               variant="outlined"
               value={title}
               onChange={e => setTitle(e.target.value)}
               required
-              className={classes.textField}
             />
-          </Grid>
-          <Grid item xs={12}>
-            <TextField
+          </GridLegacy>
+          <GridLegacy item xs={12}>
+            <StyledTextField
               fullWidth
               label="Descripción"
               variant="outlined"
@@ -280,55 +290,51 @@ const FlowBuilderAddListModal = ({ open, onClose, onSave, onUpdate, data, close 
               rows={2}
               value={description}
               onChange={e => setDescription(e.target.value)}
-              className={classes.textField}
             />
-          </Grid>
-          <Grid item xs={12}>
-            <Typography className={classes.optionsLabel}>Opciones</Typography>
+          </GridLegacy>
+          <GridLegacy item xs={12}>
+            <OptionsLabel>Opciones</OptionsLabel>
             {options.map((option, index) => (
-              <div key={index} className={classes.optionRow}>
-                <TextField
+              <OptionRow key={index}>
+                <StyledTextField
                   label={`Opción ${index + 1}`}
                   variant="outlined"
                   size="small"
                   value={option}
                   onChange={e => updateOption(index, e.target.value)}
                   style={{ flex: 1 }}
-                  className={classes.textField}
                 />
-                <IconButton
-                  className={classes.deleteBtn}
+                <DeleteBtn
                   onClick={() => removeOption(index)}
                   disabled={options.length === 1}
                   size="small"
                 >
                   <Delete fontSize="small" />
-                </IconButton>
-              </div>
+                </DeleteBtn>
+              </OptionRow>
             ))}
-            <Button
+            <AddOptionBtn
               startIcon={<Add />}
               onClick={addOption}
               variant="outlined"
               size="small"
-              className={classes.addOptionBtn}
             >
               Agregar opción
-            </Button>
-          </Grid>
-        </Grid>
-      </DialogContent>
+            </AddOptionBtn>
+          </GridLegacy>
+        </GridLegacy>
+      </Content>
 
       {/* Actions */}
-      <DialogActions className={classes.actions}>
-        <Button className={classes.cancelBtn} onClick={handleClose}>
+      <Actions>
+        <CancelBtn onClick={handleClose}>
           Cancelar
-        </Button>
-        <Button className={classes.saveBtn} onClick={handleSave}>
+        </CancelBtn>
+        <SaveBtn onClick={handleSave}>
           {labels.btn}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </SaveBtn>
+      </Actions>
+    </StyledDialog>
   );
 };
 

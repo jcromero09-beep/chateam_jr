@@ -1,50 +1,63 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'react-toastify'
 import toastError from '../errors/toastError'
+// [Migración] Autocomplete se CONSERVA como MUI Joy (no hay equivalente Radix).
+// El Chip de Joy se conserva SOLO dentro de renderTags del Autocomplete por
+// compatibilidad con getTagProps (onDelete). El resto migra a design system.
+import { Autocomplete, Chip } from '@mui/joy'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  FormHelperText,
-  Textarea,
-  Autocomplete,
-  // Select, // COMENTADO: Ya no se usa para proveedor de IA
-  // Option, // COMENTADO: Ya no se usa para proveedor de IA
-  Alert,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Psychology as PromptsIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  ContentCopy as CopyIcon,
-  // SmartToy as AIIcon, // COMENTADO: Ya no se usa para proveedor de IA
-  Warning as WarningIcon,
-  UploadFile as UploadFileIcon,
-  AttachFile as AttachFileIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
+  Brain,
+  Plus,
+  PencilSimple,
+  Trash,
+  MagnifyingGlass,
+  ArrowClockwise,
+  Copy,
+  Warning,
+  UploadSimple,
+  Paperclip,
+  X,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { i18n } from "../translate/i18n" // P3.47: i18n support
 import { useAuth } from '../hooks/useAuth'
+
+// Clases compartidas para inputs (mismo look que Tags/Connections)
+const inputClass =
+  "h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+
+// Botón de acción de fila (mismo look que RowAction, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
 
 // Interface para proveedores de IA configurados en /openai/settings
 interface AIProvider {
@@ -258,7 +271,7 @@ export default function Prompts() {
   }
 
   const handleDelete = async (promptId: number) => {
-    // TODO P2: Replace browser confirm with MUI Dialog for consistency
+    // TODO P2: Replace browser confirm with Dialog for consistency
     if (confirm(i18n.t("aiModules.prompts.delete.confirmMessage"))) {
       try {
         await api.delete(`/prompt/${promptId}`)
@@ -314,6 +327,12 @@ export default function Prompts() {
     setSelectedFile(null) // Limpiar archivo seleccionado
   }
 
+  const closeModal = () => {
+    setOpenModal(false)
+    resetForm()
+    setSelectedPrompt(null)
+  }
+
   // P2.26: Memoize filteredPrompts to avoid recalculation on every render
   const filteredPrompts = useMemo(() => {
     return prompts.filter((prompt) =>
@@ -337,366 +356,350 @@ export default function Prompts() {
   }, [prompts])
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <PromptsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">{i18n.t("aiModules.prompts.title")}</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Brain className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {i18n.t("aiModules.prompts.title")}
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 {i18n.t("aiModules.prompts.description")}
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchPrompts}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchPrompts}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               {i18n.t("aiModules.prompts.buttons.new")}
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* P1.18: Error State Display */}
         {error && (
-          <Alert
-            color="danger"
-            startDecorator={<WarningIcon />}
-            endDecorator={
-              <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-                <DeleteIcon />
-              </IconButton>
-            }
-          >
-            {error}
-          </Alert>
+          <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
+            <Warning className="size-5 shrink-0" weight="fill" aria-hidden />
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar"
+              onClick={() => setError(null)}
+              className="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-destructive/10"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
         )}
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  {i18n.t("aiModules.prompts.stats.total")}
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  {i18n.t("aiModules.prompts.stats.totalTokens")}
-                </Typography>
-                <Typography level="h2" sx={{ color: 'primary.main' }}>
-                  {stats.totalTokens.toLocaleString()}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  {i18n.t("aiModules.prompts.stats.avgTokens")}
-                </Typography>
-                <Typography level="h2">{stats.avgTokensPerPrompt}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  {i18n.t("aiModules.prompts.stats.mostUsed")}
-                </Typography>
-                <Typography level="body-sm" fontWeight="bold" noWrap>
-                  {stats.maxTokensPrompt?.name || '-'}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label={i18n.t("aiModules.prompts.stats.total")} value={String(stats.total)} />
+          <StatTile
+            label={i18n.t("aiModules.prompts.stats.totalTokens")}
+            value={stats.totalTokens.toLocaleString()}
+            tone="primary"
+          />
+          <StatTile label={i18n.t("aiModules.prompts.stats.avgTokens")} value={String(stats.avgTokensPerPrompt)} />
+          <StatTile label={i18n.t("aiModules.prompts.stats.mostUsed")} value={stats.maxTokensPrompt?.name || '-'} />
+        </div>
 
         {/* Search */}
-        <Card>
-          <CardContent>
-            <Input
-              placeholder={i18n.t("aiModules.prompts.search.placeholder")}
-              startDecorator={<SearchIcon />}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </CardContent>
-        </Card>
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            placeholder={i18n.t("aiModules.prompts.search.placeholder")}
+            aria-label={i18n.t("aiModules.prompts.search.placeholder")}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
 
         {/* Prompts Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 180 }}>{i18n.t("aiModules.prompts.table.name")}</th>
-                  <th>{i18n.t("aiModules.prompts.table.prompt")}</th>
-                  <th style={{ width: 130 }}>{i18n.t("aiModules.prompts.table.provider")}</th>
-                  <th style={{ width: 130 }}>{i18n.t("aiModules.prompts.table.queues")}</th>
-                  <th style={{ width: 80 }}>{i18n.t("aiModules.prompts.table.maxTokens")}</th>
-                  <th style={{ width: 70 }}>{i18n.t("aiModules.prompts.table.temperature")}</th>
-                  <th style={{ width: 80 }}>{i18n.t("aiModules.prompts.table.tokens")}</th>
-                  <th style={{ width: 60 }}>{i18n.t("aiModules.prompts.table.messages")}</th>
-                  <th style={{ width: 130 }}>{i18n.t("aiModules.prompts.table.actions")}</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.name")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.prompt")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.provider")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.queues")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.maxTokens")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.temperature")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.tokens")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.messages")}</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i18n.t("aiModules.prompts.table.actions")}</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>{i18n.t("aiModules.prompts.table.loading")}</Typography>
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                      {i18n.t("aiModules.prompts.table.loading")}
                     </td>
                   </tr>
                 ) : filteredPrompts.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>{i18n.t("aiModules.prompts.table.empty")}</Typography>
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                      {i18n.t("aiModules.prompts.table.empty")}
                     </td>
                   </tr>
                 ) : (
                   filteredPrompts.map((prompt) => (
-                    <tr key={prompt.id}>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {prompt.name}
-                        </Typography>
+                    <tr key={prompt.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3 font-semibold text-foreground">
+                        {prompt.name}
                       </td>
-                      <td>
-                        <Typography level="body-sm" noWrap sx={{ maxWidth: 200 }}>
+                      <td className="px-4 py-3">
+                        <span className="block max-w-[200px] truncate text-muted-foreground">
                           {prompt.prompt}
-                        </Typography>
+                        </span>
                       </td>
                       {/* Columna Proveedor de IA */}
-                      <td>
+                      <td className="px-4 py-3">
                         {prompt.aiProviderId ? (
-                          <Chip size="sm" variant="soft" color="primary">
+                          <Badge variant="primary">
                             {aiProviders.find(p => p.id === prompt.aiProviderId)?.name ||
                               aiProviders.find(p => p.id === prompt.aiProviderId)?.provider ||
                               'IA'}
-                          </Chip>
+                          </Badge>
                         ) : (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                          <span className="text-xs text-muted-foreground">
                             {i18n.t("aiModules.prompts.table.noProvider")}
-                          </Typography>
+                          </span>
                         )}
                       </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
                           {prompt.queues && prompt.queues.length > 0 ? (
                             prompt.queues.map((queue) => (
-                              <Chip
-                                key={queue.id}
-                                size="sm"
-                                variant="soft"
-                                sx={{
-                                  backgroundColor: queue.color || undefined,
-                                  color: queue.color ? '#fff' : undefined
-                                }}
-                              >
-                                {queue.name}
-                              </Chip>
+                              queue.color ? (
+                                <span
+                                  key={queue.id}
+                                  className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium leading-none text-white"
+                                  style={{ backgroundColor: queue.color }}
+                                >
+                                  {queue.name}
+                                </span>
+                              ) : (
+                                <Badge key={queue.id} variant="neutral">
+                                  {queue.name}
+                                </Badge>
+                              )
                             ))
                           ) : (
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            <span className="text-xs text-muted-foreground">
                               {i18n.t("aiModules.prompts.table.noQueues")}
-                            </Typography>
+                            </span>
                           )}
-                        </Stack>
+                        </div>
                       </td>
-                      <td>
-                        <Chip size="sm" variant="soft" color="primary">
-                          {prompt.maxTokens}
-                        </Chip>
+                      <td className="px-4 py-3">
+                        <Badge variant="primary">{prompt.maxTokens}</Badge>
                       </td>
-                      <td>
-                        <Typography level="body-sm">{prompt.temperature}</Typography>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">{prompt.temperature}</td>
+                      <td className="px-4 py-3 tabular-nums font-semibold text-foreground">
+                        {prompt.totalTokens.toLocaleString()}
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          <strong>{prompt.totalTokens.toLocaleString()}</strong>
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{prompt.maxMessages}</Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="neutral"
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">{prompt.maxMessages}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <ActionBtn
+                            label="Copiar"
                             onClick={() => handleCopyPrompt(prompt.prompt)}
-                            title={i18n.t("aiModules.prompts.buttons.copy")}
                           >
-                            <CopyIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
+                            <Copy className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Editar"
                             onClick={() => openEditModal(prompt)}
+                            className="hover:text-primary"
                           >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Eliminar"
                             onClick={() => handleDelete(prompt.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Stack>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Create/Edit */}
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ minWidth: 700, maxWidth: 800 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              {selectedPrompt ? i18n.t("aiModules.prompts.modal.titleEdit") : i18n.t("aiModules.prompts.modal.titleCreate")}
-            </Typography>
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>{i18n.t("aiModules.prompts.modal.nameLabel")}</FormLabel>
-                <Input
+      {/* Modal Create/Edit */}
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={closeModal}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                {selectedPrompt ? i18n.t("aiModules.prompts.modal.titleEdit") : i18n.t("aiModules.prompts.modal.titleCreate")}
+              </h2>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                onClick={closeModal}
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <X className="size-[18px]" aria-hidden />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="prompt-name">{i18n.t("aiModules.prompts.modal.nameLabel")}</Label>
+                <input
+                  id="prompt-name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder={i18n.t("aiModules.prompts.modal.namePlaceholder")}
+                  className={inputClass}
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>{i18n.t("aiModules.prompts.modal.promptLabel")}</FormLabel>
-                <Textarea
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="prompt-text">{i18n.t("aiModules.prompts.modal.promptLabel")}</Label>
+                <textarea
+                  id="prompt-text"
                   value={formData.prompt}
                   onChange={(e) => setFormData({ ...formData, prompt: e.target.value })}
                   placeholder={i18n.t("aiModules.prompts.modal.promptPlaceholder")}
-                  minRows={6}
-                  maxRows={12}
+                  rows={6}
+                  className="min-h-[9rem] w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                 />
-              </FormControl>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>{i18n.t("aiModules.prompts.modal.maxTokensLabel")}</FormLabel>
-                    <Input
-                      type="number"
-                      value={formData.maxTokens}
-                      onChange={(e) =>
-                        setFormData({ ...formData, maxTokens: parseInt(e.target.value) || 2000 })
-                      }
-                      slotProps={{
-                        input: {
-                          min: 100,
-                          max: 4000,
-                        },
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>{i18n.t("aiModules.prompts.modal.temperatureLabel")}</FormLabel>
-                    <Input
-                      type="number"
-                      value={formData.temperature}
-                      onChange={(e) =>
-                        setFormData({ ...formData, temperature: parseFloat(e.target.value) || 0.7 })
-                      }
-                      slotProps={{
-                        input: {
-                          min: 0,
-                          max: 1,
-                          step: 0.1,
-                        },
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>{i18n.t("aiModules.prompts.modal.maxMessagesLabel")}</FormLabel>
-                    <Input
-                      type="number"
-                      value={formData.maxMessages}
-                      onChange={(e) =>
-                        setFormData({ ...formData, maxMessages: parseInt(e.target.value) || 10 })
-                      }
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>{i18n.t("aiModules.prompts.modal.queuesLabel")}</FormLabel>
-                    <Autocomplete
-                      multiple
-                      placeholder={i18n.t("aiModules.prompts.modal.queuesPlaceholder")}
-                      options={queues}
-                      value={selectedQueues}
-                      onChange={(_event, newValue) => {
-                        setSelectedQueues(newValue)
-                        setFormData({
-                          ...formData,
-                          queueIds: newValue.map(q => q.id)
-                        })
-                      }}
-                      getOptionLabel={(option) => option.name}
-                      isOptionEqualToValue={(option, value) => option.id === value.id}
-                      renderTags={(tags, getTagProps) =>
-                        tags.map((item, index) => (
-                          <Chip
-                            size="sm"
-                            variant="soft"
-                            color="primary"
-                            sx={{
-                              backgroundColor: item.color || undefined,
-                              color: item.color ? '#fff' : undefined
-                            }}
-                            {...getTagProps({ index })}
-                            key={item.id}
-                          >
-                            {item.name}
-                          </Chip>
-                        ))
-                      }
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="prompt-maxtokens">{i18n.t("aiModules.prompts.modal.maxTokensLabel")}</Label>
+                  <input
+                    id="prompt-maxtokens"
+                    type="number"
+                    min={100}
+                    max={4000}
+                    value={formData.maxTokens}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maxTokens: parseInt(e.target.value) || 2000 })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="prompt-temperature">{i18n.t("aiModules.prompts.modal.temperatureLabel")}</Label>
+                  <input
+                    id="prompt-temperature"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={formData.temperature}
+                    onChange={(e) =>
+                      setFormData({ ...formData, temperature: parseFloat(e.target.value) || 0.7 })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="prompt-maxmessages">{i18n.t("aiModules.prompts.modal.maxMessagesLabel")}</Label>
+                  <input
+                    id="prompt-maxmessages"
+                    type="number"
+                    value={formData.maxMessages}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maxMessages: parseInt(e.target.value) || 10 })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{i18n.t("aiModules.prompts.modal.queuesLabel")}</Label>
+                  {/* [Migración] Autocomplete CONSERVADO como MUI Joy (sin equivalente Radix) */}
+                  <Autocomplete
+                    multiple
+                    placeholder={i18n.t("aiModules.prompts.modal.queuesPlaceholder")}
+                    options={queues}
+                    value={selectedQueues}
+                    onChange={(_event, newValue) => {
+                      setSelectedQueues(newValue)
+                      setFormData({
+                        ...formData,
+                        queueIds: newValue.map(q => q.id)
+                      })
+                    }}
+                    getOptionLabel={(option) => option.name}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    renderTags={(tags, getTagProps) =>
+                      tags.map((item, index) => (
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color="primary"
+                          sx={{
+                            backgroundColor: item.color || undefined,
+                            color: item.color ? '#fff' : undefined
+                          }}
+                          {...getTagProps({ index })}
+                          key={item.id}
+                        >
+                          {item.name}
+                        </Chip>
+                      ))
+                    }
+                  />
+                </div>
+              </div>
+
               {/* Sección de carga de archivos */}
-              <FormControl>
-                <FormLabel>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <AttachFileIcon sx={{ fontSize: 18 }} />
+              <div className="space-y-1.5">
+                <Label>
+                  <span className="flex items-center gap-1.5">
+                    <Paperclip className="size-4" aria-hidden />
                     <span>{i18n.t("aiModules.prompts.modal.fileUploadLabel") || "Archivo de contexto (opcional)"}</span>
-                  </Stack>
-                </FormLabel>
+                  </span>
+                </Label>
                 <input
                   type="file"
                   ref={fileInputRef}
                   accept=".txt,.pdf,.xlsx,.xls"
-                  style={{ display: 'none' }}
+                  className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]
                     if (file) {
@@ -725,43 +728,36 @@ export default function Prompts() {
                     }
                   }}
                 />
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <div className="flex items-center gap-2">
                   <Button
-                    variant="outlined"
-                    color="neutral"
-                    startDecorator={<UploadFileIcon />}
-                    onClick={() => fileInputRef.current?.click()}
+                    variant="outline"
                     size="sm"
+                    onClick={() => fileInputRef.current?.click()}
                   >
+                    <UploadSimple className="size-4" aria-hidden />
                     {i18n.t("aiModules.prompts.modal.selectFile") || "Seleccionar archivo"}
                   </Button>
                   {selectedFile && (
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color="primary"
-                      endDecorator={
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="neutral"
-                          onClick={() => {
-                            setSelectedFile(null)
-                            if (fileInputRef.current) fileInputRef.current.value = ''
-                          }}
-                        >
-                          <CloseIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      }
-                    >
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/12 py-0.5 pl-2.5 pr-1 text-xs font-medium text-primary">
                       {selectedFile.name}
-                    </Chip>
+                      <button
+                        type="button"
+                        aria-label="Quitar archivo"
+                        onClick={() => {
+                          setSelectedFile(null)
+                          if (fileInputRef.current) fileInputRef.current.value = ''
+                        }}
+                        className="flex size-5 items-center justify-center rounded-full transition-colors hover:bg-primary/20"
+                      >
+                        <X className="size-3.5" aria-hidden />
+                      </button>
+                    </span>
                   )}
-                </Box>
-                <FormHelperText>
+                </div>
+                <p className="text-xs text-muted-foreground">
                   {i18n.t("aiModules.prompts.modal.fileUploadHelper") || "Sube un archivo .txt, .pdf o .xlsx para usarlo como contexto adicional"}
-                </FormHelperText>
-              </FormControl>
+                </p>
+              </div>
 
               {/* COMENTADO: Selector de Proveedor de IA - Ya no se usa
               <FormControl required>
@@ -805,46 +801,41 @@ export default function Prompts() {
               </FormControl>
               */}
 
-              <Box
-                sx={{
-                  display: 'flex',
-                  gap: 1,
-                  flexDirection: 'column',
-                  p: 2,
-                  bgcolor: 'background.level1',
-                  borderRadius: 'sm',
-                }}
-              >
-                <Typography level="body-sm">
-                  <strong>{i18n.t("aiModules.prompts.modal.previewTitle")}</strong>
-                </Typography>
-                <Typography level="body-xs" sx={{ whiteSpace: 'pre-wrap' }}>
+              <div className="flex flex-col gap-1 rounded-md bg-muted p-4">
+                <p className="text-sm font-semibold text-foreground">
+                  {i18n.t("aiModules.prompts.modal.previewTitle")}
+                </p>
+                <p className="whitespace-pre-wrap text-xs text-muted-foreground">
                   {formData.prompt || i18n.t("aiModules.prompts.modal.previewEmpty")}
-                </Typography>
+                </p>
                 {/* Mostrar archivo seleccionado */}
                 {selectedFile && (
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <AttachFileIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-                    <Typography level="body-xs" sx={{ color: 'primary.main' }}>
-                      {i18n.t("aiModules.prompts.modal.attachedFile") || "Archivo adjunto"}: {selectedFile.name}
-                    </Typography>
-                  </Stack>
+                  <span className="flex items-center gap-1.5 text-xs text-primary">
+                    <Paperclip className="size-3.5" aria-hidden />
+                    {i18n.t("aiModules.prompts.modal.attachedFile") || "Archivo adjunto"}: {selectedFile.name}
+                  </span>
                 )}
-                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                <p className="text-xs text-muted-foreground">
                   {i18n.t("aiModules.prompts.modal.previewSettings", {
                     maxTokens: formData.maxTokens,
                     temperature: formData.temperature,
                     maxMessages: formData.maxMessages
                   })}
-                </Typography>
-              </Box>
-              <Button color="primary" onClick={selectedPrompt ? handleUpdate : handleCreate}>
-                {selectedPrompt ? i18n.t("aiModules.prompts.buttons.update") : i18n.t("aiModules.prompts.buttons.create")}
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={closeModal}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={selectedPrompt ? handleUpdate : handleCreate}>
+                  {selectedPrompt ? i18n.t("aiModules.prompts.buttons.update") : i18n.t("aiModules.prompts.buttons.create")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

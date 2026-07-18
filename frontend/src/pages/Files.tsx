@@ -1,60 +1,49 @@
 import { useState, useEffect } from 'react'
-import api from '../services/api'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  IconButton,
-  Chip,
-  Sheet,
-  Table,
-  Input,
-  Select,
-  Option,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl as _FormControl,
-  FormLabel as _FormLabel,
-  Textarea as _Textarea,
-  Divider,
-  LinearProgress,
-  Tooltip,
-  Avatar as _Avatar,
-  AspectRatio,
-} from '@mui/joy'
-import {
-  Folder as FolderIcon,
-  Upload as UploadIcon,
-  Download as DownloadIcon,
-  Delete as DeleteIcon,
-  Share as ShareIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  InsertDriveFile as FileIcon,
+  Folder,
+  UploadSimple,
+  DownloadSimple,
+  Trash,
+  ShareNetwork,
+  MagnifyingGlass,
+  FunnelSimple,
+  File as FileGenericIcon,
   Image as ImageIcon,
-  PictureAsPdf as PdfIcon,
-  Description as DocIcon,
-  VideoLibrary as VideoIcon,
-  AudioFile as AudioIcon,
-  Archive as ZipIcon,
-  Code as CodeIcon,
-  Edit as _EditIcon,
-  Visibility as ViewIcon,
-  Star as StarIcon,
-  StarBorder as StarBorderIcon,
-  CloudUpload as CloudIcon,
-  SmartToy as AiIcon,
-  AutoFixHigh as AutoFixIcon,
-  Summarize as SummarizeIcon,
-  Translate as TranslateIcon,
-  TextFields as ExtractTextIcon,
-} from '@mui/icons-material'
+  FilePdf,
+  FileDoc,
+  VideoCamera,
+  FileAudio,
+  FileZip,
+  Code,
+  Eye,
+  Star,
+  CloudArrowUp,
+  Robot,
+  MagicWand,
+  Article,
+  Translate,
+  TextT,
+} from '@phosphor-icons/react'
+// [Rule 3] LinearProgress se conserva como MUI: no hay equivalente en el design system.
+import { LinearProgress } from '@mui/joy'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+import api from '../services/api'
 
 /**
  * Interface for File data structure
@@ -83,19 +72,11 @@ interface FileItem {
   aiContent?: string // AI-extracted text content
 }
 
+const columns = ['', 'Archivo', 'Tipo', 'Tamaño', 'Subido por', 'Fecha', 'Tags', 'IA', 'Acciones']
+
 /**
  * Files & Document Management Module with AI Processing
  * Complete file management system with AI-powered features
- *
- * Features:
- * - File upload with drag & drop support
- * - Advanced filtering and search
- * - AI-powered file processing (OCR, summarization, tagging)
- * - File preview and download
- * - Categories and tagging system
- * - Favorites and public sharing
- * - Storage statistics
- * - Responsive design
  */
 export default function Files() {
   const [files, setFiles] = useState<FileItem[]>([])
@@ -160,25 +141,25 @@ export default function Files() {
     return matchesSearch && matchesType && matchesCategory
   })
 
-  // Get file icon based on type
+  // Get file icon based on type (colores por token del design system)
   const getFileIcon = (file: FileItem) => {
     switch (file.type) {
       case 'image':
-        return <ImageIcon sx={{ color: 'success.main' }} />
+        return <ImageIcon className="size-5 text-success" weight="fill" aria-hidden />
       case 'pdf':
-        return <PdfIcon sx={{ color: 'danger.main' }} />
+        return <FilePdf className="size-5 text-destructive" weight="fill" aria-hidden />
       case 'document':
-        return <DocIcon sx={{ color: 'primary.main' }} />
+        return <FileDoc className="size-5 text-primary" weight="fill" aria-hidden />
       case 'video':
-        return <VideoIcon sx={{ color: 'warning.main' }} />
+        return <VideoCamera className="size-5 text-warning" weight="fill" aria-hidden />
       case 'audio':
-        return <AudioIcon sx={{ color: 'info.main' }} />
+        return <FileAudio className="size-5 text-brand-cyan" weight="fill" aria-hidden />
       case 'archive':
-        return <ZipIcon sx={{ color: 'neutral.main' }} />
+        return <FileZip className="size-5 text-muted-foreground" weight="fill" aria-hidden />
       case 'code':
-        return <CodeIcon sx={{ color: 'success.main' }} />
+        return <Code className="size-5 text-success" weight="fill" aria-hidden />
       default:
-        return <FileIcon />
+        return <FileGenericIcon className="size-5 text-muted-foreground" aria-hidden />
     }
   }
 
@@ -269,346 +250,347 @@ export default function Files() {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <FolderIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Archivos</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Gestión de archivos con procesamiento IA
-              </Typography>
-            </Box>
-          </Stack>
-          <Button
-            startDecorator={<UploadIcon />}
-            color="primary"
-            onClick={() => setOpenUploadModal(true)}
-          >
-            Subir Archivos
-          </Button>
-        </Stack>
+    <TooltipProvider delayDuration={300}>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Folder className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Archivos
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Gestión de archivos con procesamiento IA
+                </p>
+              </div>
+            </div>
+            <Button size="sm" onClick={() => setOpenUploadModal(true)}>
+              <UploadSimple className="size-4" weight="bold" aria-hidden />
+              Subir Archivos
+            </Button>
+          </div>
 
-        {loading && <LinearProgress />}
+          {loading && <LinearProgress />}
 
-        {/* Statistics */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Total Archivos
-                    </Typography>
-                    <Typography level="h2">{stats.totalFiles}</Typography>
-                    <Chip size="sm" color="neutral" variant="soft" sx={{ mt: 1 }}>
-                      {formatFileSize(stats.totalSize)}
-                    </Chip>
-                  </Box>
-                  <FolderIcon sx={{ fontSize: 48, color: 'primary.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+          {/* Statistics */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Archivos</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.totalFiles}
+                  </p>
+                  <Badge variant="neutral" className="mt-2">
+                    {formatFileSize(stats.totalSize)}
+                  </Badge>
+                </div>
+                <Folder className="size-11 shrink-0 text-primary/25" weight="fill" aria-hidden />
+              </div>
+            </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Procesados IA
-                    </Typography>
-                    <Typography level="h2">{stats.aiProcessed}</Typography>
-                    <Chip size="sm" color="success" variant="soft" sx={{ mt: 1 }}>
-                      {((stats.aiProcessed / stats.totalFiles) * 100).toFixed(0)}%
-                    </Chip>
-                  </Box>
-                  <AiIcon sx={{ fontSize: 48, color: 'success.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Procesados IA</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.aiProcessed}
+                  </p>
+                  <Badge variant="success" className="mt-2">
+                    {stats.totalFiles > 0
+                      ? ((stats.aiProcessed / stats.totalFiles) * 100).toFixed(0)
+                      : 0}
+                    %
+                  </Badge>
+                </div>
+                <Robot className="size-11 shrink-0 text-success/30" weight="fill" aria-hidden />
+              </div>
+            </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Favoritos
-                    </Typography>
-                    <Typography level="h2">{stats.favorites}</Typography>
-                    <Chip size="sm" color="warning" variant="soft" sx={{ mt: 1 }}>
-                      {stats.public} públicos
-                    </Chip>
-                  </Box>
-                  <StarIcon sx={{ fontSize: 48, color: 'warning.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Favoritos</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.favorites}
+                  </p>
+                  <Badge variant="warning" className="mt-2">
+                    {stats.public} públicos
+                  </Badge>
+                </div>
+                <Star className="size-11 shrink-0 text-warning/30" weight="fill" aria-hidden />
+              </div>
+            </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Por Tipo
-                    </Typography>
-                    <Typography level="h2">{stats.images}</Typography>
-                    <Chip size="sm" color="primary" variant="soft" sx={{ mt: 1 }}>
-                      {stats.pdfs} PDFs
-                    </Chip>
-                  </Box>
-                  <ImageIcon sx={{ fontSize: 48, color: 'primary.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Por Tipo</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.images}
+                  </p>
+                  <Badge variant="primary" className="mt-2">
+                    {stats.pdfs} PDFs
+                  </Badge>
+                </div>
+                <ImageIcon className="size-11 shrink-0 text-primary/25" weight="fill" aria-hidden />
+              </div>
+            </div>
+          </div>
 
-        {/* Filters */}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <Input
-                placeholder="Buscar archivos por nombre, tags, contenido..."
-                startDecorator={<SearchIcon />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ flexGrow: 1 }}
-              />
-              <Select
-                value={typeFilter}
-                onChange={(_, value) => setTypeFilter(value as string)}
-                startDecorator={<FilterIcon />}
-                sx={{ minWidth: 180 }}
-              >
-                <Option value="all">Todos los tipos</Option>
-                <Option value="image">Imágenes</Option>
-                <Option value="pdf">PDFs</Option>
-                <Option value="document">Documentos</Option>
-                <Option value="video">Videos</Option>
-                <Option value="code">Código</Option>
-                <Option value="archive">Archivos</Option>
+          {/* Filters */}
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col gap-3 md:flex-row">
+              <div className="relative flex-1">
+                <MagnifyingGlass
+                  className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <input
+                  placeholder="Buscar archivos por nombre, tags, contenido..."
+                  aria-label="Buscar archivos"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="h-10 md:w-48" aria-label="Filtrar por tipo">
+                  <span className="flex items-center gap-2">
+                    <FunnelSimple className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <SelectValue placeholder="Tipo" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  <SelectItem value="image">Imágenes</SelectItem>
+                  <SelectItem value="pdf">PDFs</SelectItem>
+                  <SelectItem value="document">Documentos</SelectItem>
+                  <SelectItem value="video">Videos</SelectItem>
+                  <SelectItem value="code">Código</SelectItem>
+                  <SelectItem value="archive">Archivos</SelectItem>
+                </SelectContent>
               </Select>
-              <Select
-                value={categoryFilter}
-                onChange={(_, value) => setCategoryFilter(value as string)}
-                sx={{ minWidth: 180 }}
-              >
-                <Option value="all">Todas las categorías</Option>
-                <Option value="presentations">Presentaciones</Option>
-                <Option value="contracts">Contratos</Option>
-                <Option value="branding">Branding</Option>
-                <Option value="videos">Videos</Option>
-                <Option value="databases">Bases de Datos</Option>
-                <Option value="invoices">Facturas</Option>
-                <Option value="projects">Proyectos</Option>
-                <Option value="scripts">Scripts</Option>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="h-10 md:w-48" aria-label="Filtrar por categoría">
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las categorías</SelectItem>
+                  <SelectItem value="presentations">Presentaciones</SelectItem>
+                  <SelectItem value="contracts">Contratos</SelectItem>
+                  <SelectItem value="branding">Branding</SelectItem>
+                  <SelectItem value="videos">Videos</SelectItem>
+                  <SelectItem value="databases">Bases de Datos</SelectItem>
+                  <SelectItem value="invoices">Facturas</SelectItem>
+                  <SelectItem value="projects">Proyectos</SelectItem>
+                  <SelectItem value="scripts">Scripts</SelectItem>
+                </SelectContent>
               </Select>
-            </Stack>
-          </CardContent>
-        </Card>
+            </div>
+          </div>
 
-        {/* Files Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
-              <thead>
-                <tr>
-                  <th style={{ width: 50 }}></th>
-                  <th style={{ width: 300 }}>Archivo</th>
-                  <th style={{ width: 100 }}>Tipo</th>
-                  <th style={{ width: 120 }}>Tamaño</th>
-                  <th style={{ width: 150 }}>Subido por</th>
-                  <th style={{ width: 150 }}>Fecha</th>
-                  <th style={{ width: 200 }}>Tags</th>
-                  <th style={{ width: 100 }}>IA</th>
-                  <th style={{ width: 250 }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFiles.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>
+          {/* Files Table */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c, i) => (
+                      <th
+                        key={i}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredFiles.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="px-4 py-10 text-center text-muted-foreground"
+                      >
                         {files.length === 0
                           ? 'No hay archivos subidos. Arrastra o selecciona archivos para comenzar.'
                           : 'No se encontraron archivos con los filtros aplicados.'}
-                      </Typography>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredFiles.map((file) => (
-                    <tr key={file.id}>
-                      <td>
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color={file.isFavorite ? 'warning' : 'neutral'}
-                          onClick={() => toggleFavorite(file.id)}
-                        >
-                          {file.isFavorite ? <StarIcon /> : <StarBorderIcon />}
-                        </IconButton>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
-                          {file.thumbnail ? (
-                            <AspectRatio ratio="1" sx={{ width: 40 }}>
-                              <img src={file.thumbnail} alt={file.name} />
-                            </AspectRatio>
-                          ) : (
-                            <Box sx={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {getFileIcon(file)}
-                            </Box>
-                          )}
-                          <Box>
-                            <Typography level="body-sm" fontWeight="bold">
-                              {file.name}
-                            </Typography>
-                            {file.aiSummary && (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                {file.aiSummary.substring(0, 60)}...
-                              </Typography>
-                            )}
-                          </Box>
-                        </Stack>
-                      </td>
-                      <td>
-                        <Chip size="sm" variant="soft">
-                          {file.extension.toUpperCase()}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{formatFileSize(file.size)}</Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{file.uploadedBy}</Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {new Date(file.uploadedAt).toLocaleDateString('es-ES')}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                          {file.tags.slice(0, 2).map((tag, idx) => (
-                            <Chip key={idx} size="sm" variant="outlined" color="neutral">
-                              {tag}
-                            </Chip>
-                          ))}
-                          {file.tags.length > 2 && (
-                            <Chip size="sm" variant="soft">
-                              +{file.tags.length - 2}
-                            </Chip>
-                          )}
-                        </Stack>
-                      </td>
-                      <td>
-                        {file.aiProcessed ? (
-                          <Chip size="sm" color="success" variant="soft" startDecorator={<AiIcon />}>
-                            IA
-                          </Chip>
-                        ) : (
-                          <Chip size="sm" color="neutral" variant="outlined">
-                            No
-                          </Chip>
-                        )}
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <Tooltip title="Ver">
-                            <IconButton size="sm" variant="plain" color="primary">
-                              <ViewIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Descargar">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="success"
-                              onClick={() => handleDownload(file)}
-                            >
-                              <DownloadIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Procesar con IA">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="warning"
-                              onClick={() => openAiProcessing(file)}
-                            >
-                              <AiIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Compartir">
-                            <IconButton size="sm" variant="plain" color="neutral">
-                              <ShareIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Eliminar">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="danger"
-                              onClick={() => handleDelete(file.id)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </Stack>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+                  ) : (
+                    filteredFiles.map((file) => (
+                      <tr key={file.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            aria-label={file.isFavorite ? 'Quitar de favoritos' : 'Marcar como favorito'}
+                            title={file.isFavorite ? 'Quitar de favoritos' : 'Marcar como favorito'}
+                            onClick={() => toggleFavorite(file.id)}
+                            className={cn(
+                              'flex size-8 items-center justify-center rounded-md transition-colors hover:bg-accent',
+                              file.isFavorite
+                                ? 'text-warning-text'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            <Star
+                              className="size-[18px]"
+                              weight={file.isFavorite ? 'fill' : 'regular'}
+                              aria-hidden
+                            />
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            {file.thumbnail ? (
+                              <img
+                                src={file.thumbnail}
+                                alt={file.name}
+                                width={40}
+                                height={40}
+                                className="size-10 shrink-0 rounded-md object-cover ring-1 ring-inset ring-border"
+                              />
+                            ) : (
+                              <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                                {getFileIcon(file)}
+                              </span>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-foreground">{file.name}</p>
+                              {file.aiSummary && (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {file.aiSummary.substring(0, 60)}...
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="neutral">{file.extension.toUpperCase()}</Badge>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                          {formatFileSize(file.size)}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{file.uploadedBy}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {new Date(file.uploadedAt).toLocaleDateString('es-ES')}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {file.tags.slice(0, 2).map((tag, idx) => (
+                              <Badge key={idx} variant="outline">
+                                {tag}
+                              </Badge>
+                            ))}
+                            {file.tags.length > 2 && (
+                              <Badge variant="neutral">+{file.tags.length - 2}</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {file.aiProcessed ? (
+                            <Badge variant="success">
+                              <Robot className="size-3.5" weight="fill" aria-hidden />
+                              IA
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">No</Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <Tooltip title="Ver">
+                              <button
+                                type="button"
+                                aria-label="Ver"
+                                className="flex size-8 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
+                              >
+                                <Eye className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Descargar">
+                              <button
+                                type="button"
+                                aria-label="Descargar"
+                                onClick={() => handleDownload(file)}
+                                className="flex size-8 items-center justify-center rounded-md text-success-text transition-colors hover:bg-success/10"
+                              >
+                                <DownloadSimple className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Procesar con IA">
+                              <button
+                                type="button"
+                                aria-label="Procesar con IA"
+                                onClick={() => openAiProcessing(file)}
+                                className="flex size-8 items-center justify-center rounded-md text-warning-text transition-colors hover:bg-warning/10"
+                              >
+                                <Robot className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Compartir">
+                              <button
+                                type="button"
+                                aria-label="Compartir"
+                                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                              >
+                                <ShareNetwork className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Eliminar">
+                              <button
+                                type="button"
+                                aria-label="Eliminar"
+                                onClick={() => handleDelete(file.id)}
+                                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                              >
+                                <Trash className="size-[18px]" aria-hidden />
+                              </button>
+                            </Tooltip>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
         {/* Upload Modal */}
-        <Modal open={openUploadModal} onClose={() => setOpenUploadModal(false)}>
-          <ModalDialog sx={{ minWidth: 500 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Subir Archivos
-            </Typography>
-            <Stack spacing={3}>
-              <Box
+        <Dialog open={openUploadModal} onOpenChange={setOpenUploadModal}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Subir Archivos</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
-                sx={{
-                  border: '2px dashed',
-                  borderColor: dragActive ? 'primary.main' : 'neutral.outlinedBorder',
-                  borderRadius: 'md',
-                  p: 4,
-                  textAlign: 'center',
-                  bgcolor: dragActive ? 'primary.softBg' : 'background.surface',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
+                className={cn(
+                  'flex flex-col items-center rounded-lg border-2 border-dashed p-8 text-center transition-colors',
+                  dragActive
+                    ? 'border-primary bg-primary/5'
+                    : 'border-input bg-background',
+                )}
               >
-                <CloudIcon sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
-                <Typography level="title-md" sx={{ mb: 1 }}>
+                <CloudArrowUp className="mb-3 size-14 text-primary" weight="fill" aria-hidden />
+                <p className="text-base font-medium text-foreground">
                   Arrastra archivos aquí
-                </Typography>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
+                </p>
+                <p className="mb-4 text-sm text-muted-foreground">
                   o haz clic para seleccionar archivos
-                </Typography>
-                <Button
-                  component="label"
-                  startDecorator={<UploadIcon />}
-                  variant="soft"
-                >
+                </p>
+                <label className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+                  <UploadSimple className="size-4" weight="bold" aria-hidden />
                   Seleccionar Archivos
                   <input
                     type="file"
@@ -616,78 +598,76 @@ export default function Files() {
                     hidden
                     onChange={(e) => handleUpload(e.target.files)}
                   />
-                </Button>
-              </Box>
+                </label>
+              </div>
               {uploadProgress > 0 && uploadProgress < 100 && (
-                <Box>
-                  <Typography level="body-sm" sx={{ mb: 1 }}>
+                <div>
+                  <p className="mb-1.5 text-sm text-muted-foreground">
                     Subiendo archivos... {uploadProgress}%
-                  </Typography>
+                  </p>
+                  {/* [Rule 3] LinearProgress conservado como MUI */}
                   <LinearProgress determinate value={uploadProgress} />
-                </Box>
+                </div>
               )}
-            </Stack>
-          </ModalDialog>
-        </Modal>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* AI Processing Modal */}
-        <Modal open={openAiModal} onClose={() => setOpenAiModal(false)}>
-          <ModalDialog sx={{ minWidth: 500 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Procesamiento IA
-            </Typography>
+        <Dialog open={openAiModal} onOpenChange={setOpenAiModal}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Procesamiento IA</DialogTitle>
+            </DialogHeader>
             {selectedFile && (
-              <Stack spacing={2}>
-                <Box>
-                  <Typography level="body-sm" fontWeight="bold">
-                    Archivo seleccionado:
-                  </Typography>
-                  <Typography level="body-sm">{selectedFile.name}</Typography>
-                </Box>
-                <Divider />
-                <Typography level="body-sm">
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Archivo seleccionado:</p>
+                  <p className="text-sm text-muted-foreground">{selectedFile.name}</p>
+                </div>
+                <div className="border-t border-border" />
+                <p className="text-sm text-muted-foreground">
                   Selecciona una acción de procesamiento IA:
-                </Typography>
-                <Stack spacing={1}>
+                </p>
+                <div className="flex flex-col gap-2">
                   <Button
-                    startDecorator={<SummarizeIcon />}
-                    variant="soft"
-                    color="primary"
+                    variant="outline"
+                    className="justify-start"
                     onClick={() => handleAiProcess('summarize')}
                   >
+                    <Article className="size-5 text-primary" aria-hidden />
                     Generar Resumen Automático
                   </Button>
                   <Button
-                    startDecorator={<AutoFixIcon />}
-                    variant="soft"
-                    color="success"
+                    variant="outline"
+                    className="justify-start"
                     onClick={() => handleAiProcess('tags')}
                   >
+                    <MagicWand className="size-5 text-success" aria-hidden />
                     Generar Tags Inteligentes
                   </Button>
                   <Button
-                    startDecorator={<ExtractTextIcon />}
-                    variant="soft"
-                    color="warning"
+                    variant="outline"
+                    className="justify-start"
                     onClick={() => handleAiProcess('extract')}
                   >
+                    <TextT className="size-5 text-warning" aria-hidden />
                     Extraer Texto (OCR)
                   </Button>
                   <Button
-                    startDecorator={<TranslateIcon />}
-                    variant="soft"
-                    color="neutral"
+                    variant="outline"
+                    className="justify-start"
                     onClick={() => handleAiProcess('translate')}
                   >
+                    <Translate className="size-5 text-muted-foreground" aria-hidden />
                     Traducir Contenido
                   </Button>
-                </Stack>
-              </Stack>
+                </div>
+              </div>
             )}
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   )
 }

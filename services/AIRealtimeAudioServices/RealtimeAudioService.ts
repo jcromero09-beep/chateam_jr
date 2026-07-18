@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from "../../utils/logger";
 import { getApiKeyWithFallback } from "../AIProviderService";
 import DeductCreditsService from "../AICreditServices/DeductCreditsService";
@@ -58,36 +62,38 @@ const processAudioMessage = async (
 
   logger.info(`[RealtimeAudio] Procesando audio: ${audioBuffer.length} bytes, empresa=${companyId}`);
 
+  const durationMs = estimateAudioDuration(audioBuffer.length, config.inputAudioFormat);
+  const durationMinutes = Math.max(durationMs / 60000, 0.1); // Minimo 0.1 minutos
+
+  // Cobrar STT antes de llamar al proveedor. Si no se puede cobrar, no se
+  // consume Whisper.
+  try {
+    const cost = await CalculateCreditCostService({
+      companyId,
+      action: 'audio_minute',
+      metadata: { duration: Math.ceil(durationMinutes) }
+    });
+
+    await DeductCreditsService({
+      companyId,
+      creditTypeKey: cost.creditTypeKey,
+      amount: Math.ceil(cost.amount * durationMinutes),
+      description: `Transcripción de audio (${Math.ceil(durationMinutes)} min)`,
+      source: 'audio_transcription',
+      tokensUsed: Math.ceil(durationMinutes * 60)
+    });
+
+    logger.info(`[RealtimeAudio] Deducidos ${Math.ceil(cost.amount * durationMinutes)} créditos por transcripción`);
+  } catch (creditError: any) {
+    logger.warn(`[RealtimeAudio] Error deduciendo créditos STT: ${creditError.message}`);
+    throw creditError;
+  }
+
   // 1. Transcribe audio with Whisper
   let transcription: string;
   try {
     transcription = await transcribeAudio(audioBuffer, companyId);
     logger.info(`[RealtimeAudio] Transcripcion: "${transcription.substring(0, 100)}..."`);
-
-    // Deducir créditos por transcripción de audio
-    try {
-      const durationMs = estimateAudioDuration(audioBuffer.length, config.inputAudioFormat);
-      const durationMinutes = Math.max(durationMs / 60000, 0.1); // Mínimo 0.1 minutos
-
-      const cost = await CalculateCreditCostService({
-        companyId,
-        action: 'audio_minute',
-        metadata: { duration: Math.ceil(durationMinutes) }
-      });
-
-      await DeductCreditsService({
-        companyId,
-        creditTypeKey: cost.creditTypeKey,
-        amount: Math.ceil(cost.amount * durationMinutes),
-        description: `Transcripción de audio (${Math.ceil(durationMinutes)} min)`,
-        source: 'audio_transcription',
-        tokensUsed: Math.ceil(durationMinutes * 60) // Aproximación de tokens
-      });
-
-      logger.info(`[RealtimeAudio] Deducidos ${Math.ceil(cost.amount * durationMinutes)} créditos por transcripción`);
-    } catch (creditError: any) {
-      logger.warn(`[RealtimeAudio] Error deduciendo créditos: ${creditError.message}`);
-    }
   } catch (error: any) {
     logger.error(`[RealtimeAudio] Error en transcripcion: ${error.message}`);
     return {
@@ -191,6 +197,21 @@ async function generateSpeech(
   voice: RealtimeAudioConfig['voice'],
   companyId: number
 ): Promise<string> {
+  const cost = await CalculateCreditCostService({
+    companyId,
+    action: 'tts_character',
+    metadata: { charCount: text.length }
+  });
+
+  await DeductCreditsService({
+    companyId,
+    creditTypeKey: cost.creditTypeKey,
+    amount: cost.amount,
+    description: `TTS OpenAI realtime (${text.length} caracteres)`,
+    source: 'audio_tts',
+    tokensUsed: text.length
+  });
+
   const apiKey = await getApiKeyWithFallback('openai', 'OPENAI_API_KEY', companyId);
 
   const axios = require('axios');

@@ -3,6 +3,7 @@ import AppointmentAvailability from '../../models/Appointments/AppointmentAvaila
 import Appointment from '../../models/Appointments/Appointment';
 import AppointmentBlock from '../../models/Appointments/AppointmentBlock';
 import AppointmentService from '../../models/AppointmentService';
+import User from '../../models/User';
 import logger, { logError, logInfo, logWarn, logDebug } from '../../utils/logger';
 
 interface TimeSlot {
@@ -23,6 +24,7 @@ interface AvailabilityRequest {
 interface SetAvailabilityRequest {
   companyId: number;
   userId: number;
+  serviceId?: number;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
@@ -41,6 +43,98 @@ interface BulkAvailabilityDay {
 }
 
 class AvailabilityService {
+  private parseCalendarDate(value: string): Date {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split('-').map(Number);
+      return new Date(year, month - 1, day, 0, 0, 0, 0);
+    }
+
+    return new Date(value);
+  }
+
+  private buildAvailabilityWhere(companyId: number, userId?: number, dayOfWeek?: number): any {
+    const where: any = {
+      companyId,
+      isAvailable: true
+    };
+
+    if (userId) {
+      where.userId = userId;
+    }
+
+    if (typeof dayOfWeek === 'number') {
+      where.dayOfWeek = dayOfWeek;
+    }
+
+    return where;
+  }
+
+  private sortAvailabilities(availabilities: AppointmentAvailability[]): AppointmentAvailability[] {
+    return [...availabilities].sort((left, right) => {
+      if (left.dayOfWeek !== right.dayOfWeek) {
+        return left.dayOfWeek - right.dayOfWeek;
+      }
+
+      return left.startTime.localeCompare(right.startTime);
+    });
+  }
+
+  private mergeSpecificWithGeneric(
+    specificAvailabilities: AppointmentAvailability[],
+    genericAvailabilities: AppointmentAvailability[]
+  ): AppointmentAvailability[] {
+    if (specificAvailabilities.length === 0) {
+      return this.sortAvailabilities(genericAvailabilities);
+    }
+
+    return this.sortAvailabilities(specificAvailabilities);
+  }
+
+  private async loadAvailabilities(
+    companyId: number,
+    options: {
+      userId?: number;
+      dayOfWeek?: number;
+      serviceId?: number;
+      include?: any[];
+    } = {}
+  ): Promise<AppointmentAvailability[]> {
+    const { userId, dayOfWeek, serviceId, include } = options;
+    const baseWhere = this.buildAvailabilityWhere(companyId, userId, dayOfWeek);
+    const order: any[] = [['dayOfWeek', 'ASC'], ['startTime', 'ASC']];
+
+    if (!serviceId) {
+      return AppointmentAvailability.findAll({
+        where: baseWhere,
+        include,
+        order
+      });
+    }
+
+    const [specificAvailabilities, genericAvailabilities] = await Promise.all([
+      AppointmentAvailability.findAll({
+        where: {
+          ...baseWhere,
+          serviceId
+        },
+        include,
+        order
+      }),
+      AppointmentAvailability.findAll({
+        where: {
+          ...baseWhere,
+          serviceId: {
+            [Op.is]: null
+          }
+        },
+        include,
+        order
+      })
+    ]);
+
+    return this.mergeSpecificWithGeneric(specificAvailabilities, genericAvailabilities);
+  }
+
   /**
    * Get available time slots for a service within a date range
    */
@@ -57,14 +151,9 @@ class AvailabilityService {
       const slotDuration = service.duration; // in minutes
       const bufferTime = service.bufferTime || 0;
 
-      // Get user availability
-      const availabilityWhere: any = { companyId, isAvailable: true };
-      if (userId) {
-        availabilityWhere.userId = userId;
-      }
-
-      const availabilities = await AppointmentAvailability.findAll({
-        where: availabilityWhere
+      const availabilities = await this.loadAvailabilities(companyId, {
+        userId,
+        serviceId
       });
 
       // Get existing appointments in the date range
@@ -131,13 +220,29 @@ class AvailabilityService {
 
             if (slotEnd <= dayEnd) {
               // Check if slot is available (not blocked, not already booked)
-              const isBlocked = blocks.some(block =>
-                slotStart < block.endTime && slotEnd > block.startTime
-              );
+              const isBlocked = blocks.some(block => {
+                const isSameUserScope = availability.userId
+                  ? block.userId === availability.userId
+                  : !userId || block.userId === userId;
 
-              const isBooked = existingAppointments.some(apt =>
-                slotStart < apt.endTime && slotEnd > apt.startTime
-              );
+                if (!isSameUserScope) {
+                  return false;
+                }
+
+                return slotStart < block.endTime && slotEnd > block.startTime;
+              });
+
+              const isBooked = existingAppointments.some(apt => {
+                const isSameUserScope = availability.userId
+                  ? apt.userId === availability.userId
+                  : !userId || apt.userId === userId;
+
+                if (!isSameUserScope) {
+                  return false;
+                }
+
+                return slotStart < apt.endTime && slotEnd > apt.startTime;
+              });
 
               // Check if slot is in the past (for today's date)
               const now = new Date();
@@ -176,6 +281,7 @@ class AvailabilityService {
       const {
         companyId,
         userId,
+        serviceId,
         dayOfWeek,
         startTime,
         endTime,
@@ -183,22 +289,33 @@ class AvailabilityService {
         timezone = 'UTC'
       } = request;
 
+      const where: any = {
+        companyId,
+        userId,
+        dayOfWeek,
+        serviceId: serviceId || {
+          [Op.is]: null
+        }
+      };
+
+      const defaults: any = {
+        companyId,
+        userId,
+        dayOfWeek,
+        startTime,
+        endTime,
+        isAvailable,
+        timezone
+      };
+
+      if (serviceId) {
+        defaults.serviceId = serviceId;
+      }
+
       // Find or create availability for this day
       const [availability, created] = await AppointmentAvailability.findOrCreate({
-        where: {
-          companyId,
-          userId,
-          dayOfWeek
-        },
-        defaults: {
-          companyId,
-          userId,
-          dayOfWeek,
-          startTime,
-          endTime,
-          isAvailable,
-          timezone
-        }
+        where,
+        defaults
       });
 
       if (!created) {
@@ -212,6 +329,7 @@ class AvailabilityService {
 
       logInfo('User availability updated', {
         userId,
+        serviceId,
         dayOfWeek,
         startTime,
         endTime
@@ -227,16 +345,20 @@ class AvailabilityService {
   /**
    * Get user availability for all days
    */
-  async getUserAvailability(userId: number, companyId: number): Promise<AppointmentAvailability[]> {
+  async getUserAvailability(
+    userId: number,
+    companyId: number,
+    serviceId?: number
+  ): Promise<AppointmentAvailability[]> {
     try {
-      const availabilities = await AppointmentAvailability.findAll({
-        where: { userId, companyId },
-        order: [['dayOfWeek', 'ASC']]
+      const availabilities = await this.loadAvailabilities(companyId, {
+        userId,
+        serviceId
       });
 
       return availabilities;
     } catch (error) {
-      logError('Error getting user availability', { error, userId, companyId });
+      logError('Error getting user availability', { error, userId, companyId, serviceId });
       throw error;
     }
   }
@@ -336,17 +458,33 @@ class AvailabilityService {
   async saveAvailabilityBulk(data: {
     companyId: number;
     userId: number;
+    serviceId?: number;
     schedule: BulkAvailabilityDay[];
     timezone?: string;
   }): Promise<{ saved: number; deleted: number }> {
     try {
-      const { companyId, userId, schedule, timezone = 'UTC' } = data;
+      const { companyId, userId, serviceId, schedule, timezone = 'UTC' } = data;
 
-      logInfo('saveAvailabilityBulk called', { companyId, userId, scheduleLength: schedule?.length, timezone });
+      logInfo('saveAvailabilityBulk called', {
+        companyId,
+        userId,
+        serviceId,
+        scheduleLength: schedule?.length,
+        timezone
+      });
 
-      // Delete all existing availability for this user
+      const availabilityWhere: any = { companyId, userId };
+      if (serviceId) {
+        availabilityWhere.serviceId = serviceId;
+      } else {
+        availabilityWhere.serviceId = {
+          [Op.is]: null
+        };
+      }
+
+      // Delete all existing availability for this user and service scope
       const deleted = await AppointmentAvailability.destroy({
-        where: { companyId, userId }
+        where: availabilityWhere
       });
       logInfo('Deleted existing availability', { deleted });
 
@@ -361,7 +499,7 @@ class AvailabilityService {
             if (slot.enabled) {
               logInfo('Creating availability slot', { dayOfWeek: day.dayOfWeek, start: slot.start, end: slot.end });
 
-              await AppointmentAvailability.create({
+              const availabilityPayload: any = {
                 companyId,
                 userId,
                 dayOfWeek: day.dayOfWeek,
@@ -369,7 +507,13 @@ class AvailabilityService {
                 endTime: slot.end,
                 isAvailable: true,
                 timezone
-              });
+              };
+
+              if (serviceId) {
+                availabilityPayload.serviceId = serviceId;
+              }
+
+              await AppointmentAvailability.create(availabilityPayload);
               saved++;
             }
           }
@@ -379,6 +523,7 @@ class AvailabilityService {
       logInfo('Availability saved in bulk', {
         userId,
         companyId,
+        serviceId,
         deleted,
         saved
       });
@@ -447,37 +592,26 @@ class AvailabilityService {
     userName?: string;
   }>> {
     try {
-      const targetDate = new Date(date);
+      const targetDate = this.parseCalendarDate(date);
       const dayOfWeek = targetDate.getDay();
 
-      // Build where clause
-      const where: any = {
-        companyId,
+      const availabilities = await this.loadAvailabilities(companyId, {
+        userId,
         dayOfWeek,
-        isAvailable: true
-      };
-
-      if (userId) {
-        where.userId = userId;
-      }
-
-      // Get availability blocks for this day of week
-      const availabilities = await AppointmentAvailability.findAll({
-        where,
+        serviceId,
         include: [
           {
-            model: require('../../models/User').default,
+            model: User,
             as: 'user',
             attributes: ['id', 'name']
           }
         ],
-        order: [['startTime', 'ASC']]
       });
 
       // Check for existing appointments on this specific date
-      const startOfDay = new Date(date);
+      const startOfDay = this.parseCalendarDate(date);
       startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
+      const endOfDay = this.parseCalendarDate(date);
       endOfDay.setHours(23, 59, 59, 999);
 
       const appointmentWhere: any = {
@@ -487,10 +621,6 @@ class AvailabilityService {
         // 🆕 Bug B1 fix: solo citas activas ocupan slot
         status: { [Op.in]: ['scheduled', 'confirmed'] }
       };
-
-      if (serviceId) {
-        appointmentWhere.serviceId = serviceId;
-      }
 
       const existingAppointments = await Appointment.findAll({
         where: appointmentWhere
@@ -502,32 +632,41 @@ class AvailabilityService {
 
       // Map availability blocks with booking status
       const blocks = availabilities.map(avail => {
-        // Check if this time slot is already booked
-        const bookedAppointment = existingAppointments.find(apt => {
-          const aptStartTime = new Date(apt.startTime);
-          const aptHours = aptStartTime.getHours().toString().padStart(2, '0');
-          const aptMinutes = aptStartTime.getMinutes().toString().padStart(2, '0');
-          const aptTimeStr = `${aptHours}:${aptMinutes}`;
+        const blockStart = new Date(targetDate);
+        const [startHour, startMin] = avail.startTime.split(':').map(Number);
+        blockStart.setHours(startHour, startMin, 0, 0);
 
-          // Check if appointment overlaps with this availability block
-          return aptTimeStr >= avail.startTime && aptTimeStr < avail.endTime;
+        const blockEnd = new Date(targetDate);
+        const [endHour, endMin] = avail.endTime.split(':').map(Number);
+        blockEnd.setHours(endHour, endMin, 0, 0);
+
+        const bookedAppointment = existingAppointments.find(apt => {
+          const isSameUserScope = avail.userId
+            ? apt.userId === avail.userId
+            : !userId || apt.userId === userId;
+          const isSameServiceScope = avail.serviceId
+            ? apt.serviceId === avail.serviceId
+            : !serviceId || apt.serviceId === serviceId;
+
+          if (!isSameUserScope || !isSameServiceScope) {
+            return false;
+          }
+
+          return new Date(apt.startTime) < blockEnd && new Date(apt.endTime) > blockStart;
         });
 
         // Check if this slot is in the past (only for today)
         let isPast = false;
         if (isToday) {
-          const [startHour, startMin] = avail.startTime.split(':').map(Number);
-          const slotDateTime = new Date(targetDate);
-          slotDateTime.setHours(startHour, startMin, 0, 0);
-          isPast = slotDateTime < now;
+          isPast = blockStart < now;
         }
 
         return {
           id: avail.id,
           startTime: avail.startTime,
           endTime: avail.endTime,
-          isBooked: avail.isBooked || !!bookedAppointment || isPast,
-          bookedByAppointmentId: avail.bookedByAppointmentId || bookedAppointment?.id,
+          isBooked: !!bookedAppointment || isPast,
+          bookedByAppointmentId: bookedAppointment?.id,
           userId: avail.userId,
           userName: (avail as any).user?.name,
           isPast // Include flag so frontend can show different styling if needed
@@ -550,17 +689,13 @@ class AvailabilityService {
     companyId: number
   ): Promise<boolean> {
     try {
-      const result = await AppointmentAvailability.update(
-        {
-          isBooked: true,
-          bookedByAppointmentId: appointmentId
-        },
-        {
-          where: { id: blockId, companyId }
-        }
-      );
+      logDebug('Skipping persistent block booking update', {
+        blockId,
+        appointmentId,
+        companyId
+      });
 
-      return result[0] > 0;
+      return true;
     } catch (error) {
       logError('Error marking block as booked', { error, blockId, appointmentId });
       throw error;
@@ -572,17 +707,12 @@ class AvailabilityService {
    */
   async releaseBlock(appointmentId: number, companyId: number): Promise<boolean> {
     try {
-      const result = await AppointmentAvailability.update(
-        {
-          isBooked: false,
-          bookedByAppointmentId: null
-        },
-        {
-          where: { bookedByAppointmentId: appointmentId, companyId }
-        }
-      );
+      logDebug('Skipping persistent block release update', {
+        appointmentId,
+        companyId
+      });
 
-      return result[0] > 0;
+      return true;
     } catch (error) {
       logError('Error releasing block', { error, appointmentId });
       throw error;

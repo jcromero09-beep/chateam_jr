@@ -12,7 +12,7 @@
  * @author JR Chateam Development Team
  */
 
-import { WASocket } from "@whiskeysockets/baileys";
+import { WASocket } from "baileys";
 import {
   DualWhatsAppAdapter,
   DualAdapterFactory,

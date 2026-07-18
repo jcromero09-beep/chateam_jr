@@ -1,39 +1,33 @@
 import { useState } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  Select,
-  Option,
-  Chip,
-  Sheet,
-  Table,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Avatar,
-  Divider,
-  IconButton,
-} from '@mui/joy'
+  ClockCounterClockwise,
+  MagnifyingGlass,
+  FunnelSimple,
+  DownloadSimple,
+  Eye,
+  Trash,
+  CheckCircle,
+  Clock,
+  ChatCircle,
+  Star,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Avatar } from '@/components/ui/avatar'
 import {
-  History as HistoryIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  Download as DownloadIcon,
-  Visibility as ViewIcon,
-  Delete as DeleteIcon,
-  CheckCircle as ResolvedIcon,
-  Schedule as PendingIcon,
-  Chat as ChatIcon,
-  Star as StarIcon,
-  StarBorder as StarBorderIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface HistoricalConversation {
   id: number
@@ -55,6 +49,18 @@ interface HistoricalConversation {
     timestamp: string
   }>
 }
+
+const columns = [
+  'Contacto',
+  'Agente',
+  'Fecha/Hora Inicio',
+  'Duración',
+  'Mensajes',
+  'Estado',
+  'Satisfacción',
+  'Etiquetas',
+  '',
+]
 
 export default function WebChatHistory() {
   const [conversations, setConversations] = useState<HistoricalConversation[]>([
@@ -149,12 +155,12 @@ export default function WebChatHistory() {
   const [filterAgent, setFilterAgent] = useState('all')
   const [dateRange, setDateRange] = useState('7d')
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'resolved':
         return 'success'
       case 'abandoned':
-        return 'danger'
+        return 'destructive'
       case 'transferred':
         return 'warning'
       default:
@@ -178,13 +184,13 @@ export default function WebChatHistory() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'resolved':
-        return <ResolvedIcon />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'abandoned':
-        return <PendingIcon />
+        return <Clock className="size-3.5" weight="fill" aria-hidden />
       case 'transferred':
-        return <ChatIcon />
+        return <ChatCircle className="size-3.5" weight="fill" aria-hidden />
       default:
-        return <ChatIcon />
+        return <ChatCircle className="size-3.5" weight="fill" aria-hidden />
     }
   }
 
@@ -216,17 +222,40 @@ export default function WebChatHistory() {
   }
 
   const renderSatisfactionStars = (rating?: number) => {
-    if (!rating) return <Typography level="body-xs">Sin calificación</Typography>
+    if (!rating) return <span className="text-xs text-muted-foreground">Sin calificación</span>
     return (
-      <Stack direction="row" spacing={0.5}>
+      <span className="flex items-center gap-0.5" aria-label={`Satisfacción: ${rating} de 5`}>
         {[1, 2, 3, 4, 5].map((star) => (
-          <Box key={star} sx={{ color: star <= rating ? 'warning.main' : 'neutral.outlinedBorder' }}>
-            {star <= rating ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
-          </Box>
+          <Star
+            key={star}
+            className={
+              star <= rating ? 'size-4 text-warning-text' : 'size-4 text-muted-foreground/40'
+            }
+            weight={star <= rating ? 'fill' : 'regular'}
+            aria-hidden
+          />
         ))}
-      </Stack>
+      </span>
     )
   }
+
+  const renderContactAvatar = (
+    conversation: HistoricalConversation,
+    size: 'sm' | 'lg',
+    px: number
+  ) =>
+    conversation.contactAvatar ? (
+      <img
+        src={conversation.contactAvatar}
+        alt=""
+        width={px}
+        height={px}
+        className="shrink-0 rounded-full object-cover"
+        style={{ width: px, height: px }}
+      />
+    ) : (
+      <Avatar name={conversation.contactName} size={size} />
+    )
 
   const stats = {
     total: conversations.length,
@@ -253,426 +282,348 @@ export default function WebChatHistory() {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <HistoryIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Historial de Conversaciones</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ClockCounterClockwise className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Historial de Conversaciones
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Búsqueda y revisión de conversaciones pasadas
-              </Typography>
-            </Box>
-          </Stack>
-          <Button
-            variant="outlined"
-            color="neutral"
-            startDecorator={<DownloadIcon />}
-            onClick={handleExport}
-          >
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <DownloadSimple className="size-4" aria-hidden />
             Exportar
           </Button>
-        </Stack>
+        </div>
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Total Conversaciones
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Resueltas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.resolved}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Duración Promedio
-                </Typography>
-                <Typography level="h2">{stats.avgDuration.toFixed(1)}min</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={6} sm={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Satisfacción Promedio
-                </Typography>
-                <Typography level="h2">{stats.avgSatisfaction.toFixed(1)}/5</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Conversaciones" value={String(stats.total)} />
+          <StatTile label="Resueltas" value={String(stats.resolved)} tone="success" />
+          <StatTile label="Duración Promedio" value={`${stats.avgDuration.toFixed(1)}min`} />
+          <StatTile label="Satisfacción Promedio" value={`${stats.avgSatisfaction.toFixed(1)}/5`} />
+        </div>
 
         {/* Filters */}
-        <Card>
-          <CardContent>
-            <Grid container spacing={2}>
-              <Grid xs={12} sm={6} md={3}>
-                <Input
-                  placeholder="Buscar..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  startDecorator={<SearchIcon />}
-                  size="sm"
-                />
-              </Grid>
-              <Grid xs={12} sm={6} md={2}>
-                <Select
-                  value={filterStatus}
-                  onChange={(_, value) => setFilterStatus(value as string)}
-                  size="sm"
-                  startDecorator={<FilterIcon />}
-                >
-                  <Option value="all">Todos los estados</Option>
-                  <Option value="resolved">Resueltas</Option>
-                  <Option value="abandoned">Abandonadas</Option>
-                  <Option value="transferred">Transferidas</Option>
-                </Select>
-              </Grid>
-              <Grid xs={12} sm={6} md={2}>
-                <Select
-                  value={filterAgent}
-                  onChange={(_, value) => setFilterAgent(value as string)}
-                  size="sm"
-                >
-                  <Option value="all">Todos los agentes</Option>
-                  {agents.map((agent) => (
-                    <Option key={agent} value={agent}>
-                      {agent}
-                    </Option>
-                  ))}
-                </Select>
-              </Grid>
-              <Grid xs={12} sm={6} md={2}>
-                <Select
-                  value={dateRange}
-                  onChange={(_, value) => setDateRange(value as string)}
-                  size="sm"
-                >
-                  <Option value="7d">Últimos 7 días</Option>
-                  <Option value="30d">Últimos 30 días</Option>
-                  <Option value="90d">Últimos 90 días</Option>
-                  <Option value="all">Todo el tiempo</Option>
-                </Select>
-              </Grid>
-              <Grid xs={12} sm={6} md={3}>
-                <Stack direction="row" spacing={1}>
-                  <Button fullWidth variant="outlined" size="sm">
-                    Limpiar Filtros
-                  </Button>
-                  <Button fullWidth variant="solid" size="sm">
-                    Aplicar
-                  </Button>
-                </Stack>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="relative">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                placeholder="Buscar..."
+                aria-label="Buscar conversaciones"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
+
+            <Select value={filterStatus} onValueChange={(value) => setFilterStatus(value)}>
+              <SelectTrigger aria-label="Filtrar por estado">
+                <span className="flex min-w-0 items-center gap-2">
+                  <FunnelSimple className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <SelectValue />
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                <SelectItem value="resolved">Resueltas</SelectItem>
+                <SelectItem value="abandoned">Abandonadas</SelectItem>
+                <SelectItem value="transferred">Transferidas</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={filterAgent} onValueChange={(value) => setFilterAgent(value)}>
+              <SelectTrigger aria-label="Filtrar por agente">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los agentes</SelectItem>
+                {agents.map((agent) => (
+                  <SelectItem key={agent} value={agent}>
+                    {agent}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={dateRange} onValueChange={(value) => setDateRange(value)}>
+              <SelectTrigger aria-label="Filtrar por rango de fechas">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d">Últimos 7 días</SelectItem>
+                <SelectItem value="30d">Últimos 30 días</SelectItem>
+                <SelectItem value="90d">Últimos 90 días</SelectItem>
+                <SelectItem value="all">Todo el tiempo</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-4 xl:col-span-1">
+              <Button variant="outline" size="sm" className="h-9 flex-1">
+                Limpiar Filtros
+              </Button>
+              <Button size="sm" className="h-9 flex-1">
+                Aplicar
+              </Button>
+            </div>
+          </div>
+        </div>
 
         {/* Conversations Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 200 }}>Contacto</th>
-                  <th style={{ width: 150 }}>Agente</th>
-                  <th style={{ width: 150 }}>Fecha/Hora Inicio</th>
-                  <th style={{ width: 100 }}>Duración</th>
-                  <th style={{ width: 80 }}>Mensajes</th>
-                  <th style={{ width: 120 }}>Estado</th>
-                  <th style={{ width: 150 }}>Satisfacción</th>
-                  <th style={{ width: 200 }}>Etiquetas</th>
-                  <th style={{ width: 150 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {filteredConversations.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No hay conversaciones que coincidan con los filtros</Typography>
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                      No hay conversaciones que coincidan con los filtros
                     </td>
                   </tr>
                 ) : (
                   filteredConversations.map((conversation) => (
-                    <tr key={conversation.id}>
-                      <td>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Avatar size="sm" src={conversation.contactAvatar}>
-                            {conversation.contactName.charAt(0)}
-                          </Avatar>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="bold">
+                    <tr key={conversation.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {renderContactAvatar(conversation, 'sm', 32)}
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-foreground">
                               {conversation.contactName}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
                               {conversation.contactEmail}
-                            </Typography>
-                          </Box>
-                        </Stack>
+                            </p>
+                          </div>
+                        </div>
                       </td>
-                      <td>
-                        <Typography level="body-sm">{conversation.agent}</Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {conversation.agent}
                       </td>
-                      <td>
-                        <Typography level="body-sm">
-                          {formatDateTime(conversation.startTime)}
-                        </Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {formatDateTime(conversation.startTime)}
                       </td>
-                      <td>
-                        <Typography level="body-sm">{conversation.duration} min</Typography>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                        {conversation.duration} min
                       </td>
-                      <td>
-                        <Typography level="body-sm">{conversation.messagesCount}</Typography>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {conversation.messagesCount}
                       </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={getStatusColor(conversation.status)}
-                          startDecorator={getStatusIcon(conversation.status)}
-                        >
+                      <td className="px-4 py-3">
+                        <Badge variant={getStatusVariant(conversation.status)}>
+                          {getStatusIcon(conversation.status)}
                           {getStatusLabel(conversation.status)}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>{renderSatisfactionStars(conversation.satisfaction)}</td>
-                      <td>
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                      <td className="px-4 py-3">{renderSatisfactionStars(conversation.satisfaction)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-1">
                           {conversation.tags.slice(0, 2).map((tag) => (
-                            <Chip key={tag} size="sm" variant="outlined">
+                            <Badge key={tag} variant="outline">
                               {tag}
-                            </Chip>
+                            </Badge>
                           ))}
                           {conversation.tags.length > 2 && (
-                            <Chip size="sm" variant="outlined">
-                              +{conversation.tags.length - 2}
-                            </Chip>
+                            <Badge variant="outline">+{conversation.tags.length - 2}</Badge>
                           )}
-                        </Stack>
+                        </div>
                       </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Ver conversación de ${conversation.contactName}`}
+                            title="Ver"
+                            className="size-8 text-primary hover:bg-primary/10 hover:text-primary"
                             onClick={() => setSelectedConversation(conversation)}
                           >
-                            <ViewIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                            <Eye className="size-[18px]" aria-hidden />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Eliminar conversación de ${conversation.contactName}`}
+                            title="Eliminar"
+                            className="size-8 hover:bg-destructive/10 hover:text-destructive-text"
                             onClick={() => handleDelete(conversation.id)}
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Stack>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Ver Conversación */}
-        <Modal
-          open={selectedConversation !== null}
-          onClose={() => setSelectedConversation(null)}
-        >
-          <ModalDialog sx={{ minWidth: 700, maxWidth: '90vw', maxHeight: '90vh', overflow: 'auto' }}>
-            <ModalClose />
-            {selectedConversation && (
-              <Stack spacing={2}>
-                <Typography level="h4">Detalles de la Conversación</Typography>
+      {/* Modal Ver Conversación */}
+      <Dialog
+        open={selectedConversation !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedConversation(null)
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          {selectedConversation && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Detalles de la Conversación</DialogTitle>
+              </DialogHeader>
 
-                <Card variant="outlined">
-                  <CardContent>
-                    <Grid container spacing={2}>
-                      <Grid xs={12} sm={6}>
-                        <Stack direction="row" spacing={2} alignItems="center">
-                          <Avatar size="lg" src={selectedConversation.contactAvatar}>
-                            {selectedConversation.contactName.charAt(0)}
-                          </Avatar>
-                          <Box>
-                            <Typography level="body-md" fontWeight="bold">
-                              {selectedConversation.contactName}
-                            </Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              {selectedConversation.contactEmail}
-                            </Typography>
-                          </Box>
-                        </Stack>
-                      </Grid>
-                      <Grid xs={12} sm={6}>
-                        <Box>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Atendido por:
-                          </Typography>
-                          <Typography level="body-md" fontWeight="bold">
-                            {selectedConversation.agent}
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    </Grid>
+              <div className="rounded-xl border border-border bg-card p-5">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="flex items-center gap-3">
+                    {renderContactAvatar(selectedConversation, 'lg', 44)}
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground">
+                        {selectedConversation.contactName}
+                      </p>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {selectedConversation.contactEmail}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Atendido por:</p>
+                    <p className="font-semibold text-foreground">{selectedConversation.agent}</p>
+                  </div>
+                </div>
 
-                    <Divider sx={{ my: 2 }} />
+                <div className="my-4 border-t border-border" />
 
-                    <Grid container spacing={2}>
-                      <Grid xs={6} sm={3}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Inicio
-                        </Typography>
-                        <Typography level="body-sm">
-                          {formatDateTime(selectedConversation.startTime)}
-                        </Typography>
-                      </Grid>
-                      <Grid xs={6} sm={3}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Fin
-                        </Typography>
-                        <Typography level="body-sm">
-                          {formatDateTime(selectedConversation.endTime)}
-                        </Typography>
-                      </Grid>
-                      <Grid xs={6} sm={3}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Duración
-                        </Typography>
-                        <Typography level="body-sm">{selectedConversation.duration} min</Typography>
-                      </Grid>
-                      <Grid xs={6} sm={3}>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Mensajes
-                        </Typography>
-                        <Typography level="body-sm">
-                          {selectedConversation.messagesCount}
-                        </Typography>
-                      </Grid>
-                    </Grid>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Inicio</p>
+                    <p className="text-sm text-foreground">
+                      {formatDateTime(selectedConversation.startTime)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Fin</p>
+                    <p className="text-sm text-foreground">
+                      {formatDateTime(selectedConversation.endTime)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Duración</p>
+                    <p className="text-sm tabular-nums text-foreground">
+                      {selectedConversation.duration} min
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Mensajes</p>
+                    <p className="text-sm tabular-nums text-foreground">
+                      {selectedConversation.messagesCount}
+                    </p>
+                  </div>
+                </div>
 
-                    <Divider sx={{ my: 2 }} />
+                <div className="my-4 border-t border-border" />
 
-                    <Box>
-                      <Typography level="body-sm" fontWeight="bold" sx={{ mb: 1 }}>
-                        Estado:
-                      </Typography>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={getStatusColor(selectedConversation.status)}
-                        startDecorator={getStatusIcon(selectedConversation.status)}
-                      >
-                        {getStatusLabel(selectedConversation.status)}
-                      </Chip>
-                    </Box>
+                <div>
+                  <p className="mb-1.5 text-sm font-semibold text-foreground">Estado:</p>
+                  <Badge variant={getStatusVariant(selectedConversation.status)}>
+                    {getStatusIcon(selectedConversation.status)}
+                    {getStatusLabel(selectedConversation.status)}
+                  </Badge>
+                </div>
 
-                    <Divider sx={{ my: 2 }} />
+                <div className="my-4 border-t border-border" />
 
-                    <Box>
-                      <Typography level="body-sm" fontWeight="bold" sx={{ mb: 1 }}>
-                        Satisfacción:
-                      </Typography>
-                      {renderSatisfactionStars(selectedConversation.satisfaction)}
-                    </Box>
+                <div>
+                  <p className="mb-1.5 text-sm font-semibold text-foreground">Satisfacción:</p>
+                  {renderSatisfactionStars(selectedConversation.satisfaction)}
+                </div>
 
-                    <Divider sx={{ my: 2 }} />
+                <div className="my-4 border-t border-border" />
 
-                    <Box>
-                      <Typography level="body-sm" fontWeight="bold" sx={{ mb: 1 }}>
-                        Etiquetas:
-                      </Typography>
-                      <Stack direction="row" spacing={1} flexWrap="wrap">
-                        {selectedConversation.tags.map((tag) => (
-                          <Chip key={tag} size="sm" variant="soft">
-                            {tag}
-                          </Chip>
-                        ))}
-                      </Stack>
-                    </Box>
+                <div>
+                  <p className="mb-1.5 text-sm font-semibold text-foreground">Etiquetas:</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {selectedConversation.tags.map((tag) => (
+                      <Badge key={tag} variant="neutral">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
 
-                    {selectedConversation.notes && (
-                      <>
-                        <Divider sx={{ my: 2 }} />
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold" sx={{ mb: 1 }}>
-                            Notas:
-                          </Typography>
-                          <Typography level="body-sm">{selectedConversation.notes}</Typography>
-                        </Box>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {selectedConversation.messages.length > 0 && (
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography level="body-md" fontWeight="bold" sx={{ mb: 2 }}>
-                        Transcript de la Conversación
-                      </Typography>
-                      <Stack spacing={2}>
-                        {selectedConversation.messages.map((message, index) => (
-                          <Box
-                            key={index}
-                            sx={{
-                              display: 'flex',
-                              justifyContent:
-                                message.sender === 'agent' ? 'flex-end' : 'flex-start',
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                maxWidth: '70%',
-                                p: 1.5,
-                                borderRadius: 'sm',
-                                bgcolor:
-                                  message.sender === 'agent'
-                                    ? 'primary.softBg'
-                                    : 'neutral.softBg',
-                              }}
-                            >
-                              <Typography level="body-sm">{message.text}</Typography>
-                              <Typography
-                                level="body-xs"
-                                sx={{ mt: 0.5, color: 'text.tertiary' }}
-                              >
-                                {formatTime(message.timestamp)}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ))}
-                      </Stack>
-                    </CardContent>
-                  </Card>
+                {selectedConversation.notes && (
+                  <>
+                    <div className="my-4 border-t border-border" />
+                    <div>
+                      <p className="mb-1.5 text-sm font-semibold text-foreground">Notas:</p>
+                      <p className="text-sm text-muted-foreground">{selectedConversation.notes}</p>
+                    </div>
+                  </>
                 )}
-              </Stack>
-            )}
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              </div>
+
+              {selectedConversation.messages.length > 0 && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <p className="mb-3 font-semibold text-foreground">
+                    Transcript de la Conversación
+                  </p>
+                  <div className="space-y-3">
+                    {selectedConversation.messages.map((message, index) => (
+                      <div
+                        key={index}
+                        className={
+                          message.sender === 'agent'
+                            ? 'flex justify-end'
+                            : 'flex justify-start'
+                        }
+                      >
+                        <div
+                          className={
+                            message.sender === 'agent'
+                              ? 'max-w-[70%] rounded-lg bg-primary/12 p-3'
+                              : 'max-w-[70%] rounded-lg bg-muted p-3'
+                          }
+                        >
+                          <p className="text-sm text-foreground">{message.text}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {formatTime(message.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

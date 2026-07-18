@@ -99,10 +99,8 @@ export const sendText = async (
 //       headers: { "Content-Type": "application/json" }
 //     });
 
-//     console.log(`Mensaje con ${type} enviado desde URL:`, data);
 //     return data;
 //   } catch (error) {
-//     console.error("Error al enviar adjunto desde URL:", error.response?.data || error.message);
 //   }
 // };
 
@@ -196,7 +194,7 @@ export const verifyToken = async (token, appToken) => {
     );
 
     const { data } = response;
-    console.log("Token Verificado:", data);
+    logger.info({ is_valid: data?.is_valid, app_id: data?.app_id }, "[FB] token verificado");
 
     return data; // Retorna los datos del token
   } catch (error) {
@@ -294,7 +292,11 @@ export const subscribeApp = async (id: string, token: string): Promise<any> => {
         "message_reads",
         "message_echoes",
         "conversations", // ✅ Campo correcto para Instagram Messages
-        "message_reactions"
+        "message_reactions",
+        // Comentarios FB: notifica add/edited/remove/hide en posts de la página.
+        // NOTA: los comentarios de Instagram ('comments') NO se suscriben aquí —
+        // se configuran a nivel de App en el dashboard de Meta (Webhooks → Instagram).
+        "feed"
       ]
     });
     return data;
@@ -317,7 +319,9 @@ export const subscribeApp = async (id: string, token: string): Promise<any> => {
             "message_reads",
             "message_echoes",
             "conversations", // ✅ Campo correcto para Instagram
-            "message_reactions"
+            "message_reactions",
+            // Comentarios FB (los 'comments' de IG van a nivel de App en Meta)
+            "feed"
           ]
         });
         return retryData;
@@ -364,7 +368,9 @@ export const getAccessTokenFromPage = async (
      const { facebookAppId, facebookAppSecret } =
      await getCompanyFacebookCredentials(companyId); 
     if (!token) throw new Error("ERR_FETCHING_FB_USER_TOKEN1");
-console.log('token getAccessTokenFromPage',token, 'facebookAppId', facebookAppId, 'facebookAppSecret',facebookAppSecret )
+    logger.info(
+      `[FacebookGraph] Exchanging page token | companyId=${companyId} appId=${facebookAppId}`
+    );
     const { data } = await axios.get(
       "https://graph.facebook.com/v24.0/oauth/access_token",
       {
@@ -378,7 +384,9 @@ console.log('token getAccessTokenFromPage',token, 'facebookAppId', facebookAppId
     );
     return data.access_token;
   } catch (error) {
-    console.log(error);
+    logger.error(
+      `[FacebookGraph] Error exchanging page token | companyId=${companyId} status=${error?.response?.status || "N/A"} message=${error?.response?.data?.error?.message || error?.message || "unknown"}`
+    );
     throw new Error("ERR_FETCHING_FB_USER_TOKEN");
   }
 };
@@ -429,10 +437,10 @@ export const getInstagramShortLivedToken = async (code: string, redirectUri: str
         code,
       })
     );
-    console.log("🟢 [IG OAuth] Token corto obtenido:", data);
+    logger.info({ user_id: data?.user_id, hasToken: !!data?.access_token }, "[IG OAuth] token corto obtenido");
     return data; // { access_token, user_id }
   } catch (err: any) {
-    console.error("🔴 [IG OAuth] Error al obtener token de corta duración:", err.response?.data || err);
+    logger.error({ status: err?.response?.status, msg: err?.response?.data?.error_message || err?.message }, "[IG OAuth] error token corto");
     throw err;
   }
 };
@@ -456,7 +464,7 @@ export const getInstagramLongLivedToken = async (shortToken: string, companyId: 
         },
       }
     );
-    console.log("🟢 [IG OAuth] Token largo obtenido:", data);
+    logger.info({ expires_in: data?.expires_in, token_type: data?.token_type, hasToken: !!data?.access_token }, "[IG OAuth] token largo obtenido");
     return data; // { access_token, token_type, expires_in }
   } catch (err: any) {
     console.error("🔴 [IG OAuth] Error al obtener token de larga duración:", err.response?.data || err);
@@ -600,10 +608,8 @@ export const sendInstagramTextMessage = async (
 //         }
 //       });
   
-//       console.log("✅ Mensaje multimedia enviado:", data);
 //       return data;
 //     } catch (error: any) {
-//       console.error("❌ Error enviando media:", error.response?.data || error);
 //       throw error;
 //     }
 //   };
@@ -617,8 +623,6 @@ export const sendInstagramTextMessage = async (
 //   fileUrl: string,        // URL pública directa
 //   igAccessToken: string
 // ) => {
-//   console.log("🟢  igId  obtenido:", igId);
-//   console.log("🟢  recipientId  obtenido:", recipientId);
 //   try {
 //     const endpoint = `https://graph.instagram.com/v24.0/${igId}/messages`;
 
@@ -641,10 +645,8 @@ export const sendInstagramTextMessage = async (
 //       }
 //     });
 
-//     console.log("✅ Mensaje multimedia enviado:", data);
 //     return data;
 //   } catch (error: any) {
-//     console.error("❌ Error enviando media:", error.response?.data || error);
 //     throw error;
 //   }
 // };

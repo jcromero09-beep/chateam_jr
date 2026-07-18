@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { selectModel, classifyComplexity } from "./ModelRouterService";
 import AgentLogService from "./AgentLogService";
 import SemanticCacheService from "../RAGServices/SemanticCacheService";
@@ -39,6 +43,12 @@ export type IntentType =
   | 'product_info'
   | 'order_status'
   | 'refund_request'
+  // ─── PRIMERA OLA (2026-05-07) — Intents CRM avanzados ───
+  | 'churn_risk'           // Cliente menciona cancelar, irse, competencia
+  | 'lead_qualification'   // Cliente nuevo evaluando, califica como prospecto
+  | 'follow_up_response'   // Respuesta a un seguimiento automático previo
+  | 'nps_response'         // Respuesta a encuesta de satisfacción
+  // ─── /PRIMERA OLA ───
   | 'general';
 
 export interface ClassificationResult {
@@ -189,6 +199,43 @@ const quickClassify = (input: string): ClassificationResult | null => {
     };
   }
 
+  // ─── PRIMERA OLA — Churn risk (señales claras de cancelación) ───
+  const churnPhrases = [
+    'cancelar suscripción', 'cancelar suscripcion', 'dar de baja',
+    'darme de baja', 'no quiero seguir', 'no quiero continuar',
+    'me voy con la competencia', 'cancelar plan', 'cerrar mi cuenta',
+    'cerrar cuenta', 'unsubscribe', 'cancel my subscription'
+  ];
+  if (churnPhrases.some(p => lower.includes(p))) {
+    return {
+      intent: 'churn_risk',
+      confidence: 0.95,
+      targetAgent: 'escalation',
+      entities: {},
+      urgency: 'critical',
+      language: 'es',
+      modelUsed: 'pattern-match',
+      latencyMs: 0,
+      cacheHit: false
+    };
+  }
+
+  // ─── PRIMERA OLA — NPS response (número 0-10 puro) ───
+  if (/^([0-9]|10)$/.test(lower.trim())) {
+    return {
+      intent: 'nps_response',
+      confidence: 0.99,
+      targetAgent: 'self',
+      entities: { score: lower.trim() },
+      urgency: 'low',
+      language: 'es',
+      modelUsed: 'pattern-match',
+      latencyMs: 0,
+      cacheHit: false
+    };
+  }
+  // ─── /PRIMERA OLA ───
+
   return null; // No match → necesita LLM
 };
 
@@ -249,7 +296,7 @@ const classify = async (
     const llmResponse = await AIClientService.generateText({
       prompt: classificationPrompt,
       systemPrompt: dbSystemPrompt,
-      modelKey: modelSelection?.entity.key || 'gpt-4.1-mini',
+      modelKey: modelSelection?.entity.key || 'gpt-5.5',
       maxTokens: 200,
       temperature: 0.1, // Baja temperatura para clasificación determinista
       responseFormat: 'json'
@@ -264,7 +311,7 @@ const classify = async (
       entities: parsed.entities || {},
       urgency: parsed.urgency || 'medium',
       language: parsed.language || 'es',
-      modelUsed: modelSelection?.entity.key || 'gpt-4.1-mini',
+      modelUsed: modelSelection?.entity.key || 'gpt-5.5',
       latencyMs: Date.now() - startTime,
       cacheHit: false
     };
@@ -333,7 +380,7 @@ function buildClassificationPrompt(input: string): string {
 Analiza el mensaje del usuario y responde SOLO en JSON con este formato exacto:
 
 {
-  "intent": "rag_query|support_request|sales_inquiry|escalation|greeting|farewell|appointment_request|appointment_reschedule|appointment_cancel|billing_inquiry|complaint|feedback|product_info|order_status|refund_request|general",
+  "intent": "rag_query|support_request|sales_inquiry|escalation|greeting|farewell|appointment_request|appointment_reschedule|appointment_cancel|billing_inquiry|complaint|feedback|product_info|order_status|refund_request|churn_risk|lead_qualification|follow_up_response|nps_response|general",
   "confidence": 0.0-1.0,
   "entities": {"key": "value"},
   "urgency": "low|medium|high|critical",
@@ -354,6 +401,10 @@ Reglas:
 - product_info: Información sobre productos o servicios específicos
 - order_status: Seguimiento de pedidos, estado de entrega
 - refund_request: Solicitudes de reembolso, devoluciones
+- churn_risk: Menciona cancelar suscripción, irse a competencia, dar de baja
+- lead_qualification: Cliente nuevo evaluando, pide info inicial, califica como prospecto
+- follow_up_response: Respuesta directa a un seguimiento automático ("sí me interesa", "ya no necesito")
+- nps_response: Respuesta numérica (0-10) a encuesta de satisfacción
 - greeting/farewell: Saludos y despedidas
 - general: Todo lo demás
 
@@ -380,6 +431,10 @@ function mapIntentToAgent(intent: string): string {
     'product_info': 'rag',      // Info productos -> RAG
     'order_status': 'support', // Estado pedido -> soporte
     'refund_request': 'sales',  // Reembolsos -> ventas
+    'churn_risk': 'escalation',         // Riesgo de churn -> humano de retención
+    'lead_qualification': 'sales',      // Lead nuevo -> ventas
+    'follow_up_response': 'self',       // Respuesta a seguimiento -> manejo interno
+    'nps_response': 'self',             // NPS -> registro silencioso
     'general': 'rag'            // Default: intentar responder con RAG
   };
   return mapping[intent] || 'rag';

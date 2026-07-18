@@ -5,9 +5,19 @@ import isAuth from "../middleware/isAuth";
 
 import * as EmailCampaignController from "../controllers/EmailCampaignController";
 import * as EmailTemplateGalleryController from "../controllers/EmailTemplateGalleryController";
+import * as EmailDashboardController from "../controllers/EmailDashboardController";
 
 const emailCampaignRoutes = express.Router();
 const upload = multer(uploadConfig);
+
+// ============================================================================
+// Email Marketing Dashboard (KPIs, trend, campaigns, failures, sync)
+// ============================================================================
+emailCampaignRoutes.get("/email-marketing/dashboard/kpis", isAuth, EmailDashboardController.kpis);
+emailCampaignRoutes.get("/email-marketing/dashboard/trend", isAuth, EmailDashboardController.trend);
+emailCampaignRoutes.get("/email-marketing/dashboard/campaigns", isAuth, EmailDashboardController.campaigns);
+emailCampaignRoutes.get("/email-marketing/dashboard/failures", isAuth, EmailDashboardController.failures);
+emailCampaignRoutes.post("/email-marketing/dashboard/sync", isAuth, EmailDashboardController.sync);
 
 emailCampaignRoutes.get("/email-campaigns", isAuth, EmailCampaignController.index);
 emailCampaignRoutes.post("/email-campaigns", isAuth, EmailCampaignController.store);
@@ -54,5 +64,7 @@ emailCampaignRoutes.post("/email-templates/ai/generate", isAuth, EmailTemplateGa
 emailCampaignRoutes.get("/email-templates/:id", isAuth, EmailCampaignController.showTemplate);
 emailCampaignRoutes.put("/email-templates/:id", isAuth, EmailCampaignController.updateTemplate);
 emailCampaignRoutes.delete("/email-templates/:id", isAuth, EmailCampaignController.removeTemplate);
+emailCampaignRoutes.post("/email-templates/:id/duplicate", isAuth, EmailCampaignController.duplicateTemplate);
+emailCampaignRoutes.post("/email-templates/:id/test-send", isAuth, EmailCampaignController.sendTemplateTest);
 
 export default emailCampaignRoutes;

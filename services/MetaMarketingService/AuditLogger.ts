@@ -48,10 +48,30 @@ export class AuditLogger {
       logger.info(`[MetaAudit] ${logMessage}`);
     }
 
+    // [Fase2·N5] Persistencia inmutable: fire-and-forget para NO bloquear ni romper
+    // el request si la BD falla. Antes el audit vivía solo en memoria (MAX 1000) y
+    // se perdía al reiniciar — inservible para demostrar cumplimiento a Meta/LOPDP.
+    void AuditLogger.persist(logEntry);
+
     // Mantener en memoria para consultas recientes
     this.logs.unshift(logEntry);
     if (this.logs.length > this.MAX_LOGS_IN_MEMORY) {
       this.logs.pop();
+    }
+  }
+
+  private static async persist(entry: AuditLogEntry): Promise<void> {
+    try {
+      const MetaAuditLog = (await import("../../models/MetaAuditLog")).default;
+      await MetaAuditLog.create({
+        companyId: entry.companyId, userId: entry.userId ?? null,
+        action: entry.action, endpoint: entry.endpoint, method: entry.method,
+        responseStatus: entry.responseStatus, responseTime: Math.round(entry.responseTime),
+        errorCode: entry.errorCode ?? null, errorMessage: entry.errorMessage ?? null,
+        cacheHit: entry.cacheHit ?? null
+      } as any);
+    } catch {
+      // Silencioso a propósito: el audit no debe tumbar el flujo principal.
     }
   }
 

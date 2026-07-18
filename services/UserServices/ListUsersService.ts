@@ -51,6 +51,7 @@ const ListUsersService = async ({
       "createdAt",
       "companyId",
       "profile",
+      "whatsappId",
       "online",
       "startWork",
       "endWork",

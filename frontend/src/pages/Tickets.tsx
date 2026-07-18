@@ -61,6 +61,7 @@ import {
   Download as DownloadIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
+import logger from '../utils/logger'
 import { Button } from '@/components/ui/button'
 import { Badge as UIBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
@@ -1783,58 +1784,78 @@ export default function Tickets() {
         return
       }
 
-      // Fetch messages for each ticket. If a refresh is aborted, do not publish empty histories.
-      const ticketsWithMessages = await Promise.all(
-        ticketsData.map(async (ticket: Ticket) => {
-          const previousTicket = ticketsRef.current.find(currentTicket => currentTicket.id === ticket.id)
+      // [Ola 5 · N+1] Antes se hacía un GET /messages/:id por CADA ticket de la página
+      // (1 + N peticiones por listado, y el socket 'create' lo repetía entero), solo
+      // para precalentar el historial. Era innecesario: la lista se pinta con
+      // `lastMessage`, no con `messages`, y handleSelectTicket ya carga el historial
+      // bajo demanda al abrir un ticket que no lo tenga.
+      //
+      // Se conservan los mensajes ya cargados de tickets que el usuario abrió antes
+      // (vienen de previousTicket), para no forzar una recarga al volver a ellos.
+      const mergedTickets = ticketsData.map((ticket: Ticket) => {
+        const previousTicket = ticketsRef.current.find(currentTicket => currentTicket.id === ticket.id)
 
-          try {
-            const msgResponse = await api.get(`/messages/${ticket.id}`, {
-              signal,
-              params: { pageNumber: 1 }
-            })
-            return mergeTicketData(previousTicket, {
-              ...ticket,
-              messages: msgResponse.data.messages || [],
-              messagesPageNumber: 1,
-              messagesHasMore: msgResponse.data.hasMore ?? false
-            })
-          } catch (error: any) {
-            if (signal.aborted || isRequestCanceled(error)) throw error
-
-            console.error(`Error fetching messages for ticket ${ticket.id}:`, error?.response?.data || error.message || error)
-            return mergeTicketData(previousTicket, {
-              ...ticket,
-              messages: previousTicket?.messages || [],
-              messagesPageNumber: previousTicket?.messagesPageNumber || 1,
-              messagesHasMore: previousTicket?.messagesHasMore ?? false
-            })
-          }
+        return mergeTicketData(previousTicket, {
+          ...ticket,
+          messages: previousTicket?.messages || [],
+          messagesPageNumber: previousTicket?.messagesPageNumber || 1,
+          messagesHasMore: previousTicket?.messagesHasMore ?? false
         })
-      )
+      })
 
       if (signal.aborted) return
 
       // Si es reset, reemplazar; si no, agregar al final
       if (reset) {
-        setTickets(normalizeTickets(ticketsWithMessages))
+        setTickets(normalizeTickets(mergedTickets))
       } else {
-        setTickets(prev => normalizeTickets([...prev, ...ticketsWithMessages]))
+        setTickets(prev => normalizeTickets([...prev, ...mergedTickets]))
+      }
+
+      // [Ola 5] Auto-selección: el ticket que se abre solo SÍ necesita su historial.
+      // Como ya no se precargan los mensajes de toda la lista, hay que pedir los suyos
+      // aquí o el panel de chat se abriría vacío. Es 1 petición (la del ticket abierto)
+      // en lugar de N (una por cada ticket de la página).
+      const selectWithMessages = async (ticket: Ticket) => {
+        if ((ticket.messages?.length || 0) > 0) {
+          setSelectedTicket(ticket) // ya cargado en una visita previa
+          return
+        }
+        try {
+          const msgResponse = await api.get(`/messages/${ticket.id}`, {
+            signal,
+            params: { pageNumber: 1 }
+          })
+          const withMessages = mergeTicketData(ticket, {
+            ...ticket,
+            messages: msgResponse.data.messages || [],
+            messagesPageNumber: 1,
+            messagesHasMore: msgResponse.data.hasMore ?? false
+          })
+          setSelectedTicket(withMessages)
+          setTickets(prev => normalizeTickets(
+            prev.map(t => (t.id === ticket.id ? withMessages : t))
+          ))
+        } catch (error: any) {
+          if (isRequestCanceled(error) || signal.aborted) return
+          logger.error(`[Tickets] no se pudo cargar el historial del ticket ${ticket.id}`, error)
+          setSelectedTicket(ticket) // se abre igual; el historial se reintenta al re-seleccionar
+        }
       }
 
       // Si venimos de Contactos, buscar y seleccionar el ticket del contacto
       if (pendingContactIdRef.current) {
-        const contactTicket = ticketsWithMessages.find(
+        const contactTicket = mergedTickets.find(
           (t: Ticket) => t.contactId === pendingContactIdRef.current
         )
         if (contactTicket) {
-          setSelectedTicket(contactTicket)
-        } else if (ticketsWithMessages.length > 0) {
-          setSelectedTicket(ticketsWithMessages[0])
+          await selectWithMessages(contactTicket)
+        } else if (mergedTickets.length > 0) {
+          await selectWithMessages(mergedTickets[0])
         }
         pendingContactIdRef.current = null
-      } else if (reset && ticketsWithMessages.length > 0 && !selectedTicket) {
-        setSelectedTicket(ticketsWithMessages[0])
+      } else if (reset && mergedTickets.length > 0 && !selectedTicket) {
+        await selectWithMessages(mergedTickets[0])
       }
     } catch (error: any) {
       if (isRequestCanceled(error)) return
@@ -2807,7 +2828,7 @@ export default function Tickets() {
                     <button
                       type="button"
                       onClick={() => handleSelectTicket(ticket)}
-                      className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors ${
+                      className={`flex w-full items-start gap-3 px-3 py-2 text-left transition-colors ${
                         selectedTicket?.id === ticket.id
                           ? 'bg-primary/[0.10]'
                           : 'hover:bg-muted/60'
@@ -2838,7 +2859,7 @@ export default function Tickets() {
                         {/* Linea 1: Nombre + Fecha */}
                         <div className="flex items-center gap-2">
                           <p
-                            className={`min-w-0 flex-1 truncate text-sm text-foreground ${ticket.unreadMessages > 0 ? 'font-bold' : 'font-semibold'}`}
+                            className={`my-0 min-w-0 flex-1 truncate text-sm leading-tight text-foreground ${ticket.unreadMessages > 0 ? 'font-bold' : 'font-semibold'}`}
                           >
                             {displayContactName(ticket.contact)}
                           </p>
@@ -2850,7 +2871,7 @@ export default function Tickets() {
                         </div>
 
                         {/* Linea 2: check de leído + último mensaje + pill no-leídos */}
-                        <div className="mt-0.5 flex items-center gap-2">
+                        <div className="mt-px flex items-center gap-2">
                           <div className="flex min-w-0 flex-1 items-center gap-1">
                             {/* Doble-check de leído (cosmético estilo referencia).
                                 TODO: alimentar con el ack real y la dirección del último mensaje
@@ -2860,7 +2881,7 @@ export default function Tickets() {
                               <DoneAllIcon className="shrink-0 text-success" sx={{ fontSize: 15 }} />
                             )}
                             <p
-                              className={`min-w-0 flex-1 truncate text-[13px] ${ticket.unreadMessages > 0 ? 'font-medium text-foreground' : 'font-normal text-muted-foreground'}`}
+                              className={`my-0 min-w-0 flex-1 truncate text-[13px] leading-tight ${ticket.unreadMessages > 0 ? 'font-medium text-foreground' : 'font-normal text-muted-foreground'}`}
                             >
                               {formatLastMessagePreview(ticket.lastMessage) || 'Sin mensajes'}
                             </p>
@@ -2874,7 +2895,7 @@ export default function Tickets() {
 
                         {/* Linea 3: Conexion + Cola + Usuario + Tags (sutil) */}
                         {(resolvedWhatsapp || resolvedQueue || resolvedUser || resolvedTags.length > 0) && (
-                          <div className="mt-1 flex items-center gap-1 overflow-hidden">
+                          <div className="mt-0.5 flex items-center gap-1 overflow-hidden">
                             {resolvedWhatsapp && (
                               <span
                                 className="inline-flex h-[17px] max-w-[92px] shrink-0 items-center rounded px-1.5 text-[0.65rem] font-medium"
@@ -3440,6 +3461,19 @@ export default function Tickets() {
                 const isMetaMessage = selectedTicket.channel === 'tiktok' && !isOwn && msg.dataJson
                 const canSelectCurrentMessage = canSelectMessageForMode(msg)
 
+                // Footer inline: en mensajes de SOLO texto ponemos hora+checks al final
+                // del texto (compacto, estilo WhatsApp). En media/audio/contacto/etc. se
+                // mantiene el footer en su fila propia debajo.
+                const _mt = (msg.mediaType || '').toLowerCase()
+                const bubbleHasMedia =
+                  !!(msg as { mediaUrl?: string }).mediaUrl ||
+                  (msg as { isUploading?: boolean }).isUploading === true ||
+                  _mt.includes('image') || _mt.includes('sticker') || _mt.includes('video') ||
+                  _mt.includes('audio') || _mt === 'ptt' ||
+                  _mt.includes('contact') || _mt === 'vcard' ||
+                  _mt.includes('location') || _mt === 'admetapreview'
+                const inlineFooter = !bubbleHasMedia && !isMessageDeleted
+
                 if (msg.isPrivate && !isOwn) return null
 
                 return (
@@ -3548,6 +3582,10 @@ export default function Tickets() {
                                   </span>
                                 </Stack>
                               )}
+                              {/* Cuerpo + footer. En msgs de texto van en un flex-wrap
+                                  items-end para que la hora/checks queden inline al final. */}
+                              <div className={inlineFooter ? 'flex flex-wrap items-end gap-x-1.5' : ''}>
+                              <div className={inlineFooter ? 'min-w-0' : ''}>
                               {(
                                 <MessageContent
                                   message={{
@@ -3591,8 +3629,9 @@ export default function Tickets() {
                                 />
                               )}
 
-                              {/* Footer: indicadores + tiempo */}
-                              <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.25, position: 'relative' }}>
+                              </div>
+                              {/* Footer: indicadores + tiempo. Inline (ml-auto, sin mt) en msgs de texto. */}
+                              <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end" sx={{ mt: inlineFooter ? 0 : 0.25, ml: inlineFooter ? 'auto' : 0, position: 'relative' }}>
                                 {(msg as { isUploading?: boolean }).isUploading ? (
                                   <Stack direction="row" spacing={0.5} alignItems="center">
                                     <CircularProgress
@@ -3701,6 +3740,7 @@ export default function Tickets() {
                                 </>
                                 )}
                               </Stack>
+                              </div>
                             </div>
                           )}
 

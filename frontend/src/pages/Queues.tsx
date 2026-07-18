@@ -1,33 +1,18 @@
 import { useState, useEffect } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Textarea,
-} from '@mui/joy'
-import {
-  QueueMusic as QueueIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  Queue as QueueIcon,
+  ArrowClockwise,
+  Plus,
+  MagnifyingGlass,
+  PencilSimple,
+  Trash,
+  X,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { toast } from 'react-toastify'
 
@@ -85,6 +70,36 @@ const getQueueErrorMessage = (error: unknown, fallback: string): string => {
   }
 
   return fallback
+}
+
+const columns = ['Color', 'Nombre', 'Mensaje de Saludo', 'Estado', 'Fecha Creación', '']
+
+// Botón de acción de fila (mismo look que RowAction, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
 }
 
 export default function Queues() {
@@ -187,6 +202,12 @@ export default function Queues() {
     })
   }
 
+  const closeModal = () => {
+    setOpenModal(false)
+    resetForm()
+    setSelectedQueue(null)
+  }
+
   const filteredQueues = queues.filter((queue) =>
     queue.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
@@ -198,264 +219,251 @@ export default function Queues() {
     tickets: 245,
   }
 
+  // Clases compartidas de campos de formulario
+  const fieldClass =
+    'w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <QueueIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Colas</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <QueueIcon className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Colas
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Gestión de colas de atención
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchQueues}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Refrescar"
+              className="text-muted-foreground"
+              onClick={fetchQueues}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nueva Cola
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Total Colas
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Activas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.active}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  En Espera
-                </Typography>
-                <Typography level="h2" sx={{ color: 'warning.main' }}>
-                  34
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Atendidos Hoy
-                </Typography>
-                <Typography level="h2">{stats.tickets}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Colas" value={String(stats.total)} />
+          <StatTile label="Activas" value={String(stats.active)} tone="success" />
+          <StatTile label="En Espera" value="34" tone="warning" />
+          <StatTile label="Atendidos Hoy" value={String(stats.tickets)} />
+        </div>
 
         {/* Search */}
-        <Card>
-          <CardContent>
-            <Input
-              placeholder="Buscar colas..."
-              startDecorator={<SearchIcon />}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </CardContent>
-        </Card>
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            placeholder="Buscar colas..."
+            aria-label="Buscar colas"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
 
         {/* Queues Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 60 }}>Color</th>
-                  <th style={{ width: 200 }}>Nombre</th>
-                  <th>Mensaje de Saludo</th>
-                  <th style={{ width: 100 }}>Orden</th>
-                  <th style={{ width: 100 }}>Estado</th>
-                  <th style={{ width: 180 }}>Fecha Creación</th>
-                  <th style={{ width: 150 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando colas...</Typography>
+                    <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                      Cargando colas...
                     </td>
                   </tr>
                 ) : filteredQueues.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron colas</Typography>
+                    <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron colas
                     </td>
                   </tr>
                 ) : (
                   filteredQueues.map((queue) => (
-                    <tr key={queue.id}>
-                      <td>
-                        <Box
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            bgcolor: queue.color,
-                            borderRadius: 'sm',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                          }}
+                    <tr key={queue.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <span
+                          className="block size-4 rounded-full ring-1 ring-inset ring-black/10"
+                          style={{ backgroundColor: queue.color }}
+                          aria-hidden
                         />
                       </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {queue.name}
-                        </Typography>
+                      <td className="px-4 py-3 font-semibold text-foreground">
+                        {queue.name}
                       </td>
-                      <td>
-                        <Typography level="body-xs" noWrap sx={{ maxWidth: 300 }}>
-                          {queue.greetingMessage || '-'}
-                        </Typography>
+                      <td className="max-w-[300px] truncate px-4 py-3 text-xs text-muted-foreground">
+                        {queue.greetingMessage || '-'}
                       </td>
-                      <td>
-                        <Typography level="body-sm">{queue.orderQueue}</Typography>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={queue.isActive !== false ? 'success' : 'neutral'}
-                        >
+                      <td className="px-4 py-3">
+                        <Badge variant={queue.isActive !== false ? 'success' : 'neutral'}>
                           {queue.isActive !== false ? 'Activa' : 'Inactiva'}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {new Date(queue.createdAt).toLocaleDateString('es-ES')}
-                        </Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                        {new Date(queue.createdAt).toLocaleDateString('es-ES')}
                       </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <ActionBtn
+                            label="Editar"
                             onClick={() => openEditModal(queue)}
+                            className="hover:bg-primary/10 hover:text-primary"
                           >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Eliminar"
                             onClick={() => handleDelete(queue.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Stack>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Create/Edit */}
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ minWidth: 600 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              {selectedQueue ? 'Editar Cola' : 'Nueva Cola'}
-            </Typography>
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>Nombre</FormLabel>
-                <Input
+      {/* Modal Create/Edit */}
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={closeModal}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                {selectedQueue ? 'Editar Cola' : 'Nueva Cola'}
+              </h2>
+              <ActionBtn label="Cerrar" onClick={closeModal}>
+                <X className="size-[18px]" aria-hidden />
+              </ActionBtn>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="queue-name">Nombre</Label>
+                <input
+                  id="queue-name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Ej: Soporte Técnico"
+                  className={cn(fieldClass, 'h-11')}
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Color</FormLabel>
-                <Input
-                  type="color"
-                  value={formData.color}
-                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Orden</FormLabel>
-                <Input
-                  type="number"
-                  value={formData.orderQueue}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      orderQueue: e.target.value === '' ? 0 : Number(e.target.value),
-                    })
-                  }
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Mensaje de Saludo</FormLabel>
-                <Textarea
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="queue-color">Color</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="queue-color"
+                    type="color"
+                    value={formData.color}
+                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                    className="h-10 w-16 cursor-pointer rounded-md border border-input bg-card p-1"
+                  />
+                  <span
+                    className="block size-5 rounded-full ring-1 ring-inset ring-black/10"
+                    style={{ backgroundColor: formData.color }}
+                    aria-hidden
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="queue-greeting">Mensaje de Saludo</Label>
+                <textarea
+                  id="queue-greeting"
                   value={formData.greetingMessage}
                   onChange={(e) =>
                     setFormData({ ...formData, greetingMessage: e.target.value })
                   }
                   placeholder="Mensaje que se muestra al iniciar conversación"
-                  minRows={3}
+                  rows={3}
+                  className={cn(fieldClass, 'resize-y py-2.5')}
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Mensaje Fuera de Horario</FormLabel>
-                <Textarea
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="queue-outofhours">Mensaje Fuera de Horario</Label>
+                <textarea
+                  id="queue-outofhours"
                   value={formData.outOfHoursMessage}
                   onChange={(e) =>
                     setFormData({ ...formData, outOfHoursMessage: e.target.value })
                   }
                   placeholder="Mensaje fuera del horario de atención"
-                  minRows={3}
+                  rows={3}
+                  className={cn(fieldClass, 'resize-y py-2.5')}
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Prompt para IA</FormLabel>
-                <Textarea
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="queue-description">Descripción</Label>
+                <textarea
+                  id="queue-description"
                   value={formData.promptAI}
-                  onChange={(e) =>
-                    setFormData({ ...formData, promptAI: e.target.value })
-                  }
-                  placeholder="Instrucciones para la IA cuando atienda esta cola. Ej: Eres un asistente de soporte técnico especializado en..."
-                  minRows={4}
+                  onChange={(e) => setFormData({ ...formData, promptAI: e.target.value })}
+                  placeholder="Breve descripción de esta cola"
+                  rows={4}
+                  className={cn(fieldClass, 'resize-y py-2.5')}
                 />
-              </FormControl>
-              <Button color="primary" onClick={selectedQueue ? handleUpdate : handleCreate}>
-                {selectedQueue ? 'Actualizar' : 'Crear'} Cola
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={closeModal}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={selectedQueue ? handleUpdate : handleCreate}>
+                  {selectedQueue ? 'Actualizar' : 'Crear'} Cola
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

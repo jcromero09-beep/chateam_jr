@@ -1,4 +1,4 @@
-import { MessageUpsertType, proto, WASocket } from "@whiskeysockets/baileys";
+import { MessageUpsertType, proto, WASocket } from "baileys";
 import OpenAI from "openai";
 
 // ==================== Tipos de sesion ====================
@@ -66,6 +66,5 @@ setInterval(() => {
 
   const despues = sessionsOpenAi.length;
   if (antes !== despues) {
-    // console.log(`Limpieza OpenAI: eliminadas ${antes - despues} sesiones inactivas`);
   }
 }, 1000 * 60 * 10); // cada 10 minutos

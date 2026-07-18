@@ -1,46 +1,40 @@
 import { useState, useEffect } from 'react'
+import { LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  IconButton,
-  Chip,
-  Sheet,
-  Table,
-  Input,
+  UsersThree,
+  Plus,
+  PencilSimple,
+  Trash,
+  EnvelopeSimple,
+  WhatsappLogo,
+  Phone,
+  MagnifyingGlass,
+  FunnelSimple,
+  TrendUp,
+  Star,
+  ClipboardText,
+  CurrencyDollar,
+} from '@phosphor-icons/react'
+import { Avatar } from '@/components/ui/avatar'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
   Select,
-  Option,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Textarea,
-  Divider,
-  LinearProgress,
-  Tooltip,
-  Avatar,
-} from '@mui/joy'
-import {
-  Groups as GroupsIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Email as EmailIcon,
-  WhatsApp as WhatsAppIcon,
-  Phone as PhoneIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  TrendingUp as TrendingUpIcon,
-  Star as StarIcon,
-  Assignment as AssignmentIcon,
-  AttachMoney as MoneyIcon,
-} from '@mui/icons-material'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 
 /**
  * Interface for Lead data structure
@@ -63,6 +57,23 @@ interface Lead {
   createdAt: string
   nextFollowUp?: string
 }
+
+const columns = [
+  'Lead',
+  'Empresa',
+  'Fuente',
+  'Estado',
+  'Score',
+  'Valor',
+  'Tags',
+  'Asignado',
+  'Próximo',
+  '',
+]
+
+// Mismo look que <Input> del design system, pero para <textarea> (alto libre).
+const textareaClass =
+  'min-h-[84px] w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm leading-relaxed text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
 
 /**
  * Leads & CRM Module
@@ -326,27 +337,31 @@ export default function Leads() {
     return matchesSearch && matchesStatus && matchesSource
   })
 
-  // Status configuration
-  const getStatusConfig = (status: string) => {
-    const configs = {
-      new: { color: 'neutral', label: 'Nuevo' },
-      contacted: { color: 'primary', label: 'Contactado' },
-      qualified: { color: 'success', label: 'Calificado' },
-      proposal: { color: 'warning', label: 'Propuesta' },
-      negotiation: { color: 'warning', label: 'Negociación' },
-      won: { color: 'success', label: 'Ganado' },
-      lost: { color: 'danger', label: 'Perdido' },
+  // Status configuration (variant = token del design system)
+  const getStatusConfig = (status: string): { variant: BadgeProps['variant']; label: string } => {
+    const configs: Record<string, { variant: BadgeProps['variant']; label: string }> = {
+      new: { variant: 'neutral', label: 'Nuevo' },
+      contacted: { variant: 'primary', label: 'Contactado' },
+      qualified: { variant: 'success', label: 'Calificado' },
+      proposal: { variant: 'warning', label: 'Propuesta' },
+      negotiation: { variant: 'warning', label: 'Negociación' },
+      won: { variant: 'success', label: 'Ganado' },
+      lost: { variant: 'destructive', label: 'Perdido' },
     }
-    return configs[status as keyof typeof configs] || configs.new
+    return configs[status] || configs.new
   }
 
-  // Get score color based on value
+  // Get score color based on value (paleta Joy: la barra sigue siendo LinearProgress)
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'success'
     if (score >= 60) return 'primary'
     if (score >= 40) return 'warning'
     return 'danger'
   }
+
+  // Tag chip variant
+  const getTagVariant = (tag: string): BadgeProps['variant'] =>
+    tag === 'hot' ? 'destructive' : tag === 'warm' ? 'warning' : 'outline'
 
   // Open modal for creating new lead
   const openCreateModal = () => {
@@ -425,500 +440,467 @@ export default function Leads() {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <GroupsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Leads & CRM</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Gestión completa de leads y sistema CRM
-              </Typography>
-            </Box>
-          </Stack>
-          <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
-            Nuevo Lead
-          </Button>
-        </Stack>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <UsersThree className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Leads &amp; CRM
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Gestión completa de leads y sistema CRM
+                </p>
+              </div>
+            </div>
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nuevo Lead
+            </Button>
+          </div>
 
-        {loading && <LinearProgress />}
+          {loading && <LinearProgress />}
 
-        {/* KPI Cards */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Total Leads
-                    </Typography>
-                    <Typography level="h2">{stats.total}</Typography>
-                    <Chip size="sm" color="neutral" variant="soft" sx={{ mt: 1 }}>
-                      {stats.new} nuevos
-                    </Chip>
-                  </Box>
-                  <GroupsIcon sx={{ fontSize: 48, color: 'primary.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Leads</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.total}
+                  </p>
+                  <Badge variant="neutral" className="mt-2">
+                    {stats.new} nuevos
+                  </Badge>
+                </div>
+                <UsersThree className="size-10 shrink-0 text-primary/30" weight="fill" aria-hidden />
+              </div>
+            </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      En Proceso
-                    </Typography>
-                    <Typography level="h2">{stats.inProgress}</Typography>
-                    <Chip size="sm" color="warning" variant="soft" sx={{ mt: 1 }}>
-                      {stats.qualified} calificados
-                    </Chip>
-                  </Box>
-                  <AssignmentIcon sx={{ fontSize: 48, color: 'warning.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">En Proceso</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.inProgress}
+                  </p>
+                  <Badge variant="warning" className="mt-2">
+                    {stats.qualified} calificados
+                  </Badge>
+                </div>
+                <ClipboardText className="size-10 shrink-0 text-warning/40" weight="fill" aria-hidden />
+              </div>
+            </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Valor Total
-                    </Typography>
-                    <Typography level="h2">${(stats.totalValue / 1000).toFixed(1)}K</Typography>
-                    <Chip size="sm" color="success" variant="soft" sx={{ mt: 1 }}>
-                      {stats.won} ganados
-                    </Chip>
-                  </Box>
-                  <MoneyIcon sx={{ fontSize: 48, color: 'success.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Valor Total</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    ${(stats.totalValue / 1000).toFixed(1)}K
+                  </p>
+                  <Badge variant="success" className="mt-2">
+                    {stats.won} ganados
+                  </Badge>
+                </div>
+                <CurrencyDollar className="size-10 shrink-0 text-success/40" weight="fill" aria-hidden />
+              </div>
+            </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Score Promedio
-                    </Typography>
-                    <Typography level="h2">{stats.avgScore}%</Typography>
-                    <Chip size="sm" color="primary" variant="soft" sx={{ mt: 1 }}>
-                      {stats.conversionRate.toFixed(1)}% conversión
-                    </Chip>
-                  </Box>
-                  <TrendingUpIcon sx={{ fontSize: 48, color: 'primary.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Score Promedio</p>
+                  <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                    {stats.avgScore}%
+                  </p>
+                  <Badge variant="primary" className="mt-2">
+                    {stats.conversionRate.toFixed(1)}% conversión
+                  </Badge>
+                </div>
+                <TrendUp className="size-10 shrink-0 text-primary/30" weight="fill" aria-hidden />
+              </div>
+            </div>
+          </div>
 
-        {/* Filters */}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <Input
-                placeholder="Buscar por nombre, email, empresa, teléfono..."
-                startDecorator={<SearchIcon />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ flexGrow: 1 }}
-              />
-              <Select
-                value={statusFilter}
-                onChange={(_, value) => setStatusFilter(value as string)}
-                startDecorator={<FilterIcon />}
-                sx={{ minWidth: 180 }}
-              >
-                <Option value="all">Todos los estados</Option>
-                <Option value="new">Nuevo</Option>
-                <Option value="contacted">Contactado</Option>
-                <Option value="qualified">Calificado</Option>
-                <Option value="proposal">Propuesta</Option>
-                <Option value="negotiation">Negociación</Option>
-                <Option value="won">Ganado</Option>
-                <Option value="lost">Perdido</Option>
+          {/* Filters */}
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="flex-1">
+                <Input
+                  placeholder="Buscar por nombre, email, empresa, teléfono..."
+                  aria-label="Buscar leads"
+                  leftIcon={<MagnifyingGlass aria-hidden />}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value)}>
+                <SelectTrigger aria-label="Filtrar por estado" className="h-11 md:w-[200px]">
+                  <FunnelSimple className="size-4 shrink-0 opacity-60" aria-hidden />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="new">Nuevo</SelectItem>
+                  <SelectItem value="contacted">Contactado</SelectItem>
+                  <SelectItem value="qualified">Calificado</SelectItem>
+                  <SelectItem value="proposal">Propuesta</SelectItem>
+                  <SelectItem value="negotiation">Negociación</SelectItem>
+                  <SelectItem value="won">Ganado</SelectItem>
+                  <SelectItem value="lost">Perdido</SelectItem>
+                </SelectContent>
               </Select>
-              <Select
-                value={sourceFilter}
-                onChange={(_, value) => setSourceFilter(value as string)}
-                sx={{ minWidth: 180 }}
-              >
-                <Option value="all">Todas las fuentes</Option>
-                <Option value="website">Website</Option>
-                <Option value="referral">Referido</Option>
-                <Option value="social">Redes Sociales</Option>
-                <Option value="event">Evento</Option>
-                <Option value="linkedin">LinkedIn</Option>
-                <Option value="google">Google</Option>
+              <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(value)}>
+                <SelectTrigger aria-label="Filtrar por fuente" className="h-11 md:w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las fuentes</SelectItem>
+                  <SelectItem value="website">Website</SelectItem>
+                  <SelectItem value="referral">Referido</SelectItem>
+                  <SelectItem value="social">Redes Sociales</SelectItem>
+                  <SelectItem value="event">Evento</SelectItem>
+                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                  <SelectItem value="google">Google</SelectItem>
+                </SelectContent>
               </Select>
-            </Stack>
-          </CardContent>
-        </Card>
+            </div>
+          </div>
 
-        {/* Leads Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
-              <thead>
-                <tr>
-                  <th style={{ width: 250 }}>Lead</th>
-                  <th style={{ width: 180 }}>Empresa</th>
-                  <th style={{ width: 120 }}>Fuente</th>
-                  <th style={{ width: 130 }}>Estado</th>
-                  <th style={{ width: 150 }}>Score</th>
-                  <th style={{ width: 100 }}>Valor</th>
-                  <th style={{ width: 200 }}>Tags</th>
-                  <th style={{ width: 150 }}>Asignado</th>
-                  <th style={{ width: 120 }}>Próximo</th>
-                  <th style={{ width: 200 }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLeads.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron leads</Typography>
-                    </td>
+          {/* Leads Table */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1240px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {columns.map((c, i) => (
+                      <th
+                        key={i}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
+                    ))}
                   </tr>
-                ) : (
-                  filteredLeads.map((lead) => (
-                    <tr key={lead.id}>
-                      <td>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
-                          <Avatar size="sm">
-                            {lead.name
-                              .split(' ')
-                              .map((n) => n[0])
-                              .join('')}
-                          </Avatar>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="bold">
-                              {lead.name}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {lead.email}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {lead.phone}
-                            </Typography>
-                          </Box>
-                        </Stack>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{lead.company || '-'}</Typography>
-                        {lead.position && (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {lead.position}
-                          </Typography>
-                        )}
-                      </td>
-                      <td>
-                        <Chip size="sm" variant="soft">
-                          {lead.source}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusConfig(lead.status).color as any}
-                          variant="soft"
-                        >
-                          {getStatusConfig(lead.status).label}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Box>
-                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                            <Typography level="body-sm" fontWeight="bold">
-                              {lead.score}%
-                            </Typography>
-                            {lead.score >= 80 && (
-                              <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
-                            )}
-                          </Stack>
-                          <LinearProgress
-                            determinate
-                            value={lead.score}
-                            color={getScoreColor(lead.score)}
-                            sx={{ height: 6 }}
-                          />
-                        </Box>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          ${(lead.value / 1000).toFixed(1)}K
-                        </Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                          {lead.tags.slice(0, 3).map((tag, idx) => (
-                            <Chip
-                              key={idx}
-                              size="sm"
-                              variant="outlined"
-                              color={
-                                tag === 'hot'
-                                  ? 'danger'
-                                  : tag === 'warm'
-                                    ? 'warning'
-                                    : 'neutral'
-                              }
-                            >
-                              {tag}
-                            </Chip>
-                          ))}
-                          {lead.tags.length > 3 && (
-                            <Chip size="sm" variant="soft">
-                              +{lead.tags.length - 3}
-                            </Chip>
-                          )}
-                        </Stack>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{lead.assignedTo || '-'}</Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {lead.nextFollowUp
-                            ? new Date(lead.nextFollowUp).toLocaleDateString('es-ES')
-                            : '-'}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <Tooltip title="Enviar email">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="primary"
-                              onClick={() => handleEmail(lead)}
-                            >
-                              <EmailIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="WhatsApp">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="success"
-                              onClick={() => handleWhatsApp(lead)}
-                            >
-                              <WhatsAppIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Llamar">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="neutral"
-                              onClick={() => handleCall(lead)}
-                            >
-                              <PhoneIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Editar">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="neutral"
-                              onClick={() => openEditModal(lead)}
-                            >
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Eliminar">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="danger"
-                              onClick={() => handleDelete(lead.id)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </Stack>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredLeads.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                        No se encontraron leads
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+                  ) : (
+                    filteredLeads.map((lead) => {
+                      const status = getStatusConfig(lead.status)
+                      return (
+                        <tr key={lead.id} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <Avatar name={lead.name} size="sm" />
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold text-foreground">{lead.name}</p>
+                                <p className="truncate text-xs text-muted-foreground">{lead.email}</p>
+                                <p className="truncate text-xs text-muted-foreground">{lead.phone}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="text-foreground">{lead.company || '-'}</p>
+                            {lead.position && (
+                              <p className="text-xs text-muted-foreground">{lead.position}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="neutral">{lead.source}</Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={status.variant}>{status.label}</Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="min-w-[110px]">
+                              <div className="mb-1 flex items-center gap-1.5">
+                                <span className="font-semibold tabular-nums text-foreground">
+                                  {lead.score}%
+                                </span>
+                                {lead.score >= 80 && (
+                                  <Star className="size-4 text-warning-text" weight="fill" aria-hidden />
+                                )}
+                              </div>
+                              <LinearProgress
+                                determinate
+                                value={lead.score}
+                                color={getScoreColor(lead.score)}
+                                sx={{ height: 6 }}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-semibold tabular-nums text-foreground">
+                              ${(lead.value / 1000).toFixed(1)}K
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {lead.tags.slice(0, 3).map((tag, idx) => (
+                                <Badge key={idx} variant={getTagVariant(tag)}>
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {lead.tags.length > 3 && (
+                                <Badge variant="neutral">+{lead.tags.length - 3}</Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                            {lead.assignedTo || '-'}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {lead.nextFollowUp
+                              ? new Date(lead.nextFollowUp).toLocaleDateString('es-ES')
+                              : '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-0.5">
+                              <Tooltip title="Enviar email">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  aria-label={`Enviar email a ${lead.name}`}
+                                  onClick={() => handleEmail(lead)}
+                                >
+                                  <EnvelopeSimple className="size-[18px]" aria-hidden />
+                                </Button>
+                              </Tooltip>
+                              <Tooltip title="WhatsApp">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 text-wa hover:text-wa"
+                                  aria-label={`Enviar WhatsApp a ${lead.name}`}
+                                  onClick={() => handleWhatsApp(lead)}
+                                >
+                                  <WhatsappLogo className="size-[18px]" weight="fill" aria-hidden />
+                                </Button>
+                              </Tooltip>
+                              <Tooltip title="Llamar">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  aria-label={`Llamar a ${lead.name}`}
+                                  onClick={() => handleCall(lead)}
+                                >
+                                  <Phone className="size-[18px]" aria-hidden />
+                                </Button>
+                              </Tooltip>
+                              <Tooltip title="Editar">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  aria-label={`Editar ${lead.name}`}
+                                  onClick={() => openEditModal(lead)}
+                                >
+                                  <PencilSimple className="size-[18px]" aria-hidden />
+                                </Button>
+                              </Tooltip>
+                              <Tooltip title="Eliminar">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 hover:bg-destructive/10 hover:text-destructive-text"
+                                  aria-label={`Eliminar ${lead.name}`}
+                                  onClick={() => handleDelete(lead.id)}
+                                >
+                                  <Trash className="size-[18px]" aria-hidden />
+                                </Button>
+                              </Tooltip>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
         {/* Create/Edit Lead Modal */}
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ minWidth: 600, maxHeight: '90vh', overflow: 'auto' }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              {editingLead ? 'Editar Lead' : 'Nuevo Lead'}
-            </Typography>
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>Nombre Completo *</FormLabel>
+        <Dialog open={openModal} onOpenChange={setOpenModal}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{editingLead ? 'Editar Lead' : 'Nuevo Lead'}</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="lead-name">Nombre Completo *</Label>
                 <Input
+                  id="lead-name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Ej: María García"
                 />
-              </FormControl>
+              </div>
 
-              <Grid container spacing={2}>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Email *</FormLabel>
-                    <Input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      placeholder="email@empresa.com"
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Teléfono *</FormLabel>
-                    <Input
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="+34 612 345 678"
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-email">Email *</Label>
+                  <Input
+                    id="lead-email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    placeholder="email@empresa.com"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-phone">Teléfono *</Label>
+                  <Input
+                    id="lead-phone"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    placeholder="+34 612 345 678"
+                  />
+                </div>
+              </div>
 
-              <Grid container spacing={2}>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Empresa</FormLabel>
-                    <Input
-                      value={formData.company}
-                      onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                      placeholder="Nombre de la empresa"
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Cargo</FormLabel>
-                    <Input
-                      value={formData.position}
-                      onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                      placeholder="CEO, Director, etc."
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-company">Empresa</Label>
+                  <Input
+                    id="lead-company"
+                    value={formData.company}
+                    onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                    placeholder="Nombre de la empresa"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-position">Cargo</Label>
+                  <Input
+                    id="lead-position"
+                    value={formData.position}
+                    onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                    placeholder="CEO, Director, etc."
+                  />
+                </div>
+              </div>
 
-              <Divider />
+              <div className="border-t border-border" />
 
-              <Grid container spacing={2}>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Fuente</FormLabel>
-                    <Select
-                      value={formData.source}
-                      onChange={(_, value) => setFormData({ ...formData, source: value as string })}
-                    >
-                      <Option value="website">Website</Option>
-                      <Option value="referral">Referido</Option>
-                      <Option value="social">Redes Sociales</Option>
-                      <Option value="event">Evento</Option>
-                      <Option value="linkedin">LinkedIn</Option>
-                      <Option value="google">Google</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Estado</FormLabel>
-                    <Select
-                      value={formData.status}
-                      onChange={(_, value) => setFormData({ ...formData, status: value as any })}
-                    >
-                      <Option value="new">Nuevo</Option>
-                      <Option value="contacted">Contactado</Option>
-                      <Option value="qualified">Calificado</Option>
-                      <Option value="proposal">Propuesta</Option>
-                      <Option value="negotiation">Negociación</Option>
-                      <Option value="won">Ganado</Option>
-                      <Option value="lost">Perdido</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-source">Fuente</Label>
+                  <Select
+                    value={formData.source}
+                    onValueChange={(value) => setFormData({ ...formData, source: value })}
+                  >
+                    <SelectTrigger id="lead-source" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="website">Website</SelectItem>
+                      <SelectItem value="referral">Referido</SelectItem>
+                      <SelectItem value="social">Redes Sociales</SelectItem>
+                      <SelectItem value="event">Evento</SelectItem>
+                      <SelectItem value="linkedin">LinkedIn</SelectItem>
+                      <SelectItem value="google">Google</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-status">Estado</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(value) => setFormData({ ...formData, status: value as Lead['status'] })}
+                  >
+                    <SelectTrigger id="lead-status" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new">Nuevo</SelectItem>
+                      <SelectItem value="contacted">Contactado</SelectItem>
+                      <SelectItem value="qualified">Calificado</SelectItem>
+                      <SelectItem value="proposal">Propuesta</SelectItem>
+                      <SelectItem value="negotiation">Negociación</SelectItem>
+                      <SelectItem value="won">Ganado</SelectItem>
+                      <SelectItem value="lost">Perdido</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
-              <Grid container spacing={2}>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Score (0-100)</FormLabel>
-                    <Input
-                      type="number"
-                      value={formData.score}
-                      onChange={(e) =>
-                        setFormData({ ...formData, score: parseInt(e.target.value) || 0 })
-                      }
-                      slotProps={{ input: { min: 0, max: 100 } }}
-                    />
-                    <LinearProgress
-                      determinate
-                      value={formData.score || 0}
-                      color={getScoreColor(formData.score || 0)}
-                      sx={{ height: 8, mt: 1 }}
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} sm={6}>
-                  <FormControl>
-                    <FormLabel>Valor Estimado ($)</FormLabel>
-                    <Input
-                      type="number"
-                      value={formData.value}
-                      onChange={(e) =>
-                        setFormData({ ...formData, value: parseInt(e.target.value) || 0 })
-                      }
-                      placeholder="15000"
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-score">Score (0-100)</Label>
+                  <Input
+                    id="lead-score"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={formData.score}
+                    onChange={(e) =>
+                      setFormData({ ...formData, score: parseInt(e.target.value) || 0 })
+                    }
+                  />
+                  <LinearProgress
+                    determinate
+                    value={formData.score || 0}
+                    color={getScoreColor(formData.score || 0)}
+                    sx={{ height: 8, mt: 1 }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="lead-value">Valor Estimado ($)</Label>
+                  <Input
+                    id="lead-value"
+                    type="number"
+                    value={formData.value}
+                    onChange={(e) =>
+                      setFormData({ ...formData, value: parseInt(e.target.value) || 0 })
+                    }
+                    placeholder="15000"
+                  />
+                </div>
+              </div>
 
-              <FormControl>
-                <FormLabel>Notas</FormLabel>
-                <Textarea
+              <div className="space-y-1.5">
+                <Label htmlFor="lead-notes">Notas</Label>
+                <textarea
+                  id="lead-notes"
+                  rows={3}
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  minRows={3}
                   placeholder="Notas sobre el lead, intereses, próximos pasos..."
+                  className={textareaClass}
                 />
-              </FormControl>
+              </div>
 
-              <Divider />
+              <div className="border-t border-border" />
+            </div>
 
-              <Stack direction="row" spacing={2} justifyContent="flex-end">
-                <Button variant="outlined" color="neutral" onClick={() => setOpenModal(false)}>
-                  Cancelar
-                </Button>
-                <Button color="primary" onClick={handleSubmit}>
-                  {editingLead ? 'Guardar Cambios' : 'Crear Lead'}
-                </Button>
-              </Stack>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={handleSubmit}>
+                {editingLead ? 'Guardar Cambios' : 'Crear Lead'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   )
 }

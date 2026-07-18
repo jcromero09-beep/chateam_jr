@@ -40,6 +40,9 @@ class ReminderTemplate extends Model<ReminderTemplate> {
   message: string; // Legacy column (NOT NULL en BD) — se replica desde messageConfirm
 
   @Column(DataType.TEXT)
+  messageCreated: string; // Mensaje inmediato cuando la cita fue creada
+
+  @Column(DataType.TEXT)
   messageConfirm: string; // Mensaje para pedir confirmación (ej: "¿Vienes a tu cita?")
 
   @Column(DataType.TEXT)

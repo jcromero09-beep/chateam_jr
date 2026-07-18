@@ -4,7 +4,8 @@
  * Intenta recuperar un mensaje que llegó como CIPHERTEXT (no descifrado).
  * - Busca en el store interno de Baileys (msgDB) si ya tiene la versión descifrada
  * - Si la encuentra, actualiza el registro en BD y notifica al frontend
- * - Si no, envía un readReceipt al remitente para forzar un reintento del protocolo Signal
+ * - Si no, conserva el placeholder: el retry Signal lo dispara Baileys al recibir
+ *   el stub CIPHERTEXT original; readMessages no es un retry receipt.
  *
  * Reglas de throttle (controladas desde el frontend):
  * - El botón se habilita después de 1 minuto desde la creación del mensaje
@@ -16,7 +17,7 @@ import Whatsapp from "../../models/Whatsapp";
 import { getWbot } from "../../libs/wbot";
 import { msgDB } from "../../libs/wbot";
 import { getIO } from "../../libs/socket";
-import { getContentType } from "@whiskeysockets/baileys";
+import { getContentType } from "baileys";
 import AppError from "../../errors/AppError";
 import logger from "../../utils/logger";
 
@@ -83,9 +84,8 @@ const RetryDecryptMessageService = async ({
   }
 
   // 3. Obtener el wbot
-  let wbot: any;
   try {
-    wbot = getWbot(whatsappId);
+    getWbot(whatsappId);
   } catch (err) {
     return { success: false, decrypted: false, message: "Conexión WhatsApp no inicializada" };
   }
@@ -128,32 +128,19 @@ const RetryDecryptMessageService = async ({
     logger.warn(`[RetryDecrypt] No se pudo leer del store: ${storeErr}`);
   }
 
-  // 5. Si no está en el store, enviar readReceipt para forzar reintento del protocolo
-  try {
-    const msgKey = {
-      remoteJid: remoteJid,
-      id: wid,
-      fromMe: msg.fromMe || false
-    };
+  // 5. Si no está en el store, no hay una API pública segura para reconstruir
+  // el BinaryNode original y volver a invocar sendRetryRequest. Baileys ya envía
+  // retry receipts nativos cuando falla el descifrado; aquí solo evitamos dar una
+  // falsa señal de recuperación marcando el mensaje como leído.
+  logger.info(
+    `[RetryDecrypt] Mensaje ${messageId} sigue como CIPHERTEXT; esperando retry nativo de Baileys wid=${wid} remoteJid=${remoteJid} whatsappId=${whatsappId}`
+  );
 
-    if (typeof wbot.readMessages === "function") {
-      await wbot.readMessages([msgKey]);
-      logger.info(`[RetryDecrypt] readMessages enviado para wid ${wid}, esperando reintento del protocolo Signal`);
-    }
-
-    return {
-      success: true,
-      decrypted: false,
-      message: "Solicitud de reintento enviada. El mensaje se actualizará automáticamente cuando se descifre."
-    };
-  } catch (retryErr: any) {
-    logger.error(`[RetryDecrypt] Error enviando retry para ${wid}: ${retryErr.message}`);
-    return {
-      success: false,
-      decrypted: false,
-      message: "No se pudo solicitar el reintento. Intenta de nuevo más tarde."
-    };
-  }
+  return {
+    success: true,
+    decrypted: false,
+    message: "El mensaje aún no llegó descifrado. Baileys mantiene la recuperación nativa; se actualizará automáticamente si el remitente reenvía el contenido."
+  };
 };
 
 /**

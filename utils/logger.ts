@@ -1,5 +1,6 @@
 import pino from 'pino';
 import moment from 'moment-timezone';
+import { sanitizeValue } from './redact';
 
 // Função para obter o timestamp com fuso horário
 const timezoned = () => {
@@ -7,6 +8,15 @@ const timezoned = () => {
 };
 
 const logger = pino({
+  // [Auditoría · Ola 1] Defensa en profundidad: cada argumento logueado pasa por
+  // sanitizeValue → enmascara tokens/secretos/PII (emails, teléfonos) aunque el
+  // sitio de origen no lo haya hecho. NO reemplaza el arreglo puntual de cada sitio.
+  hooks: {
+    logMethod(inputArgs: any[], method: any) {
+      const safe = inputArgs.map((a) => sanitizeValue(a));
+      return method.apply(this, safe as any);
+    },
+  },
   transport: {
     target: 'pino-pretty',
     options: {

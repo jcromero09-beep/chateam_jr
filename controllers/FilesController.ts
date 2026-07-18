@@ -2,7 +2,8 @@ import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
 
 import AppError from "../errors/AppError";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 
 import CreateService from "../services/FileServices/CreateService";
 import ListService from "../services/FileServices/ListService";

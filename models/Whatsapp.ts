@@ -20,6 +20,7 @@ import Ticket from "./Ticket";
 import WhatsappQueue from "./WhatsappQueue";
 import Company from "./Company";
 import QueueIntegrations from "./QueueIntegrations";
+import { encryptSecret, decryptSecret } from "../helpers/secretCrypto"; // [Fase2·A3.1]
 import Prompt from "./Prompt";
 import { FlowBuilderModel } from "./FlowBuilder";
 
@@ -129,8 +130,32 @@ class Whatsapp extends Model<Whatsapp> {
   @Column(DataType.STRING)
   facebookBusinessId: string;
 
-  @Column(DataType.TEXT)
+  // [Fase2·A3.1] Cifrado transparente en reposo (aes-256-gcm). El getter descifra
+  // (passthrough si es texto plano legacy), el setter cifra. Ver helpers/secretCrypto.ts
+  @Column({
+    type: DataType.TEXT,
+    get(this: Whatsapp) {
+      return decryptSecret(this.getDataValue("tokenMeta"));
+    },
+    set(this: Whatsapp, value: string) {
+      this.setDataValue("tokenMeta", encryptSecret(value) as any);
+    }
+  })
   tokenMeta: string;
+
+  // [Fase2·A3.2] Expiración real del tokenMeta (de debug_token de Meta). Alerta a 7 días.
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  tokenMetaExpiresAt: Date;
+
+  // Comentarios FB/IG — Page Access Token e IG Business Account
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  pageAccessToken: string;
+
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  instagramBusinessAccountId: string;
 
   @Column(DataType.TEXT)
   channel: string;
@@ -167,6 +192,30 @@ class Whatsapp extends Model<Whatsapp> {
 
   @Column(DataType.STRING)
   ratingMessage: string;
+
+  /**
+   * Override por conexión del switch global Settings.userRating.
+   * null = heredar de Settings | true = forzar activo | false = forzar inactivo.
+   */
+  @Column(DataType.BOOLEAN)
+  npsEnabled: boolean | null;
+
+  /**
+   * Override por conexión del switch global Settings.acceptAudioMessageContact.
+   * null = heredar de Settings | true = aceptar audios | false = rechazar.
+   */
+  @Column(DataType.BOOLEAN)
+  acceptAudio: boolean | null;
+
+  /** Mensaje al cliente cuando se rechaza una llamada entrante. */
+  @Default("")
+  @Column(DataType.TEXT)
+  callRejectMessage: string;
+
+  /** Mensaje al cliente cuando la conexión no acepta audios. */
+  @Default("")
+  @Column(DataType.TEXT)
+  rejectAudioMessage: string;
 
   @Column(DataType.INTEGER)
   maxUseBotQueuesNPS: number;
@@ -352,8 +401,11 @@ class Whatsapp extends Model<Whatsapp> {
   @Column(DataType.STRING(20))
   receiveChannel: string;
 
+  // Default "meta": cuando hay coexistencia, Meta Cloud API es el canal
+  // principal de envío (UI y runtime coinciden). En conexiones SIN
+  // coexistencia este valor es ignorado por OutboundRoutingService.
   @AllowNull(true)
-  @Default("baileys")
+  @Default("meta")
   @Column(DataType.STRING(20))
   sendChannel: string;
 

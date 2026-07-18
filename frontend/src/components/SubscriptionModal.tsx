@@ -58,6 +58,7 @@ interface Plan {
   stripePriceId?: string
   description?: string[]
   recurrence?: string
+  allowRecurringPayments?: boolean
 }
 
 interface SubscriptionModalProps {
@@ -118,6 +119,7 @@ export default function SubscriptionModal({ open, onClose, invoice }: Subscripti
           queues: plan.queues,
           stripePriceId: plan.stripePriceId,
           recurrence: plan.recurrence,
+          allowRecurringPayments: plan.allowRecurringPayments ?? false,
           description: [
             `${plan.users} Usuarios`,
             `${plan.connections} Conexiones`,
@@ -171,9 +173,6 @@ export default function SubscriptionModal({ open, onClose, invoice }: Subscripti
 
     setLoading(true)
     try {
-      const isRecurrent = selectedPlan.recurrence?.toUpperCase() === 'MENSAL' ||
-                          selectedPlan.recurrence?.toUpperCase() === 'ANUAL'
-
       const { data } = await api.post('/subscription', {
         firstName: user?.name || '',
         price: selectedPlan.price.toString(),
@@ -186,7 +185,6 @@ export default function SubscriptionModal({ open, onClose, invoice }: Subscripti
         country: '',
         plan: JSON.stringify(selectedPlan),
         invoiceId: invoice.id,
-        isRecurrent: isRecurrent,
       })
 
       if (data.stripeURL) {
@@ -406,7 +404,7 @@ export default function SubscriptionModal({ open, onClose, invoice }: Subscripti
                 <Box>
                   <Typography level="title-lg">Tarjeta de Crédito/Débito</Typography>
                   <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Visa, Mastercard, American Express
+                    {selectedPlan?.allowRecurringPayments ? 'Suscripción automática' : 'Pago único con tarjeta'}
                   </Typography>
                 </Box>
               </Stack>
@@ -440,7 +438,7 @@ export default function SubscriptionModal({ open, onClose, invoice }: Subscripti
                 <Box>
                   <Typography level="title-lg">PayPal</Typography>
                   <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Paga de forma segura con PayPal
+                    {selectedPlan?.allowRecurringPayments ? 'Suscripción automática con PayPal' : 'Pago único con PayPal'}
                   </Typography>
                 </Box>
               </Stack>

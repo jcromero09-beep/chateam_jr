@@ -27,6 +27,7 @@ interface PlanData {
   isPublic?: boolean;
   useMarketing?: boolean;
   useLeads?: boolean;
+  allowRecurringPayments?: boolean;
 }
 
 const CreatePlanService = async (planData: PlanData): Promise<Plan> => {

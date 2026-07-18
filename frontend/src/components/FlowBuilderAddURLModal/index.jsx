@@ -1,137 +1,143 @@
 import React, { useState } from "react";
-import { makeStyles } from "@material-ui/core/styles";
-import Button from "@material-ui/core/Button";
-import TextField from "@material-ui/core/TextField";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import Typography from "@material-ui/core/Typography";
-import IconButton from "@material-ui/core/IconButton";
-import Grid from "@material-ui/core/Grid";
-import CloseIcon from "@material-ui/icons/Close";
-import LinkOutlinedIcon from "@material-ui/icons/LinkOutlined";
-import CloudUploadOutlinedIcon from "@material-ui/icons/CloudUploadOutlined";
+import { styled } from "@mui/material/styles";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import GridLegacy from "@mui/material/GridLegacy";
+import CloseIcon from "@mui/icons-material/Close";
+import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 
-const useStyles = makeStyles(theme => ({
-  dialog: {
-    "& .MuiDialog-paper": {
-      borderRadius: 16,
-      overflow: "hidden",
-      maxWidth: 520,
-    },
+const StyledDialog = styled(Dialog)({
+  "& .MuiDialog-paper": {
+    borderRadius: 16,
+    overflow: "hidden",
+    maxWidth: 520,
   },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 24px 12px",
-  },
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    "& svg": { fontSize: 22 },
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#fff" : "#1a1a2e",
-    lineHeight: 1.3,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#aaa" : "#888",
-    marginTop: 2,
-  },
-  closeBtn: {
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
-    padding: 8,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
-    },
-  },
-  content: {
-    padding: "16px 24px 20px",
-  },
-  textField: {
-    "& .MuiOutlinedInput-root": {
-      borderRadius: 10,
-      fontSize: 14,
-      "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: "#667eea",
-      },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-        borderColor: "#667eea",
-      },
-    },
-    "& .MuiInputLabel-root.Mui-focused": {
-      color: "#667eea",
-    },
-  },
-  uploadBtn: {
-    borderRadius: 10,
-    padding: "10px 20px",
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: 14,
-    background: theme.palette.type === "dark" ? "rgba(102,126,234,0.15)" : "rgba(102,126,234,0.08)",
-    color: "#667eea",
-    border: `1px dashed #667eea`,
-    width: "100%",
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(102,126,234,0.25)" : "rgba(102,126,234,0.12)",
-    },
-  },
-  inputFile: {
-    display: "none",
-  },
-  actions: {
-    padding: "12px 24px 20px",
-    display: "flex",
-    gap: 10,
-    justifyContent: "flex-end",
-    borderTop: "none",
-  },
-  cancelBtn: {
-    borderRadius: 10,
-    padding: "8px 20px",
-    textTransform: "none",
-    fontWeight: 500,
-    fontSize: 14,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#d0d5dd"}`,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
-    },
-  },
-  saveBtn: {
-    borderRadius: 10,
-    padding: "8px 24px",
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: 14,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(102,126,234,0.3)",
-    "&:hover": {
-      background: "linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)",
-      boxShadow: "0 4px 12px rgba(102,126,234,0.4)",
-    },
+});
+
+const Header = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "20px 24px 12px",
+});
+
+const HeaderLeft = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+});
+
+const HeaderIcon = styled("div")({
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#fff",
+  "& svg": { fontSize: 22 },
+});
+
+const HeaderTitle = styled(Typography)(({ theme }) => ({
+  fontSize: 18,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#fff" : "#1a1a2e",
+  lineHeight: 1.3,
+}));
+
+const HeaderSubtitle = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#888",
+  marginTop: 2,
+}));
+
+const CloseBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
+  padding: 8,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
   },
 }));
 
+const Content = styled(DialogContent)({
+  padding: "16px 24px 20px",
+});
+
+const StyledTextField = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 10,
+    fontSize: 14,
+    "&:hover .MuiOutlinedInput-notchedOutline": {
+      borderColor: "#667eea",
+    },
+    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+      borderColor: "#667eea",
+    },
+  },
+  "& .MuiInputLabel-root.Mui-focused": {
+    color: "#667eea",
+  },
+});
+
+const UploadBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "10px 20px",
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: 14,
+  background: theme.palette.mode === "dark" ? "rgba(102,126,234,0.15)" : "rgba(102,126,234,0.08)",
+  color: "#667eea",
+  border: `1px dashed #667eea`,
+  width: "100%",
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(102,126,234,0.25)" : "rgba(102,126,234,0.12)",
+  },
+}));
+
+const Actions = styled(DialogActions)({
+  padding: "12px 24px 20px",
+  display: "flex",
+  gap: 10,
+  justifyContent: "flex-end",
+  borderTop: "none",
+});
+
+const CancelBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 20px",
+  textTransform: "none",
+  fontWeight: 500,
+  fontSize: 14,
+  color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+  border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#d0d5dd"}`,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
+  },
+}));
+
+const SaveBtn = styled(Button)({
+  borderRadius: 10,
+  padding: "8px 24px",
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: 14,
+  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  color: "#fff",
+  boxShadow: "0 2px 8px rgba(102,126,234,0.3)",
+  "&:hover": {
+    background: "linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)",
+    boxShadow: "0 4px 12px rgba(102,126,234,0.4)",
+  },
+});
+
 const FlowBuilderAddURLModal = ({ open, close, onSave, data }) => {
-  const classes = useStyles();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [buttonText, setButtonText] = useState("");
@@ -166,62 +172,59 @@ const FlowBuilderAddURLModal = ({ open, close, onSave, data }) => {
   };
 
   return (
-    <Dialog
+    <StyledDialog
       open={open}
       onClose={handleClose}
-      className={classes.dialog}
       fullWidth
       maxWidth="sm"
     >
       {/* Header */}
-      <div className={classes.header}>
-        <div className={classes.headerLeft}>
-          <div className={classes.headerIcon}>
+      <Header>
+        <HeaderLeft>
+          <HeaderIcon>
             <LinkOutlinedIcon />
-          </div>
+          </HeaderIcon>
           <div>
-            <Typography className={classes.headerTitle}>Configurar URL</Typography>
-            <Typography className={classes.headerSubtitle}>Configura el enlace y su apariencia</Typography>
+            <HeaderTitle>Configurar URL</HeaderTitle>
+            <HeaderSubtitle>Configura el enlace y su apariencia</HeaderSubtitle>
           </div>
-        </div>
-        <IconButton className={classes.closeBtn} onClick={handleClose} size="small">
+        </HeaderLeft>
+        <CloseBtn onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
-        </IconButton>
-      </div>
+        </CloseBtn>
+      </Header>
 
       {/* Content */}
-      <DialogContent className={classes.content}>
-        <Grid container spacing={2}>
-          <Grid item xs={12}>
+      <Content>
+        <GridLegacy container spacing={2}>
+          <GridLegacy item xs={12}>
             <input
               accept="image/*"
-              className={classes.inputFile}
+              style={{ display: "none" }}
               id="url-image-input"
               type="file"
               onChange={handleImageChange}
             />
             <label htmlFor="url-image-input">
-              <Button
-                className={classes.uploadBtn}
+              <UploadBtn
                 component="span"
                 startIcon={<CloudUploadOutlinedIcon />}
               >
                 {imageBase64 ? "Imagen seleccionada" : "Subir imagen"}
-              </Button>
+              </UploadBtn>
             </label>
-          </Grid>
-          <Grid item xs={12}>
-            <TextField
+          </GridLegacy>
+          <GridLegacy item xs={12}>
+            <StyledTextField
               fullWidth
               label="Título"
               variant="outlined"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className={classes.textField}
             />
-          </Grid>
-          <Grid item xs={12}>
-            <TextField
+          </GridLegacy>
+          <GridLegacy item xs={12}>
+            <StyledTextField
               fullWidth
               label="Descripción"
               variant="outlined"
@@ -229,42 +232,39 @@ const FlowBuilderAddURLModal = ({ open, close, onSave, data }) => {
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className={classes.textField}
             />
-          </Grid>
-          <Grid item xs={12}>
-            <TextField
+          </GridLegacy>
+          <GridLegacy item xs={12}>
+            <StyledTextField
               fullWidth
               label="Texto del botón"
               variant="outlined"
               value={buttonText}
               onChange={(e) => setButtonText(e.target.value)}
-              className={classes.textField}
             />
-          </Grid>
-          <Grid item xs={12}>
-            <TextField
+          </GridLegacy>
+          <GridLegacy item xs={12}>
+            <StyledTextField
               fullWidth
               label="URL"
               variant="outlined"
               value={sendURL}
               onChange={(e) => setSendURL(e.target.value)}
-              className={classes.textField}
             />
-          </Grid>
-        </Grid>
-      </DialogContent>
+          </GridLegacy>
+        </GridLegacy>
+      </Content>
 
       {/* Actions */}
-      <DialogActions className={classes.actions}>
-        <Button className={classes.cancelBtn} onClick={handleClose}>
+      <Actions>
+        <CancelBtn onClick={handleClose}>
           Cancelar
-        </Button>
-        <Button className={classes.saveBtn} onClick={handleSave}>
+        </CancelBtn>
+        <SaveBtn onClick={handleSave}>
           Confirmar
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </SaveBtn>
+      </Actions>
+    </StyledDialog>
   );
 };
 

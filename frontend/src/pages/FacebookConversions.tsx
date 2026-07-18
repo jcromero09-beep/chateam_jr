@@ -1,52 +1,53 @@
 import { useState, useEffect, useMemo } from 'react'
+// [migración G] LinearProgress se conserva como MUI (no hay equivalente en el DS).
+import { LinearProgress } from '@mui/joy'
 import {
-    Container,
-    Typography,
-    Box,
-    Stack,
-    Card,
-    CardContent,
-    Grid,
+    FacebookLogo,
+    InstagramLogo,
+    WhatsappLogo,
+    CheckCircle,
+    XCircle,
+    Clock,
+    ArrowClockwise,
+    ArrowsClockwise,
+    PaperPlaneTilt,
+    TrendUp,
+    Database,
+    ClipboardText,
+    FileArrowUp,
+    UserPlus,
+    Receipt,
+    MagnifyingGlass,
+    CaretLeft,
+    CaretRight,
+    Warning,
+    ShoppingCart,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
     Select,
-    Option,
-    Chip,
-    Sheet,
-    Table,
-    Button,
-    IconButton,
-    Tooltip,
-    LinearProgress,
-    Alert,
-    Modal,
-    ModalDialog,
-    Input,
-    FormControl,
-    FormLabel,
-    Badge
-} from '@mui/joy'
+    SelectTrigger,
+    SelectValue,
+    SelectContent,
+    SelectItem,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
-    Facebook as FacebookIcon,
-    CheckCircle as CheckCircleIcon,
-    Error as ErrorIcon,
-    Pending as PendingIcon,
-    Refresh as RefreshIcon,
-    Send as SendIcon,
-    Sync as SyncIcon,
-    TrendingUp as TrendingUpIcon,
-    Storage as StorageIcon,
-    Assignment as AssignmentIcon,
-    Instagram as InstagramIcon,
-    WhatsApp as WhatsAppIcon,
-    UploadFile as UploadFileIcon,
-    PersonAdd as PersonAddIcon,
-    Receipt as ReceiptIcon,
-    Search as SearchIcon,
-    NavigateBefore as NavigateBeforeIcon,
-    NavigateNext as NavigateNextIcon,
-    Warning as WarningIcon
-} from '@mui/icons-material'
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from '@/components/ui/dialog'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { showSuccess, showError } from '../utils/showToast'
+import KanbanLeadConversions from './KanbanLeadConversions'
+import MetaSignalMonitor from '../components/MetaSignalMonitor' // [Fase2·A4.1/B6.1]
 
 interface ConversionEvent {
     id: number
@@ -87,6 +88,11 @@ interface Dataset {
     companyId: number
     whatsappId: number
     datasetId: string
+    datasetName?: string
+    datasetSource?: 'manual' | 'auto' | 'legacy' | string
+    validationStatus?: 'valid' | 'failed' | 'pending' | string
+    validationError?: string
+    validatedAt?: string
     channel: string
     channelIdentifier: string
     status: string
@@ -94,6 +100,17 @@ interface Dataset {
         name: string
         channel: string
     }
+}
+
+interface Connection {
+    id: number
+    name: string
+    channel: string
+    status?: string
+    number?: string
+    phoneNumberId?: string
+    facebookUserId?: string
+    facebookPageUserId?: string
 }
 
 interface ImportDetail {
@@ -155,15 +172,89 @@ interface CampaignMessage {
     }
 }
 
+type Tone = 'neutral' | 'primary' | 'success' | 'warning' | 'destructive'
+
+// [a11y] Texto de estado con los tokens *-text; los tokens de superficie no
+// alcanzan 4.5:1 como color de texto.
+const toneText: Record<Tone, string> = {
+    neutral: 'text-foreground',
+    primary: 'text-primary',
+    success: 'text-success-text',
+    warning: 'text-warning-text',
+    destructive: 'text-destructive-text',
+}
+
+const toneSurface: Record<Tone, string> = {
+    neutral: 'bg-muted text-muted-foreground',
+    primary: 'bg-primary/12 text-primary',
+    success: 'bg-success/14 text-success-text',
+    warning: 'bg-warning/16 text-warning-text',
+    destructive: 'bg-destructive/12 text-destructive-text',
+}
+
+/** Tarjeta de estadística con ícono (equivalente al Card+Stack del layout previo). */
+function StatCard({
+    icon,
+    value,
+    label,
+    tone = 'neutral',
+}: {
+    icon: React.ReactNode
+    value: React.ReactNode
+    label: string
+    tone?: Tone
+}) {
+    return (
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center gap-3">
+                <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-lg', toneSurface[tone])}>
+                    {icon}
+                </span>
+                <div className="min-w-0">
+                    <p className={cn('text-2xl font-semibold tracking-tight tabular-nums', toneText[tone])}>{value}</p>
+                    <p className="truncate text-sm text-muted-foreground">{label}</p>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+/** Tarjeta compacta para el resumen de importación. */
+function MiniStat({
+    value,
+    label,
+    tone = 'neutral',
+    icon,
+    className,
+}: {
+    value: React.ReactNode
+    label: string
+    tone?: Tone
+    icon?: React.ReactNode
+    className?: string
+}) {
+    return (
+        <div className={cn('rounded-lg border border-border bg-muted/40 p-3', className)}>
+            <div className="flex items-center gap-1.5">
+                {icon}
+                <span className={cn('text-xl font-semibold tabular-nums', toneText[tone])}>{value}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+        </div>
+    )
+}
+
 export default function FacebookConversions() {
     const [loading, setLoading] = useState(false)
     const [events, setEvents] = useState<ConversionEvent[]>([])
     const [stats, setStats] = useState<ConversionStats | null>(null)
     const [datasets, setDatasets] = useState<Dataset[]>([])
+    const [connections, setConnections] = useState<Connection[]>([])
     const [statusFilter, setStatusFilter] = useState('all')
     const [channelFilter, setChannelFilter] = useState('all')
     const [openTestModal, setOpenTestModal] = useState(false)
     const [syncing, setSyncing] = useState(false)
+    const [syncingConnectionId, setSyncingConnectionId] = useState<number | null>(null)
 
     // Test event form
     const [testEvent, setTestEvent] = useState({
@@ -181,6 +272,9 @@ export default function FacebookConversions() {
     // Events search & pagination
     const [eventsSearch, setEventsSearch] = useState('')
     const [eventsPage, setEventsPage] = useState(1)
+
+    // Tab activo de la Card unificada: 0 = Eventos de Conversión, 1 = Leads Kanban
+    const [activeTab, setActiveTab] = useState(0)
     const EVENTS_PER_PAGE = 15
 
     // Campaign Messages search & pagination
@@ -188,6 +282,13 @@ export default function FacebookConversions() {
     const [campaignPage, setCampaignPage] = useState(1)
     const [campaignCount, setCampaignCount] = useState(0)
     const [campaignHasMore, setCampaignHasMore] = useState(false)
+    // Filtro por estado de conversión: 'all' | 'sent' (enviadas) | 'pending' (no enviadas)
+    const [campaignStatusFilter, setCampaignStatusFilter] = useState<'all' | 'sent' | 'pending' | 'pending_no_value'>('all')
+    // Envío masivo de conversiones pendientes
+    const [sendingAllPending, setSendingAllPending] = useState(false)
+    const [sendAllModal, setSendAllModal] = useState<{ open: boolean; total: number; enviables: number; skipped: number }>({ open: false, total: 0, enviables: 0, skipped: 0 })
+    // Conteos TOTALES por filtro (de toda la BD, no de la página actual)
+    const [campaignCounts, setCampaignCounts] = useState<{ all: number; sent: number; pending: number; pending_no_value: number }>({ all: 0, sent: 0, pending: 0, pending_no_value: 0 })
 
     // Sales Import
     const [showImportModal, setShowImportModal] = useState(false)
@@ -200,6 +301,44 @@ export default function FacebookConversions() {
     const [confirmSendModal, setConfirmSendModal] = useState<{ open: boolean; msg: CampaignMessage | null; value: number }>({ open: false, msg: null, value: 0 })
     // Result notification modal
     const [resultModal, setResultModal] = useState<{ open: boolean; success: boolean; message: string }>({ open: false, success: false, message: '' })
+
+    // ============================================
+    // Tracking unificado Meta Conversions
+    // ============================================
+    type TrackableEvent = 'CompleteRegistration' | 'StartTrial' | 'Purchase' | 'Login'
+
+    interface TrackedInfo { status: string; sentAt: string | null; eventId: number }
+    type TrackedMap = Record<number, Partial<Record<TrackableEvent, TrackedInfo>>>
+
+    const [trackedEvents, setTrackedEvents] = useState<TrackedMap>({})
+    const [trackingEvent, setTrackingEvent] = useState<{ msgId: number | null; eventName: TrackableEvent | null }>({ msgId: null, eventName: null })
+    const [trackModal, setTrackModal] = useState<{ open: boolean; msg: CampaignMessage | null; eventName: TrackableEvent | null }>({ open: false, msg: null, eventName: null })
+    const [trackForm, setTrackForm] = useState<{ value: string; currency: string; contentName: string; predictedLtv: string; method: string; orderId: string }>({
+        value: '', currency: 'USD', contentName: '', predictedLtv: '', method: 'whatsapp', orderId: ''
+    })
+
+    const supportedConnections = useMemo(
+        () => connections.filter(c => ['facebook', 'instagram', 'whatsapp', 'meta'].includes((c.channel || '').toLowerCase())),
+        [connections]
+    )
+
+    const linkedDatasetRows = useMemo(() => {
+        return datasets.map(dataset => {
+            const connection = supportedConnections.find(c => c.id === dataset.whatsappId) || {
+                id: dataset.whatsappId,
+                name: dataset.whatsapp?.name || `Conexión ${dataset.whatsappId}`,
+                channel: dataset.whatsapp?.channel || dataset.channel,
+                status: dataset.status
+            }
+
+            return { connection, dataset }
+        })
+    }, [datasets, supportedConnections])
+
+    const missingDatasetConnections = useMemo(() => {
+        const linkedWhatsappIds = new Set(datasets.map(dataset => dataset.whatsappId))
+        return supportedConnections.filter(connection => !linkedWhatsappIds.has(connection.id))
+    }, [datasets, supportedConnections])
 
     // Client-side filtered + paginated events
     const filteredEvents = useMemo(() => {
@@ -223,6 +362,7 @@ export default function FacebookConversions() {
     useEffect(() => {
         fetchData()
         fetchCampaignMessages()
+        fetchCampaignCounts()
     }, [statusFilter, channelFilter])
 
     const fetchData = async () => {
@@ -251,6 +391,10 @@ export default function FacebookConversions() {
             // Fetch datasets
             const datasetsResponse = await api.get('/facebook-conversions/datasets')
             setDatasets(datasetsResponse.data.datasets || [])
+
+            // Fetch connections so a dataset can be linked before it exists.
+            const connectionsResponse = await api.get('/whatsapp')
+            setConnections(connectionsResponse.data || [])
         } catch (error) {
             console.error('Error fetching Facebook conversions data:', error)
         } finally {
@@ -258,7 +402,7 @@ export default function FacebookConversions() {
         }
     }
 
-    const fetchCampaignMessages = async (search?: string, page?: number) => {
+    const fetchCampaignMessages = async (search?: string, page?: number, status?: 'all' | 'sent' | 'pending' | 'pending_no_value') => {
         setCampaignLoading(true)
         try {
             const params: any = {
@@ -266,6 +410,8 @@ export default function FacebookConversions() {
             }
             const searchTerm = search ?? campaignSearch
             if (searchTerm.trim()) params.searchParam = searchTerm.trim()
+            const statusFilter = status ?? campaignStatusFilter
+            if (statusFilter && statusFilter !== 'all') params.conversionStatus = statusFilter
 
             const response = await api.get('/campaign-messages', { params })
             setCampaignMessages(response.data.campaignMessages || [])
@@ -278,12 +424,28 @@ export default function FacebookConversions() {
         }
     }
 
+    // Conteos TOTALES por estado (para los badges de los botones de filtro).
+    const fetchCampaignCounts = async () => {
+        try {
+            const { data } = await api.get('/campaign-messages/counts')
+            setCampaignCounts({
+                all: data.all || 0,
+                sent: data.sent || 0,
+                pending: data.pending || 0,
+                pending_no_value: data.pending_no_value || 0
+            })
+        } catch (error) {
+            console.error('Error fetching campaign counts:', error)
+        }
+    }
+
     const handleUpdateConversionNote = async (id: number, note: string) => {
         try {
             await api.put(`/campaign-messages/${id}`, { conversionNote: note })
             setCampaignMessages(prev =>
                 prev.map(msg => msg.id === id ? { ...msg, conversionNote: note } : msg)
             )
+            fetchCampaignCounts()
         } catch (error) {
             console.error('Error updating conversion note:', error)
             alert('❌ Error al actualizar la nota')
@@ -339,6 +501,7 @@ export default function FacebookConversions() {
 
             setResultModal({ open: true, success: true, message: `Conversion Purchase de $${value} USD enviada exitosamente a Facebook para ${msg.contact?.name || 'contacto'}` })
             fetchData()
+            fetchCampaignCounts()
         } catch (error: any) {
             console.error('Error sending conversion:', error)
             setResultModal({ open: true, success: false, message: error.response?.data?.error || error.message })
@@ -347,12 +510,200 @@ export default function FacebookConversions() {
         }
     }
 
+    // Envío MASIVO: primero dryRun para el conteo del modal, luego el envío real.
+    const handleOpenSendAll = async () => {
+        try {
+            const { data } = await api.post('/facebook-conversions/send-all-pending', {}, { params: { dryRun: 'true' } })
+            setSendAllModal({
+                open: true,
+                total: data.totalPendingContacts || 0,
+                enviables: data.sent || 0,
+                skipped: data.skipped || 0
+            })
+        } catch (error: any) {
+            setResultModal({ open: true, success: false, message: error.response?.data?.error || 'No se pudo calcular las conversiones pendientes' })
+        }
+    }
+
+    const handleConfirmSendAll = async () => {
+        setSendAllModal(prev => ({ ...prev, open: false }))
+        setSendingAllPending(true)
+        try {
+            const { data } = await api.post('/facebook-conversions/send-all-pending', {})
+            setResultModal({
+                open: true,
+                success: (data.failed || 0) === 0,
+                message: `Conversiones enviadas: ${data.sent || 0} · Omitidas sin valor: ${data.skipped || 0} · Fallidas: ${data.failed || 0}`
+            })
+            fetchData()
+            fetchCampaignMessages(campaignSearch, campaignPage)
+            fetchCampaignCounts()
+        } catch (error: any) {
+            setResultModal({ open: true, success: false, message: error.response?.data?.error || error.message })
+        } finally {
+            setSendingAllPending(false)
+        }
+    }
+
+    // ============================================
+    // Tracking unificado: fetch + handlers
+    // ============================================
+    const fetchTrackedEvents = async (contactIds: number[]) => {
+        if (!contactIds.length) {
+            setTrackedEvents({})
+            return
+        }
+        try {
+            const response = await api.get('/facebook-conversions/tracked-events', {
+                params: { contactIds: contactIds.join(',') }
+            })
+            setTrackedEvents(response.data.tracked || {})
+        } catch (error) {
+            console.error('Error fetching tracked events:', error)
+        }
+    }
+
+    useEffect(() => {
+        const ids = campaignMessages.map(m => m.contactId).filter(Boolean) as number[]
+        fetchTrackedEvents(ids)
+    }, [campaignMessages])
+
+    const openTrackModal = (msg: CampaignMessage, eventName: TrackableEvent) => {
+        if (eventName !== "Purchase") {
+            setResultModal({ open: true, success: false, message: "Desde este panel solo se permite enviar Purchase manualmente." })
+            return
+        }
+
+        const defaults = {
+            value: "",
+            currency: "USD",
+            contentName: "",
+            predictedLtv: "",
+            method: "whatsapp",
+            orderId: ""
+        }
+
+        const note = editingNote[msg.id] ?? msg.conversionNote ?? ""
+        const numericFromNote = parseFloat(note.replace(/[^0-9.]/g, "") || "0")
+        if (numericFromNote > 0) {
+            defaults.value = String(numericFromNote)
+        }
+        setTrackForm(defaults)
+        setTrackModal({ open: true, msg, eventName })
+    }
+
+    const executeTrackEvent = async () => {
+        const { msg, eventName } = trackModal
+        if (!msg || !eventName) return
+        if (eventName !== "Purchase") {
+            setResultModal({ open: true, success: false, message: "Desde este panel solo se permite enviar Purchase manualmente." })
+            return
+        }
+
+        const customData: Record<string, any> = {}
+        const v = parseFloat(trackForm.value || "0")
+        if (!v || v <= 0) {
+            setResultModal({ open: true, success: false, message: "Purchase requiere un valor numérico > 0" })
+            return
+        }
+        customData.value = v
+        customData.currency = trackForm.currency || "USD"
+        if (trackForm.orderId.trim()) customData.order_id = trackForm.orderId.trim()
+
+        setTrackingEvent({ msgId: msg.id, eventName })
+        try {
+            const response = await api.post("/facebook-conversions/track", {
+                campaignMessageId: msg.id,
+                eventName,
+                customData
+            })
+            const deduped = !!response.data?.deduped
+            setResultModal({
+                open: true,
+                success: true,
+                message: deduped
+                    ? "El evento Purchase ya estaba enviado para este contacto (idempotencia respetada)."
+                    : "Evento Purchase enviado correctamente a Meta Conversions API."
+            })
+            setTrackModal({ open: false, msg: null, eventName: null })
+            await fetchTrackedEvents(campaignMessages.map(m => m.contactId).filter(Boolean) as number[])
+            await fetchData()
+        } catch (error: any) {
+            const errMsg = error.response?.data?.error || error.message || "Error desconocido"
+            setResultModal({ open: true, success: false, message: errMsg })
+        } finally {
+            setTrackingEvent({ msgId: null, eventName: null })
+        }
+    }
+
+    const getTrackedStatus = (contactId: number, eventName: TrackableEvent): TrackedInfo | undefined => {
+        return trackedEvents[contactId]?.[eventName]
+    }
+
+    // ¿La conversión Purchase ya se envió correctamente para este contacto?
+    // Se usa para deshabilitar el botón de envío y mostrar "Conversión enviada".
+    const isPurchaseSent = (contactId: number): boolean => {
+        const t = trackedEvents[contactId]?.["Purchase"]
+        return !!t && (t.status === 'sent' || t.status === 'success')
+    }
+
+    const getConnectionIdentifierLabel = (connection?: Connection | null) => {
+        if (!connection) return 'Sin identificador'
+        const number = String(connection.number || '').trim()
+        if (number) return number.startsWith('+') ? number : `+${number}`
+
+        if (connection.phoneNumberId) return `Phone ID ${connection.phoneNumberId}`
+        if (connection.facebookPageUserId) return `Page ID ${connection.facebookPageUserId}`
+        if (connection.facebookUserId) {
+            return connection.channel === 'instagram'
+                ? `IG ID ${connection.facebookUserId}`
+                : `WABA ID ${connection.facebookUserId}`
+        }
+        return `ID conexión ${connection.id}`
+    }
+
+    const syncConnectionDataset = async (connectionId: number) => {
+        setSyncingConnectionId(connectionId)
+        try {
+            await api.post(`/facebook-conversions/sync-datasets/${connectionId}`, {
+                mode: 'auto'
+            })
+            await fetchData()
+            showSuccess('Dataset oficial sincronizado')
+        } catch (error: any) {
+            console.error('Error syncing dataset:', error)
+            showError(error.response?.data?.error || error.message)
+        } finally {
+            setSyncingConnectionId(null)
+        }
+    }
+
     const handleSyncDatasets = async () => {
+        if (supportedConnections.length === 0) {
+            showError('No hay conexiones Facebook, Instagram, WhatsApp o Meta para sincronizar')
+            return
+        }
+
         setSyncing(true)
         try {
-            await api.post('/facebook-conversions/sync-datasets')
+            const results = await Promise.allSettled(
+                supportedConnections.map((connection) =>
+                    api.post(`/facebook-conversions/sync-datasets/${connection.id}`, {
+                        mode: 'auto'
+                    })
+                )
+            )
             await fetchData()
-            showSuccess('Datasets sincronizados exitosamente')
+            const failed = results.filter(result => result.status === 'rejected')
+            const success = results.length - failed.length
+
+            if (failed.length > 0) {
+                console.error('Error syncing some datasets:', failed)
+                showError(`Se sincronizaron ${success} conexiones y fallaron ${failed.length}. Revisa logs para el detalle.`)
+                return
+            }
+
+            showSuccess(`Datasets oficiales sincronizados (${success})`)
         } catch (error: any) {
             console.error('Error syncing datasets:', error)
             showError(error.response?.data?.error || error.message)
@@ -431,25 +782,26 @@ export default function FacebookConversions() {
         }
     }
 
+    // El ícono hereda el color del Badge que lo contiene (currentColor).
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'success':
-                return <CheckCircleIcon sx={{ color: 'success.main' }} />
+                return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
             case 'failed':
-                return <ErrorIcon sx={{ color: 'danger.main' }} />
+                return <XCircle className="size-3.5" weight="fill" aria-hidden />
             case 'pending':
-                return <PendingIcon sx={{ color: 'warning.main' }} />
+                return <Clock className="size-3.5" weight="fill" aria-hidden />
             default:
-                return <PendingIcon />
+                return <Clock className="size-3.5" aria-hidden />
         }
     }
 
-    const getStatusColor = (status: string) => {
+    const getStatusColor = (status: string): BadgeProps['variant'] => {
         switch (status) {
             case 'success':
                 return 'success'
             case 'failed':
-                return 'danger'
+                return 'destructive'
             case 'pending':
                 return 'warning'
             default:
@@ -460,22 +812,36 @@ export default function FacebookConversions() {
     const getChannelIcon = (channel: string) => {
         switch (channel) {
             case 'facebook':
-                return <FacebookIcon sx={{ fontSize: 18 }} />
+                return <FacebookLogo className="size-3.5" weight="fill" aria-hidden />
             case 'instagram':
-                return <InstagramIcon sx={{ fontSize: 18 }} />
+                return <InstagramLogo className="size-3.5" weight="fill" aria-hidden />
             case 'whatsapp':
-                return <WhatsAppIcon sx={{ fontSize: 18 }} />
+                return <WhatsappLogo className="size-3.5" weight="fill" aria-hidden />
             default:
                 return null
         }
     }
 
-    const getChannelColor = (channel: string) => {
+    // Ícono suelto (fuera de un Badge): color de marca del canal, igual que en Connections.
+    const getChannelBrandIcon = (channel: string) => {
+        switch (channel) {
+            case 'facebook':
+                return <FacebookLogo className="size-5 text-[#1877f2]" weight="fill" aria-hidden />
+            case 'instagram':
+                return <InstagramLogo className="size-5 text-[#e4405f]" weight="fill" aria-hidden />
+            case 'whatsapp':
+                return <WhatsappLogo className="size-5 text-wa" weight="fill" aria-hidden />
+            default:
+                return <Database className="size-5 text-muted-foreground" aria-hidden />
+        }
+    }
+
+    const getChannelColor = (channel: string): BadgeProps['variant'] => {
         switch (channel) {
             case 'facebook':
                 return 'primary'
             case 'instagram':
-                return 'danger'
+                return 'destructive'
             case 'whatsapp':
                 return 'success'
             default:
@@ -497,486 +863,558 @@ export default function FacebookConversions() {
     }
 
     return (
-        <Container maxWidth="xl">
-            <Stack spacing={3}>
+        <TooltipProvider>
+        <div className="h-full overflow-y-auto">
+            <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
                 {/* Header */}
-                <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                    <Stack direction="row" spacing={2} alignItems="center">
-                        <FacebookIcon sx={{ fontSize: 32, color: '#1877F2' }} />
-                        <Box>
-                            <Typography level="h2">Facebook Conversions API</Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                            <FacebookLogo className="size-6" weight="fill" aria-hidden />
+                        </span>
+                        <div>
+                            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                                Facebook Conversions API
+                            </h1>
+                            <p className="text-sm text-muted-foreground">
                                 Gestión de eventos de conversión para anuncios de Facebook, Instagram y WhatsApp
-                            </Typography>
-                        </Box>
-                    </Stack>
+                            </p>
+                        </div>
+                    </div>
 
-                    <Stack direction="row" spacing={2}>
+                    <div className="flex flex-wrap items-center gap-2">
                         <Tooltip title="Importar ventas desde archivo Excel">
                             <Button
-                                startDecorator={<UploadFileIcon />}
+                                size="sm"
+                                variant="outline"
+                                className="border-success/40 text-success-text hover:bg-success/10 hover:text-success-text"
                                 onClick={() => { setShowImportModal(true); setImportResult(null); setImportFile(null) }}
-                                variant="outlined"
-                                color="success"
                             >
+                                <FileArrowUp className="size-4" aria-hidden />
                                 Importar Ventas
                             </Button>
                         </Tooltip>
 
                         <Tooltip title="Enviar evento de prueba">
-                            <Button
-                                startDecorator={<SendIcon />}
-                                onClick={() => setOpenTestModal(true)}
-                                variant="outlined"
-                            >
+                            <Button size="sm" variant="outline" onClick={() => setOpenTestModal(true)}>
+                                <PaperPlaneTilt className="size-4" aria-hidden />
                                 Test Event
                             </Button>
                         </Tooltip>
 
                         <Tooltip title="Sincronizar datasets">
-                            <Button
-                                startDecorator={<SyncIcon />}
-                                onClick={handleSyncDatasets}
-                                loading={syncing}
-                                color="primary"
-                            >
+                            <Button size="sm" onClick={handleSyncDatasets} loading={syncing}>
+                                <ArrowsClockwise className="size-4" aria-hidden />
                                 Sync Datasets
                             </Button>
                         </Tooltip>
 
                         <Tooltip title="Actualizar">
-                            <IconButton onClick={fetchData} disabled={loading}>
-                                <RefreshIcon />
-                            </IconButton>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Actualizar"
+                                className="text-muted-foreground"
+                                onClick={fetchData}
+                                disabled={loading}
+                            >
+                                <ArrowClockwise className="size-5" aria-hidden />
+                            </Button>
                         </Tooltip>
-                    </Stack>
-                </Stack>
+                    </div>
+                </div>
 
                 {loading && <LinearProgress />}
 
                 {/* Stats */}
                 {stats && (
-                    <Grid container spacing={2}>
-                        <Grid xs={12} sm={6} md={3}>
-                            <Card>
-                                <CardContent>
-                                    <Stack direction="row" spacing={2} alignItems="center">
-                                        <CheckCircleIcon sx={{ fontSize: 32, color: 'success.main' }} />
-                                        <Box>
-                                            <Typography level="h2">{stats.totalSent}</Typography>
-                                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                                                Eventos Enviados
-                                            </Typography>
-                                        </Box>
-                                    </Stack>
-                                </CardContent>
-                            </Card>
-                        </Grid>
-
-                        <Grid xs={12} sm={6} md={3}>
-                            <Card>
-                                <CardContent>
-                                    <Stack direction="row" spacing={2} alignItems="center">
-                                        <ErrorIcon sx={{ fontSize: 32, color: 'danger.main' }} />
-                                        <Box>
-                                            <Typography level="h2">{stats.totalFailed}</Typography>
-                                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                                                Eventos Fallidos
-                                            </Typography>
-                                        </Box>
-                                    </Stack>
-                                </CardContent>
-                            </Card>
-                        </Grid>
-
-                        <Grid xs={12} sm={6} md={3}>
-                            <Card>
-                                <CardContent>
-                                    <Stack direction="row" spacing={2} alignItems="center">
-                                        <PendingIcon sx={{ fontSize: 32, color: 'warning.main' }} />
-                                        <Box>
-                                            <Typography level="h2">{stats.totalPending}</Typography>
-                                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                                                Eventos Pendientes
-                                            </Typography>
-                                        </Box>
-                                    </Stack>
-                                </CardContent>
-                            </Card>
-                        </Grid>
-
-                        <Grid xs={12} sm={6} md={3}>
-                            <Card>
-                                <CardContent>
-                                    <Stack direction="row" spacing={2} alignItems="center">
-                                        <TrendingUpIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-                                        <Box>
-                                            <Typography level="h2">{stats.total}</Typography>
-                                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                                                Total Eventos
-                                            </Typography>
-                                        </Box>
-                                    </Stack>
-                                </CardContent>
-                            </Card>
-                        </Grid>
-                    </Grid>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <StatCard
+                            tone="success"
+                            icon={<CheckCircle className="size-6" weight="fill" aria-hidden />}
+                            value={stats.totalSent}
+                            label="Eventos Enviados"
+                        />
+                        <StatCard
+                            tone="destructive"
+                            icon={<XCircle className="size-6" weight="fill" aria-hidden />}
+                            value={stats.totalFailed}
+                            label="Eventos Fallidos"
+                        />
+                        <StatCard
+                            tone="warning"
+                            icon={<Clock className="size-6" weight="fill" aria-hidden />}
+                            value={stats.totalPending}
+                            label="Eventos Pendientes"
+                        />
+                        <StatCard
+                            tone="primary"
+                            icon={<TrendUp className="size-6" weight="fill" aria-hidden />}
+                            value={stats.total}
+                            label="Total Eventos"
+                        />
+                    </div>
                 )}
 
                 {/* Datasets */}
-                {datasets.length > 0 && (
-                    <Card>
-                        <CardContent>
-                            <Typography level="h4" sx={{ mb: 2 }}>
-                                Datasets Configurados ({datasets.length})
-                            </Typography>
-                            <Stack spacing={1}>
-                                {datasets.map((dataset) => (
-                                    <Alert
-                                        key={dataset.id}
-                                        color={getChannelColor(dataset.channel) as any}
-                                        variant="soft"
-                                        startDecorator={getChannelIcon(dataset.channel)}
+                <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h2 className="text-lg font-semibold text-foreground">
+                                Datasets Configurados ({linkedDatasetRows.length})
+                            </h2>
+                            <p className="text-sm text-muted-foreground">
+                                Dataset oficial vinculado a cada conexión para eventos CAPI y conversiones personalizadas.
+                                {missingDatasetConnections.length > 0
+                                    ? ` Hay ${missingDatasetConnections.length} conexión(es) sin dataset; usa Sincronizar oficiales para crearlas.`
+                                    : ''}
+                            </p>
+                        </div>
+                        <Button size="sm" onClick={handleSyncDatasets} loading={syncing}>
+                            <ArrowsClockwise className="size-4" aria-hidden />
+                            Sincronizar oficiales
+                        </Button>
+                    </div>
+
+                    <div className="space-y-3">
+                        {linkedDatasetRows.map(({ connection, dataset }) => (
+                            <div
+                                key={`linked-${connection.id}`}
+                                className={cn(
+                                    'flex items-start gap-3 rounded-lg border p-3',
+                                    dataset.validationStatus === 'failed'
+                                        ? 'border-destructive/30 bg-destructive/10'
+                                        : 'border-border bg-muted/40',
+                                )}
+                            >
+                                <span className="mt-0.5 shrink-0">{getChannelBrandIcon(dataset.channel)}</span>
+                                <div className="flex flex-1 flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="text-sm font-semibold text-foreground">
+                                                {connection.name}
+                                            </span>
+                                            <Badge variant={getChannelColor(dataset.channel)}>
+                                                {getChannelIcon(dataset.channel)}
+                                                {getChannelLabel(dataset.channel)}
+                                            </Badge>
+                                            <Badge variant={dataset.datasetSource === 'auto' ? 'success' : 'primary'}>
+                                                {dataset.datasetSource === 'auto' ? 'Oficial Meta' : 'Vinculado'}
+                                            </Badge>
+                                            <Badge
+                                                variant={
+                                                    dataset.validationStatus === 'failed'
+                                                        ? 'destructive'
+                                                        : dataset.validationStatus === 'valid' || dataset.status === 'active'
+                                                            ? 'success'
+                                                            : 'warning'
+                                                }
+                                            >
+                                                {dataset.validationStatus === 'valid'
+                                                    ? 'Validado'
+                                                    : dataset.validationStatus === 'failed'
+                                                        ? 'Error'
+                                                        : dataset.status === 'active'
+                                                            ? 'Activo'
+                                                            : 'Pendiente'}
+                                            </Badge>
+                                        </div>
+                                        <p className="mt-1 text-xs text-foreground">
+                                            Dataset vinculado: {dataset.datasetName || `Dataset ${dataset.datasetId}`} · Dataset ID:{' '}
+                                            <span className="font-mono">{dataset.datasetId}</span>
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Conexión: {getConnectionIdentifierLabel(connection)} ·{' '}
+                                            {dataset.channelIdentifier && `${dataset.channel === 'facebook' ? 'Page ID' :
+                                                dataset.channel === 'instagram' ? 'User ID' :
+                                                    'WABA ID'
+                                            }: ${dataset.channelIdentifier}`}
+                                            {dataset.validationError ? ` · ${dataset.validationError}` : ''}
+                                        </p>
+                                        {dataset.validatedAt && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Última validación: {new Date(dataset.validatedAt).toLocaleString()}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="shrink-0"
+                                        loading={syncingConnectionId === connection.id}
+                                        onClick={() => syncConnectionDataset(connection.id)}
                                     >
-                                        <Box sx={{ flex: 1 }}>
-                                            <Stack direction="row" spacing={1} alignItems="center">
-                                                <Typography level="title-sm">
-                                                    {dataset.whatsapp?.name || `Connection ${dataset.whatsappId}`}
-                                                </Typography>
-                                                <Chip size="sm" color={getChannelColor(dataset.channel) as any}>
-                                                    {getChannelLabel(dataset.channel)}
-                                                </Chip>
-                                            </Stack>
-                                            <Typography level="body-xs">
-                                                Dataset ID: {dataset.datasetId}
-                                                {dataset.channelIdentifier && ` | ${dataset.channel === 'facebook' ? 'Page ID' :
-                                                        dataset.channel === 'instagram' ? 'User ID' :
-                                                            'WABA ID'
-                                                    }: ${dataset.channelIdentifier}`}
-                                            </Typography>
-                                        </Box>
-                                    </Alert>
-                                ))}
-                            </Stack>
-                        </CardContent>
-                    </Card>
-                )}
+                                        Re-sincronizar
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
 
-                {/* Events Table */}
-                <Card>
-                    <CardContent>
-                        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-                            <Typography level="h4">Eventos de Conversión</Typography>
+                        {linkedDatasetRows.length === 0 && (
+                            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                                No hay datasets vinculados todavía.
+                            </div>
+                        )}
+                    </div>
+                </div>
 
-                            <Stack direction="row" spacing={2}>
-                                <Select
-                                    value={channelFilter}
-                                    onChange={(_, value) => setChannelFilter(value as string)}
-                                    size="sm"
-                                    sx={{ minWidth: 150 }}
-                                    startDecorator={<StorageIcon />}
-                                >
-                                    <Option value="all">Todos los Canales</Option>
-                                    <Option value="facebook">
-                                        <Stack direction="row" spacing={1} alignItems="center">
-                                            <FacebookIcon sx={{ fontSize: 16 }} />
-                                            <span>Facebook</span>
-                                        </Stack>
-                                    </Option>
-                                    <Option value="instagram">
-                                        <Stack direction="row" spacing={1} alignItems="center">
-                                            <InstagramIcon sx={{ fontSize: 16 }} />
-                                            <span>Instagram</span>
-                                        </Stack>
-                                    </Option>
-                                    <Option value="whatsapp">
-                                        <Stack direction="row" spacing={1} alignItems="center">
-                                            <WhatsAppIcon sx={{ fontSize: 16 }} />
-                                            <span>WhatsApp</span>
-                                        </Stack>
-                                    </Option>
+                {/* Eventos de Conversión + Leads Kanban — tabs para separar las tablas */}
+                <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                    <Tabs value={String(activeTab)} onValueChange={(v) => setActiveTab(Number(v))}>
+                        <TabsList className="mb-4">
+                            <TabsTrigger value="0">Eventos de Conversión</TabsTrigger>
+                            <TabsTrigger value="1">Leads Kanban</TabsTrigger>
+                            <TabsTrigger value="2">Monitor de señales</TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="0" className="mt-0">
+                            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                                <Select value={channelFilter} onValueChange={(value) => setChannelFilter(value)}>
+                                    <SelectTrigger className="w-[190px]" aria-label="Filtrar por canal">
+                                        <span className="flex items-center gap-2 truncate">
+                                            <Database className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                                            <SelectValue />
+                                        </span>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">Todos los Canales</SelectItem>
+                                        <SelectItem value="facebook">
+                                            <span className="flex items-center gap-2">
+                                                <FacebookLogo className="size-4" weight="fill" aria-hidden />
+                                                Facebook
+                                            </span>
+                                        </SelectItem>
+                                        <SelectItem value="instagram">
+                                            <span className="flex items-center gap-2">
+                                                <InstagramLogo className="size-4" weight="fill" aria-hidden />
+                                                Instagram
+                                            </span>
+                                        </SelectItem>
+                                        <SelectItem value="whatsapp">
+                                            <span className="flex items-center gap-2">
+                                                <WhatsappLogo className="size-4" weight="fill" aria-hidden />
+                                                WhatsApp
+                                            </span>
+                                        </SelectItem>
+                                    </SelectContent>
                                 </Select>
 
-                                <Select
-                                    value={statusFilter}
-                                    onChange={(_, value) => setStatusFilter(value as string)}
-                                    size="sm"
-                                    sx={{ minWidth: 150 }}
-                                >
-                                    <Option value="all">Todos los Estados</Option>
-                                    <Option value="success">Exitosos</Option>
-                                    <Option value="failed">Fallidos</Option>
-                                    <Option value="pending">Pendientes</Option>
+                                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value)}>
+                                    <SelectTrigger className="w-[170px]" aria-label="Filtrar por estado">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">Todos los Estados</SelectItem>
+                                        <SelectItem value="success">Exitosos</SelectItem>
+                                        <SelectItem value="failed">Fallidos</SelectItem>
+                                        <SelectItem value="pending">Pendientes</SelectItem>
+                                    </SelectContent>
                                 </Select>
 
                                 <Input
-                                    size="sm"
+                                    className="h-9 w-[250px]"
                                     placeholder="Buscar por nombre, telefono, evento..."
-                                    startDecorator={<SearchIcon />}
+                                    aria-label="Buscar eventos"
+                                    leftIcon={<MagnifyingGlass />}
                                     value={eventsSearch}
                                     onChange={(e) => { setEventsSearch(e.target.value); setEventsPage(1) }}
-                                    sx={{ minWidth: 250 }}
                                 />
-                            </Stack>
-                        </Stack>
+                            </div>
 
-                        <Sheet sx={{ overflow: 'auto' }}>
-                            <Table>
-                                <thead>
-                                    <tr>
-                                        <th>Canal</th>
-                                        <th>Status</th>
-                                        <th>Evento</th>
-                                        <th>Contacto</th>
-                                        <th>Conexión</th>
-                                        <th>Valor</th>
-                                        <th>Fecha Creación</th>
-                                        <th>Fecha Envío</th>
-                                        <th>Error</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {paginatedEvents.map((event) => (
-                                        <tr key={event.id}>
-                                            <td>
-                                                <Chip
-                                                    size="sm"
-                                                    color={getChannelColor(event.whatsapp?.channel || '') as any}
-                                                    startDecorator={getChannelIcon(event.whatsapp?.channel || '')}
-                                                >
-                                                    {getChannelLabel(event.whatsapp?.channel || 'unknown')}
-                                                </Chip>
-                                            </td>
-                                            <td>
-                                                <Chip
-                                                    size="sm"
-                                                    color={getStatusColor(event.responseStatus) as any}
-                                                    startDecorator={getStatusIcon(event.responseStatus)}
-                                                >
-                                                    {event.responseStatus}
-                                                </Chip>
-                                            </td>
-                                            <td>
-                                                <Typography level="body-sm" fontWeight="bold">
-                                                    {event.eventName}
-                                                </Typography>
-                                            </td>
-                                            <td>
-                                                <Typography level="body-sm">
-                                                    {event.contact?.name || 'N/A'}
-                                                </Typography>
-                                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                                    {event.contact?.number}
-                                                </Typography>
-                                            </td>
-                                            <td>
-                                                <Typography level="body-sm">
-                                                    {event.whatsapp?.name || `ID: ${event.whatsappId}`}
-                                                </Typography>
-                                            </td>
-                                            <td>
-                                                {event.customData?.value ? (
-                                                    <Typography level="body-sm" fontWeight="bold" sx={{ color: 'success.main' }}>
-                                                        ${event.customData.value} {event.customData.currency || 'USD'}
-                                                    </Typography>
-                                                ) : (
-                                                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                                        -
-                                                    </Typography>
-                                                )}
-                                            </td>
-                                            <td>
-                                                <Typography level="body-sm">
-                                                    {new Date(event.createdAt).toLocaleString()}
-                                                </Typography>
-                                            </td>
-                                            <td>
-                                                <Typography level="body-sm">
-                                                    {event.sentAt ? new Date(event.sentAt).toLocaleString() : '-'}
-                                                </Typography>
-                                            </td>
-                                            <td>
-                                                {event.errorMessage && (
-                                                    <Tooltip title={event.errorMessage}>
-                                                        <Typography level="body-xs" sx={{ color: 'danger.main', cursor: 'pointer' }}>
-                                                            Ver error
-                                                        </Typography>
-                                                    </Tooltip>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </Table>
+                            <div className="overflow-hidden rounded-lg border border-border">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[900px] text-sm">
+                                        <thead>
+                                            <tr className="border-b border-border bg-muted/40 text-left">
+                                                {['Canal', 'Status', 'Evento', 'Contacto', 'Conexión', 'Valor', 'Fecha Creación', 'Fecha Envío', 'Error'].map((c) => (
+                                                    <th
+                                                        key={c}
+                                                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                                                    >
+                                                        {c}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-border">
+                                            {paginatedEvents.map((event) => (
+                                                <tr key={event.id} className="transition-colors hover:bg-accent/40">
+                                                    <td className="px-4 py-3">
+                                                        <Badge variant={getChannelColor(event.whatsapp?.channel || '')}>
+                                                            {getChannelIcon(event.whatsapp?.channel || '')}
+                                                            {getChannelLabel(event.whatsapp?.channel || 'unknown')}
+                                                        </Badge>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <Badge variant={getStatusColor(event.responseStatus)}>
+                                                            {getStatusIcon(event.responseStatus)}
+                                                            {event.responseStatus}
+                                                        </Badge>
+                                                    </td>
+                                                    <td className="px-4 py-3 font-semibold text-foreground">
+                                                        {event.eventName}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <p className="text-foreground">{event.contact?.name || 'N/A'}</p>
+                                                        <p className="text-xs text-muted-foreground">{event.contact?.number}</p>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-foreground">
+                                                        {event.whatsapp?.name || `ID: ${event.whatsappId}`}
+                                                    </td>
+                                                    <td className="whitespace-nowrap px-4 py-3">
+                                                        {event.customData?.value ? (
+                                                            <span className="font-semibold tabular-nums text-success-text">
+                                                                ${event.customData.value} {event.customData.currency || 'USD'}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                                                        {new Date(event.createdAt).toLocaleString()}
+                                                    </td>
+                                                    <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                                                        {event.sentAt ? new Date(event.sentAt).toLocaleString() : '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {event.errorMessage && (
+                                                            <Tooltip title={event.errorMessage}>
+                                                                <span className="cursor-pointer text-xs font-medium text-destructive-text underline decoration-dotted underline-offset-2">
+                                                                    Ver error
+                                                                </span>
+                                                            </Tooltip>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
 
-                            {paginatedEvents.length === 0 && (
-                                <Box sx={{ p: 3, textAlign: 'center' }}>
-                                    <AssignmentIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 1 }} />
-                                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                                        {eventsSearch ? 'No se encontraron eventos para esta búsqueda' : 'No hay eventos de conversión registrados'}
-                                    </Typography>
-                                </Box>
+                                {paginatedEvents.length === 0 && (
+                                    <div className="flex flex-col items-center gap-2 p-8 text-center">
+                                        <ClipboardText className="size-12 text-muted-foreground" aria-hidden />
+                                        <p className="text-sm text-muted-foreground">
+                                            {eventsSearch ? 'No se encontraron eventos para esta búsqueda' : 'No hay eventos de conversión registrados'}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Events pagination */}
+                            {filteredEvents.length > EVENTS_PER_PAGE && (
+                                <div className="mt-4 flex items-center justify-center gap-2">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label="Página anterior"
+                                        disabled={eventsPage <= 1}
+                                        onClick={() => setEventsPage(p => p - 1)}
+                                    >
+                                        <CaretLeft className="size-[18px]" aria-hidden />
+                                    </Button>
+                                    <span className="text-sm text-muted-foreground">
+                                        Página {eventsPage} de {eventsTotalPages} ({filteredEvents.length} resultados)
+                                    </span>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label="Página siguiente"
+                                        disabled={eventsPage >= eventsTotalPages}
+                                        onClick={() => setEventsPage(p => p + 1)}
+                                    >
+                                        <CaretRight className="size-[18px]" aria-hidden />
+                                    </Button>
+                                </div>
                             )}
-                        </Sheet>
+                        </TabsContent>
 
-                        {/* Events pagination */}
-                        {filteredEvents.length > EVENTS_PER_PAGE && (
-                            <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" sx={{ mt: 2 }}>
-                                <IconButton
-                                    size="sm"
-                                    disabled={eventsPage <= 1}
-                                    onClick={() => setEventsPage(p => p - 1)}
-                                >
-                                    <NavigateBeforeIcon />
-                                </IconButton>
-                                <Typography level="body-sm">
-                                    Página {eventsPage} de {eventsTotalPages} ({filteredEvents.length} resultados)
-                                </Typography>
-                                <IconButton
-                                    size="sm"
-                                    disabled={eventsPage >= eventsTotalPages}
-                                    onClick={() => setEventsPage(p => p + 1)}
-                                >
-                                    <NavigateNextIcon />
-                                </IconButton>
-                            </Stack>
-                        )}
-                    </CardContent>
-                </Card>
+                        <TabsContent value="1" className="mt-0">
+                            {activeTab === 1 && <KanbanLeadConversions embedded />}
+                        </TabsContent>
+
+                        <TabsContent value="2" className="mt-0">
+                            <MetaSignalMonitor />
+                        </TabsContent>
+                    </Tabs>
+                </div>
 
                 {/* Campaign Messages Table */}
-                <Card>
-                    <CardContent>
-                        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-                            <Stack direction="row" spacing={2} alignItems="center">
-                                <Typography level="h4">Mensajes de Campañas Publicitarias</Typography>
-                                <Badge badgeContent={campaignCount} color="primary" />
-                            </Stack>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                                <Input
-                                    size="sm"
-                                    placeholder="Buscar por nombre, telefono, factura..."
-                                    startDecorator={<SearchIcon />}
-                                    value={campaignSearch}
-                                    onChange={(e) => setCampaignSearch(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            setCampaignPage(1)
-                                            fetchCampaignMessages(campaignSearch, 1)
-                                        }
-                                    }}
-                                    sx={{ minWidth: 250 }}
-                                />
-                                <IconButton onClick={() => { setCampaignPage(1); fetchCampaignMessages(campaignSearch, 1) }} disabled={campaignLoading}>
-                                    <SearchIcon />
-                                </IconButton>
-                                <IconButton onClick={() => { setCampaignSearch(''); setCampaignPage(1); fetchCampaignMessages('', 1) }} disabled={campaignLoading}>
-                                    <RefreshIcon />
-                                </IconButton>
-                            </Stack>
-                        </Stack>
+                <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <h2 className="text-lg font-semibold text-foreground">Mensajes de Campañas Publicitarias</h2>
+                            <Badge variant="primary">{campaignCount}</Badge>
+                            <Button
+                                size="sm"
+                                loading={sendingAllPending}
+                                disabled={campaignLoading}
+                                onClick={handleOpenSendAll}
+                            >
+                                <PaperPlaneTilt className="size-4" aria-hidden />
+                                Enviar pendientes
+                            </Button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            {(['all', 'pending', 'pending_no_value', 'sent'] as const).map(f => {
+                                const label = f === 'all' ? 'Todas' : f === 'pending' ? 'Pendientes' : f === 'pending_no_value' ? 'Sin valor' : 'Enviadas'
+                                const active = campaignStatusFilter === f
+                                return (
+                                    <Button
+                                        key={f}
+                                        size="sm"
+                                        variant={active ? 'primary' : 'outline'}
+                                        className={cn(
+                                            !active && f === 'sent' && 'text-success-text',
+                                            !active && f === 'pending' && 'text-warning-text',
+                                            !active && f === 'pending_no_value' && 'text-destructive-text',
+                                        )}
+                                        aria-pressed={active}
+                                        disabled={campaignLoading}
+                                        onClick={() => { setCampaignStatusFilter(f); setCampaignPage(1); fetchCampaignMessages(campaignSearch, 1, f) }}
+                                    >
+                                        {label} ({campaignCounts[f]})
+                                    </Button>
+                                )
+                            })}
+                            <Input
+                                className="h-9 w-[250px]"
+                                placeholder="Buscar por nombre, telefono, factura..."
+                                aria-label="Buscar mensajes de campaña"
+                                leftIcon={<MagnifyingGlass />}
+                                value={campaignSearch}
+                                onChange={(e) => setCampaignSearch(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        setCampaignPage(1)
+                                        fetchCampaignMessages(campaignSearch, 1)
+                                    }
+                                }}
+                            />
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Buscar"
+                                onClick={() => { setCampaignPage(1); fetchCampaignMessages(campaignSearch, 1) }}
+                                disabled={campaignLoading}
+                            >
+                                <MagnifyingGlass className="size-[18px]" aria-hidden />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Limpiar búsqueda"
+                                onClick={() => { setCampaignSearch(''); setCampaignPage(1); fetchCampaignMessages('', 1) }}
+                                disabled={campaignLoading}
+                            >
+                                <ArrowClockwise className="size-[18px]" aria-hidden />
+                            </Button>
+                        </div>
+                    </div>
 
-                        {campaignLoading && <LinearProgress sx={{ mb: 2 }} />}
+                    {campaignLoading && <LinearProgress sx={{ mb: 2 }} />}
 
-                        <Sheet sx={{ overflow: 'auto' }}>
-                            <Table>
+                    <div className="overflow-hidden rounded-lg border border-border">
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[900px] text-sm">
                                 <thead>
-                                    <tr>
-                                        <th style={{ width: 100 }}>Fecha</th>
-                                        <th style={{ width: 140 }}>Contacto</th>
-                                        <th style={{ width: 180 }}>Anuncio</th>
-                                        <th style={{ width: 80 }}>Canal</th>
-                                        <th style={{ width: 100 }}>Tracking</th>
-                                        <th style={{ width: 140 }}>Valor</th>
-                                        <th style={{ width: 120 }}>Acciones</th>
+                                    <tr className="border-b border-border bg-muted/40 text-left">
+                                        <th className="w-[100px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fecha</th>
+                                        <th className="w-[140px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contacto</th>
+                                        <th className="w-[180px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Anuncio</th>
+                                        <th className="w-[80px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Canal</th>
+                                        <th className="w-[100px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tracking</th>
+                                        <th className="w-[140px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Valor</th>
+                                        <th className="w-[120px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acciones</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="divide-y divide-border">
                                     {campaignMessages.map((msg) => (
-                                        <tr key={msg.id}>
-                                            <td>
-                                                <Typography level="body-xs">
+                                        <tr key={msg.id} className="transition-colors hover:bg-accent/40">
+                                            <td className="px-4 py-3 align-top">
+                                                <p className="whitespace-nowrap text-xs text-foreground">
                                                     {new Date(msg.createdAt).toLocaleDateString()}
-                                                </Typography>
-                                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                                </p>
+                                                <p className="whitespace-nowrap text-xs text-muted-foreground">
                                                     {new Date(msg.createdAt).toLocaleTimeString()}
-                                                </Typography>
+                                                </p>
                                             </td>
-                                            <td>
-                                                <Typography level="body-sm" fontWeight="md">
-                                                    {msg.contact?.name || 'N/A'}
-                                                </Typography>
-                                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                                    {msg.contact?.number}
-                                                </Typography>
+                                            <td className="px-4 py-3 align-top">
+                                                <p className="font-medium text-foreground">{msg.contact?.name || 'N/A'}</p>
+                                                <p className="text-xs text-muted-foreground">{msg.contact?.number}</p>
                                             </td>
-                                            <td>
+                                            <td className="px-4 py-3 align-top">
                                                 {msg.sourceType === 'SALES_IMPORT' ? (
                                                     <>
-                                                        <Chip size="sm" color="success" variant="soft" startDecorator={<ReceiptIcon sx={{ fontSize: 14 }} />} sx={{ mb: 0.5 }}>
+                                                        <Badge variant="success" className="mb-1">
+                                                            <Receipt className="size-3.5" aria-hidden />
                                                             Venta Importada
-                                                        </Chip>
-                                                        <Typography level="body-sm" fontWeight="md">
+                                                        </Badge>
+                                                        <p className="font-medium text-foreground">
                                                             {msg.headline || 'Sin titulo'}
-                                                        </Typography>
+                                                        </p>
                                                         {msg.body && (
                                                             <Tooltip title={msg.body}>
-                                                                <Typography level="body-xs" sx={{ color: 'text.tertiary', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                <p className="max-w-[150px] truncate text-xs text-muted-foreground">
                                                                     {msg.body}
-                                                                </Typography>
+                                                                </p>
                                                             </Tooltip>
                                                         )}
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <Typography level="body-sm" fontWeight="md">
+                                                        <p className="font-medium text-foreground">
                                                             {msg.headline || 'Sin titulo'}
-                                                        </Typography>
+                                                        </p>
                                                         {msg.sourceId && (
                                                             <Tooltip title={`Ad ID: ${msg.sourceId}`}>
-                                                                <Typography level="body-xs" sx={{ color: 'primary.main', cursor: 'pointer' }}>
+                                                                <p className="cursor-pointer text-xs text-primary">
                                                                     ID: {msg.sourceId.length > 12 ? msg.sourceId.substring(0, 12) + '...' : msg.sourceId}
-                                                                </Typography>
+                                                                </p>
                                                             </Tooltip>
                                                         )}
                                                         {msg.body && (
                                                             <Tooltip title={msg.body}>
-                                                                <Typography level="body-xs" sx={{ color: 'text.tertiary', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                <p className="max-w-[150px] truncate text-xs text-muted-foreground">
                                                                     {msg.body}
-                                                                </Typography>
+                                                                </p>
                                                             </Tooltip>
                                                         )}
                                                     </>
                                                 )}
                                             </td>
-                                            <td>
-                                                <Chip
-                                                    size="sm"
-                                                    color={getChannelColor(msg.channel || '') as any}
-                                                    startDecorator={getChannelIcon(msg.channel || '')}
-                                                >
+                                            <td className="px-4 py-3 align-top">
+                                                <Badge variant={getChannelColor(msg.channel || '')}>
+                                                    {getChannelIcon(msg.channel || '')}
                                                     {getChannelLabel(msg.channel || 'unknown')}
-                                                </Chip>
+                                                </Badge>
                                             </td>
-                                            <td>
+                                            <td className="px-4 py-3 align-top">
                                                 {msg.ctwaClid ? (
                                                     <Tooltip title={`CTWA ID: ${msg.ctwaClid}`}>
-                                                        <Chip size="sm" color="success" variant="soft" startDecorator={<CheckCircleIcon sx={{ fontSize: 14 }} />}>
-                                                            Exacto
-                                                        </Chip>
+                                                        <span className="inline-flex">
+                                                            <Badge variant="success">
+                                                                <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                                                                Exacto
+                                                            </Badge>
+                                                        </span>
                                                     </Tooltip>
                                                 ) : (
                                                     <Tooltip title="Sin ctwa_clid - La atribución será por número de teléfono (menos precisa)">
-                                                        <Chip size="sm" color="warning" variant="soft" startDecorator={<PendingIcon sx={{ fontSize: 14 }} />}>
-                                                            Aprox.
-                                                        </Chip>
+                                                        <span className="inline-flex">
+                                                            <Badge variant="warning">
+                                                                <Clock className="size-3.5" weight="fill" aria-hidden />
+                                                                Aprox.
+                                                            </Badge>
+                                                        </span>
                                                     </Tooltip>
                                                 )}
                                             </td>
-                                            <td>
+                                            <td className="px-4 py-3 align-top">
                                                 <Input
-                                                    size="sm"
+                                                    className="h-9 w-[120px]"
                                                     placeholder="ej: $100"
+                                                    aria-label={`Valor de conversión para ${msg.contact?.name || 'contacto'}`}
                                                     value={editingNote[msg.id] ?? msg.conversionNote ?? ''}
                                                     onChange={(e) => setEditingNote(prev => ({ ...prev, [msg.id]: e.target.value }))}
                                                     onBlur={() => {
@@ -985,531 +1423,518 @@ export default function FacebookConversions() {
                                                             handleUpdateConversionNote(msg.id, note)
                                                         }
                                                     }}
-                                                    sx={{ maxWidth: 120 }}
                                                 />
                                             </td>
-                                            <td>
-                                                <Tooltip title={msg.ctwaClid ? 'Enviar conversión con tracking exacto' : 'Enviar conversión (atribución aproximada)'}>
-                                                    <Button
-                                                        size="sm"
-                                                        color={msg.ctwaClid ? 'primary' : 'warning'}
-                                                        variant={msg.ctwaClid ? 'solid' : 'outlined'}
-                                                        startDecorator={<SendIcon />}
-                                                        loading={sendingConversion === msg.id}
-                                                        onClick={() => handleSendConversion(msg)}
-                                                    >
-                                                        Enviar
-                                                    </Button>
-                                                </Tooltip>
+                                            <td className="px-4 py-3 align-top">
+                                                <div className="flex flex-col items-start gap-1">
+                                                    {/* Botón legacy: Purchase rápido desde nota */}
+                                                    <Tooltip title={msg.ctwaClid ? 'Purchase rápido con valor de la nota' : 'Purchase rápido (atribución aproximada)'}>
+                                                        <Button
+                                                            size="sm"
+                                                            variant={isPurchaseSent(msg.contactId) ? 'outline' : (msg.ctwaClid ? 'primary' : 'outline')}
+                                                            className={cn(
+                                                                isPurchaseSent(msg.contactId) && 'text-success-text',
+                                                                !isPurchaseSent(msg.contactId) && !msg.ctwaClid && 'text-warning-text',
+                                                            )}
+                                                            loading={sendingConversion === msg.id}
+                                                            disabled={isPurchaseSent(msg.contactId) || sendingConversion === msg.id}
+                                                            onClick={() => handleSendConversion(msg)}
+                                                        >
+                                                            <PaperPlaneTilt className="size-4" aria-hidden />
+                                                            {isPurchaseSent(msg.contactId) ? 'Conversión enviada' : 'Purchase rápido'}
+                                                        </Button>
+                                                    </Tooltip>
+
+                                                    <Tooltip title="Enviar Purchase manual con valor personalizado">
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            loading={trackingEvent.msgId === msg.id}
+                                                            disabled={isPurchaseSent(msg.contactId)}
+                                                            onClick={() => openTrackModal(msg, "Purchase")}
+                                                        >
+                                                            <ShoppingCart className="size-4" aria-hidden />
+                                                            {isPurchaseSent(msg.contactId) ? 'Enviada' : 'Purchase'}
+                                                        </Button>
+                                                    </Tooltip>
+
+                                                    {/* Badges de estado por evento */}
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {(["Purchase"] as TrackableEvent[]).map(ev => {
+                                                            const tracked = getTrackedStatus(msg.contactId, ev)
+                                                            if (!tracked) return null
+                                                            const short = "Buy"
+                                                            const variant: BadgeProps['variant'] = tracked.status === 'success' || tracked.status === 'sent' ? 'success' : tracked.status === 'pending' ? 'warning' : 'destructive'
+                                                            return (
+                                                                <Tooltip key={ev} title={`${ev}: ${tracked.status}`}>
+                                                                    <span className="inline-flex">
+                                                                        <Badge variant={variant}>{short}</Badge>
+                                                                    </span>
+                                                                </Tooltip>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
-                            </Table>
+                            </table>
+                        </div>
 
-                            {campaignMessages.length === 0 && !campaignLoading && (
-                                <Box sx={{ p: 3, textAlign: 'center' }}>
-                                    <AssignmentIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 1 }} />
-                                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                                        {campaignSearch ? 'No se encontraron mensajes para esta búsqueda' : 'No hay mensajes de campañas publicitarias registrados'}
-                                    </Typography>
-                                    {!campaignSearch && (
-                                        <>
-                                            <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 1 }}>
-                                                Los mensajes aparecerán aquí cuando un contacto envíe un mensaje desde un anuncio Click-to-WhatsApp
-                                            </Typography>
-                                            <Box sx={{ mt: 2, p: 2, bgcolor: 'background.level1', borderRadius: 'sm', textAlign: 'left' }}>
-                                                <Typography level="body-xs" fontWeight="lg" sx={{ mb: 1 }}>Tipos de Tracking:</Typography>
-                                                <Stack spacing={0.5}>
-                                                    <Stack direction="row" spacing={1} alignItems="center">
-                                                        <Chip size="sm" color="success" variant="soft">Exacto</Chip>
-                                                        <Typography level="body-xs">Tiene ctwa_clid - Atribución 100% precisa</Typography>
-                                                    </Stack>
-                                                    <Stack direction="row" spacing={1} alignItems="center">
-                                                        <Chip size="sm" color="warning" variant="soft">Aprox.</Chip>
-                                                        <Typography level="body-xs">Sin ctwa_clid - Atribución por teléfono (menos precisa)</Typography>
-                                                    </Stack>
-                                                </Stack>
-                                            </Box>
-                                        </>
-                                    )}
-                                </Box>
-                            )}
-                        </Sheet>
-
-                        {/* Campaign Messages pagination */}
-                        {campaignCount > 0 && (
-                            <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" sx={{ mt: 2 }}>
-                                <IconButton
-                                    size="sm"
-                                    disabled={campaignPage <= 1}
-                                    onClick={() => { const p = campaignPage - 1; setCampaignPage(p); fetchCampaignMessages(campaignSearch, p) }}
-                                >
-                                    <NavigateBeforeIcon />
-                                </IconButton>
-                                <Typography level="body-sm">
-                                    Página {campaignPage} de {Math.max(1, Math.ceil(campaignCount / 20))} ({campaignCount} resultados)
-                                </Typography>
-                                <IconButton
-                                    size="sm"
-                                    disabled={!campaignHasMore}
-                                    onClick={() => { const p = campaignPage + 1; setCampaignPage(p); fetchCampaignMessages(campaignSearch, p) }}
-                                >
-                                    <NavigateNextIcon />
-                                </IconButton>
-                            </Stack>
+                        {campaignMessages.length === 0 && !campaignLoading && (
+                            <div className="flex flex-col items-center gap-2 p-8 text-center">
+                                <ClipboardText className="size-12 text-muted-foreground" aria-hidden />
+                                <p className="text-sm text-muted-foreground">
+                                    {campaignSearch ? 'No se encontraron mensajes para esta búsqueda' : 'No hay mensajes de campañas publicitarias registrados'}
+                                </p>
+                                {!campaignSearch && (
+                                    <>
+                                        <p className="text-xs text-muted-foreground">
+                                            Los mensajes aparecerán aquí cuando un contacto envíe un mensaje desde un anuncio Click-to-WhatsApp
+                                        </p>
+                                        <div className="mt-2 w-full max-w-md rounded-lg bg-muted/60 p-4 text-left">
+                                            <p className="mb-2 text-xs font-semibold text-foreground">Tipos de Tracking:</p>
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant="success">Exacto</Badge>
+                                                    <span className="text-xs text-muted-foreground">Tiene ctwa_clid - Atribución 100% precisa</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant="warning">Aprox.</Badge>
+                                                    <span className="text-xs text-muted-foreground">Sin ctwa_clid - Atribución por teléfono (menos precisa)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         )}
-                    </CardContent>
-                </Card>
-            </Stack>
+                    </div>
+
+                    {/* Campaign Messages pagination */}
+                    {campaignCount > 0 && (
+                        <div className="mt-4 flex items-center justify-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Página anterior"
+                                disabled={campaignPage <= 1}
+                                onClick={() => { const p = campaignPage - 1; setCampaignPage(p); fetchCampaignMessages(campaignSearch, p) }}
+                            >
+                                <CaretLeft className="size-[18px]" aria-hidden />
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                                Página {campaignPage} de {Math.max(1, Math.ceil(campaignCount / 20))} ({campaignCount} resultados)
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Página siguiente"
+                                disabled={!campaignHasMore}
+                                onClick={() => { const p = campaignPage + 1; setCampaignPage(p); fetchCampaignMessages(campaignSearch, p) }}
+                            >
+                                <CaretRight className="size-[18px]" aria-hidden />
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            </div>
 
             {/* Test Event Modal */}
-            <Modal open={openTestModal} onClose={() => setOpenTestModal(false)}>
-                <ModalDialog>
-                    <Typography level="h4" sx={{ mb: 2 }}>
-                        Enviar Evento de Prueba
-                    </Typography>
+            <Dialog open={openTestModal} onOpenChange={(o) => { if (!o) setOpenTestModal(false) }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Enviar Evento de Prueba</DialogTitle>
+                    </DialogHeader>
 
-                    <Stack spacing={2}>
-                        <FormControl>
-                            <FormLabel>Tipo de Evento</FormLabel>
+                    <div className="space-y-4">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="test-event-name">Tipo de Evento</Label>
                             <Select
                                 value={testEvent.eventName}
-                                onChange={(_, value) => setTestEvent({ ...testEvent, eventName: value as string })}
+                                onValueChange={(value) => setTestEvent({ ...testEvent, eventName: value })}
                             >
-                                <Option value="Contact">Contact</Option>
-                                <Option value="Lead">Lead</Option>
-                                <Option value="Purchase">Purchase</Option>
+                                <SelectTrigger id="test-event-name" className="h-11">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Contact">Contact</SelectItem>
+                                    <SelectItem value="Lead">Lead</SelectItem>
+                                    <SelectItem value="Purchase">Purchase</SelectItem>
+                                </SelectContent>
                             </Select>
-                        </FormControl>
+                        </div>
 
-                        <FormControl>
-                            <FormLabel>Contact ID</FormLabel>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="test-contact-id">Contact ID</Label>
                             <Input
+                                id="test-contact-id"
                                 type="number"
                                 value={testEvent.contactId}
                                 onChange={(e) => setTestEvent({ ...testEvent, contactId: e.target.value })}
                                 placeholder="Ej: 123"
                             />
-                        </FormControl>
+                        </div>
 
-                        <FormControl>
-                            <FormLabel>Test Event Code</FormLabel>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="test-event-code">Test Event Code</Label>
                             <Input
+                                id="test-event-code"
                                 value={testEvent.testEventCode}
                                 onChange={(e) => setTestEvent({ ...testEvent, testEventCode: e.target.value })}
                                 placeholder="Obtener de Facebook Events Manager"
                             />
-                            <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+                            <p className="text-xs text-muted-foreground">
                                 Ve a Facebook Events Manager {'>'} Test Events para obtener tu código
-                            </Typography>
-                        </FormControl>
+                            </p>
+                        </div>
 
-                        <Stack direction="row" spacing={2} justifyContent="flex-end">
-                            <Button variant="outlined" onClick={() => setOpenTestModal(false)}>
+                        <DialogFooter>
+                            <Button variant="outline" size="sm" onClick={() => setOpenTestModal(false)}>
                                 Cancelar
                             </Button>
-                            <Button onClick={handleSendTestEvent}>
+                            <Button size="sm" onClick={handleSendTestEvent}>
                                 Enviar
                             </Button>
-                        </Stack>
-                    </Stack>
-                </ModalDialog>
-            </Modal>
+                        </DialogFooter>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Import Sales Modal */}
-            <Modal open={showImportModal} onClose={() => { if (!importing) { setShowImportModal(false); setImportResult(null); setImportFile(null) } }}>
-                <ModalDialog sx={{ maxWidth: 700, maxHeight: '85vh', overflow: 'auto' }}>
-                    <Typography level="h4" sx={{ mb: 2 }}>
-                        Importar Ventas desde Excel
-                    </Typography>
+            <Dialog
+                open={showImportModal}
+                onOpenChange={(o) => { if (!o && !importing) { setShowImportModal(false); setImportResult(null); setImportFile(null) } }}
+            >
+                <DialogContent className="max-w-[700px]">
+                    <DialogHeader>
+                        <DialogTitle>Importar Ventas desde Excel</DialogTitle>
+                    </DialogHeader>
 
                     {!importResult ? (
-                        <Stack spacing={2}>
-                            <Alert color="neutral" variant="soft">
-                                <Box>
-                                    <Typography level="body-sm" fontWeight="lg">Formato del archivo Excel:</Typography>
-                                    <Typography level="body-xs">
-                                        Columnas requeridas: TELEFONO, CLIENTE, Total, ESTADO
-                                    </Typography>
-                                    <Typography level="body-xs">
-                                        Solo se importan filas con ESTADO = PROCESADA. Los telefonos se normalizan al formato internacional de Ecuador (593...).
-                                    </Typography>
-                                </Box>
-                            </Alert>
+                        <div className="space-y-4">
+                            <div className="rounded-lg border border-border bg-muted/40 p-3">
+                                <p className="text-sm font-semibold text-foreground">Formato del archivo Excel:</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Columnas requeridas: TELEFONO, CLIENTE, Total, ESTADO
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Solo se importan filas con ESTADO = PROCESADA. Los telefonos se normalizan al formato internacional de Ecuador (593...).
+                                </p>
+                            </div>
 
-                            <FormControl>
-                                <FormLabel>Archivo Excel (.xlsx)</FormLabel>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="import-file">Archivo Excel (.xlsx)</Label>
                                 <Input
+                                    id="import-file"
                                     type="file"
-                                    slotProps={{ input: { accept: '.xlsx,.xls' } }}
+                                    accept=".xlsx,.xls"
+                                    className="py-2.5 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:text-foreground"
                                     onChange={(e: any) => setImportFile(e.target.files?.[0] || null)}
                                 />
-                            </FormControl>
+                            </div>
 
                             {datasets.length > 0 && (
-                                <FormControl>
-                                    <FormLabel>Conexion WhatsApp (para enviar conversiones)</FormLabel>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="import-whatsapp">Conexion WhatsApp (para enviar conversiones)</Label>
                                     <Select
-                                        value={selectedWhatsappId || datasets[0]?.whatsappId}
-                                        onChange={(_, value) => setSelectedWhatsappId(value as number)}
+                                        value={String(selectedWhatsappId ?? datasets[0]?.whatsappId ?? '')}
+                                        onValueChange={(value) => setSelectedWhatsappId(Number(value))}
                                     >
-                                        {datasets.map(d => (
-                                            <Option key={d.whatsappId} value={d.whatsappId}>
-                                                {d.whatsapp?.name || `Connection ${d.whatsappId}`} ({d.channel})
-                                            </Option>
-                                        ))}
+                                        <SelectTrigger id="import-whatsapp" className="h-11">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {datasets.map(d => (
+                                                <SelectItem key={d.whatsappId} value={String(d.whatsappId)}>
+                                                    {d.whatsapp?.name || `Connection ${d.whatsappId}`} ({d.channel})
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
                                     </Select>
-                                </FormControl>
+                                </div>
                             )}
 
                             {importing && (
-                                <Box>
+                                <div>
                                     <LinearProgress sx={{ mb: 1 }} />
-                                    <Typography level="body-xs" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
+                                    <p className="text-center text-xs text-muted-foreground">
                                         Procesando archivo... Esto puede tardar unos segundos.
-                                    </Typography>
-                                </Box>
+                                    </p>
+                                </div>
                             )}
 
-                            <Stack direction="row" spacing={2} justifyContent="flex-end">
-                                <Button variant="outlined" onClick={() => { setShowImportModal(false); setImportFile(null) }} disabled={importing}>
+                            <DialogFooter>
+                                <Button variant="outline" size="sm" onClick={() => { setShowImportModal(false); setImportFile(null) }} disabled={importing}>
                                     Cancelar
                                 </Button>
                                 <Button
+                                    size="sm"
                                     onClick={handleImportSales}
                                     loading={importing}
                                     disabled={!importFile}
-                                    color="success"
-                                    startDecorator={<UploadFileIcon />}
                                 >
+                                    <FileArrowUp className="size-4" aria-hidden />
                                     Importar
                                 </Button>
-                            </Stack>
-                        </Stack>
+                            </DialogFooter>
+                        </div>
                     ) : (
-                        <Stack spacing={2}>
-                            <Alert color={importResult.campaignMatched > 0 ? 'success' : 'warning'} variant="soft">
-                                <Box>
-                                    <Typography level="title-md">
-                                        Importacion completada
-                                    </Typography>
-                                    <Typography level="body-sm">
-                                        {importResult.campaignMatched > 0
-                                            ? `${importResult.campaignMatched} ventas vinculadas a campanas ($${importResult.matchedRevenue.toFixed(2)}) de ${importResult.processedRows} procesadas`
-                                            : `${importResult.processedRows} filas procesadas, ninguna vinculada a campanas existentes`
-                                        }
-                                    </Typography>
-                                </Box>
-                            </Alert>
+                        <div className="space-y-4">
+                            <div
+                                className={cn(
+                                    'rounded-lg border p-3',
+                                    importResult.campaignMatched > 0
+                                        ? 'border-success/30 bg-success/10'
+                                        : 'border-warning/30 bg-warning/10',
+                                )}
+                            >
+                                <p className="font-semibold text-foreground">Importacion completada</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {importResult.campaignMatched > 0
+                                        ? `${importResult.campaignMatched} ventas vinculadas a campanas ($${importResult.matchedRevenue.toFixed(2)}) de ${importResult.processedRows} procesadas`
+                                        : `${importResult.processedRows} filas procesadas, ninguna vinculada a campanas existentes`
+                                    }
+                                </p>
+                            </div>
 
                             {/* Stats Grid */}
-                            <Grid container spacing={1}>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="neutral" size="sm">
-                                        <CardContent>
-                                            <Typography level="h4">{importResult.totalRows}</Typography>
-                                            <Typography level="body-xs">Filas totales</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="primary" size="sm">
-                                        <CardContent>
-                                            <Typography level="h4">{importResult.processedRows}</Typography>
-                                            <Typography level="body-xs">Procesadas</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="warning" size="sm">
-                                        <CardContent>
-                                            <Typography level="h4">{importResult.skippedAnuladas}</Typography>
-                                            <Typography level="body-xs">Anuladas</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="outlined" color="success" size="sm" sx={{ border: '2px solid', borderColor: 'success.500' }}>
-                                        <CardContent>
-                                            <Stack direction="row" spacing={1} alignItems="center">
-                                                <FacebookIcon sx={{ fontSize: 18, color: '#1877F2' }} />
-                                                <Typography level="h4" sx={{ color: 'success.main' }}>{importResult.campaignMatched}</Typography>
-                                            </Stack>
-                                            <Typography level="body-xs" fontWeight="lg">Match con campana</Typography>
-                                            <Typography level="body-xs" sx={{ color: 'success.main' }}>${importResult.matchedRevenue.toFixed(2)}</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="neutral" size="sm">
-                                        <CardContent>
-                                            <Stack direction="row" spacing={1} alignItems="center">
-                                                <ReceiptIcon sx={{ fontSize: 18 }} />
-                                                <Typography level="h4">{importResult.noCampaign}</Typography>
-                                            </Stack>
-                                            <Typography level="body-xs">Sin campana (aprox.)</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="success" size="sm">
-                                        <CardContent>
-                                            <Stack direction="row" spacing={1} alignItems="center">
-                                                <CheckCircleIcon sx={{ fontSize: 18 }} />
-                                                <Typography level="h4">{importResult.matched}</Typography>
-                                            </Stack>
-                                            <Typography level="body-xs">Contactos existentes</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="primary" size="sm">
-                                        <CardContent>
-                                            <Stack direction="row" spacing={1} alignItems="center">
-                                                <PersonAddIcon sx={{ fontSize: 18 }} />
-                                                <Typography level="h4">{importResult.created}</Typography>
-                                            </Stack>
-                                            <Typography level="body-xs">Contactos nuevos</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="neutral" size="sm">
-                                        <CardContent>
-                                            <Typography level="h4">{importResult.duplicates}</Typography>
-                                            <Typography level="body-xs">Duplicados</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="danger" size="sm">
-                                        <CardContent>
-                                            <Typography level="h4">{importResult.failed}</Typography>
-                                            <Typography level="body-xs">Fallidos</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                                <Grid xs={6} sm={4}>
-                                    <Card variant="soft" color="success" size="sm">
-                                        <CardContent>
-                                            <Typography level="h4" sx={{ color: 'success.main' }}>${importResult.totalRevenue.toFixed(2)}</Typography>
-                                            <Typography level="body-xs">Revenue total</Typography>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                            </Grid>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <MiniStat value={importResult.totalRows} label="Filas totales" />
+                                <MiniStat value={importResult.processedRows} label="Procesadas" tone="primary" />
+                                <MiniStat value={importResult.skippedAnuladas} label="Anuladas" tone="warning" />
+                                <MiniStat
+                                    className="border-success/50 bg-success/10"
+                                    icon={<FacebookLogo className="size-[18px] text-[#1877f2]" weight="fill" aria-hidden />}
+                                    value={importResult.campaignMatched}
+                                    label="Match con campana"
+                                    tone="success"
+                                />
+                                <MiniStat
+                                    icon={<Receipt className="size-[18px] text-muted-foreground" aria-hidden />}
+                                    value={importResult.noCampaign}
+                                    label="Sin campana (aprox.)"
+                                />
+                                <MiniStat
+                                    icon={<CheckCircle className="size-[18px] text-success-text" weight="fill" aria-hidden />}
+                                    value={importResult.matched}
+                                    label="Contactos existentes"
+                                    tone="success"
+                                />
+                                <MiniStat
+                                    icon={<UserPlus className="size-[18px] text-primary" aria-hidden />}
+                                    value={importResult.created}
+                                    label="Contactos nuevos"
+                                    tone="primary"
+                                />
+                                <MiniStat value={importResult.duplicates} label="Duplicados" />
+                                <MiniStat value={importResult.failed} label="Fallidos" tone="destructive" />
+                                <MiniStat
+                                    value={`$${importResult.totalRevenue.toFixed(2)}`}
+                                    label="Revenue total"
+                                    tone="success"
+                                />
+                            </div>
 
                             {/* Campaign matched details */}
                             {importResult.details.filter(d => d.status === 'campaign_matched').length > 0 && (
-                                <Card variant="outlined" color="success" size="sm">
-                                    <CardContent>
-                                        <Typography level="title-sm" sx={{ mb: 1, color: 'success.main' }}>
-                                            Ventas vinculadas a campanas ({importResult.details.filter(d => d.status === 'campaign_matched').length})
-                                        </Typography>
-                                        <Sheet sx={{ overflow: 'auto', maxHeight: 200 }}>
-                                            <Table size="sm">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Cliente</th>
-                                                        <th>Total</th>
-                                                        <th>Campana</th>
-                                                        <th>Tracking</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {importResult.details.filter(d => d.status === 'campaign_matched').map((detail, idx) => (
-                                                        <tr key={idx}>
-                                                            <td>
-                                                                <Typography level="body-xs">{detail.name}</Typography>
-                                                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>{detail.phone}</Typography>
-                                                            </td>
-                                                            <td><Typography level="body-xs" fontWeight="lg" sx={{ color: 'success.main' }}>${detail.total}</Typography></td>
-                                                            <td><Typography level="body-xs">{detail.campaignHeadline}</Typography></td>
-                                                            <td>
-                                                                <Chip size="sm" color={detail.hasCtwaClid ? 'success' : 'warning'} variant="soft">
-                                                                    {detail.hasCtwaClid ? 'Exacto' : 'Aprox.'}
-                                                                </Chip>
-                                                            </td>
-                                                        </tr>
+                                <div className="rounded-lg border border-success/40 p-3">
+                                    <p className="mb-2 text-sm font-semibold text-success-text">
+                                        Ventas vinculadas a campanas ({importResult.details.filter(d => d.status === 'campaign_matched').length})
+                                    </p>
+                                    <div className="max-h-[200px] overflow-auto rounded-md border border-border">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b border-border bg-muted/40 text-left">
+                                                    {['Cliente', 'Total', 'Campana', 'Tracking'].map((c) => (
+                                                        <th key={c} className="whitespace-nowrap px-3 py-2 font-semibold uppercase tracking-wide text-muted-foreground">
+                                                            {c}
+                                                        </th>
                                                     ))}
-                                                </tbody>
-                                            </Table>
-                                        </Sheet>
-                                    </CardContent>
-                                </Card>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-border">
+                                                {importResult.details.filter(d => d.status === 'campaign_matched').map((detail, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="px-3 py-2">
+                                                            <p className="text-foreground">{detail.name}</p>
+                                                            <p className="text-muted-foreground">{detail.phone}</p>
+                                                        </td>
+                                                        <td className="px-3 py-2 font-semibold tabular-nums text-success-text">${detail.total}</td>
+                                                        <td className="px-3 py-2 text-foreground">{detail.campaignHeadline}</td>
+                                                        <td className="px-3 py-2">
+                                                            <Badge variant={detail.hasCtwaClid ? 'success' : 'warning'}>
+                                                                {detail.hasCtwaClid ? 'Exacto' : 'Aprox.'}
+                                                            </Badge>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
 
                             {/* No campaign match details */}
                             {importResult.details.filter(d => d.status === 'no_campaign').length > 0 && (
-                                <Card variant="outlined" color="neutral" size="sm">
-                                    <CardContent>
-                                        <Typography level="title-sm" sx={{ mb: 1 }}>
-                                            Sin match de campana ({importResult.details.filter(d => d.status === 'no_campaign').length})
-                                        </Typography>
-                                        <Typography level="body-xs" sx={{ mb: 1, color: 'text.tertiary' }}>
-                                            Estos contactos no tienen campanas previas. Se crearon como SALES_IMPORT (atribucion aproximada por telefono).
-                                        </Typography>
-                                        <Sheet sx={{ overflow: 'auto', maxHeight: 150 }}>
-                                            <Table size="sm">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Cliente</th>
-                                                        <th>Telefono</th>
-                                                        <th>Total</th>
-                                                        <th>Factura</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {importResult.details.filter(d => d.status === 'no_campaign').slice(0, 50).map((detail, idx) => (
-                                                        <tr key={idx}>
-                                                            <td><Typography level="body-xs">{detail.name}</Typography></td>
-                                                            <td><Typography level="body-xs">{detail.phone}</Typography></td>
-                                                            <td><Typography level="body-xs">${detail.total}</Typography></td>
-                                                            <td><Typography level="body-xs">{detail.invoiceNumber}</Typography></td>
-                                                        </tr>
+                                <div className="rounded-lg border border-border p-3">
+                                    <p className="mb-1 text-sm font-semibold text-foreground">
+                                        Sin match de campana ({importResult.details.filter(d => d.status === 'no_campaign').length})
+                                    </p>
+                                    <p className="mb-2 text-xs text-muted-foreground">
+                                        Estos contactos no tienen campanas previas. Se crearon como SALES_IMPORT (atribucion aproximada por telefono).
+                                    </p>
+                                    <div className="max-h-[150px] overflow-auto rounded-md border border-border">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b border-border bg-muted/40 text-left">
+                                                    {['Cliente', 'Telefono', 'Total', 'Factura'].map((c) => (
+                                                        <th key={c} className="whitespace-nowrap px-3 py-2 font-semibold uppercase tracking-wide text-muted-foreground">
+                                                            {c}
+                                                        </th>
                                                     ))}
-                                                </tbody>
-                                            </Table>
-                                        </Sheet>
-                                    </CardContent>
-                                </Card>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-border">
+                                                {importResult.details.filter(d => d.status === 'no_campaign').slice(0, 50).map((detail, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="px-3 py-2 text-foreground">{detail.name}</td>
+                                                        <td className="px-3 py-2 text-foreground">{detail.phone}</td>
+                                                        <td className="px-3 py-2 tabular-nums text-foreground">${detail.total}</td>
+                                                        <td className="px-3 py-2 text-foreground">{detail.invoiceNumber}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
 
                             {/* Failed details */}
                             {importResult.details.filter(d => d.status === 'failed').length > 0 && (
-                                <Card variant="outlined" color="danger" size="sm">
-                                    <CardContent>
-                                        <Typography level="title-sm" sx={{ mb: 1, color: 'danger.main' }}>
-                                            Registros fallidos ({importResult.details.filter(d => d.status === 'failed').length})
-                                        </Typography>
-                                        <Sheet sx={{ overflow: 'auto', maxHeight: 200 }}>
-                                            <Table size="sm">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Telefono</th>
-                                                        <th>Cliente</th>
-                                                        <th>Total</th>
-                                                        <th>Razon</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {importResult.details.filter(d => d.status === 'failed').map((detail, idx) => (
-                                                        <tr key={idx}>
-                                                            <td><Typography level="body-xs">{detail.phone}</Typography></td>
-                                                            <td><Typography level="body-xs">{detail.name}</Typography></td>
-                                                            <td><Typography level="body-xs">${detail.total}</Typography></td>
-                                                            <td><Typography level="body-xs" sx={{ color: 'danger.main' }}>{detail.reason}</Typography></td>
-                                                        </tr>
+                                <div className="rounded-lg border border-destructive/40 p-3">
+                                    <p className="mb-2 text-sm font-semibold text-destructive-text">
+                                        Registros fallidos ({importResult.details.filter(d => d.status === 'failed').length})
+                                    </p>
+                                    <div className="max-h-[200px] overflow-auto rounded-md border border-border">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b border-border bg-muted/40 text-left">
+                                                    {['Telefono', 'Cliente', 'Total', 'Razon'].map((c) => (
+                                                        <th key={c} className="whitespace-nowrap px-3 py-2 font-semibold uppercase tracking-wide text-muted-foreground">
+                                                            {c}
+                                                        </th>
                                                     ))}
-                                                </tbody>
-                                            </Table>
-                                        </Sheet>
-                                    </CardContent>
-                                </Card>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-border">
+                                                {importResult.details.filter(d => d.status === 'failed').map((detail, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="px-3 py-2 text-foreground">{detail.phone}</td>
+                                                        <td className="px-3 py-2 text-foreground">{detail.name}</td>
+                                                        <td className="px-3 py-2 tabular-nums text-foreground">${detail.total}</td>
+                                                        <td className="px-3 py-2 text-destructive-text">{detail.reason}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
 
                             {/* Duplicate details */}
                             {importResult.details.filter(d => d.status === 'duplicate').length > 0 && (
-                                <Card variant="outlined" color="neutral" size="sm">
-                                    <CardContent>
-                                        <Typography level="title-sm" sx={{ mb: 1 }}>
-                                            Duplicados omitidos ({importResult.details.filter(d => d.status === 'duplicate').length})
-                                        </Typography>
-                                        <Sheet sx={{ overflow: 'auto', maxHeight: 150 }}>
-                                            <Table size="sm">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Telefono</th>
-                                                        <th>Cliente</th>
-                                                        <th>Factura</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {importResult.details.filter(d => d.status === 'duplicate').map((detail, idx) => (
-                                                        <tr key={idx}>
-                                                            <td><Typography level="body-xs">{detail.phone}</Typography></td>
-                                                            <td><Typography level="body-xs">{detail.name}</Typography></td>
-                                                            <td><Typography level="body-xs">{detail.invoiceNumber}</Typography></td>
-                                                        </tr>
+                                <div className="rounded-lg border border-border p-3">
+                                    <p className="mb-2 text-sm font-semibold text-foreground">
+                                        Duplicados omitidos ({importResult.details.filter(d => d.status === 'duplicate').length})
+                                    </p>
+                                    <div className="max-h-[150px] overflow-auto rounded-md border border-border">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b border-border bg-muted/40 text-left">
+                                                    {['Telefono', 'Cliente', 'Factura'].map((c) => (
+                                                        <th key={c} className="whitespace-nowrap px-3 py-2 font-semibold uppercase tracking-wide text-muted-foreground">
+                                                            {c}
+                                                        </th>
                                                     ))}
-                                                </tbody>
-                                            </Table>
-                                        </Sheet>
-                                    </CardContent>
-                                </Card>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-border">
+                                                {importResult.details.filter(d => d.status === 'duplicate').map((detail, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="px-3 py-2 text-foreground">{detail.phone}</td>
+                                                        <td className="px-3 py-2 text-foreground">{detail.name}</td>
+                                                        <td className="px-3 py-2 text-foreground">{detail.invoiceNumber}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
 
                             <Button
+                                size="sm"
                                 onClick={() => { setShowImportModal(false); setImportResult(null); setImportFile(null) }}
-                                color="primary"
                             >
                                 Cerrar
                             </Button>
-                        </Stack>
+                        </div>
                     )}
-                </ModalDialog>
-            </Modal>
+                </DialogContent>
+            </Dialog>
 
             {/* Confirmation Modal - Send Approximate Conversion */}
-            <Modal open={confirmSendModal.open} onClose={() => setConfirmSendModal({ open: false, msg: null, value: 0 })}>
-                <ModalDialog variant="outlined" sx={{ maxWidth: 450, p: 3 }}>
-                    <Stack spacing={2.5} alignItems="center">
-                        <Box sx={{
-                            width: 56, height: 56, borderRadius: '50%',
-                            bgcolor: 'warning.softBg', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>
-                            <WarningIcon sx={{ fontSize: 32, color: 'warning.500' }} />
-                        </Box>
+            <Dialog
+                open={confirmSendModal.open}
+                onOpenChange={(o) => { if (!o) setConfirmSendModal({ open: false, msg: null, value: 0 }) }}
+            >
+                <DialogContent className="max-w-[450px]">
+                    <div className="flex flex-col items-center gap-5">
+                        <span className="flex size-14 items-center justify-center rounded-full bg-warning/16 text-warning-text">
+                            <Warning className="size-8" weight="fill" aria-hidden />
+                        </span>
 
-                        <Box sx={{ textAlign: 'center' }}>
-                            <Typography level="title-lg" sx={{ mb: 1 }}>
-                                Atribucion Aproximada
-                            </Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                        <div className="text-center">
+                            <DialogTitle className="mb-1">Atribucion Aproximada</DialogTitle>
+                            <p className="text-sm text-muted-foreground">
                                 Este contacto no tiene <strong>ctwa_clid</strong> (Click-to-WhatsApp ID).
                                 La atribucion sera por numero de telefono, lo cual puede resultar en una atribucion menos precisa.
-                            </Typography>
-                        </Box>
+                            </p>
+                        </div>
 
                         {confirmSendModal.msg && (
-                            <Card variant="soft" color="neutral" size="sm" sx={{ width: '100%' }}>
-                                <CardContent>
-                                    <Stack spacing={0.5}>
-                                        <Stack direction="row" justifyContent="space-between">
-                                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Contacto</Typography>
-                                            <Typography level="body-sm" fontWeight="lg">{confirmSendModal.msg.contact?.name || 'N/A'}</Typography>
-                                        </Stack>
-                                        <Stack direction="row" justifyContent="space-between">
-                                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Telefono</Typography>
-                                            <Typography level="body-sm">{confirmSendModal.msg.contact?.number || 'N/A'}</Typography>
-                                        </Stack>
-                                        <Stack direction="row" justifyContent="space-between">
-                                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Valor</Typography>
-                                            <Typography level="body-sm" fontWeight="lg" sx={{ color: 'success.600' }}>${confirmSendModal.value} USD</Typography>
-                                        </Stack>
-                                        <Stack direction="row" justifyContent="space-between">
-                                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Evento</Typography>
-                                            <Typography level="body-sm">Purchase</Typography>
-                                        </Stack>
-                                    </Stack>
-                                </CardContent>
-                            </Card>
+                            <div className="w-full space-y-1 rounded-lg border border-border bg-muted/40 p-3">
+                                <div className="flex justify-between gap-2">
+                                    <span className="text-xs text-muted-foreground">Contacto</span>
+                                    <span className="text-sm font-semibold text-foreground">{confirmSendModal.msg.contact?.name || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between gap-2">
+                                    <span className="text-xs text-muted-foreground">Telefono</span>
+                                    <span className="text-sm text-foreground">{confirmSendModal.msg.contact?.number || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between gap-2">
+                                    <span className="text-xs text-muted-foreground">Valor</span>
+                                    <span className="text-sm font-semibold tabular-nums text-success-text">${confirmSendModal.value} USD</span>
+                                </div>
+                                <div className="flex justify-between gap-2">
+                                    <span className="text-xs text-muted-foreground">Evento</span>
+                                    <span className="text-sm text-foreground">Purchase</span>
+                                </div>
+                            </div>
                         )}
 
-                        <Stack direction="row" spacing={1.5} sx={{ width: '100%' }}>
+                        <div className="flex w-full gap-3">
                             <Button
-                                variant="outlined"
-                                color="neutral"
-                                sx={{ flex: 1 }}
+                                variant="outline"
+                                className="flex-1"
                                 onClick={() => setConfirmSendModal({ open: false, msg: null, value: 0 })}
                             >
                                 Cancelar
                             </Button>
                             <Button
-                                color="warning"
-                                sx={{ flex: 1 }}
-                                startDecorator={<SendIcon />}
+                                className="flex-1"
                                 loading={sendingConversion === confirmSendModal.msg?.id}
                                 onClick={async () => {
                                     if (confirmSendModal.msg) {
@@ -1518,48 +1943,144 @@ export default function FacebookConversions() {
                                     }
                                 }}
                             >
+                                <PaperPlaneTilt className="size-4" aria-hidden />
                                 Enviar Aprox.
                             </Button>
-                        </Stack>
-                    </Stack>
-                </ModalDialog>
-            </Modal>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Track Event Modal — Purchase manual */}
+            <Dialog
+                open={trackModal.open}
+                onOpenChange={(o) => { if (!o && trackingEvent.msgId === null) setTrackModal({ open: false, msg: null, eventName: null }) }}
+            >
+                <DialogContent className="max-w-[500px]">
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                            {trackModal.eventName === 'Purchase' && (
+                                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-success/14 text-success-text">
+                                    <ShoppingCart className="size-6" weight="fill" aria-hidden />
+                                </span>
+                            )}
+                            <div>
+                                <DialogTitle>Enviar {trackModal.eventName}</DialogTitle>
+                                <p className="text-xs text-muted-foreground">
+                                    {trackModal.msg?.contact?.name || 'Contacto'} · {trackModal.msg?.contact?.number || ''}
+                                </p>
+                            </div>
+                        </div>
+
+                        {trackModal.msg && !trackModal.msg.ctwaClid && (
+                            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3">
+                                <Warning className="mt-0.5 size-4 shrink-0 text-warning-text" weight="fill" aria-hidden />
+                                <p className="text-xs text-foreground">
+                                    Sin <strong>ctwa_clid</strong>. La atribución será aproximada por teléfono.
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Campos según evento */}
+                        {trackModal.eventName === 'Purchase' && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="track-value">Valor *</Label>
+                                    <Input id="track-value" type="number" value={trackForm.value} onChange={e => setTrackForm(p => ({ ...p, value: e.target.value }))} placeholder="100.00" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="track-currency">Moneda *</Label>
+                                    <Input id="track-currency" value={trackForm.currency} onChange={e => setTrackForm(p => ({ ...p, currency: e.target.value.toUpperCase() }))} placeholder="USD" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="track-order-id">Order ID (opcional, idempotencia)</Label>
+                                    <Input id="track-order-id" value={trackForm.orderId} onChange={e => setTrackForm(p => ({ ...p, orderId: e.target.value }))} placeholder="FAC-001234" />
+                                </div>
+                            </>
+                        )}
+
+                        <DialogFooter>
+                            <Button variant="outline" size="sm" onClick={() => setTrackModal({ open: false, msg: null, eventName: null })} disabled={trackingEvent.msgId !== null}>
+                                Cancelar
+                            </Button>
+                            <Button size="sm" loading={trackingEvent.msgId === trackModal.msg?.id} onClick={executeTrackEvent}>
+                                <PaperPlaneTilt className="size-4" aria-hidden />
+                                Enviar a Meta
+                            </Button>
+                        </DialogFooter>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Result Notification Modal */}
-            <Modal open={resultModal.open} onClose={() => setResultModal({ open: false, success: false, message: '' })}>
-                <ModalDialog variant="outlined" sx={{ maxWidth: 420, p: 3 }}>
-                    <Stack spacing={2} alignItems="center">
-                        <Box sx={{
-                            width: 56, height: 56, borderRadius: '50%',
-                            bgcolor: resultModal.success ? 'success.softBg' : 'danger.softBg',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>
-                            {resultModal.success
-                                ? <CheckCircleIcon sx={{ fontSize: 32, color: 'success.500' }} />
-                                : <ErrorIcon sx={{ fontSize: 32, color: 'danger.500' }} />
-                            }
-                        </Box>
+            {/* Modal de confirmación: envío MASIVO de conversiones pendientes */}
+            <Dialog
+                open={sendAllModal.open}
+                onOpenChange={(o) => { if (!o) setSendAllModal(prev => ({ ...prev, open: false })) }}
+            >
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Enviar conversiones pendientes</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-muted-foreground">
+                        Se enviarán <strong className="text-foreground">{sendAllModal.enviables}</strong> conversiones Purchase pendientes (con valor), tanto exactas como aproximadas.
+                        {sendAllModal.skipped > 0 && <> Se omitirán <strong className="text-foreground">{sendAllModal.skipped}</strong> por no tener valor asignado.</>}
+                        <br />Contactos pendientes en total: {sendAllModal.total}.
+                    </p>
+                    <DialogFooter>
+                        <Button variant="ghost" size="sm" onClick={() => setSendAllModal(prev => ({ ...prev, open: false }))}>
+                            Cancelar
+                        </Button>
+                        <Button size="sm" disabled={sendAllModal.enviables === 0} onClick={handleConfirmSendAll}>
+                            <PaperPlaneTilt className="size-4" aria-hidden />
+                            Enviar {sendAllModal.enviables}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-                        <Box sx={{ textAlign: 'center' }}>
-                            <Typography level="title-lg" sx={{ mb: 0.5 }}>
+            <Dialog
+                open={resultModal.open}
+                onOpenChange={(o) => { if (!o) setResultModal({ open: false, success: false, message: '' }) }}
+            >
+                <DialogContent className="max-w-[420px]">
+                    <div className="flex flex-col items-center gap-4">
+                        <span
+                            className={cn(
+                                'flex size-14 items-center justify-center rounded-full',
+                                resultModal.success ? 'bg-success/14 text-success-text' : 'bg-destructive/12 text-destructive-text',
+                            )}
+                        >
+                            {resultModal.success
+                                ? <CheckCircle className="size-8" weight="fill" aria-hidden />
+                                : <XCircle className="size-8" weight="fill" aria-hidden />
+                            }
+                        </span>
+
+                        <div className="text-center">
+                            <DialogTitle className="mb-1">
                                 {resultModal.success ? 'Conversion Enviada' : 'Error al Enviar'}
-                            </Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                            </DialogTitle>
+                            <p className="text-sm text-muted-foreground">
                                 {resultModal.message}
-                            </Typography>
-                        </Box>
+                            </p>
+                        </div>
 
                         <Button
-                            color={resultModal.success ? 'success' : 'danger'}
-                            variant="soft"
-                            sx={{ minWidth: 120 }}
+                            variant="outline"
+                            size="sm"
+                            className={cn(
+                                'min-w-[120px]',
+                                resultModal.success ? 'text-success-text' : 'text-destructive-text',
+                            )}
                             onClick={() => setResultModal({ open: false, success: false, message: '' })}
                         >
                             {resultModal.success ? 'Entendido' : 'Cerrar'}
                         </Button>
-                    </Stack>
-                </ModalDialog>
-            </Modal>
-        </Container>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </div>
+        </TooltipProvider>
     )
 }

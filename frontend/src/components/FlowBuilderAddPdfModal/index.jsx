@@ -1,207 +1,227 @@
 import React, { useState, useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 
-import { makeStyles } from "@material-ui/core/styles";
-import Button from "@material-ui/core/Button";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import Typography from "@material-ui/core/Typography";
-import IconButton from "@material-ui/core/IconButton";
-import CircularProgress from "@material-ui/core/CircularProgress";
-import CloseIcon from "@material-ui/icons/Close";
-import DescriptionOutlinedIcon from "@material-ui/icons/DescriptionOutlined";
-import CloudUploadOutlinedIcon from "@material-ui/icons/CloudUploadOutlined";
-import DeleteOutlineIcon from "@material-ui/icons/DeleteOutline";
-import InsertDriveFileOutlinedIcon from "@material-ui/icons/InsertDriveFileOutlined";
+import { styled } from "@mui/material/styles";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import CircularProgress from "@mui/material/CircularProgress";
+import CloseIcon from "@mui/icons-material/Close";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 
 import api from "../../services/api";
 
-const useStyles = makeStyles(theme => ({
-  dialog: {
-    "& .MuiDialog-paper": {
-      borderRadius: 16,
-      overflow: "hidden",
-      maxWidth: 520,
-    },
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 24px 12px",
-  },
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    background: "linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    "& svg": { fontSize: 22 },
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#fff" : "#1a1a2e",
-    lineHeight: 1.3,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#aaa" : "#888",
-    marginTop: 2,
-  },
-  closeBtn: {
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
-    padding: 8,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
-    },
-  },
-  content: {
-    padding: "16px 24px 20px",
-  },
-  uploadZone: {
-    border: `2px dashed ${theme.palette.type === "dark" ? "#555" : "#d0d5dd"}`,
-    borderRadius: 12,
-    padding: "36px 24px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    background: theme.palette.type === "dark" ? "rgba(255,255,255,0.02)" : "#fafbfc",
-    "&:hover": {
-      borderColor: "#ff6b6b",
-      background: theme.palette.type === "dark" ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.04)",
-    },
-  },
-  uploadIconWrapper: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    background: theme.palette.type === "dark" ? "rgba(255,107,107,0.15)" : "rgba(255,107,107,0.08)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-    "& svg": { fontSize: 28, color: "#ff6b6b" },
-  },
-  uploadText: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#e0e0e0" : "#344054",
-    marginBottom: 4,
-  },
-  uploadHint: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#999" : "#98a2b3",
-  },
-  previewContainer: {
-    borderRadius: 12,
+const StyledDialog = styled(Dialog)({
+  "& .MuiDialog-paper": {
+    borderRadius: 16,
     overflow: "hidden",
-    position: "relative",
-    border: `1px solid ${theme.palette.type === "dark" ? "#333" : "#e8ecf0"}`,
-    background: theme.palette.type === "dark" ? "#1a1a2e" : "#f8f9fb",
-    padding: "20px 24px",
-    display: "flex",
-    alignItems: "center",
-    gap: 16,
+    maxWidth: 520,
   },
-  pdfIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    background: "linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    "& svg": { fontSize: 28, color: "#fff" },
+});
+
+const Header = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "20px 24px 12px",
+});
+
+const HeaderLeft = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+});
+
+const HeaderIcon = styled("div")({
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#fff",
+  "& svg": { fontSize: 22 },
+});
+
+const HeaderTitle = styled(Typography)(({ theme }) => ({
+  fontSize: 18,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#fff" : "#1a1a2e",
+  lineHeight: 1.3,
+}));
+
+const HeaderSubtitle = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#888",
+  marginTop: 2,
+}));
+
+const CloseBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
+  padding: 8,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
   },
-  pdfInfo: {
-    flex: 1,
-    minWidth: 0,
+}));
+
+const Content = styled(DialogContent)({
+  padding: "16px 24px 20px",
+});
+
+const UploadZone = styled("label")(({ theme }) => ({
+  border: `2px dashed ${theme.palette.mode === "dark" ? "#555" : "#d0d5dd"}`,
+  borderRadius: 12,
+  padding: "36px 24px",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  transition: "all 0.2s ease",
+  background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "#fafbfc",
+  "&:hover": {
+    borderColor: "#ff6b6b",
+    background: theme.palette.mode === "dark" ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.04)",
   },
-  pdfName: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#e0e0e0" : "#344054",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
+}));
+
+const UploadIconWrapper = styled("div")(({ theme }) => ({
+  width: 56,
+  height: 56,
+  borderRadius: 14,
+  background: theme.palette.mode === "dark" ? "rgba(255,107,107,0.15)" : "rgba(255,107,107,0.08)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 14,
+  "& svg": { fontSize: 28, color: "#ff6b6b" },
+}));
+
+const UploadText = styled(Typography)(({ theme }) => ({
+  fontSize: 14,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#e0e0e0" : "#344054",
+  marginBottom: 4,
+}));
+
+const UploadHint = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#999" : "#98a2b3",
+}));
+
+const PreviewContainer = styled("div")(({ theme }) => ({
+  borderRadius: 12,
+  overflow: "hidden",
+  position: "relative",
+  border: `1px solid ${theme.palette.mode === "dark" ? "#333" : "#e8ecf0"}`,
+  background: theme.palette.mode === "dark" ? "#1a1a2e" : "#f8f9fb",
+  padding: "20px 24px",
+  display: "flex",
+  alignItems: "center",
+  gap: 16,
+}));
+
+const PdfIcon = styled("div")({
+  width: 52,
+  height: 52,
+  borderRadius: 12,
+  background: "linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+  "& svg": { fontSize: 28, color: "#fff" },
+});
+
+const PdfInfo = styled("div")({
+  flex: 1,
+  minWidth: 0,
+});
+
+const PdfName = styled(Typography)(({ theme }) => ({
+  fontSize: 14,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#e0e0e0" : "#344054",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+}));
+
+const PdfSize = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#999" : "#98a2b3",
+  marginTop: 2,
+}));
+
+const RemoveBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#ff6b6b" : "#e55353",
+  padding: 8,
+  flexShrink: 0,
+  "&:hover": {
+    background: "rgba(229,83,83,0.08)",
   },
-  pdfSize: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#999" : "#98a2b3",
-    marginTop: 2,
+  "& svg": { fontSize: 20 },
+}));
+
+const Actions = styled(DialogActions)({
+  padding: "12px 24px 20px",
+  display: "flex",
+  gap: 10,
+  justifyContent: "flex-end",
+  borderTop: "none",
+});
+
+const CancelBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 20px",
+  textTransform: "none",
+  fontWeight: 500,
+  fontSize: 14,
+  color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+  border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#d0d5dd"}`,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
   },
-  removeBtn: {
-    color: theme.palette.type === "dark" ? "#ff6b6b" : "#e55353",
-    padding: 8,
-    flexShrink: 0,
-    "&:hover": {
-      background: "rgba(229,83,83,0.08)",
-    },
-    "& svg": { fontSize: 20 },
+}));
+
+const SaveBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 24px",
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: 14,
+  background: "linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)",
+  color: "#fff",
+  boxShadow: "0 2px 8px rgba(255,107,107,0.3)",
+  "&:hover": {
+    background: "linear-gradient(135deg, #e85d5d 0%, #d94f1e 100%)",
+    boxShadow: "0 4px 12px rgba(255,107,107,0.4)",
   },
-  actions: {
-    padding: "12px 24px 20px",
-    display: "flex",
-    gap: 10,
-    justifyContent: "flex-end",
-    borderTop: "none",
+  "&:disabled": {
+    background: theme.palette.mode === "dark" ? "#444" : "#e0e0e0",
+    color: theme.palette.mode === "dark" ? "#777" : "#999",
+    boxShadow: "none",
   },
-  cancelBtn: {
-    borderRadius: 10,
-    padding: "8px 20px",
-    textTransform: "none",
-    fontWeight: 500,
-    fontSize: 14,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#d0d5dd"}`,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
-    },
-  },
-  saveBtn: {
-    borderRadius: 10,
-    padding: "8px 24px",
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: 14,
-    background: "linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)",
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(255,107,107,0.3)",
-    "&:hover": {
-      background: "linear-gradient(135deg, #e85d5d 0%, #d94f1e 100%)",
-      boxShadow: "0 4px 12px rgba(255,107,107,0.4)",
-    },
-    "&:disabled": {
-      background: theme.palette.type === "dark" ? "#444" : "#e0e0e0",
-      color: theme.palette.type === "dark" ? "#777" : "#999",
-      boxShadow: "none",
-    },
-  },
-  loadingBox: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 12,
-    padding: "24px 0",
-  },
-  loadingText: {
-    fontSize: 13,
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
-  },
+}));
+
+const LoadingBox = styled("div")({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 12,
+  padding: "24px 0",
+});
+
+const LoadingText = styled(Typography)(({ theme }) => ({
+  fontSize: 13,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
 }));
 
 const formatFileSize = (bytes) => {
@@ -211,7 +231,6 @@ const formatFileSize = (bytes) => {
 };
 
 const FlowBuilderAddPdfModal = ({ open, onSave, onUpdate, data, close }) => {
-  const classes = useStyles();
   const isMounted = useRef(true);
 
   const [activeModal, setActiveModal] = useState(false);
@@ -297,94 +316,91 @@ const FlowBuilderAddPdfModal = ({ open, onSave, onUpdate, data, close }) => {
   };
 
   return (
-    <Dialog
+    <StyledDialog
       open={activeModal}
       onClose={handleClose}
-      className={classes.dialog}
       fullWidth
       maxWidth="sm"
     >
       {/* Header */}
-      <div className={classes.header}>
-        <div className={classes.headerLeft}>
-          <div className={classes.headerIcon}>
+      <Header>
+        <HeaderLeft>
+          <HeaderIcon>
             <DescriptionOutlinedIcon />
-          </div>
+          </HeaderIcon>
           <div>
-            <Typography className={classes.headerTitle}>{labels.title}</Typography>
-            <Typography className={classes.headerSubtitle}>PDF · Máximo 5 MB</Typography>
+            <HeaderTitle>{labels.title}</HeaderTitle>
+            <HeaderSubtitle>PDF · Máximo 5 MB</HeaderSubtitle>
           </div>
-        </div>
-        <IconButton className={classes.closeBtn} onClick={handleClose} size="small">
+        </HeaderLeft>
+        <CloseBtn onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
-        </IconButton>
-      </div>
+        </CloseBtn>
+      </Header>
 
       {/* Content */}
-      <DialogContent className={classes.content}>
+      <Content>
         {loading ? (
-          <div className={classes.loadingBox}>
+          <LoadingBox>
             <CircularProgress size={40} style={{ color: "#ff6b6b" }} />
-            <Typography className={classes.loadingText}>Subiendo PDF...</Typography>
-          </div>
+            <LoadingText>Subiendo PDF...</LoadingText>
+          </LoadingBox>
         ) : selectedFile ? (
-          <div className={classes.previewContainer}>
-            <div className={classes.pdfIcon}>
+          <PreviewContainer>
+            <PdfIcon>
               <InsertDriveFileOutlinedIcon />
-            </div>
-            <div className={classes.pdfInfo}>
-              <Typography className={classes.pdfName}>{selectedFile.name}</Typography>
-              <Typography className={classes.pdfSize}>{formatFileSize(selectedFile.size)}</Typography>
-            </div>
+            </PdfIcon>
+            <PdfInfo>
+              <PdfName>{selectedFile.name}</PdfName>
+              <PdfSize>{formatFileSize(selectedFile.size)}</PdfSize>
+            </PdfInfo>
             {open !== "edit" && (
-              <IconButton
-                className={classes.removeBtn}
+              <RemoveBtn
                 onClick={() => setSelectedFile(null)}
                 size="small"
               >
                 <DeleteOutlineIcon />
-              </IconButton>
+              </RemoveBtn>
             )}
-          </div>
+          </PreviewContainer>
         ) : (
-          <label className={classes.uploadZone}>
-            <div className={classes.uploadIconWrapper}>
+          <UploadZone>
+            <UploadIconWrapper>
               <CloudUploadOutlinedIcon />
-            </div>
-            <Typography className={classes.uploadText}>
+            </UploadIconWrapper>
+            <UploadText>
               Haz clic para seleccionar un PDF
-            </Typography>
-            <Typography className={classes.uploadHint}>
+            </UploadText>
+            <UploadHint>
               Archivos PDF · Máximo 5 MB
-            </Typography>
+            </UploadHint>
             <input
               type="file"
               accept=".pdf,application/pdf"
               hidden
               onChange={handleChangeFile}
             />
-          </label>
+          </UploadZone>
         )}
-      </DialogContent>
+      </Content>
 
       {/* Actions */}
       {!loading && (
-        <DialogActions className={classes.actions}>
-          <Button className={classes.cancelBtn} onClick={handleClose}>
+        <Actions>
+          <CancelBtn onClick={handleClose}>
             Cancelar
-          </Button>
+          </CancelBtn>
           {open !== "edit" && (
-            <Button
-              className={classes.saveBtn}
+            <SaveBtn
               onClick={handleSaveContact}
               disabled={!selectedFile}
             >
               {labels.btn}
-            </Button>
+            </SaveBtn>
           )}
-        </DialogActions>
+        </Actions>
       )}
-    </Dialog>
+    </StyledDialog>
   );
 };
 

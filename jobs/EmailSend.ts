@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Job: EmailSend
  * Procesa el envio individual de un email via el proveedor configurado de la company.
@@ -48,7 +52,11 @@ const handle = async (job: Job<EmailSendJobData>): Promise<{ recipientId: number
 
   // Lazy load de modelos y ProviderFactory para evitar dependencias circulares
   const EmailCampaignRecipient = require("../models/EmailMarketing/EmailCampaignRecipient").default;
-  const { ProviderFactory } = require("../services/EmailMarketing/providers/ProviderFactory");
+  // C8 fix: usar el factory ESTRICTO (Listmonk/Acelle). ProviderFactory caía en silencio a
+  // Carbonio SMTP ante error/sin-config (canal equivocado, sin tracking).
+  const { EmailMarketingFactory } = require("../services/EmailMarketing/providers/EmailMarketingFactory");
+  const DeductCreditsService = require("../services/AICreditServices/DeductCreditsService").default;
+  const RefundCreditsService = require("../services/AICreditServices/RefundCreditsService").default;
 
   // Buscar el recipient
   const recipient = await EmailCampaignRecipient.findOne({
@@ -66,9 +74,34 @@ const handle = async (job: Job<EmailSendJobData>): Promise<{ recipientId: number
     return { recipientId, status: "already_sent" };
   }
 
+  // C2/C6 fix: cobrar 1 crédito 'email_send' por envío, con REEMBOLSO si el envío no se concreta.
+  let creditDeducted = false;
   try {
-    // Obtener el proveedor de email configurado para la company
-    const provider = await ProviderFactory.getProvider(companyId);
+    // C8 fix: factory estricto (lanza si no hay provider Listmonk/Acelle activo, en vez de
+    // caer silenciosamente a Carbonio).
+    const provider = await EmailMarketingFactory.getProvider(companyId);
+
+    // C2: deducir el crédito ANTES de enviar (fail-closed). Sin saldo → no se envía y NO se
+    // reintenta (reintentar sin créditos no ayuda); el recipient queda 'failed'.
+    try {
+      await DeductCreditsService({
+        companyId,
+        creditTypeKey: "email_send",
+        amount: 1,
+        description: `Envío de email de campaña ${campaignId} a ${to}`,
+        source: "email",
+        sourceId: String(recipientId)
+      });
+      creditDeducted = true;
+    } catch (creditErr: unknown) {
+      const cMsg = creditErr instanceof Error ? creditErr.message : String(creditErr);
+      await recipient.update({
+        status: "failed",
+        errorMessage: `Sin créditos de email: ${cMsg}`.substring(0, 500)
+      }).catch(() => undefined);
+      logger.warn(`[EmailSend] No se envía recipientId=${recipientId} por créditos: ${cMsg}`);
+      return { recipientId, status: "no_credits" };
+    }
 
     logger.info(
       `[EmailSend] Enviando email via ${provider.getProviderName()}: ` +
@@ -101,23 +134,27 @@ const handle = async (job: Job<EmailSendJobData>): Promise<{ recipientId: number
       );
 
       return { recipientId, status: "sent" };
-    } else {
-      // El proveedor retorno success=false
-      const errorMsg = response.error || "Error desconocido del proveedor";
-
-      await recipient.update({
-        status: "failed",
-        errorMessage: errorMsg
-      });
-
-      logger.error(
-        `[EmailSend] Proveedor retorno error: recipientId=${recipientId}, error=${errorMsg}`
-      );
-
-      throw new Error(errorMsg);
     }
+
+    // El proveedor retornó success=false → tratar como fallo (el reembolso ocurre en el catch).
+    throw new Error(response.error || "Error desconocido del proveedor");
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // C6: reembolsar el crédito si se dedujo pero el email NO se envió.
+    if (creditDeducted) {
+      await RefundCreditsService({
+        companyId,
+        creditTypeKey: "email_send",
+        amount: 1,
+        description: `Reembolso email no enviado (campaña ${campaignId}, recipient ${recipientId})`,
+        source: "email",
+        sourceId: String(recipientId)
+      }).catch((refundErr: unknown) => {
+        const rMsg = refundErr instanceof Error ? refundErr.message : String(refundErr);
+        logger.error(`[EmailSend] Error reembolsando crédito recipientId=${recipientId}: ${rMsg}`);
+      });
+    }
 
     // Actualizar recipient como fallido
     try {

@@ -84,7 +84,7 @@ Autor: @${comment.authorUsername}
 Genera una respuesta que los guie amablemente a continuar por mensaje privado:`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

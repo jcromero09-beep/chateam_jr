@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from "../../utils/logger";
 import { QueryTypes } from "sequelize";
 import sequelize from "../../database";
@@ -90,7 +94,7 @@ Texto:
 ${text.substring(0, 6000)}
 
 Resumen:`,
-        modelKey: 'gpt-4.1-mini',
+        modelKey: 'gpt-5.5',
         maxTokens: 400,
         temperature: 0.3
       });

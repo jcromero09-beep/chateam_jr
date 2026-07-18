@@ -5,7 +5,8 @@ import User from "../../models/User";
 import { Op } from "sequelize";
 import { getIO } from "../../libs/socket";
 
-import { sortBy } from "lodash";
+import lodash from "lodash";
+const { sortBy } = lodash;
 
 interface Request {
   chatId: string;

@@ -181,6 +181,17 @@ class UGCPostComment extends Model<UGCPostComment> {
   @Column(DataType.INTEGER)
   replyCount!: number;
 
+  // Moderación Facebook/Instagram (soft flags — BD SAGRADA: nunca DELETE físico)
+  @Default(false)
+  @AllowNull(false)
+  @Column(DataType.BOOLEAN)
+  isHidden!: boolean;
+
+  @Default(false)
+  @AllowNull(false)
+  @Column(DataType.BOOLEAN)
+  isDeleted!: boolean;
+
   @Default({})
   @AllowNull(true)
   @Column(DataType.JSONB)

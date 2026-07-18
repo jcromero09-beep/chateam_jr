@@ -1,29 +1,21 @@
 import { useState } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Textarea,
+  Play as PlayIcon,
+  X as ClearIcon,
+  FloppyDisk as SaveIcon,
+  ClockCounterClockwise as HistoryIcon,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import {
   Select,
-  Option,
-  FormControl,
-  FormLabel,
-  Input,
-  Slider,
-  Chip,
-  Alert,
-  Divider,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  PlayArrow as PlayIcon,
-  Clear as ClearIcon,
-  Save as SaveIcon,
-  History as HistoryIcon,
-} from '@mui/icons-material'
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 interface TestResult {
@@ -130,303 +122,261 @@ export default function OpenAITesting() {
     { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', cost: '$0.015/1K tokens' },
   ]
 
+  const textareaClass =
+    'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography level="h2" sx={{ mb: 1 }}>
-          Testing de Prompts
-        </Typography>
-        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-          Prueba y experimenta con diferentes modelos y configuraciones en tiempo real
-        </Typography>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Testing de Prompts
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Prueba y experimenta con diferentes modelos y configuraciones en tiempo real
+          </p>
+        </div>
 
-      <Grid container spacing={3}>
-        {/* Panel de Configuración */}
-        <Grid xs={12} lg={5}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {/* Panel de Configuración */}
+          <div className="space-y-4 lg:col-span-5">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-lg font-semibold text-foreground">
                 Configuración del Test
-              </Typography>
+              </h2>
 
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <FormControl required>
-                  <FormLabel>Modelo</FormLabel>
-                  <Select value={selectedModel} onChange={(_, val) => setSelectedModel(val as string)}>
-                    {modelOptions.map((option) => (
-                      <Option key={option.value} value={option.value}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                          <span>{option.label}</span>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {option.cost}
-                          </Typography>
-                        </Box>
-                      </Option>
-                    ))}
+              <div className="flex flex-col gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="model-select">
+                    Modelo <span className="text-destructive-text">*</span>
+                  </Label>
+                  <Select value={selectedModel} onValueChange={setSelectedModel}>
+                    <SelectTrigger id="model-select" aria-label="Modelo">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modelOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          <span className="flex w-full items-center justify-between gap-4">
+                            <span>{option.label}</span>
+                            <span className="text-xs text-muted-foreground">{option.cost}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
-                </FormControl>
+                </div>
 
-                <FormControl>
-                  <FormLabel>System Prompt</FormLabel>
-                  <Textarea
-                    minRows={2}
+                <div className="space-y-1.5">
+                  <Label htmlFor="system-prompt">System Prompt</Label>
+                  <textarea
+                    id="system-prompt"
+                    rows={2}
                     placeholder="Ej: Eres un asistente especializado en..."
                     value={systemPrompt}
                     onChange={(e) => setSystemPrompt(e.target.value)}
+                    className={textareaClass}
                   />
-                  <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+                  <p className="text-xs text-muted-foreground">
                     Define el rol y comportamiento del modelo
-                  </Typography>
-                </FormControl>
+                  </p>
+                </div>
 
-                <FormControl>
-                  <FormLabel>User Prompt</FormLabel>
-                  <Textarea
-                    minRows={4}
+                <div className="space-y-1.5">
+                  <Label htmlFor="user-prompt">User Prompt</Label>
+                  <textarea
+                    id="user-prompt"
+                    rows={4}
                     placeholder="Escribe tu prompt aquí..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     required
+                    className={textareaClass}
                   />
-                  <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+                  <p className="text-xs text-muted-foreground">
                     {prompt.length} caracteres
-                  </Typography>
-                </FormControl>
+                  </p>
+                </div>
 
-                <Divider />
+                <div className="border-t border-border" />
 
-                <FormControl>
-                  <FormLabel>Temperature: {temperature}</FormLabel>
-                  <Slider
+                <div className="space-y-1.5">
+                  <Label htmlFor="temperature">Temperature: {temperature}</Label>
+                  <input
+                    id="temperature"
+                    type="range"
                     value={temperature}
-                    onChange={(_, value) => setTemperature(value as number)}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
                     min={0}
                     max={2}
                     step={0.1}
-                    marks={[
-                      { value: 0, label: '0' },
-                      { value: 1, label: '1' },
-                      { value: 2, label: '2' },
-                    ]}
+                    className="w-full cursor-pointer accent-primary"
                   />
-                  <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>0</span>
+                    <span>1</span>
+                    <span>2</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
                     0 = Determinístico y preciso | 2 = Creativo y variado
-                  </Typography>
-                </FormControl>
+                  </p>
+                </div>
 
-                <FormControl>
-                  <FormLabel>Max Tokens</FormLabel>
-                  <Input
+                <div className="space-y-1.5">
+                  <Label htmlFor="max-tokens">Max Tokens</Label>
+                  <input
+                    id="max-tokens"
                     type="number"
                     value={maxTokens}
                     onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                    slotProps={{ input: { min: 100, max: 4000, step: 100 } }}
+                    min={100}
+                    max={4000}
+                    step={100}
+                    className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />
-                  <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+                  <p className="text-xs text-muted-foreground">
                     Límite de tokens en la respuesta
-                  </Typography>
-                </FormControl>
+                  </p>
+                </div>
 
-                <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                <div className="mt-2 flex gap-2">
                   <Button
-                    fullWidth
-                    startDecorator={loading ? <CircularProgress size="sm" /> : <PlayIcon />}
+                    className="flex-1"
                     onClick={handleTest}
                     disabled={!prompt.trim() || loading}
                   >
+                    {loading ? (
+                      <CircularProgress size="sm" />
+                    ) : (
+                      <PlayIcon className="size-4" weight="fill" aria-hidden />
+                    )}
                     {loading ? 'Procesando...' : 'Ejecutar Test'}
                   </Button>
-                  <Button variant="outlined" onClick={handleClear} disabled={loading}>
-                    <ClearIcon />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Limpiar"
+                    onClick={handleClear}
+                    disabled={loading}
+                  >
+                    <ClearIcon className="size-5" aria-hidden />
                   </Button>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
+                </div>
+              </div>
+            </div>
 
-          {/* Info de Costo Estimado */}
-          <Alert color="primary" sx={{ mt: 2 }}>
-            <Typography level="body-sm">
+            {/* Info de Costo Estimado */}
+            <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
               <strong>Costo estimado:</strong> ~$0.003 - $0.03 por test (dependiendo del modelo)
-            </Typography>
-          </Alert>
-        </Grid>
+            </div>
+          </div>
 
-        {/* Panel de Resultados */}
-        <Grid xs={12} lg={7}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography level="title-lg">Respuesta del Modelo</Typography>
+          {/* Panel de Resultados */}
+          <div className="space-y-6 lg:col-span-7">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-foreground">Respuesta del Modelo</h2>
                 {response && (
-                  <Button size="sm" variant="outlined" startDecorator={<SaveIcon />} onClick={handleSaveTest}>
+                  <Button size="sm" variant="outline" onClick={handleSaveTest}>
+                    <SaveIcon className="size-4" aria-hidden />
                     Guardar como Prompt
                   </Button>
                 )}
-              </Box>
+              </div>
 
               {!response && !loading && (
-                <Box
-                  sx={{
-                    minHeight: 400,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'background.level1',
-                    borderRadius: 'sm',
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                  }}
-                >
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                <div className="flex min-h-[400px] items-center justify-center rounded-md border border-dashed border-border bg-muted/40">
+                  <p className="text-sm text-muted-foreground">
                     La respuesta del modelo aparecerá aquí...
-                  </Typography>
-                </Box>
+                  </p>
+                </div>
               )}
 
               {loading && (
-                <Box
-                  sx={{
-                    minHeight: 400,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 2,
-                  }}
-                >
+                <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
                   <CircularProgress />
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Generando respuesta...
-                  </Typography>
-                </Box>
+                  <p className="text-sm text-muted-foreground">Generando respuesta...</p>
+                </div>
               )}
 
               {response && (
                 <>
-                  <Box
-                    sx={{
-                      p: 2,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'sm',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      minHeight: 300,
-                      mb: 2,
-                      fontFamily: 'monospace',
-                      fontSize: '0.875rem',
-                      whiteSpace: 'pre-wrap',
-                      overflow: 'auto',
-                    }}
-                  >
+                  <div className="mb-4 min-h-[300px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-4 font-mono text-sm text-foreground">
                     {response}
-                  </Box>
+                  </div>
 
                   {testInfo && (
-                    <Grid container spacing={2}>
-                      <Grid xs={4}>
-                        <Card variant="outlined" size="sm">
-                          <CardContent>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                              Tokens
-                            </Typography>
-                            <Typography level="title-md">{testInfo.tokens}</Typography>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                      <Grid xs={4}>
-                        <Card variant="outlined" size="sm">
-                          <CardContent>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                              Costo
-                            </Typography>
-                            <Typography level="title-md">${testInfo.cost.toFixed(5)}</Typography>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                      <Grid xs={4}>
-                        <Card variant="outlined" size="sm">
-                          <CardContent>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                              Duración
-                            </Typography>
-                            <Typography level="title-md">{testInfo.duration.toFixed(2)}s</Typography>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    </Grid>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="rounded-lg border border-border bg-card p-4">
+                        <p className="mb-1 text-xs text-muted-foreground">Tokens</p>
+                        <p className="text-lg font-semibold tabular-nums text-foreground">
+                          {testInfo.tokens}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-card p-4">
+                        <p className="mb-1 text-xs text-muted-foreground">Costo</p>
+                        <p className="text-lg font-semibold tabular-nums text-foreground">
+                          ${testInfo.cost.toFixed(5)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-card p-4">
+                        <p className="mb-1 text-xs text-muted-foreground">Duración</p>
+                        <p className="text-lg font-semibold tabular-nums text-foreground">
+                          {testInfo.duration.toFixed(2)}s
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </>
               )}
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* Historial de Tests */}
-          <Card sx={{ mt: 3 }}>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <HistoryIcon />
+            {/* Historial de Tests */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+                <HistoryIcon className="size-5" aria-hidden />
                 Historial de Tests
-              </Typography>
+              </h2>
 
               {history.length === 0 ? (
-                <Box
-                  sx={{
-                    py: 4,
-                    textAlign: 'center',
-                    bgcolor: 'background.level1',
-                    borderRadius: 'sm',
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                  }}
-                >
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                <div className="rounded-md border border-dashed border-border bg-muted/40 py-8 text-center">
+                  <p className="text-sm text-muted-foreground">
                     No hay tests ejecutados. Escribe un prompt para probar la IA.
-                  </Typography>
-                </Box>
+                  </p>
+                </div>
               ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div className="flex flex-col gap-4">
                   {history.map((test) => (
-                    <Card key={test.id} variant="outlined">
-                      <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="lg">
-                              {test.model}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {test.timestamp}
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Chip size="sm" variant="outlined">
-                              {test.tokens} tokens
-                            </Chip>
-                            <Chip size="sm" variant="outlined">
-                              ${test.cost.toFixed(5)}
-                            </Chip>
-                            <Chip size="sm" variant="outlined">
-                              {test.duration.toFixed(2)}s
-                            </Chip>
-                          </Box>
-                        </Box>
-                        <Typography level="body-sm" sx={{ mb: 1, fontStyle: 'italic' }}>
-                          "{test.prompt.substring(0, 100)}{test.prompt.length > 100 ? '...' : ''}"
-                        </Typography>
-                        <Divider sx={{ my: 1 }} />
-                        <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                          {test.response.substring(0, 150)}{test.response.length > 150 ? '...' : ''}
-                        </Typography>
-                      </CardContent>
-                    </Card>
+                    <div key={test.id} className="rounded-lg border border-border bg-card p-4">
+                      <div className="mb-2 flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{test.model}</p>
+                          <p className="text-xs text-muted-foreground">{test.timestamp}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Badge variant="outline">{test.tokens} tokens</Badge>
+                          <Badge variant="outline">${test.cost.toFixed(5)}</Badge>
+                          <Badge variant="outline">{test.duration.toFixed(2)}s</Badge>
+                        </div>
+                      </div>
+                      <p className="mb-2 text-sm italic text-foreground">
+                        "{test.prompt.substring(0, 100)}
+                        {test.prompt.length > 100 ? '...' : ''}"
+                      </p>
+                      <div className="my-2 border-t border-border" />
+                      <p className="text-xs text-muted-foreground">
+                        {test.response.substring(0, 150)}
+                        {test.response.length > 150 ? '...' : ''}
+                      </p>
+                    </div>
                   ))}
-                </Box>
+                </div>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

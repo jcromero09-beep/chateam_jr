@@ -1,37 +1,34 @@
+import * as React from 'react'
 import { useState } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Switch,
-  Chip,
-  Table,
-  Sheet,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  IconButton,
-  Tooltip,
-  Select,
-  Option,
-  Divider,
-} from '@mui/joy'
+  Broadcast,
+  Plus,
+  PencilSimple,
+  Trash,
+  Play,
+  CheckCircle,
+  WarningCircle,
+  Copy,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 import {
-  Webhook as WebhookIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  PlayArrow as TestIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  ContentCopy as CopyIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
 interface Webhook {
   id: number
@@ -55,6 +52,118 @@ interface WebhookLog {
   responseTime: number
   statusCode: number
 }
+
+// Botón de acción de fila (mismo look que RowAction, con onClick y ref para Tooltip asChild).
+const ActionBtn = React.forwardRef<
+  HTMLButtonElement,
+  {
+    label: string
+    onClick: () => void
+    className?: string
+    children: React.ReactNode
+  } & React.ButtonHTMLAttributes<HTMLButtonElement>
+>(({ label, onClick, className, children, ...props }, ref) => (
+  <button
+    ref={ref}
+    type="button"
+    aria-label={label}
+    onClick={onClick}
+    className={cn(
+      'flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </button>
+))
+ActionBtn.displayName = 'ActionBtn'
+
+// Toggle accesible (role="switch"). No hay componente Switch en @/components/ui.
+function Toggle({
+  checked,
+  onChange,
+  id,
+  label,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  id?: string
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// KPI con caption (StatTile no soporta la línea inferior).
+function KpiTile({
+  label,
+  value,
+  caption,
+  captionTone = 'muted',
+}: {
+  label: string
+  value: string
+  caption: string
+  captionTone?: 'muted' | 'success'
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+        {value}
+      </p>
+      <p
+        className={cn(
+          'mt-1 text-xs',
+          captionTone === 'success' ? 'text-success-text' : 'text-muted-foreground',
+        )}
+      >
+        {caption}
+      </p>
+    </div>
+  )
+}
+
+const webhookColumns = [
+  'Nombre',
+  'Endpoint URL',
+  'Integración',
+  'Eventos',
+  'Estado',
+  'Último Trigger',
+  'Total Triggers',
+  '',
+]
+
+const logColumns = [
+  'Timestamp',
+  'Webhook',
+  'Evento',
+  'Estado',
+  'Status Code',
+  'Tiempo Respuesta',
+]
 
 export default function IntegrationsWebhooks() {
   const [openModal, setOpenModal] = useState(false)
@@ -232,7 +341,8 @@ export default function IntegrationsWebhooks() {
   }
 
   const handleSave = () => {
-    console.log('Guardando webhook...', formData)
+    // TODO: este handler nunca persistió el webhook (solo cerraba el modal).
+    // formData incluye `secret`, por eso se eliminó el log. Falta el POST/PUT real.
     handleCloseModal()
   }
 
@@ -249,14 +359,14 @@ export default function IntegrationsWebhooks() {
     console.log('Endpoint copiado:', endpoint)
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'active':
         return 'success'
       case 'inactive':
         return 'neutral'
       case 'error':
-        return 'danger'
+        return 'destructive'
       default:
         return 'neutral'
     }
@@ -269,426 +379,413 @@ export default function IntegrationsWebhooks() {
   })
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <WebhookIcon sx={{ fontSize: 32 }} />
-            Gestión de Webhooks
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Configuración y monitoreo de webhooks para todas las integraciones
-          </Typography>
-        </Box>
-        <Button startDecorator={<AddIcon />} onClick={() => handleOpenModal()}>
-          Nuevo Webhook
-        </Button>
-      </Box>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Broadcast className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Gestión de Webhooks
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Configuración y monitoreo de webhooks para todas las integraciones
+                </p>
+              </div>
+            </div>
+            <Button size="sm" onClick={() => handleOpenModal()}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nuevo Webhook
+            </Button>
+          </div>
 
-      {/* KPIs */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Webhooks
-              </Typography>
-              <Typography level="h3">{webhooks.length}</Typography>
-              <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>
-                {webhooks.filter(w => w.enabled).length} activos
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Triggers Hoy
-              </Typography>
-              <Typography level="h3">5,052</Typography>
-              <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>
-                +8.3% vs ayer
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Tasa de Éxito
-              </Typography>
-              <Typography level="h3">99.2%</Typography>
-              <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>
-                Últimas 24 horas
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Tiempo Respuesta Prom.
-              </Typography>
-              <Typography level="h3">152ms</Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                Últimas 24 horas
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          {/* KPIs */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiTile
+              label="Total Webhooks"
+              value={String(webhooks.length)}
+              caption={`${webhooks.filter(w => w.enabled).length} activos`}
+              captionTone="success"
+            />
+            <KpiTile
+              label="Triggers Hoy"
+              value="5,052"
+              caption="+8.3% vs ayer"
+              captionTone="success"
+            />
+            <KpiTile
+              label="Tasa de Éxito"
+              value="99.2%"
+              caption="Últimas 24 horas"
+              captionTone="success"
+            />
+            <KpiTile
+              label="Tiempo Respuesta Prom."
+              value="152ms"
+              caption="Últimas 24 horas"
+            />
+          </div>
 
-      {/* Filtros */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
-            <Grid xs={12} sm={6} md={4}>
-              <FormControl>
-                <FormLabel>Filtrar por Integración</FormLabel>
-                <Select
-                  value={filterIntegration}
-                  onChange={(_, value) => setFilterIntegration(value as string)}
-                  size="sm"
-                >
-                  <Option value="all">Todas las integraciones</Option>
-                  <Option value="Billie">Billie</Option>
-                  <Option value="Aria Lite">Aria Lite</Option>
-                  <Option value="SmartTrack">SmartTrack</Option>
-                  <Option value="SGR">SGR</Option>
-                  <Option value="Custom">Custom</Option>
+          {/* Filtros */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="filter-integration">Filtrar por Integración</Label>
+                <Select value={filterIntegration} onValueChange={setFilterIntegration}>
+                  <SelectTrigger id="filter-integration" aria-label="Filtrar por Integración">
+                    <SelectValue placeholder="Todas las integraciones" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las integraciones</SelectItem>
+                    <SelectItem value="Billie">Billie</SelectItem>
+                    <SelectItem value="Aria Lite">Aria Lite</SelectItem>
+                    <SelectItem value="SmartTrack">SmartTrack</SelectItem>
+                    <SelectItem value="SGR">SGR</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={12} sm={6} md={4}>
-              <FormControl>
-                <FormLabel>Filtrar por Estado</FormLabel>
-                <Select
-                  value={filterStatus}
-                  onChange={(_, value) => setFilterStatus(value as string)}
-                  size="sm"
-                >
-                  <Option value="all">Todos los estados</Option>
-                  <Option value="active">Activo</Option>
-                  <Option value="inactive">Inactivo</Option>
-                  <Option value="error">Error</Option>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="filter-status">Filtrar por Estado</Label>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger id="filter-status" aria-label="Filtrar por Estado">
+                    <SelectValue placeholder="Todos los estados" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los estados</SelectItem>
+                    <SelectItem value="active">Activo</SelectItem>
+                    <SelectItem value="inactive">Inactivo</SelectItem>
+                    <SelectItem value="error">Error</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+              </div>
+            </div>
+          </div>
 
-      {/* Lista de Webhooks */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            Webhooks Configurados
-          </Typography>
+          {/* Lista de Webhooks */}
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-foreground">Webhooks Configurados</h2>
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1100px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {webhookColumns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredWebhooks.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                          No se encontraron webhooks con los filtros seleccionados
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredWebhooks.map((webhook) => (
+                        <tr key={webhook.id} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3 font-medium text-foreground">{webhook.name}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <span className="flex-1 truncate font-mono text-xs text-muted-foreground">
+                                {webhook.endpoint}
+                              </span>
+                              <Tooltip title="Copiar URL">
+                                <ActionBtn
+                                  label="Copiar URL"
+                                  onClick={() => handleCopyEndpoint(webhook.endpoint)}
+                                >
+                                  <Copy className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </Tooltip>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline">{webhook.integration}</Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {webhook.events.slice(0, 2).map((event, idx) => (
+                                <Badge key={idx} variant="neutral">
+                                  {event}
+                                </Badge>
+                              ))}
+                              {webhook.events.length > 2 && (
+                                <Badge variant="neutral">+{webhook.events.length - 2}</Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={getStatusVariant(webhook.status)}>
+                              {webhook.status === 'active' && (
+                                <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                              )}
+                              {webhook.status === 'error' && (
+                                <WarningCircle className="size-3.5" weight="fill" aria-hidden />
+                              )}
+                              {webhook.status}
+                            </Badge>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {webhook.lastTrigger}
+                          </td>
+                          <td className="px-4 py-3 font-medium tabular-nums text-foreground">
+                            {webhook.triggerCount.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-0.5">
+                              <Tooltip title="Probar Webhook">
+                                <ActionBtn
+                                  label="Probar Webhook"
+                                  onClick={() => handleTestWebhook(webhook)}
+                                  className="hover:bg-primary/10 hover:text-primary"
+                                >
+                                  <Play className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </Tooltip>
+                              <Tooltip title="Editar">
+                                <ActionBtn label="Editar" onClick={() => handleOpenModal(webhook)}>
+                                  <PencilSimple className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </Tooltip>
+                              <Tooltip title="Eliminar">
+                                <ActionBtn
+                                  label="Eliminar"
+                                  onClick={() => handleDeleteWebhook(webhook.id)}
+                                  className="hover:bg-destructive/10 hover:text-destructive-text"
+                                >
+                                  <Trash className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </Tooltip>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
 
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th style={{ width: '20%' }}>Nombre</th>
-                  <th style={{ width: '30%' }}>Endpoint URL</th>
-                  <th>Integración</th>
-                  <th>Eventos</th>
-                  <th>Estado</th>
-                  <th>Último Trigger</th>
-                  <th>Total Triggers</th>
-                  <th style={{ width: 120 }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredWebhooks.map((webhook) => (
-                  <tr key={webhook.id}>
-                    <td>
-                      <Typography level="body-sm" fontWeight="lg">
-                        {webhook.name}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography level="body-xs" sx={{ fontFamily: 'monospace', flex: 1 }}>
-                          {webhook.endpoint}
-                        </Typography>
-                        <Tooltip title="Copiar URL">
-                          <IconButton size="sm" onClick={() => handleCopyEndpoint(webhook.endpoint)}>
-                            <CopyIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {webhook.integration}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                        {webhook.events.slice(0, 2).map((event, idx) => (
-                          <Chip key={idx} size="sm" variant="soft">
-                            {event}
-                          </Chip>
-                        ))}
-                        {webhook.events.length > 2 && (
-                          <Chip size="sm" variant="soft">
-                            +{webhook.events.length - 2}
-                          </Chip>
+          {/* Log de Eventos Recientes */}
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-foreground">
+              Log de Eventos Recientes (Últimos 50)
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {logColumns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {recentLogs.map((log) => (
+                      <tr key={log.id} className="transition-colors hover:bg-accent/40">
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {log.timestamp}
+                        </td>
+                        <td className="px-4 py-3 text-foreground">{log.webhookName}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant="neutral">{log.event}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={log.status === 'success' ? 'success' : 'destructive'}>
+                            {log.status === 'success' ? (
+                              <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                            ) : (
+                              <WarningCircle className="size-3.5" weight="fill" aria-hidden />
+                            )}
+                            {log.status}
+                          </Badge>
+                        </td>
+                        <td
+                          className={cn(
+                            'px-4 py-3 font-medium tabular-nums',
+                            log.statusCode === 200 ? 'text-success-text' : 'text-destructive-text',
+                          )}
+                        >
+                          {log.statusCode}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                          {log.responseTime > 0 ? `${log.responseTime}ms` : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Crear/Editar Webhook */}
+        <Dialog open={openModal} onOpenChange={(open) => !open && handleCloseModal()}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {editingWebhook ? 'Editar Webhook' : 'Crear Nuevo Webhook'}
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="border-t border-border" />
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="wh-name">Nombre del Webhook</Label>
+                <input
+                  id="wh-name"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Ej: Billie Sync Webhook"
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="wh-endpoint">URL del Endpoint</Label>
+                <input
+                  id="wh-endpoint"
+                  required
+                  value={formData.endpoint}
+                  onChange={(e) => setFormData({ ...formData, endpoint: e.target.value })}
+                  placeholder="https://api.example.com/webhook"
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="wh-integration">Integración</Label>
+                <Select
+                  value={formData.integration}
+                  onValueChange={(value) => setFormData({ ...formData, integration: value })}
+                >
+                  <SelectTrigger id="wh-integration" className="h-11" aria-label="Integración">
+                    <SelectValue placeholder="Selecciona una integración" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Billie">Billie</SelectItem>
+                    <SelectItem value="Aria Lite">Aria Lite</SelectItem>
+                    <SelectItem value="SmartTrack">SmartTrack</SelectItem>
+                    <SelectItem value="SGR">SGR</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium leading-none text-foreground">Eventos</span>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Eventos">
+                  {availableEvents.map((event) => {
+                    const selected = formData.events.includes(event)
+                    return (
+                      <button
+                        key={event}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => {
+                          const newEvents = formData.events.includes(event)
+                            ? formData.events.filter(e => e !== event)
+                            : [...formData.events, event]
+                          setFormData({ ...formData, events: newEvents })
+                        }}
+                        className={cn(
+                          'inline-flex h-7 cursor-pointer items-center rounded-full border px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+                          selected
+                            ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary-hover'
+                            : 'border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                         )}
-                      </Box>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={getStatusColor(webhook.status)}
-                        startDecorator={
-                          webhook.status === 'active' ? <CheckCircleIcon /> :
-                          webhook.status === 'error' ? <ErrorIcon /> : null
-                        }
                       >
-                        {webhook.status}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-xs">
-                        {webhook.lastTrigger}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm" fontWeight="lg">
-                        {webhook.triggerCount.toLocaleString()}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <Tooltip title="Probar Webhook">
-                          <IconButton size="sm" color="primary" onClick={() => handleTestWebhook(webhook)}>
-                            <TestIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Editar">
-                          <IconButton size="sm" color="neutral" onClick={() => handleOpenModal(webhook)}>
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Eliminar">
-                          <IconButton size="sm" color="danger" onClick={() => handleDeleteWebhook(webhook.id)}>
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
+                        {event}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
 
-          {filteredWebhooks.length === 0 && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                No se encontraron webhooks con los filtros seleccionados
-              </Typography>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
+              <div className="space-y-1.5">
+                <Label htmlFor="wh-secret">Secret Key (opcional)</Label>
+                <input
+                  id="wh-secret"
+                  type="password"
+                  value={formData.secret}
+                  onChange={(e) => setFormData({ ...formData, secret: e.target.value })}
+                  placeholder="••••••••••••••••"
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-      {/* Log de Eventos Recientes */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            Log de Eventos Recientes (Últimos 50)
-          </Typography>
-
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table size="sm">
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Webhook</th>
-                  <th>Evento</th>
-                  <th>Estado</th>
-                  <th>Status Code</th>
-                  <th>Tiempo Respuesta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td>
-                      <Typography level="body-xs">
-                        {log.timestamp}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {log.webhookName}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft">
-                        {log.event}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={log.status === 'success' ? 'success' : 'danger'}
-                        startDecorator={log.status === 'success' ? <CheckCircleIcon /> : <ErrorIcon />}
-                      >
-                        {log.status}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography
-                        level="body-sm"
-                        fontWeight="lg"
-                        sx={{ color: log.statusCode === 200 ? 'success.500' : 'danger.500' }}
-                      >
-                        {log.statusCode}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {log.responseTime > 0 ? `${log.responseTime}ms` : '-'}
-                      </Typography>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
-        </CardContent>
-      </Card>
-
-      {/* Modal Crear/Editar Webhook */}
-      <Modal open={openModal} onClose={handleCloseModal}>
-        <ModalDialog sx={{ minWidth: 600, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {editingWebhook ? 'Editar Webhook' : 'Crear Nuevo Webhook'}
-          </Typography>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <FormControl required>
-              <FormLabel>Nombre del Webhook</FormLabel>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Ej: Billie Sync Webhook"
-              />
-            </FormControl>
-
-            <FormControl required>
-              <FormLabel>URL del Endpoint</FormLabel>
-              <Input
-                value={formData.endpoint}
-                onChange={(e) => setFormData({ ...formData, endpoint: e.target.value })}
-                placeholder="https://api.example.com/webhook"
-              />
-            </FormControl>
-
-            <FormControl required>
-              <FormLabel>Integración</FormLabel>
-              <Select
-                value={formData.integration}
-                onChange={(_, value) => setFormData({ ...formData, integration: value as string })}
-              >
-                <Option value="Billie">Billie</Option>
-                <Option value="Aria Lite">Aria Lite</Option>
-                <Option value="SmartTrack">SmartTrack</Option>
-                <Option value="SGR">SGR</Option>
-                <Option value="Custom">Custom</Option>
-              </Select>
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Eventos</FormLabel>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {availableEvents.map((event) => (
-                  <Chip
-                    key={event}
-                    size="sm"
-                    variant={formData.events.includes(event) ? 'solid' : 'outlined'}
-                    onClick={() => {
-                      const newEvents = formData.events.includes(event)
-                        ? formData.events.filter(e => e !== event)
-                        : [...formData.events, event]
-                      setFormData({ ...formData, events: newEvents })
-                    }}
-                    sx={{ cursor: 'pointer' }}
-                  >
-                    {event}
-                  </Chip>
-                ))}
-              </Box>
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Secret Key (opcional)</FormLabel>
-              <Input
-                type="password"
-                value={formData.secret}
-                onChange={(e) => setFormData({ ...formData, secret: e.target.value })}
-                placeholder="••••••••••••••••"
-              />
-            </FormControl>
-
-            <Grid container spacing={2}>
-              <Grid xs={6}>
-                <FormControl>
-                  <FormLabel>Intentos de Reintento</FormLabel>
-                  <Input
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wh-retries">Intentos de Reintento</Label>
+                  <input
+                    id="wh-retries"
                     type="number"
+                    min={0}
+                    max={10}
                     value={formData.retryAttempts}
                     onChange={(e) => setFormData({ ...formData, retryAttempts: parseInt(e.target.value) })}
-                    slotProps={{ input: { min: 0, max: 10 } }}
+                    className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm tabular-nums text-foreground shadow-sm outline-none transition-colors hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />
-                </FormControl>
-              </Grid>
-              <Grid xs={6}>
-                <FormControl>
-                  <FormLabel>Timeout (segundos)</FormLabel>
-                  <Input
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wh-timeout">Timeout (segundos)</Label>
+                  <input
+                    id="wh-timeout"
                     type="number"
+                    min={5}
+                    max={120}
                     value={formData.timeout}
                     onChange={(e) => setFormData({ ...formData, timeout: parseInt(e.target.value) })}
-                    slotProps={{ input: { min: 5, max: 120 } }}
+                    className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm tabular-nums text-foreground shadow-sm outline-none transition-colors hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />
-                </FormControl>
-              </Grid>
-            </Grid>
+                </div>
+              </div>
 
-            <FormControl>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <FormLabel>Habilitar Webhook</FormLabel>
-                <Switch
+              <div className="flex items-center justify-between">
+                <Label htmlFor="wh-enabled">Habilitar Webhook</Label>
+                <Toggle
+                  id="wh-enabled"
+                  label="Habilitar Webhook"
                   checked={formData.enabled}
-                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                  onChange={(checked) => setFormData({ ...formData, enabled: checked })}
                 />
-              </Box>
-            </FormControl>
+              </div>
+            </div>
 
-            <Divider sx={{ my: 1 }} />
+            <div className="border-t border-border" />
 
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button variant="outlined" onClick={handleCloseModal}>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={handleCloseModal}>
                 Cancelar
               </Button>
-              <Button onClick={handleSave}>
+              <Button size="sm" onClick={handleSave}>
                 {editingWebhook ? 'Actualizar' : 'Crear'} Webhook
               </Button>
-            </Box>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Box>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   )
 }

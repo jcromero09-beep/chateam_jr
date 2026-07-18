@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { QueryInterface, DataTypes, Sequelize } from "sequelize";
 
 module.exports = {

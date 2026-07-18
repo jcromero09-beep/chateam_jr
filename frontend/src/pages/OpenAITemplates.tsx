@@ -1,40 +1,36 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  Textarea,
-  Chip,
-  IconButton,
-  Select,
-  Option,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  CircularProgress,
-  Alert,
-  Divider,
-  Slider,
-} from '@mui/joy'
+  Sparkle,
+  Plus,
+  MagnifyingGlass,
+  Copy,
+  PencilSimple,
+  Trash,
+  Play,
+  Star,
+  Code,
+  ArrowClockwise,
+  X,
+} from '@phosphor-icons/react'
+import { CircularProgress } from '@mui/joy'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import {
-  Add as AddIcon,
-  Search as SearchIcon,
-  ContentCopy as CopyIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  PlayArrow as UseIcon,
-  Star as StarIcon,
-  StarBorder as StarBorderIcon,
-  Code as CodeIcon,
-  Refresh as RefreshIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 interface PromptVariable {
@@ -118,6 +114,14 @@ const initialFormData: FormData = {
   isActive: true,
   isFavorite: false,
 }
+
+// Estilo compartido para textareas (mismo look que el Input del design system)
+const textareaClass =
+  'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+// Botón de acción compacto para las tarjetas
+const cardActionClass =
+  'flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
 
 export default function OpenAITemplates() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
@@ -277,17 +281,17 @@ export default function OpenAITemplates() {
     }
   }
 
-  const getCategoryColor = (category: string) => {
-    const colors: Record<string, any> = {
+  const getCategoryVariant = (category: string): BadgeProps['variant'] => {
+    const variants: Record<string, BadgeProps['variant']> = {
       analysis: 'primary',
       generation: 'success',
       summary: 'warning',
-      classification: 'info',
-      extraction: 'danger',
+      classification: 'accent',
+      extraction: 'destructive',
       translation: 'neutral',
       other: 'neutral',
     }
-    return colors[category] || 'neutral'
+    return variants[category] || 'neutral'
   }
 
   const filteredTemplates = templates.filter((template) => {
@@ -304,400 +308,429 @@ export default function OpenAITemplates() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1 }}>
-            Plantillas de IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Plantillas pre-configuradas listas para usar en tus flujos de trabajo
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshIcon />} onClick={fetchTemplates}>
-            Recargar
-          </Button>
-          <Button startDecorator={<AddIcon />} onClick={handleCreate}>
-            Nueva Plantilla
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Sparkle className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Plantillas de IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Plantillas pre-configuradas listas para usar en tus flujos de trabajo
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchTemplates}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Recargar
+            </Button>
+            <Button size="sm" onClick={handleCreate}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva Plantilla
+            </Button>
+          </div>
+        </div>
 
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton variant="soft" color="danger" onClick={() => setError(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
+        {/* Alertas */}
+        {error && (
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar alerta"
+              onClick={() => setError(null)}
+              className="shrink-0 rounded-md p-0.5 text-destructive-text/80 transition-colors hover:bg-destructive/12 hover:text-destructive-text"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {success && (
-        <Alert
-          color="success"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton variant="soft" color="success" onClick={() => setSuccess(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
-        >
-          {success}
-        </Alert>
-      )}
+        {success && (
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-success/30 bg-success/14 px-4 py-3 text-sm text-success-text">
+            <span>{success}</span>
+            <button
+              type="button"
+              aria-label="Cerrar alerta"
+              onClick={() => setSuccess(null)}
+              className="shrink-0 rounded-md p-0.5 text-success-text/80 transition-colors hover:bg-success/14 hover:text-success-text"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* Filtros */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={6}>
-          <Input
-            placeholder="Buscar plantillas..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            startDecorator={<SearchIcon />}
-          />
-        </Grid>
-        <Grid xs={12} md={3}>
-          <Select value={filterCategory} onChange={(_, val) => setFilterCategory(val as string)}>
-            <Option value="all">Todas las categorias</Option>
-            {CATEGORIES.map((cat) => (
-              <Option key={cat} value={cat}>
-                {CATEGORY_LABELS[cat]}
-              </Option>
-            ))}
-          </Select>
-        </Grid>
-        <Grid xs={12} md={3}>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Chip size="sm">Total: {filteredTemplates.length}</Chip>
-            <Chip size="sm" color="warning" startDecorator={<StarIcon />}>
+        {/* Filtros */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-[240px] flex-1">
+            <Input
+              placeholder="Buscar plantillas..."
+              aria-label="Buscar plantillas"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              leftIcon={<MagnifyingGlass aria-hidden />}
+            />
+          </div>
+          <div className="w-56">
+            <Select value={filterCategory} onValueChange={(val) => setFilterCategory(val)}>
+              <SelectTrigger aria-label="Filtrar por categoria" className="h-11">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las categorias</SelectItem>
+                {CATEGORIES.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {CATEGORY_LABELS[cat]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="neutral">Total: {filteredTemplates.length}</Badge>
+            <Badge variant="warning">
+              <Star className="size-3" weight="fill" aria-hidden />
               Favoritas: {templates.filter((t) => t.isFavorite).length}
-            </Chip>
-          </Box>
-        </Grid>
-      </Grid>
+            </Badge>
+          </div>
+        </div>
 
-      {/* Grid de Templates */}
-      {filteredTemplates.length === 0 ? (
-        <Card>
-          <CardContent>
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
-                {searchTerm || filterCategory !== 'all'
-                  ? 'No se encontraron plantillas con los filtros aplicados'
-                  : 'No hay plantillas configuradas'}
-              </Typography>
-              <Button startDecorator={<AddIcon />} onClick={handleCreate}>
-                Crear Primera Plantilla
-              </Button>
-            </Box>
-          </CardContent>
-        </Card>
-      ) : (
-        <Grid container spacing={3}>
-          {filteredTemplates.map((template) => (
-            <Grid key={template.id} xs={12} md={6} lg={4}>
-              <Card variant="outlined">
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                    <Typography level="title-lg">{template.name}</Typography>
-                    <IconButton
-                      size="sm"
-                      variant="plain"
-                      color={template.isFavorite ? 'warning' : 'neutral'}
-                      onClick={() => handleToggleFavorite(template)}
-                    >
-                      {template.isFavorite ? <StarIcon /> : <StarBorderIcon />}
-                    </IconButton>
-                  </Box>
-
-                  <Typography level="body-sm" sx={{ mb: 2, minHeight: 40 }}>
-                    {template.description || 'Sin descripcion'}
-                  </Typography>
-
-                  <Box sx={{ display: 'flex', gap: 0.5, mb: 2, flexWrap: 'wrap' }}>
-                    <Chip size="sm" color={getCategoryColor(template.category)}>
-                      {CATEGORY_LABELS[template.category] || template.category}
-                    </Chip>
-                    {template.tags?.slice(0, 3).map((tag) => (
-                      <Chip key={tag} size="sm" variant="outlined">
-                        {tag}
-                      </Chip>
-                    ))}
-                    {template.tags?.length > 3 && (
-                      <Chip size="sm" variant="outlined">
-                        +{template.tags.length - 3}
-                      </Chip>
-                    )}
-                  </Box>
-
-                  <Box sx={{ mb: 2 }}>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                      Modelo: {template.modelConfig?.model || 'gpt-4o'}
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                      Temperature: {template.modelConfig?.temperature || 0.7} | Max Tokens: {template.modelConfig?.maxTokens || 2000}
-                    </Typography>
-                    {template.usageCount > 0 && (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Usado {template.usageCount.toLocaleString()} veces
-                      </Typography>
-                    )}
-                  </Box>
-
-                  {template.variables && template.variables.length > 0 && (
-                    <Box sx={{ display: 'flex', gap: 0.5, mb: 2, flexWrap: 'wrap' }}>
-                      {template.variables.map((variable) => (
-                        <Chip key={variable.name} size="sm" variant="soft" startDecorator={<CodeIcon />}>
-                          {variable.name}
-                        </Chip>
-                      ))}
-                    </Box>
-                  )}
-
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'sm',
-                      mb: 2,
-                      fontFamily: 'monospace',
-                      fontSize: '0.75rem',
-                      overflow: 'auto',
-                      maxHeight: 100,
-                      border: '1px solid',
-                      borderColor: 'divider',
-                    }}
+        {/* Grid de Templates */}
+        {filteredTemplates.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center shadow-sm shadow-black/[0.02]">
+            <p className="mb-4 text-sm text-muted-foreground">
+              {searchTerm || filterCategory !== 'all'
+                ? 'No se encontraron plantillas con los filtros aplicados'
+                : 'No hay plantillas configuradas'}
+            </p>
+            <Button size="sm" onClick={handleCreate}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Crear Primera Plantilla
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {filteredTemplates.map((template) => (
+              <div
+                key={template.id}
+                className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+              >
+                <div className="mb-1 flex items-start justify-between gap-2">
+                  <h2 className="text-base font-semibold text-foreground">{template.name}</h2>
+                  <button
+                    type="button"
+                    aria-label={template.isFavorite ? 'Quitar de favoritas' : 'Marcar como favorita'}
+                    onClick={() => handleToggleFavorite(template)}
+                    className={
+                      'flex size-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent ' +
+                      (template.isFavorite ? 'text-warning-text' : 'text-muted-foreground')
+                    }
                   >
-                    {(template.userPromptTemplate || template.systemPrompt || '').substring(0, 150)}
-                    {((template.userPromptTemplate || template.systemPrompt || '').length > 150) && '...'}
-                  </Box>
+                    <Star className="size-5" weight={template.isFavorite ? 'fill' : 'regular'} aria-hidden />
+                  </button>
+                </div>
 
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                      size="sm"
-                      fullWidth
-                      startDecorator={<UseIcon />}
-                      onClick={() => handleCopy(template)}
-                    >
-                      Usar
-                    </Button>
-                    <IconButton size="sm" variant="outlined" onClick={() => handleCopy(template)}>
-                      <CopyIcon />
-                    </IconButton>
-                    <IconButton size="sm" variant="outlined" onClick={() => handleEdit(template)}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      size="sm"
-                      variant="outlined"
-                      color="danger"
-                      onClick={() => setDeleteConfirm(template.id)}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      )}
+                <p className="mb-3 min-h-10 text-sm text-muted-foreground">
+                  {template.description || 'Sin descripcion'}
+                </p>
+
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  <Badge variant={getCategoryVariant(template.category)}>
+                    {CATEGORY_LABELS[template.category] || template.category}
+                  </Badge>
+                  {template.tags?.slice(0, 3).map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      {tag}
+                    </Badge>
+                  ))}
+                  {template.tags?.length > 3 && (
+                    <Badge variant="outline">+{template.tags.length - 3}</Badge>
+                  )}
+                </div>
+
+                <div className="mb-3 space-y-0.5 text-xs text-muted-foreground">
+                  <p>Modelo: {template.modelConfig?.model || 'gpt-4o'}</p>
+                  <p>
+                    Temperature: {template.modelConfig?.temperature || 0.7} | Max Tokens:{' '}
+                    {template.modelConfig?.maxTokens || 2000}
+                  </p>
+                  {template.usageCount > 0 && (
+                    <p>Usado {template.usageCount.toLocaleString()} veces</p>
+                  )}
+                </div>
+
+                {template.variables && template.variables.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    {template.variables.map((variable) => (
+                      <Badge key={variable.name} variant="accent">
+                        <Code className="size-3" aria-hidden />
+                        {variable.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <pre className="mb-4 max-h-[100px] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/60 p-3 font-mono text-xs text-foreground">
+                  {(template.userPromptTemplate || template.systemPrompt || '').substring(0, 150)}
+                  {(template.userPromptTemplate || template.systemPrompt || '').length > 150 && '...'}
+                </pre>
+
+                <div className="mt-auto flex items-center gap-2">
+                  <Button size="sm" className="flex-1" onClick={() => handleCopy(template)}>
+                    <Play className="size-4" weight="fill" aria-hidden />
+                    Usar
+                  </Button>
+                  <button
+                    type="button"
+                    aria-label="Copiar plantilla"
+                    title="Copiar"
+                    onClick={() => handleCopy(template)}
+                    className={cardActionClass}
+                  >
+                    <Copy className="size-[18px]" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Editar plantilla"
+                    title="Editar"
+                    onClick={() => handleEdit(template)}
+                    className={cardActionClass}
+                  >
+                    <PencilSimple className="size-[18px]" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Eliminar plantilla"
+                    title="Eliminar"
+                    onClick={() => setDeleteConfirm(template.id)}
+                    className={cardActionClass + ' hover:bg-destructive/10 hover:text-destructive-text'}
+                  >
+                    <Trash className="size-[18px]" aria-hidden />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Modal Crear/Editar */}
-      <Modal open={openModal} onClose={() => setOpenModal(false)}>
-        <ModalDialog sx={{ minWidth: 700, maxWidth: 900, maxHeight: '90vh', overflow: 'auto' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {editingTemplate ? 'Editar Plantilla' : 'Crear Nueva Plantilla'}
-          </Typography>
+      <Dialog open={openModal} onOpenChange={(o) => !o && setOpenModal(false)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingTemplate ? 'Editar Plantilla' : 'Crear Nueva Plantilla'}
+            </DialogTitle>
+          </DialogHeader>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Grid container spacing={2}>
-              <Grid xs={12} md={8}>
-                <FormControl required>
-                  <FormLabel>Nombre de la Plantilla</FormLabel>
-                  <Input
-                    placeholder="Ej: Analisis de Sentimiento"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={4}>
-                <FormControl required>
-                  <FormLabel>Categoria</FormLabel>
-                  <Select
-                    value={formData.category}
-                    onChange={(_, val) => setFormData({ ...formData, category: val as string })}
-                  >
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="tpl-name">Nombre de la Plantilla</Label>
+                <Input
+                  id="tpl-name"
+                  placeholder="Ej: Analisis de Sentimiento"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-category">Categoria</Label>
+                <Select
+                  value={formData.category}
+                  onValueChange={(val) => setFormData({ ...formData, category: val })}
+                >
+                  <SelectTrigger id="tpl-category" className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
                     {CATEGORIES.map((cat) => (
-                      <Option key={cat} value={cat}>
+                      <SelectItem key={cat} value={cat}>
                         {CATEGORY_LABELS[cat]}
-                      </Option>
+                      </SelectItem>
                     ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-            <FormControl>
-              <FormLabel>Descripcion</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-description">Descripcion</Label>
               <Input
+                id="tpl-description"
                 placeholder="Describe brevemente para que sirve esta plantilla"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               />
-            </FormControl>
+            </div>
 
-            <FormControl>
-              <FormLabel>System Prompt</FormLabel>
-              <Textarea
-                minRows={3}
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-system">System Prompt</Label>
+              <textarea
+                id="tpl-system"
+                rows={3}
+                className={textareaClass}
                 placeholder="Define el rol y comportamiento del asistente..."
                 value={formData.systemPrompt}
                 onChange={(e) => setFormData({ ...formData, systemPrompt: e.target.value })}
               />
-              <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+              <p className="text-xs text-muted-foreground">
                 Define el contexto y personalidad del asistente de IA
-              </Typography>
-            </FormControl>
+              </p>
+            </div>
 
-            <FormControl required>
-              <FormLabel>Plantilla de Prompt del Usuario</FormLabel>
-              <Textarea
-                minRows={6}
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-user">Plantilla de Prompt del Usuario</Label>
+              <textarea
+                id="tpl-user"
+                rows={6}
+                className={textareaClass}
                 placeholder="Escribe el prompt aqui. Usa {variable} para variables dinamicas..."
                 value={formData.userPromptTemplate}
                 onChange={(e) => setFormData({ ...formData, userPromptTemplate: e.target.value })}
               />
-              <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+              <p className="text-xs text-muted-foreground">
                 Usa llaves para definir variables: {'{variable}'}, {'{contexto}'}, {'{mensaje}'}
-              </Typography>
-            </FormControl>
+              </p>
+            </div>
 
-            <Grid container spacing={2}>
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <FormLabel>Variables (separadas por coma)</FormLabel>
-                  <Input
-                    placeholder="mensaje, contexto, tono"
-                    value={formData.variables}
-                    onChange={(e) => setFormData({ ...formData, variables: e.target.value })}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <FormLabel>Tags (separados por coma)</FormLabel>
-                  <Input
-                    placeholder="analisis, sentimiento, soporte"
-                    value={formData.tags}
-                    onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                  />
-                </FormControl>
-              </Grid>
-            </Grid>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-vars">Variables (separadas por coma)</Label>
+                <Input
+                  id="tpl-vars"
+                  placeholder="mensaje, contexto, tono"
+                  value={formData.variables}
+                  onChange={(e) => setFormData({ ...formData, variables: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-tags">Tags (separados por coma)</Label>
+                <Input
+                  id="tpl-tags"
+                  placeholder="analisis, sentimiento, soporte"
+                  value={formData.tags}
+                  onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                />
+              </div>
+            </div>
 
-            <Divider />
-            <Typography level="title-sm">Configuracion del Modelo</Typography>
+            <div className="border-t border-border" />
+            <h3 className="text-sm font-semibold text-foreground">Configuracion del Modelo</h3>
 
-            <Grid container spacing={2}>
-              <Grid xs={12} md={4}>
-                <FormControl>
-                  <FormLabel>Modelo</FormLabel>
-                  <Select
-                    value={formData.modelConfig.model}
-                    onChange={(_, val) => setFormData({
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-model">Modelo</Label>
+                <Select
+                  value={formData.modelConfig.model}
+                  onValueChange={(val) =>
+                    setFormData({
                       ...formData,
-                      modelConfig: { ...formData.modelConfig, model: val as string }
-                    })}
-                  >
-                    <Option value="gpt-4o">GPT-4o</Option>
-                    <Option value="gpt-4o-mini">GPT-4o Mini</Option>
-                    <Option value="gpt-4-turbo">GPT-4 Turbo</Option>
-                    <Option value="gpt-3.5-turbo">GPT-3.5 Turbo</Option>
-                    <Option value="claude-3-5-sonnet">Claude 3.5 Sonnet</Option>
-                    <Option value="gemini-pro">Gemini Pro</Option>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={4}>
-                <FormControl>
-                  <FormLabel>Temperature: {formData.modelConfig.temperature}</FormLabel>
-                  <Slider
-                    value={formData.modelConfig.temperature}
-                    onChange={(_, value) => setFormData({
+                      modelConfig: { ...formData.modelConfig, model: val },
+                    })
+                  }
+                >
+                  <SelectTrigger id="tpl-model" className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                    <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
+                    <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
+                    <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
+                    <SelectItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</SelectItem>
+                    <SelectItem value="gemini-pro">Gemini Pro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-temp">Temperature: {formData.modelConfig.temperature}</Label>
+                <input
+                  id="tpl-temp"
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  value={formData.modelConfig.temperature}
+                  onChange={(e) =>
+                    setFormData({
                       ...formData,
-                      modelConfig: { ...formData.modelConfig, temperature: value as number }
-                    })}
-                    min={0}
-                    max={2}
-                    step={0.1}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={4}>
-                <FormControl>
-                  <FormLabel>Max Tokens</FormLabel>
-                  <Input
-                    type="number"
-                    value={formData.modelConfig.maxTokens}
-                    onChange={(e) => setFormData({
+                      modelConfig: {
+                        ...formData.modelConfig,
+                        temperature: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                  className="h-11 w-full cursor-pointer accent-primary"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-tokens">Max Tokens</Label>
+                <Input
+                  id="tpl-tokens"
+                  type="number"
+                  value={formData.modelConfig.maxTokens}
+                  onChange={(e) =>
+                    setFormData({
                       ...formData,
-                      modelConfig: { ...formData.modelConfig, maxTokens: parseInt(e.target.value) || 2000 }
-                    })}
-                  />
-                </FormControl>
-              </Grid>
-            </Grid>
+                      modelConfig: {
+                        ...formData.modelConfig,
+                        maxTokens: parseInt(e.target.value) || 2000,
+                      },
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </div>
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
-              <Button variant="outlined" onClick={() => setOpenModal(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSave} loading={saving}>
-                {editingTemplate ? 'Guardar Cambios' : 'Crear Plantilla'}
-              </Button>
-            </Box>
-          </Box>
-        </ModalDialog>
-      </Modal>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleSave} loading={saving}>
+              {editingTemplate ? 'Guardar Cambios' : 'Crear Plantilla'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Confirmar Eliminacion */}
-      <Modal open={deleteConfirm !== null} onClose={() => setDeleteConfirm(null)}>
-        <ModalDialog>
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Confirmar Eliminacion
-          </Typography>
-          <Typography level="body-md" sx={{ mb: 3 }}>
+      <Dialog open={deleteConfirm !== null} onOpenChange={(o) => !o && setDeleteConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Eliminacion</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
             ¿Estas seguro de que deseas eliminar esta plantilla? Esta accion no se puede deshacer.
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-            <Button variant="outlined" onClick={() => setDeleteConfirm(null)}>
+          </p>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)}>
               Cancelar
             </Button>
             <Button
-              color="danger"
+              size="sm"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
             >
               Eliminar
             </Button>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Box>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

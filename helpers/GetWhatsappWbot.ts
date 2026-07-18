@@ -3,7 +3,7 @@ import Whatsapp from "../models/Whatsapp";
 import logger from "../utils/logger";
 import axios from "axios";
 
-const NODE_ID = process.env.NODE_ID || "node-1";
+const getCurrentNodeId = () => process.env.NODE_ID || "node-1";
 
 /**
  * Obtiene el wbot para un WhatsApp.
@@ -47,9 +47,11 @@ const GetWhatsappWbot = async (whatsapp: Whatsapp) => {
 
     // Si el registry dice que está en ESTE nodo pero getWbot falló,
     // significa que la sesión está registrada pero no inicializada aún
-    if (nodeInfo.nodeId === NODE_ID) {
+    const currentNodeId = getCurrentNodeId();
+
+    if (nodeInfo.nodeId === currentNodeId) {
       logger.warn(
-        `[GetWhatsappWbot] Session ${whatsapp.id} registered to this node (${NODE_ID}) but not initialized`
+        `[GetWhatsappWbot] Session ${whatsapp.id} registered to this node (${currentNodeId}) but not initialized`
       );
       throw new Error("ERR_WAPP_NOT_INITIALIZED");
     }
@@ -86,7 +88,13 @@ function createRemoteWbotProxy(whatsappId: number, nodeId: string, port: number)
         url,
         { whatsappId, method, args },
         {
-          timeout: 30000, // 30s para envío de mensajes
+          // 180s: el envío de media grande (video ~38MB) se sube a WhatsApp DENTRO
+          // de esta llamada en el nodo remoto; 30s se quedaba corto. (fix media 2026-06-16)
+          timeout: 180000,
+          // Sin límite de body/respuesta: la media viaja serializada (base64) en el
+          // JSON; los defaults de axios podían abortar payloads grandes.
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
           headers: { "Content-Type": "application/json" }
         }
       );
@@ -118,8 +126,17 @@ function createRemoteWbotProxy(whatsappId: number, nodeId: string, port: number)
     onWhatsApp: async (...args: any[]) => {
       return callRemote("onWhatsApp", args);
     },
+    assertSessions: async (...args: any[]) => {
+      return callRemote("assertSessions", args);
+    },
     profilePictureUrl: async (...args: any[]) => {
       return callRemote("profilePictureUrl", args);
+    },
+    requestPlaceholderResend: async (...args: any[]) => {
+      return callRemote("requestPlaceholderResend", args);
+    },
+    fetchMessageHistory: async (...args: any[]) => {
+      return callRemote("fetchMessageHistory", args);
     },
     // Metadata del proxy
     _isRemoteProxy: true,

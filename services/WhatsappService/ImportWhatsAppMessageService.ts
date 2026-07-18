@@ -30,7 +30,7 @@ export const closeTicketsImported = async (whatsappId) => {
     await new Promise(r => setTimeout(r, 330));
     await UpdateTicketService({ ticketData: { status: "closed" }, ticketId: ticket.id, companyId: ticket.companyId })
   }
-  let whatsApp = await Whatsapp.findByPk(whatsappId);
+  const whatsApp = await Whatsapp.findByPk(whatsappId);
   whatsApp.update({ statusImportMessages: null })
   const io = getIO();
   io.of(whatsApp.companyId.toString())
@@ -67,7 +67,7 @@ function cleaner(array) {
 
 
 const ImportWhatsAppMessageService = async (whatsappId: number | string) => {
-  let whatsApp = await Whatsapp.findByPk(whatsappId);
+  const whatsApp = await Whatsapp.findByPk(whatsappId);
 
 
   const wbot = getWbot(whatsApp.id);
@@ -76,8 +76,8 @@ const ImportWhatsAppMessageService = async (whatsappId: number | string) => {
 
     const io = getIO();
     const messages = cleaner(dataMessages[whatsappId])
-    let dateOldLimit = new Date(whatsApp.importOldMessages).getTime();
-    let dateRecentLimit = new Date(whatsApp.importRecentMessages).getTime();
+    const dateOldLimit = new Date(whatsApp.importOldMessages).getTime();
+    const dateRecentLimit = new Date(whatsApp.importRecentMessages).getTime();
 
     addLogs({
       fileName: `processImportMessagesWppId${whatsappId}.txt`, forceNewFile: true,

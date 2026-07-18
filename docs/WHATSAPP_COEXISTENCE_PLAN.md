@@ -633,3 +633,52 @@ gracias al campo `provider` en el modelo Whatsapp.
 - [Meta Developers - Embedded Signup Documentation](https://developers.facebook.com/docs/whatsapp/embedded-signup)
 - [WhatsApp Coexistence Partner Documentation (360Dialog)](https://docs.360dialog.com/partner/waba-management/whatsapp-coexistence)
 - [Postman - WhatsApp Business Platform Embedded Signup Collection](https://www.postman.com/meta/whatsapp-business-platform/documentation/du6gzjv/embedded-signup)
+
+---
+
+## Addendum v1.7 — Ticket Canónico Único y Endurecimiento Anti-Duplicado (2026-06-18)
+
+### Problema resuelto
+Una empresa (ej. SmartTrack) con conexión Meta + Baileys hermanas sobre el mismo
+número podía generar **tickets/mensajes separados** para la misma conversación.
+Funcionalmente es la **misma charla** con el mismo cliente → debe ser **un solo
+ticket canónico**.
+
+### Cambios implementados
+1. **`CoexistenceTicketRoutingService`** (nuevo) — fuente única de verdad:
+   `resolveCoexistencePair`, `resolveTicketOwner`, `shouldDropProviderEvent`,
+   `resolveOrCreateCanonicalTicket`, `findEquivalentOutboundMessage`,
+   `switchTicketOwner`, `isCoexistenceSibling`.
+2. **`smb_message_echoes`** ahora resuelve `conversationId` y reutiliza el ticket
+   canónico; deduplica `meta_echo` contra `baileys_fromme` reciente (mismo ticket,
+   body normalizado, ventana 120s) → no crea ticket/mensaje doble.
+3. **Defaults Meta principal** en coexistencia: `Whatsapps.sendChannel` default
+   `meta` (modelo + migración `20260618000001`, ALTER DEFAULT + UPDATE acotado).
+   UI y runtime coinciden.
+4. **`switchTicketOwner`** + endpoint `POST /coexistence/tickets/:id/switch-owner`:
+   el selector de canal cambia el owner real (`whatsappId` + `channel` +
+   `routingPolicy` + socket) sin crear otro ticket.
+5. **Filtros UI por canal activo** en la bandeja (Todos / WhatsApp / Meta /
+   Facebook / Instagram / Telegram). Filtran por `Ticket.channel`, no crean
+   conversaciones separadas.
+6. **Un solo intento lógico** en envíos automáticos: fallback Meta→Baileys
+   contenido en `helpers/SendMessage.ts` (sólo tras fallo de Meta; nunca ambos).
+
+### Endpoints
+- `POST /coexistence/tickets/:ticketId/switch-owner` `{ provider: 'meta'|'baileys' }`
+
+### Validación
+- `tsc --noEmit` backend: sin errores en archivos tocados.
+- `jest tests/unit/coexistence-ticket-routing.test.ts`: 11/11 PASS.
+
+### Compatibilidad
+- Tickets legacy sin `conversationId` siguen funcionando (lookup legacy intacto).
+- Canales Facebook / Instagram / Telegram sin cambios.
+
+### Fase C — Flujos automáticos al router central (2026-06-18)
+- Nuevo guard `services/CoexistenceServices/CoexistenceAwareTextSender.ts`
+  (`sendTicketText`): coexistencia → `routeAndSendOutbound`; legacy → `SendWhatsAppMessage`.
+- `backendCronJobs.ts` (recordatorios de citas) y
+  `services/OmnichannelServices/OmnichannelDispatcher.ts` (followups y otros)
+  migrados al guard. El cron omite su persistencia manual si `viaRouter=true`.
+- Validación: `jest` 14/14 PASS (facade + sender). `tsc` sin errores en archivos tocados.

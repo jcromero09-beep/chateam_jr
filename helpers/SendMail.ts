@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import logger from "../utils/logger";
+import listmonkClient from "./ListmonkClient";
 
 export interface MailData {
   to: string;
@@ -7,33 +9,65 @@ export interface MailData {
   html?: string;
 }
 
-export async function SendMail(mailData: MailData) {
+/**
+ * SendMail — Helper transversal de envío de correo.
+ *
+ * Estrategia (Fase A de integración Listmonk):
+ *   1. Si LISTMONK_ENABLED=true → intenta vía Listmonk /api/tx
+ *   2. Si Listmonk falla por cualquier motivo → fallback automático a nodemailer
+ *      directo contra mail.chateam.ws (comportamiento original)
+ *
+ * Esto garantiza que correos críticos (forgot-password, signup, notificaciones IA)
+ * NUNCA se pierden aunque Listmonk esté caído.
+ *
+ * Para revertir TODO: poner LISTMONK_ENABLED=false en .env y reiniciar pm2.
+ */
+async function sendViaListmonk(data: MailData): Promise<boolean> {
+  if (!listmonkClient.isEnabled()) return false;
+
+  const result = await listmonkClient.sendTransactional({
+    to: data.to,
+    subject: data.subject,
+    html: data.html || data.text || "",
+  });
+
+  if (result.success) {
+    return true;
+  }
+
+  logger.warn(
+    `[SendMail] Listmonk falló (${result.error || "error desconocido"}), usando fallback nodemailer`
+  );
+  return false;
+}
+
+async function sendViaNodemailer(data: MailData): Promise<void> {
   const mailPort = Number(process.env.MAIL_PORT) || 465;
   const options: any = {
     host: process.env.MAIL_HOST,
     port: mailPort,
-    secure: (process.env.MAIL_ENCRYPTION === 'ssl' || mailPort === 465),
+    secure: process.env.MAIL_ENCRYPTION === "ssl" || mailPort === 465,
     auth: {
       user: process.env.MAIL_USER,
-      pass: process.env.MAIL_PASS
-    }
+      pass: process.env.MAIL_PASS,
+    },
   };
 
   const transporter = nodemailer.createTransport(options);
 
-  // send mail with defined transport object
-  let info = await transporter.sendMail({
-    from: process.env.MAIL_FROM, // sender address
-    to: mailData.to, // list of receivers
-    subject: mailData.subject, // Subject line
-    text: mailData.text, // plain text body
-    html: mailData.html || mailData.text // html body
+  const info = await transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to: data.to,
+    subject: data.subject,
+    text: data.text,
+    html: data.html || data.text,
   });
 
-  console.log("Message sent: %s", info.messageId);
-  // Message sent: <b658f8ca-6296-ccf4-8306-87d57a0b4321@example.com>
+  logger.info(`[SendMail/Nodemailer] enviado a ${data.to} | messageId=${info.messageId}`);
+}
 
-  // Preview only available when sending through an Ethereal account
-  console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
-  // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
+export async function SendMail(mailData: MailData): Promise<void> {
+  const sentByListmonk = await sendViaListmonk(mailData);
+  if (sentByListmonk) return;
+  await sendViaNodemailer(mailData);
 }

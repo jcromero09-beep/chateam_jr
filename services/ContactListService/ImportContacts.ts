@@ -1,6 +1,6 @@
-import { head } from "lodash";
+import lodash from "lodash";
+const { head, has } = lodash;
 import XLSX from "xlsx";
-import { has } from "lodash";
 import ContactListItem from "../../models/ContactListItem";
 import CheckContactNumber from "../WbotServices/CheckNumber";
 import logger from "../../utils/logger";
@@ -66,7 +66,7 @@ export async function ImportContacts(
 
 
   if (contactList) {
-    for (let newContact of contactList) {
+    for (const newContact of contactList) {
       try {
         const response = await CheckContactNumber(newContact.number, companyId);
         newContact.isWhatsappValid = response ? true : false;

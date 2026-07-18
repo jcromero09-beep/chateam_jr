@@ -27,7 +27,7 @@ const SendTelegramMessage = async ({
   mediaName
 }: Request): Promise<Response> => {
   // Buscar primero en modelo WhatsApp (para cuando se migre)
-  let whatsapp = await Whatsapp.findOne({
+  const whatsapp = await Whatsapp.findOne({
     where: {
       id: ticket.whatsappId,
       channel: "telegram"
@@ -37,7 +37,9 @@ const SendTelegramMessage = async ({
   // Si no se encuentra, buscar en modelo Telegram original
   let telegramBot: any = null;
   if (!whatsapp && ticket.telegramId) {
-    const Telegram = require("../../models/Telegram").default;
+    // Import dinámico: preserva la carga diferida (rompe-ciclos con Telegram) y
+    // funciona en ESM (tsx) y CJS (ts-jest transpila import() a require).
+    const Telegram = (await import("../../models/Telegram")).default;
     telegramBot = await Telegram.findByPk(ticket.telegramId);
   }
 

@@ -1,36 +1,30 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+// [Fase2·G] Conservado como MUI a propósito: no hay equivalente de barra de progreso
+// determinada en el design system (Tailwind + shadcn/Radix) todavía.
+import { LinearProgress } from '@mui/joy'
 import {
-  Box,
-  Container,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Sheet,
-  Chip,
-  Button,
-  IconButton,
+  ChartLineUp,
+  DownloadSimple,
+  TrendUp,
+  TrendDown,
+  CalendarBlank,
+  Clock,
+  CurrencyDollar,
+  Star,
+  CheckCircle,
+  ArrowClockwise,
+} from '@phosphor-icons/react'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Avatar } from '@/components/ui/avatar'
+import {
   Select,
-  Option,
-  Table,
-  LinearProgress,
-  Divider as _Divider,
-  Avatar,
-} from '@mui/joy'
-import {
-  Download as DownloadIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  CalendarToday as CalendarIcon,
-  AccessTime as TimeIcon,
-  AttachMoney as MoneyIcon,
-  People as _PeopleIcon,
-  Star as StarIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as _CancelIcon,
-  EventBusy as _EventBusyIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 interface AgentReport {
   id: number
@@ -188,6 +182,115 @@ const mockMonthlyData: MonthlyData[] = [
   { month: 'Jun', appointments: 335, revenue: 46100, completionRate: 90.4, avgRating: 4.8 },
 ]
 
+const agentColumns = [
+  'Agente',
+  'Total',
+  'Completadas',
+  'Canceladas',
+  'No Show',
+  'Ingresos',
+  'Rating',
+  'Tasa Completitud',
+]
+
+const serviceColumns = [
+  'Servicio',
+  'Citas',
+  'Ingresos',
+  'Duración Promedio',
+  'Tasa Cancelación',
+  'Tendencia',
+]
+
+type IconTone = 'primary' | 'success' | 'warning' | 'accent'
+
+const iconToneClass: Record<IconTone, string> = {
+  primary: 'bg-primary/12 text-primary',
+  success: 'bg-success/14 text-success-text',
+  warning: 'bg-warning/16 text-warning-text',
+  accent: 'bg-brand-cyan/15 text-[color:var(--brand-teal)] dark:text-brand-cyan',
+}
+
+/** Indicador de variación (sube/baja) con texto semántico accesible. */
+function TrendDelta({ label, positive }: { label: string; positive: boolean }) {
+  const Icon = positive ? TrendUp : TrendDown
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 font-medium',
+        positive ? 'text-success-text' : 'text-destructive-text',
+      )}
+    >
+      <Icon className="size-4" aria-hidden />
+      {label}
+    </span>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  trend,
+  positive,
+  tone,
+  icon,
+}: {
+  label: string
+  value: string
+  trend: string
+  positive: boolean
+  tone: IconTone
+  icon: ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+            {value}
+          </p>
+          <p className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+            <TrendDelta label={trend} positive={positive} />
+            <span className="text-muted-foreground">vs mes anterior</span>
+          </p>
+        </div>
+        <span
+          className={cn(
+            'flex size-10 shrink-0 items-center justify-center rounded-lg',
+            iconToneClass[tone],
+          )}
+        >
+          {icon}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Avatar del agente: foto si existe, iniciales del design system si no. */
+function AgentAvatar({ src, name }: { src?: string; name: string }) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        width={32}
+        height={32}
+        className="size-8 shrink-0 rounded-full object-cover"
+      />
+    )
+  }
+  return <Avatar name={name} size="sm" />
+}
+
+const timeRangeLabels: Record<string, string> = {
+  week: 'Esta Semana',
+  month: 'Este Mes',
+  quarter: 'Este Trimestre',
+  year: 'Este Año',
+}
+
 export default function AppointmentsReports() {
   const [timeRange, setTimeRange] = useState<string>('month')
   const [_reportType, _setReportType] = useState<string>('overview')
@@ -207,396 +310,288 @@ export default function AppointmentsReports() {
   const appointmentsGrowth = calculateGrowth(currentPeriod.appointments, previousPeriod.appointments)
   const revenueGrowth = calculateGrowth(currentPeriod.revenue, previousPeriod.revenue)
 
+  const appointmentsUp = parseFloat(appointmentsGrowth) > 0
+  const revenueUp = parseFloat(revenueGrowth) > 0
+
+  const maxAppointments = Math.max(...mockMonthlyData.map((d) => d.appointments))
+
+  const cancellationVariant = (rate: number): BadgeProps['variant'] =>
+    rate < 5 ? 'success' : rate < 10 ? 'warning' : 'destructive'
+
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 0.5 }}>
-            Reportes y Analytics
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Análisis detallado del rendimiento de citas
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Select value={timeRange} onChange={(_, value) => setTimeRange(value as string)} size="sm">
-            <Option value="week">Esta Semana</Option>
-            <Option value="month">Este Mes</Option>
-            <Option value="quarter">Este Trimestre</Option>
-            <Option value="year">Este Año</Option>
-          </Select>
-          <IconButton variant="outlined" size="sm">
-            <RefreshIcon />
-          </IconButton>
-          <Button variant="outlined" size="sm" startDecorator={<DownloadIcon />}>
-            Exportar PDF
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ChartLineUp className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Reportes y Analytics
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Análisis detallado del rendimiento de citas
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={timeRange} onValueChange={setTimeRange}>
+              <SelectTrigger className="w-[168px]" aria-label="Rango de tiempo">
+                <SelectValue placeholder="Rango">
+                  {timeRangeLabels[timeRange]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="week">Esta Semana</SelectItem>
+                <SelectItem value="month">Este Mes</SelectItem>
+                <SelectItem value="quarter">Este Trimestre</SelectItem>
+                <SelectItem value="year">Este Año</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button variant="outline" size="sm">
+              <DownloadSimple className="size-4" aria-hidden />
+              Exportar PDF
+            </Button>
+          </div>
+        </div>
 
-      {/* KPIs Overview */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Total Citas
-                  </Typography>
-                  <Typography level="h3">{totalAppointments}</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                    {parseFloat(appointmentsGrowth) > 0 ? (
-                      <>
-                        <TrendingUpIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                        <Typography level="body-xs" sx={{ color: 'success.500' }}>
-                          +{appointmentsGrowth}%
-                        </Typography>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDownIcon sx={{ fontSize: 16, color: 'danger.500' }} />
-                        <Typography level="body-xs" sx={{ color: 'danger.500' }}>
-                          {appointmentsGrowth}%
-                        </Typography>
-                      </>
-                    )}
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                      vs mes anterior
-                    </Typography>
-                  </Box>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'primary.softBg' }}>
-                  <CalendarIcon sx={{ color: 'primary.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+        {/* KPIs Overview */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            label="Total Citas"
+            value={String(totalAppointments)}
+            trend={`${appointmentsUp ? '+' : ''}${appointmentsGrowth}%`}
+            positive={appointmentsUp}
+            tone="primary"
+            icon={<CalendarBlank className="size-5" weight="fill" aria-hidden />}
+          />
+          <KpiCard
+            label="Ingresos Totales"
+            value={`$${totalRevenue.toLocaleString()}`}
+            trend={`${revenueUp ? '+' : ''}${revenueGrowth}%`}
+            positive={revenueUp}
+            tone="success"
+            icon={<CurrencyDollar className="size-5" weight="fill" aria-hidden />}
+          />
+          <KpiCard
+            label="Tasa Completitud"
+            value={`${avgCompletionRate.toFixed(1)}%`}
+            trend="+2.3%"
+            positive
+            tone="warning"
+            icon={<CheckCircle className="size-5" weight="fill" aria-hidden />}
+          />
+          <KpiCard
+            label="Calificación"
+            value={`${avgRating.toFixed(1)}/5.0`}
+            trend="+0.2"
+            positive
+            tone="accent"
+            icon={<Star className="size-5" weight="fill" aria-hidden />}
+          />
+        </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Ingresos Totales
-                  </Typography>
-                  <Typography level="h3">${totalRevenue.toLocaleString()}</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                    {parseFloat(revenueGrowth) > 0 ? (
-                      <>
-                        <TrendingUpIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                        <Typography level="body-xs" sx={{ color: 'success.500' }}>
-                          +{revenueGrowth}%
-                        </Typography>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDownIcon sx={{ fontSize: 16, color: 'danger.500' }} />
-                        <Typography level="body-xs" sx={{ color: 'danger.500' }}>
-                          {revenueGrowth}%
-                        </Typography>
-                      </>
-                    )}
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                      vs mes anterior
-                    </Typography>
-                  </Box>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'success.softBg' }}>
-                  <MoneyIcon sx={{ color: 'success.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Tasa Completitud
-                  </Typography>
-                  <Typography level="h3">{avgCompletionRate.toFixed(1)}%</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                    <TrendingUpIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                    <Typography level="body-xs" sx={{ color: 'success.500' }}>
-                      +2.3%
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                      vs mes anterior
-                    </Typography>
-                  </Box>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'warning.softBg' }}>
-                  <CheckCircleIcon sx={{ color: 'warning.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Calificación
-                  </Typography>
-                  <Typography level="h3">{avgRating.toFixed(1)}/5.0</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                    <TrendingUpIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                    <Typography level="body-xs" sx={{ color: 'success.500' }}>
-                      +0.2
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                      vs mes anterior
-                    </Typography>
-                  </Box>
-                </Box>
-                <Sheet sx={{ p: 1.5, borderRadius: 'sm', bgcolor: 'info.softBg' }}>
-                  <StarIcon sx={{ color: 'info.500' }} />
-                </Sheet>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Monthly Trend */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            Tendencia Mensual
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {/* Monthly Trend */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="text-base font-semibold text-foreground">Tendencia Mensual</h2>
+          <div className="mt-4 flex flex-col gap-4">
             {mockMonthlyData.map((data) => {
-              const maxAppointments = Math.max(...mockMonthlyData.map((d) => d.appointments))
               const percentage = (data.appointments / maxAppointments) * 100
               return (
-                <Box key={data.month}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography level="body-sm">{data.month}</Typography>
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Typography level="body-sm">
+                <div key={data.month} className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                    <span className="text-sm font-medium text-foreground">{data.month}</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      <span className="tabular-nums">
                         {data.appointments} citas • ${data.revenue.toLocaleString()}
-                      </Typography>
-                      <Typography level="body-sm" sx={{ minWidth: 80 }}>
+                      </span>
+                      <span className="min-w-20 tabular-nums">
                         {data.completionRate}% completitud
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <StarIcon sx={{ fontSize: 16, color: 'warning.500' }} />
-                        <Typography level="body-sm">{data.avgRating}</Typography>
-                      </Box>
-                    </Box>
-                  </Box>
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Star className="size-4 text-warning-text" weight="fill" aria-hidden />
+                        <span className="tabular-nums text-foreground">{data.avgRating}</span>
+                      </span>
+                    </div>
+                  </div>
                   <LinearProgress determinate value={percentage} size="sm" />
-                </Box>
+                </div>
               )
             })}
-          </Box>
-        </CardContent>
-      </Card>
+          </div>
+        </section>
 
-      <Grid container spacing={2}>
-        {/* Agent Performance */}
-        <Grid xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Rendimiento por Agente
-              </Typography>
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table>
-                  <thead>
-                    <tr>
-                      <th>Agente</th>
-                      <th>Total</th>
-                      <th>Completadas</th>
-                      <th>Canceladas</th>
-                      <th>No Show</th>
-                      <th>Ingresos</th>
-                      <th>Rating</th>
-                      <th>Tasa Completitud</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mockAgentReports.map((agent) => (
-                      <tr key={agent.id}>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Avatar src={agent.avatar} size="sm" />
-                            <Typography level="body-sm">{agent.name}</Typography>
-                          </Box>
-                        </td>
-                        <td>
-                          <Typography level="body-sm" fontWeight="md">
-                            {agent.totalAppointments}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip size="sm" color="success" variant="soft">
-                            {agent.completed}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Chip size="sm" color="danger" variant="soft">
-                            {agent.cancelled}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Chip size="sm" color="neutral" variant="soft">
-                            {agent.noShow}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Typography level="body-sm" fontWeight="md">
-                            ${agent.revenue.toLocaleString()}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <StarIcon sx={{ fontSize: 16, color: 'warning.500' }} />
-                            <Typography level="body-sm">{agent.avgRating}</Typography>
-                          </Box>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
-                            <LinearProgress determinate value={agent.completionRate} size="sm" sx={{ flex: 1 }} />
-                            <Typography level="body-xs">{agent.completionRate}%</Typography>
-                          </Box>
-                        </td>
-                      </tr>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Agent Performance */}
+          <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02] lg:col-span-2">
+            <div className="border-b border-border px-5 py-4">
+              <h2 className="text-base font-semibold text-foreground">Rendimiento por Agente</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {agentColumns.map((c, i) => (
+                      <th
+                        key={i}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
                     ))}
-                  </tbody>
-                </Table>
-              </Sheet>
-            </CardContent>
-          </Card>
-        </Grid>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {mockAgentReports.map((agent) => (
+                    <tr key={agent.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <AgentAvatar src={agent.avatar} name={agent.name} />
+                          <span className="whitespace-nowrap text-foreground">{agent.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-medium tabular-nums text-foreground">
+                        {agent.totalAppointments}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="success">{agent.completed}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="destructive">{agent.cancelled}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="neutral">{agent.noShow}</Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-foreground">
+                        ${agent.revenue.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1">
+                          <Star className="size-4 text-warning-text" weight="fill" aria-hidden />
+                          <span className="tabular-nums text-foreground">{agent.avgRating}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex min-w-[120px] items-center gap-2">
+                          <LinearProgress
+                            determinate
+                            value={agent.completionRate}
+                            size="sm"
+                            sx={{ flex: 1 }}
+                          />
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {agent.completionRate}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-        {/* Time Slot Analysis */}
-        <Grid xs={12} md={4}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Análisis por Horario
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                {mockTimeSlots.map((slot, index) => (
-                  <Box
-                    key={index}
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 'sm',
-                      bgcolor: slot.avgOccupancy > 90 ? 'success.softBg' : 'background.level1',
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography level="body-sm" fontWeight="md">
-                        {slot.timeSlot}
-                      </Typography>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Peak: {slot.peakDay}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <LinearProgress determinate value={slot.avgOccupancy} size="sm" sx={{ flex: 1 }} />
-                      <Typography level="body-xs">{slot.avgOccupancy}%</Typography>
-                    </Box>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                      {slot.appointments} citas
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+          {/* Time Slot Analysis */}
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="text-base font-semibold text-foreground">Análisis por Horario</h2>
+            <div className="mt-4 flex flex-col gap-3">
+              {mockTimeSlots.map((slot, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    'rounded-lg p-3',
+                    slot.avgOccupancy > 90 ? 'bg-success/12' : 'bg-muted/50',
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-foreground">{slot.timeSlot}</span>
+                    <span className="text-xs text-muted-foreground">Peak: {slot.peakDay}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <LinearProgress
+                      determinate
+                      value={slot.avgOccupancy}
+                      size="sm"
+                      sx={{ flex: 1 }}
+                    />
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {slot.avgOccupancy}%
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                    {slot.appointments} citas
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
 
         {/* Service Performance */}
-        <Grid xs={12}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Rendimiento por Servicio
-              </Typography>
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table>
-                  <thead>
-                    <tr>
-                      <th>Servicio</th>
-                      <th>Citas</th>
-                      <th>Ingresos</th>
-                      <th>Duración Promedio</th>
-                      <th>Tasa Cancelación</th>
-                      <th>Tendencia</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mockServiceReports.map((service, index) => (
-                      <tr key={index}>
-                        <td>
-                          <Typography level="body-sm" fontWeight="md">
-                            {service.name}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">{service.appointments}</Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm" fontWeight="md">
-                            ${service.revenue.toLocaleString()}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <TimeIcon sx={{ fontSize: 16, color: 'text.tertiary' }} />
-                            <Typography level="body-sm">{service.avgDuration} min</Typography>
-                          </Box>
-                        </td>
-                        <td>
-                          <Chip
-                            size="sm"
-                            color={service.cancellationRate < 5 ? 'success' : service.cancellationRate < 10 ? 'warning' : 'danger'}
-                            variant="soft"
-                          >
-                            {service.cancellationRate}%
-                          </Chip>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            {service.popularityTrend > 0 ? (
-                              <>
-                                <TrendingUpIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                                <Typography level="body-sm" sx={{ color: 'success.500' }}>
-                                  +{service.popularityTrend}%
-                                </Typography>
-                              </>
-                            ) : (
-                              <>
-                                <TrendingDownIcon sx={{ fontSize: 16, color: 'danger.500' }} />
-                                <Typography level="body-sm" sx={{ color: 'danger.500' }}>
-                                  {service.popularityTrend}%
-                                </Typography>
-                              </>
-                            )}
-                          </Box>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </Sheet>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Container>
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">Rendimiento por Servicio</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {serviceColumns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {mockServiceReports.map((service, index) => (
+                  <tr key={index} className="transition-colors hover:bg-accent/40">
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-foreground">
+                      {service.name}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                      {service.appointments}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-foreground">
+                      ${service.revenue.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted-foreground">
+                        <Clock className="size-4" aria-hidden />
+                        <span className="tabular-nums">{service.avgDuration} min</span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant={cancellationVariant(service.cancellationRate)}>
+                        {service.cancellationRate}%
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <TrendDelta
+                        label={`${service.popularityTrend > 0 ? '+' : ''}${service.popularityTrend}%`}
+                        positive={service.popularityTrend > 0}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
   )
 }

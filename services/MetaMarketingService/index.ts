@@ -1,5 +1,7 @@
+import axios from "axios";
 import MetaMarketing from "../../meta-marketing/src";
 import CompaniesSettings from "../../models/CompaniesSettings";
+import Company from "../../models/Company";
 import Whatsapp from "../../models/Whatsapp";
 import AppError from "../../errors/AppError";
 import logger from "../../utils/logger";
@@ -42,8 +44,15 @@ const META_ERROR_CODES = {
   INVALID_TOKEN: 190,
   PERMISSION_ERROR: 10,
   UNKNOWN_ERROR: 1,
-  TEMPORARY_ERROR: 2
+  TEMPORARY_ERROR: 2,
+  // [Fase2] 368 = bloqueo temporal por infraccion de politicas. NO es un error
+  // reintentable: insistir se interpreta como evasion y agrava el bloqueo.
+  POLICY_BLOCK: 368
 };
+
+// Codigos de limitacion. Meta es explicita: al llegar al limite hay que PARAR;
+// si sigues llamando el contador no baja y alargas el bloqueo.
+const META_THROTTLE_CODES = new Set([4, 17, 32, 613, 80000, 80003, 80004, 80014]);
 
 // ============================================================
 // HELPERS
@@ -130,7 +139,7 @@ const getTimeRangeFromPeriod = (period: string): TimeRange => {
  * Soporta modo sandbox y producción
  * Si se proporciona whatsappId, intenta obtener credenciales de la tabla Whatsapp primero
  */
-const getCompanyMetaConfig = async (companyId: number, whatsappId?: number): Promise<CompanyMetaConfig> => {
+export const getCompanyMetaConfig = async (companyId: number, whatsappId?: number): Promise<CompanyMetaConfig> => {
   logger.info(`[MetaMarketing] 🔍 Getting config for companyId: ${companyId}, whatsappId: ${whatsappId || "NOT PROVIDED"}`);
 
   // Si se proporciona whatsappId, intentar obtener credenciales de la conexión
@@ -230,16 +239,70 @@ const getCompanyMetaConfig = async (companyId: number, whatsappId?: number): Pro
  * @param companyId - ID de la empresa
  * @param whatsappId - ID opcional de la conexión Whatsapp para usar sus credenciales
  */
+/**
+ * [Fase2] Devuelve el appSecret SOLO si pertenece a la misma app que emitio el
+ * token. Firmar con el secret de otra app hace que Meta rechace TODAS las
+ * llamadas (error 190) — y en produccion ya hay empresas con el appId guardado
+ * de una app distinta a la del token (medido: company 8, appId 3943...15 vs
+ * token emitido por 3433...56). Por eso se verifica, no se asume.
+ *
+ * El app_id del token se saca de debug_token inspeccionandose a si mismo, asi
+ * que no hacen falta credenciales de app para comprobarlo. Se cachea en proceso
+ * para no pagar una llamada extra por request.
+ */
+const appSecretCache = new Map<string, { secret?: string; at: number }>();
+const APP_SECRET_TTL = 30 * 60 * 1000;
+
+const resolveVerifiedAppSecret = async (
+  companyId: number,
+  token: string
+): Promise<string | undefined> => {
+  const key = `${companyId}:${token.slice(-12)}`;
+  const cached = appSecretCache.get(key);
+  if (cached && Date.now() - cached.at < APP_SECRET_TTL) return cached.secret;
+
+  let secret: string | undefined;
+  try {
+    const company = await Company.findByPk(companyId);
+    const settings = await CompaniesSettings.findOne({ where: { companyId } });
+    const appId = (company as any)?.facebookAppId || settings?.facebookAppId;
+    const appSecret = (company as any)?.facebookAppSecret || settings?.facebookAppSecret;
+
+    if (appId && appSecret) {
+      const { data } = await axios.get(
+        `https://graph.facebook.com/${process.env.FB_GRAPH_VERSION || "v24.0"}/debug_token`,
+        { params: { input_token: token, access_token: token }, timeout: 8000 }
+      );
+      const tokenAppId = data?.data?.app_id;
+      if (tokenAppId && String(tokenAppId) === String(appId)) {
+        secret = appSecret;
+      } else {
+        logger.warn(
+          `[MetaMarketing] appsecret_proof desactivado para company ${companyId}: ` +
+          `el token lo emitio la app ${tokenAppId}, pero hay configurada la ${appId}.`
+        );
+      }
+    }
+  } catch (err: any) {
+    logger.warn(`[MetaMarketing] no se pudo verificar la app del token: ${err?.message || err}`);
+  }
+
+  appSecretCache.set(key, { secret, at: Date.now() });
+  return secret;
+};
+
 const getMetaClient = async (companyId: number, whatsappId?: number): Promise<{
   client: MetaMarketing;
   accountId: string;
   mode: "sandbox" | "production";
 }> => {
   const config = await getCompanyMetaConfig(companyId, whatsappId);
+  const appSecret = await resolveVerifiedAppSecret(companyId, config.token);
 
   const client = new MetaMarketing({
     accessToken: config.token,
-    apiVersion: process.env.FB_GRAPH_VERSION || "v24.0"
+    apiVersion: process.env.FB_GRAPH_VERSION || "v24.0",
+    ...(appSecret ? { appSecret } : {})
   });
 
   return {
@@ -271,6 +334,26 @@ const handleMetaError = (error: any, companyId: number, endpoint: string): never
       message: metaError.message,
       type: metaError.type
     });
+
+    // 368 primero: es lo unico que nunca se debe reintentar ni "probar otra vez".
+    if (metaError.code === META_ERROR_CODES.POLICY_BLOCK) {
+      logger.error(`[MetaMarketing] 🛑 BLOQUEO POR POLITICAS (368) — DETENER, no reintentar`);
+      throw new AppError(
+        "ERR_META_POLICY_BLOCK: Meta bloqueo temporalmente esta cuenta por politicas. " +
+        "No reintentes ni regeneres el token: revisa los avisos en Business Manager.",
+        403
+      );
+    }
+
+    if (META_THROTTLE_CODES.has(metaError.code)) {
+      const wait = metaError.error_data?.estimated_time_to_regain_access;
+      logger.error(`[MetaMarketing] ⏳ LIMITE DE LLAMADAS (${metaError.code}) — parar y esperar`);
+      throw new AppError(
+        `ERR_META_RATE_LIMIT: Meta pide esperar${wait ? ` ~${wait} min` : ""} antes de seguir. ` +
+        "Insistir ahora alarga el bloqueo.",
+        429
+      );
+    }
 
     switch (metaError.code) {
       case META_ERROR_CODES.RATE_LIMIT:
@@ -545,7 +628,7 @@ export const getCampaigns = async (
       // Esto determina si una campaña tiene anuncios activos o no
       // ============================================================
       logger.info(`[getCampaigns] 📡 Obteniendo todos los ads para contar activos por campaña...`);
-      let activeAdsMap = new Map<string, number>();
+      const activeAdsMap = new Map<string, number>();
 
       try {
         // IMPORTANTE: Inicializar TODAS las campañas con 0 ads primero
@@ -721,15 +804,29 @@ export const getCampaigns = async (
   }
 };
 
+export const getAdSetById = async (
+  companyId: number,
+  adSetId: string,
+  whatsappId?: number
+): Promise<any> => {
+  try {
+    const { client } = await getMetaClient(companyId, whatsappId);
+    return await client.campaigns.getAdSet(adSetId);
+  } catch (error: any) {
+    handleMetaError(error, companyId, `/${adSetId}`);
+  }
+};
+
 export const getCampaignById = async (
   companyId: number,
   campaignId: string,
-  timeRange?: TimeRange
+  timeRange?: TimeRange,
+  whatsappId?: number
 ): Promise<any> => {
   const timer = AuditLogger.startTimer();
 
   try {
-    const { client } = await getMetaClient(companyId);
+    const { client } = await getMetaClient(companyId, whatsappId);
 
     const campaign = await client.campaigns.getCampaign(campaignId);
 
@@ -852,6 +949,146 @@ export const getAds = async (
   } catch (error: any) {
     logger.error(`[getAds] ❌ Error obteniendo anuncios: ${error.message}`);
     handleMetaError(error, companyId, "/insights?level=ad");
+  }
+};
+
+export const getAdSets = async (
+  companyId: number,
+  options: GetAdsOptions = {},
+  whatsappId?: number
+): Promise<any[]> => {
+  logger.info(`[getAdSets] 🚀 Iniciando obtención de conjuntos de anuncios`);
+  logger.info(`[getAdSets] 📋 companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}`);
+  logger.info(`[getAdSets] 📋 Opciones: ${JSON.stringify(options)}`);
+
+  const timer = AuditLogger.startTimer();
+  const period = options.timeRange ? `${options.timeRange.since}_${options.timeRange.until}` : "30days";
+  const cacheKey = whatsappId ? `${companyId}_${whatsappId}` : companyId;
+
+  if (!options.skipCache) {
+    const cached = await MarketingCache.getAdSets(cacheKey as any, period, options.campaignId);
+    if (cached) {
+      logger.info(`[getAdSets] ✅ Datos obtenidos desde CACHE (${cached.length} conjuntos)`);
+      AuditLogger.logRequest({
+        companyId,
+        action: "get_adsets",
+        endpoint: "/insights?level=adset",
+        method: "GET",
+        responseStatus: "success",
+        responseTime: timer(),
+        cacheHit: true
+      });
+      return cached;
+    }
+  }
+
+  try {
+    logger.info(`[getAdSets] 📡 Conectando con Meta API...`);
+    const { client, accountId } = await getMetaClient(companyId, whatsappId);
+    logger.info(`[getAdSets] ✅ Cliente Meta creado. AccountId: act_${accountId}`);
+
+    const timeRange = options.timeRange || getTimeRangeFromPeriod("30days");
+    logger.info(`[getAdSets] 📡 Obteniendo insights de conjuntos para período: ${timeRange.since} a ${timeRange.until}`);
+
+    const adSetInsights = await client.insights.getAccountInsights(accountId, {
+      level: "adset",
+      fields: [
+        "adset_id", "adset_name", "campaign_id", "campaign_name",
+        "impressions", "clicks", "spend", "reach", "frequency", "ctr", "cpc", "cpm"
+      ],
+      time_range: timeRange,
+      ...(options.campaignId && {
+        filtering: [{
+          field: "campaign.id",
+          operator: "EQUAL",
+          value: options.campaignId
+        }]
+      })
+    });
+
+    logger.info(`[getAdSets] ✅ Insights de conjuntos obtenidos: ${adSetInsights.length} registros`);
+
+    const adSets = adSetInsights.map((insight: any) => ({
+      id: String(insight.adset_id),
+      name: insight.adset_name,
+      campaign_id: String(insight.campaign_id),
+      campaign_name: insight.campaign_name,
+      status: "ACTIVE",
+      impressions: Number(insight.impressions || 0),
+      clicks: Number(insight.clicks || 0),
+      spend: Number(insight.spend || 0),
+      reach: Number(insight.reach || 0),
+      frequency: Number(insight.frequency || 0),
+      ctr: Number(insight.ctr || 0),
+      cpc: Number(insight.cpc || 0),
+      cpm: Number(insight.cpm || 0)
+    }));
+
+    await MarketingCache.setAdSets(cacheKey as any, period, adSets, options.campaignId);
+    logger.info(`[getAdSets] ✅ COMPLETADO - ${adSets.length} conjuntos guardados en cache`);
+
+    AuditLogger.logRequest({
+      companyId,
+      action: "get_adsets",
+      endpoint: "/insights?level=adset",
+      method: "GET",
+      responseStatus: "success",
+      responseTime: timer(),
+      cacheHit: false
+    });
+
+    return adSets;
+  } catch (error: any) {
+    logger.error(`[getAdSets] ❌ Error obteniendo conjuntos de anuncios: ${error.message}`);
+    handleMetaError(error, companyId, "/insights?level=adset");
+  }
+};
+
+export const resolveAdAttributionById = async (
+  companyId: number,
+  adId: string,
+  whatsappId?: number
+): Promise<{
+  adId: string;
+  adName?: string;
+  adSetId?: string;
+  adSetName?: string;
+  campaignId?: string;
+  campaignName?: string;
+} | null> => {
+  if (!adId) return null;
+
+  try {
+    logger.info(`[resolveAdAttributionById] Resolviendo adId=${adId}, companyId=${companyId}, whatsappId=${whatsappId || "N/A"}`);
+    const { client } = await getMetaClient(companyId, whatsappId);
+
+    const ad = (await client.client.get<any>(`/${adId}`, {
+      fields: "id,name,adset_id,campaign_id"
+    })) as any;
+
+    const [campaign, adSet] = await Promise.all([
+      ad?.campaign_id
+        ? client.client.get<any>(`/${String(ad.campaign_id)}`, { fields: "id,name" }) as Promise<any>
+        : Promise.resolve(null),
+      ad?.adset_id
+        ? client.client.get<any>(`/${String(ad.adset_id)}`, { fields: "id,name,campaign_id" }) as Promise<any>
+        : Promise.resolve(null)
+    ]);
+
+    const attribution = {
+      adId: String(ad?.id || adId),
+      adName: ad?.name || undefined,
+      adSetId: ad?.adset_id ? String(ad.adset_id) : undefined,
+      adSetName: adSet?.name || undefined,
+      campaignId: ad?.campaign_id ? String(ad.campaign_id) : undefined,
+      campaignName: campaign?.name || undefined
+    };
+
+    logger.info(`[resolveAdAttributionById] ✅ Resuelto: ${JSON.stringify(attribution)}`);
+    return attribution;
+  } catch (error: any) {
+    logger.warn(`[resolveAdAttributionById] No se pudo resolver adId=${adId}: ${error.message}`);
+    return null;
   }
 };
 
@@ -1441,7 +1678,10 @@ export default {
   getAdAccounts,
   getCampaigns,
   getCampaignById,
+  getAdSetById,
   getAds,
+  getAdSets,
+  resolveAdAttributionById,
   getInsightsTrend,
   getAggregatedInsights,
   invalidateCache,

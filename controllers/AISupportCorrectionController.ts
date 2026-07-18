@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Controller: AISupportCorrections
  * CRUD de correcciones/soluciones manuales por empresa
@@ -12,16 +16,24 @@ import logger from "../utils/logger";
 // ── LIST ──────────────────────────────────────────────────────
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
-  const { category, isActive } = req.query;
+  const { category, isActive, source } = req.query;
 
   const where: any = { companyId };
   if (category) where.category = category;
   if (isActive !== undefined) where.isActive = isActive === "true";
+  // Sprint 1: permitir filtrar por source (admin | human_correction_loop | api | import)
+  if (source) where.source = source;
 
   const corrections = await AISupportCorrection.findAll({
     where,
-    order: [["createdAt", "DESC"]],
-    attributes: ["id", "problem", "solution", "category", "isActive", "usageCount", "lastUsedAt", "createdAt"]
+    order: [["priority", "ASC"], ["createdAt", "DESC"]],
+    attributes: [
+      "id", "problem", "solution", "category", "isActive", "usageCount", "lastUsedAt",
+      // Sprint 1: nuevos campos
+      "source", "correctionType", "scopeJson", "verifiedBy", "verifiedAt",
+      "sourceAgentLogId", "sourceTicketId", "priority",
+      "createdAt"
+    ]
   });
 
   return res.json({ success: true, data: corrections });
@@ -30,7 +42,11 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 // ── CREATE ────────────────────────────────────────────────────
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { companyId, id: userId } = req.user;
-  const { problem, solution, category } = req.body;
+  const {
+    problem, solution, category,
+    // Sprint 1: campos opcionales para correcciones programáticas
+    source, correctionType, scopeJson, sourceAgentLogId, sourceTicketId, priority
+  } = req.body;
 
   if (!problem || !solution) {
     return res.status(400).json({ success: false, message: "Problem y solution son requeridos" });
@@ -41,8 +57,15 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     problem,
     solution,
     category: category || "general",
-    createdBy: userId
-  });
+    createdBy: userId,
+    // Sprint 1: si vienen, se persisten; si no, defaults del modelo
+    ...(source !== undefined && { source }),
+    ...(correctionType !== undefined && { correctionType }),
+    ...(scopeJson !== undefined && { scopeJson }),
+    ...(sourceAgentLogId !== undefined && { sourceAgentLogId }),
+    ...(sourceTicketId !== undefined && { sourceTicketId }),
+    ...(priority !== undefined && { priority })
+  } as any);
 
   // Generar embedding en background
   CorrectionSearchService.syncEmbedding(correction.id, companyId).catch(err => {
@@ -56,7 +79,11 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
   const { id } = req.params;
-  const { problem, solution, category, isActive } = req.body;
+  const {
+    problem, solution, category, isActive,
+    // Sprint 1: campos opcionales adicionales
+    source, correctionType, scopeJson, priority
+  } = req.body;
 
   const correction = await AISupportCorrection.findOne({
     where: { id, companyId }
@@ -70,8 +97,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     ...(problem !== undefined && { problem }),
     ...(solution !== undefined && { solution }),
     ...(category !== undefined && { category }),
-    ...(isActive !== undefined && { isActive })
-  });
+    ...(isActive !== undefined && { isActive }),
+    ...(source !== undefined && { source }),
+    ...(correctionType !== undefined && { correctionType }),
+    ...(scopeJson !== undefined && { scopeJson }),
+    ...(priority !== undefined && { priority })
+  } as any);
 
   // Re-generar embedding si cambió el contenido
   if (problem !== undefined || solution !== undefined) {

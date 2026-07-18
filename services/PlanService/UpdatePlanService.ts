@@ -38,13 +38,14 @@ interface PlanData {
   stripeProductId?: string;
   paypalProductId?: string;
   paypalPlanId?: string;
+  allowRecurringPayments?: boolean;
   interfacePermissions?: string;
 }
 
 const UpdatePlanService = async (planData: PlanData): Promise<Plan> => {
   const { id, amount, recurrence } = planData;
 
-  let plan = await Plan.findByPk(id);
+  const plan = await Plan.findByPk(id);
 
   if (!plan) {
     throw new AppError("ERR_NO_PLAN_FOUND", 404);

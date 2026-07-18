@@ -1,18 +1,26 @@
 /**
- * Job: UGCVideoGeneration
- * Placeholder para la generacion de videos UGC con IA.
+ * Job: UGCVideoGeneration (LEGACY WRAPPER)
  *
- * Este job sera implementado en Phase 1 del Video Pipeline.
- * Procesara:
- * - Renderizado de video con avatar del agente + script generado
- * - Integracion con HeyGen / Sora / D-ID para video generation
- * - Post-procesamiento: subtitulos, musica, transiciones
- * - Upload a storage y notificacion al frontend
+ * Mantiene retrocompatibilidad con el flujo del PR #1 que solo invocaba
+ * un adapter de video. A partir del PR #2, la generación real vive en
+ * UGCPipelineRun.ts, que orquesta los 4 slots según UGCCampaign.pipelineMode.
  *
- * Cola: UGCVideoGenerationQueue (concurrency: 2, attempts: 2)
+ * Este wrapper:
+ *   - Si la campaña tiene pipelineMode='image-then-video' (default) y solo
+ *     videoModelKey configurado, sigue funcionando como antes — UGCPipelineRun
+ *     ejecuta paso 1 (imagen) → paso 2 (video).
+ *   - Si pipelineMode incluye voz/lipsync, también ejecuta esos pasos.
+ *   - Mantiene la firma original del Bull job para no romper queue consumers.
+ *
+ * Nota: la imagen del personaje se puede pre-cargar vía
+ * job.data.characterImageUrl (compatible con submit antiguos del PR #1
+ * que generaban la imagen antes del job de video).
  */
 
 import { Job } from "bull";
+import handlePipelineRun, {
+  type UGCPipelineRunJobData
+} from "./UGCPipelineRun";
 import logger from "../utils/logger";
 
 interface UGCVideoGenerationJobData {
@@ -28,29 +36,19 @@ interface UGCVideoGenerationJobData {
   };
   platform?: string;
   videoStyle?: string;
+  characterImageUrl?: string;
+  audioReferenceUrl?: string;
 }
 
 const handle = async (job: Job<UGCVideoGenerationJobData>): Promise<void> => {
-  const { companyId, campaignId, videoJobId } = job.data;
-
   logger.info(
-    `[UGCVideoGeneration] Procesando job para campaign=${campaignId}, ` +
-    `videoJob=${videoJobId}, company=${companyId}`
+    `[UGCVideoGeneration] (legacy wrapper) delegando a UGCPipelineRun ` +
+      `campaign=${job.data.campaignId} videoJob=${job.data.videoJobId}`
   );
 
-  // TODO Phase 1 — Video Pipeline
-  // 1. Cargar script y datos del agente (foto de perfil, estilo)
-  // 2. Llamar a HeyGen/Sora API para generar video con avatar
-  // 3. Polling hasta que el video este listo
-  // 4. Descargar y almacenar video en storage
-  // 5. Generar thumbnail
-  // 6. Actualizar UGCVideoJob con URL y metadata
-  // 7. Notificar al frontend via Socket.IO
-
-  throw new Error(
-    `UGC Video Generation no implementado aun. ` +
-    `Campaign=${campaignId}, VideoJob=${videoJobId}`
-  );
+  // El Bull job de UGCPipelineRun acepta el mismo shape (con campos extra
+  // opcionales). El cast es seguro porque los campos nuevos son optional.
+  await handlePipelineRun(job as unknown as Job<UGCPipelineRunJobData>);
 };
 
 export default handle;

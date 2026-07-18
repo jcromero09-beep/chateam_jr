@@ -9,7 +9,7 @@
  * @author JR Chateam Development Team
  */
 
-import { WASocket } from "@whiskeysockets/baileys";
+import { WASocket } from "baileys";
 import { WhatsAppCloudAPIService } from "../WhatsAppCloudAPI/CloudAPIService";
 import { antiBanManager } from "../../utils/antiBan";
 import logger, { logError, logInfo, logWarn, logDebug } from "../../utils/logger";

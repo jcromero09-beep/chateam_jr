@@ -1,7 +1,17 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { selectModel } from "./ModelRouterService";
 import AppointmentAvailabilityGuard from "./AppointmentAvailabilityGuard";
 import AppointmentContextStore from "./AppointmentContextStore";
+import type { CurrentTicketMemory } from "./CurrentTicketMemoryService";
 import logger from "../../utils/logger";
+
+// Sprint 1 (2026-05-20) — Loop de Aprendizaje: bloquear repetición de errores
+// ya corregidos por humanos antes de gastar el LLM judge.
+import CorrectionRepeatBlocker from "../AILearningServices/CorrectionRepeatBlocker";
+import AILearningFeatureFlag from "../AILearningServices/AILearningFeatureFlag";
 
 /**
  * ResponseGatekeeperService — Capa de reflexión antes del envío
@@ -72,6 +82,15 @@ export interface GatekeeperInput {
    * el contexto awaiting_confirmation cuando sugiera slots al cliente */
   ticketId?: number;
   contactId?: number;
+  /** 🆕 (2026-04-22) Memoria del ticket para consistency/repeat checks */
+  ticketMemory?: CurrentTicketMemory | null;
+  /** 🆕 Emotion state ya evaluado aguas arriba */
+  emotionState?: string;
+  /** 🆕 Fuente del borrador (para distinguir reuse memoria vs agente) */
+  responseSource?: 'current_ticket' | 'historical_qa' | 'kb' | 'tool' | 'agent' | 'human';
+  /** 🆕 Sprint 1 (2026-05-20) — Contexto para CorrectionRepeatBlocker */
+  queueId?: number | null;
+  productKey?: string | null;
 }
 
 export interface GatekeeperResult {
@@ -181,9 +200,60 @@ const evaluate = async (input: GatekeeperInput): Promise<GatekeeperResult> => {
     }
   }
 
-  // 1. Seleccionar modelo configurado para este agente (tier mini = rápido/barato)
+  // ═══════════════════════════════════════════════════════════════════
+  // 🆕 Sprint 1 (2026-05-20) — CORRECTION REPEAT BLOCKER
+  // Si el draft repite un error que un humano ya corrigió antes para esta
+  // empresa/queue/producto, bloquear ANTES de gastar el LLM judge y reescribir
+  // con la solución verificada.
+  //
+  // Solo aplica si AI_LEARNING_LEVEL >= 1 para esta empresa. Si está
+  // desactivado, este bloque es un no-op silencioso.
+  // ═══════════════════════════════════════════════════════════════════
+  if (AILearningFeatureFlag.isEnabled(input.companyId)) {
+    try {
+      const blockerResult = await CorrectionRepeatBlocker.check({
+        draft: input.draftResponse,
+        turn: {
+          companyId: input.companyId,
+          queueId: input.queueId,
+          productKey: input.productKey,
+          intent: input.intent
+        },
+        toolsUsedThisTurn: input.toolsUsed
+      });
+
+      if (blockerResult.shouldBlock && blockerResult.replacementText) {
+        logger.info(
+          `[ResponseGatekeeper] 🚫 CorrectionRepeatBlocker activado: ` +
+          `corrId=${blockerResult.blockingCorrectionId} type=${blockerResult.blockingCorrectionType} ` +
+          `sim=${blockerResult.similarityScore?.toFixed(3)} — rewrite forzado`
+        );
+        return {
+          decision: 'rewrite',
+          confidence: 0.95,
+          reasoning: blockerResult.reasoning ||
+            `Repeating previously corrected error (correctionId=${blockerResult.blockingCorrectionId})`,
+          rewritten: blockerResult.replacementText,
+          modelUsed: 'correction-repeat-blocker',
+          latencyMs: Date.now() - startTime,
+          tokensUsed: { input: 0, output: 0 }
+        };
+      }
+    } catch (blockErr: any) {
+      // Nunca bloquea el flujo: si el blocker falla, sigue al LLM judge.
+      logger.debug(`[ResponseGatekeeper] CorrectionRepeatBlocker silenciado: ${blockErr.message}`);
+    }
+  }
+
+  // 1. Modelo del gatekeeper: juez estructurado JSON con maxTokens=400.
+  //    2026-07-10: NO usar gpt-5.5 aquí. gpt-5.5 es de razonamiento y usa max_completion_tokens
+  //    para "pensar"; con 400 tokens gasta todo razonando y devuelve contenido VACÍO →
+  //    JSON.parse("") → "Unexpected end of JSON input" (medido: 5/5 fallos en la prueba). El
+  //    gatekeeper corre en CADA respuesta, así que forzamos tier mini (gpt-4.x) por velocidad
+  //    y fiabilidad de JSON. NO es tema de costo — es correctitud.
   const modelSelection = await selectModel('gatekeeper', input.clientMessage, 'mini');
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini'; // Fallback si no hay config
+  const selectedGkKey = modelSelection?.entity.key;
+  const modelKey = selectedGkKey && selectedGkKey.startsWith('gpt-4') ? selectedGkKey : 'gpt-4.1-mini';
 
   // 2. Preparar historial (máx últimos 5 turnos para no saturar contexto)
   const historyText = (input.recentHistory || [])
@@ -424,6 +494,85 @@ Responde SOLO con JSON válido:
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // 🆕 (2026-04-22) GUARDRAILS DE MEMORIA DEL TICKET ACTUAL
+    //   1. Consistency:  el draft contradice un answeredFact previo
+    //   2. Repetition:   el draft es casi idéntico al último turno del bot
+    //   3. IntentMismatch: el draft no responde nada de lo que el cliente
+    //      preguntó y el ticket ya tiene fricción (emotion frustrated/angry
+    //      o agentFailures ≥ 2)
+    // Todos son best-effort. Si hay match, se corrige a 'rewrite'/'escalate'.
+    // ═══════════════════════════════════════════════════════════════════
+    if (input.ticketMemory && result.decision !== 'ignore') {
+      const mem = input.ticketMemory;
+      const draftLower = (result.rewritten || input.draftResponse).toLowerCase();
+
+      // --- (1) CONSISTENCY: detecta contradicción "sí/no" con hecho previo ---
+      for (const fact of mem.answeredFacts.slice(-5)) {
+        const answerLower = (fact.answer || "").toLowerCase();
+        const mentionsNegation = /\bno\s+(tiene|incluye|ofrece|hay|se puede)\b/.test(draftLower);
+        const previouslyPositive = /\b(s[ií]|claro)\s+(tiene|incluye|ofrece|hay|se puede|lo incluye)/.test(answerLower);
+        const mentionsPositive = /\b(s[ií]|claro)\s+(tiene|incluye|ofrece|hay|se puede|lo incluye)/.test(draftLower);
+        const previouslyNegative = /\bno\s+(tiene|incluye|ofrece|hay|se puede)\b/.test(answerLower);
+
+        const contradicts =
+          (mentionsNegation && previouslyPositive) ||
+          (mentionsPositive && previouslyNegative);
+
+        if (contradicts) {
+          logger.warn(
+            `[ResponseGatekeeper] ⚠️ GUARDRAIL CONSISTENCY: draft contradice ` +
+            `answeredFact turno #${fact.turnId} → forzar rewrite consistente`
+          );
+          result.decision = 'rewrite';
+          result.rewritten = fact.answer;
+          result.reasoning = `Consistency: draft contradecía respuesta previa del mismo ticket (turno #${fact.turnId}). ` +
+            `Se reutilizó la respuesta anterior para mantener coherencia.`;
+          break;
+        }
+      }
+
+      // --- (2) REPETITION: casi idéntico al último turno del bot ---
+      if (result.decision === 'send' || result.decision === 'rewrite') {
+        const lastAssistant = (input.recentHistory || [])
+          .filter(m => m.role === 'assistant').slice(-1)[0];
+        if (lastAssistant && lastAssistant.content) {
+          const a = (result.rewritten || input.draftResponse).trim();
+          const b = lastAssistant.content.trim();
+          const similarityRatio = jaccardRatio(a, b);
+          if (similarityRatio >= 0.85 && a.length > 40) {
+            logger.warn(
+              `[ResponseGatekeeper] ⚠️ GUARDRAIL REPETITION: draft ~85% idéntico al ` +
+              `último mensaje del bot (ratio=${similarityRatio.toFixed(2)}). Compactando.`
+            );
+            result.decision = 'rewrite';
+            result.rewritten =
+              `Como te comenté: ${shorten(b, 220)}\n\n¿Hay algo específico que te ayude a decidir o prefieres que te pase con un asesor?`;
+            result.reasoning = `Repetition: draft casi idéntico al último turno del bot.`;
+          }
+        }
+      }
+
+      // --- (3) INTENT MISMATCH con fricción: si el cliente pregunta algo y el
+      // draft no contiene ninguna palabra de la pregunta (solapamiento ≈ 0)
+      // y la emoción es frustrated/angry o hay fallos acumulados, escalar.
+      if (result.decision === 'send' && (input.clientMessage || '').length > 5) {
+        const overlap = jaccardRatio(input.clientMessage, result.rewritten || input.draftResponse);
+        const friction =
+          input.emotionState === 'frustrated' || input.emotionState === 'angry' ||
+          mem.agentFailures >= 2 || mem.consecutiveLowConfidence >= 2;
+        if (overlap < 0.04 && friction) {
+          logger.warn(
+            `[ResponseGatekeeper] ⚠️ GUARDRAIL INTENT-MISMATCH: overlap=${overlap.toFixed(2)} ` +
+            `con friction activa → escalate`
+          );
+          result.decision = 'escalate';
+          result.reasoning = `IntentMismatch+Friction: respuesta no se alinea con la pregunta y el ticket tiene fricción acumulada. Escalando a humano.`;
+          result.rewritten = undefined;
+        }
+      }
+    }
+
     return result;
   } catch (error: any) {
     logger.error(
@@ -443,5 +592,31 @@ Responde SOLO con JSON válido:
     };
   }
 };
+
+/**
+ * Solapamiento Jaccard entre dos textos (0..1), por tokens sin stopwords
+ * mínimas. Determinista, sin dependencias externas.
+ */
+function jaccardRatio(a: string, b: string): number {
+  const norm = (s: string) =>
+    (s || "")
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9áéíóúñü\s]/g, " ")
+      .split(/\s+/)
+      .filter(w => w && w.length > 2);
+  const A = new Set(norm(a));
+  const B = new Set(norm(b));
+  if (A.size === 0 && B.size === 0) return 0;
+  const inter = [...A].filter(t => B.has(t)).length;
+  const union = new Set([...A, ...B]).size;
+  return union === 0 ? 0 : inter / union;
+}
+
+function shorten(s: string, max: number): string {
+  if (!s) return "";
+  if (s.length <= max) return s;
+  return s.slice(0, max) + "...";
+}
 
 export default { evaluate };

@@ -38,6 +38,13 @@ coexistenceDispatchRoutes.put(
   CoexistencePolicyController.setRoutingPolicy
 );
 
+// Cambiar el transporte DUEÑO del ticket (canal activo real: Meta | Baileys)
+coexistenceDispatchRoutes.post(
+  "/coexistence/tickets/:ticketId/switch-owner",
+  isAuth,
+  CoexistencePolicyController.switchOwner
+);
+
 // FASE 6 — listado de dispatches del ticket (timeline UI)
 coexistenceDispatchRoutes.get(
   "/coexistence/tickets/:ticketId/dispatches",

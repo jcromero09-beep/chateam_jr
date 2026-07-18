@@ -1,31 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  LinearProgress,
-  Alert,
-  Stepper,
-  Step,
-  StepIndicator,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Divider,
-} from '@mui/joy'
+// [Fase2·G] Conservado como MUI: LinearProgress no tiene equivalente en el design system.
+import LinearProgress from '@mui/joy/LinearProgress'
 import {
   ShoppingCart as CartIcon,
   Check as CheckIcon,
-  ArrowBack as BackIcon,
-  CelebrationOutlined as SuccessIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
-import IconButton from '@mui/joy/IconButton'
+  ArrowLeft as BackIcon,
+  Confetti as SuccessIcon,
+  X as CloseIcon,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import PaymentMethodSelector from '../components/PaymentMethodSelector'
 import PayPalButton from '../components/PayPalButton'
 import api from '../services/api'
@@ -43,6 +35,12 @@ interface Invoice {
   status: string
   companyId: number
 }
+
+const steps = [
+  { label: 'Seleccionar Método', tone: 'primary' as const },
+  { label: 'Realizar Pago', tone: 'primary' as const },
+  { label: 'Confirmación', tone: 'success' as const },
+]
 
 export default function Checkout() {
   const [searchParams] = useSearchParams()
@@ -163,98 +161,123 @@ export default function Checkout() {
 
   if (loading) {
     return (
-      <Container maxWidth="md">
-        <Stack spacing={3} sx={{ py: 4 }}>
+      <div className="mx-auto max-w-3xl px-5 py-8">
+        <div className="space-y-6">
           <LinearProgress />
-          <Typography level="body-md" textAlign="center">
+          <p className="text-center text-sm text-muted-foreground">
             Cargando información del pago...
-          </Typography>
-        </Stack>
-      </Container>
+          </p>
+        </div>
+      </div>
     )
   }
 
   if (error && !plan) {
     return (
-      <Container maxWidth="md">
-        <Stack spacing={3} sx={{ py: 4 }}>
-          <Alert color="danger">{error}</Alert>
-          <Button onClick={() => navigate(-1)} startDecorator={<BackIcon />}>
+      <div className="mx-auto max-w-3xl px-5 py-8">
+        <div className="space-y-6">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
+            {error}
+          </div>
+          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
+            <BackIcon className="size-4" aria-hidden />
             Volver
           </Button>
-        </Stack>
-      </Container>
+        </div>
+      </div>
     )
   }
 
   return (
-    <Container maxWidth="md">
-      <Stack spacing={3} sx={{ py: 4 }}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-6">
+        {/* Header: volver */}
+        <div>
           <Button
-            variant="plain"
-            color="neutral"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
             onClick={handleGoBack}
-            startDecorator={<BackIcon />}
           >
+            <BackIcon className="size-4" aria-hidden />
             Volver
           </Button>
-        </Stack>
+        </div>
 
-        <Stack direction="row" spacing={2} alignItems="center">
-          <CartIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-          <Box>
-            <Typography level="h2">Checkout</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Completa tu pago de forma segura
-            </Typography>
-          </Box>
-        </Stack>
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <CartIcon className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Checkout</h1>
+            <p className="text-sm text-muted-foreground">Completa tu pago de forma segura</p>
+          </div>
+        </div>
 
         {/* Stepper */}
-        <Stepper sx={{ width: '100%' }}>
-          <Step
-            indicator={
-              <StepIndicator variant={step >= 0 ? 'solid' : 'outlined'} color="primary">
-                {step > 0 ? <CheckIcon /> : '1'}
-              </StepIndicator>
-            }
-          >
-            Seleccionar Método
-          </Step>
-          <Step
-            indicator={
-              <StepIndicator variant={step >= 1 ? 'solid' : 'outlined'} color="primary">
-                {step > 1 ? <CheckIcon /> : '2'}
-              </StepIndicator>
-            }
-          >
-            Realizar Pago
-          </Step>
-          <Step
-            indicator={
-              <StepIndicator variant={step >= 2 ? 'solid' : 'outlined'} color="success">
-                {step >= 2 ? <CheckIcon /> : '3'}
-              </StepIndicator>
-            }
-          >
-            Confirmación
-          </Step>
-        </Stepper>
+        <ol className="flex w-full items-center">
+          {steps.map((s, i) => {
+            const active = step >= i
+            const isDone = step > i
+            const solid = active
+            const solidClasses =
+              s.tone === 'success'
+                ? 'border-success bg-success text-primary-foreground'
+                : 'border-primary bg-primary text-primary-foreground'
+            return (
+              <li key={s.label} className="flex flex-1 items-center gap-3 last:flex-none">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={
+                      'flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors ' +
+                      (solid
+                        ? solidClasses
+                        : 'border-border bg-card text-muted-foreground')
+                    }
+                    aria-hidden
+                  >
+                    {isDone || (s.tone === 'success' && step >= i) ? (
+                      <CheckIcon className="size-4" weight="bold" />
+                    ) : (
+                      i + 1
+                    )}
+                  </span>
+                  <span
+                    className={
+                      'text-sm font-medium ' +
+                      (active ? 'text-foreground' : 'text-muted-foreground')
+                    }
+                  >
+                    {s.label}
+                  </span>
+                </div>
+                {i < steps.length - 1 && (
+                  <span
+                    className={
+                      'mx-2 hidden h-px flex-1 sm:block ' +
+                      (step > i ? 'bg-primary' : 'bg-border')
+                    }
+                    aria-hidden
+                  />
+                )}
+              </li>
+            )
+          })}
+        </ol>
 
         {/* Error Alert */}
         {error && (
-          <Alert
-            color="danger"
-            endDecorator={
-              <IconButton variant="soft" color="danger" onClick={() => setError(null)}>
-                <CloseIcon />
-              </IconButton>
-            }
-          >
-            {error}
-          </Alert>
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/12"
+            >
+              <CloseIcon className="size-4" aria-hidden />
+            </button>
+          </div>
         )}
 
         {/* Contenido según el paso */}
@@ -272,68 +295,55 @@ export default function Checkout() {
         )}
 
         {step === 1 && selectedMethod === 'paypal' && plan && (
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 3 }}>
-                Pagar con PayPal
-              </Typography>
-              <PayPalButton
-                invoiceId={invoiceId}
-                planId={planId}
-                months={paypalMonths}
-                amount={plan.amount}
-                onSuccess={handlePaypalSuccess}
-                onError={handlePaypalError}
-                onCancel={handlePaypalCancel}
-              />
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-6 text-lg font-semibold text-foreground">Pagar con PayPal</h2>
+            <PayPalButton
+              invoiceId={invoiceId}
+              planId={planId}
+              months={paypalMonths}
+              amount={plan.amount}
+              onSuccess={handlePaypalSuccess}
+              onError={handlePaypalError}
+              onCancel={handlePaypalCancel}
+            />
+          </div>
         )}
 
         {step === 2 && (
-          <Card variant="soft" color="success">
-            <CardContent>
-              <Stack spacing={3} alignItems="center" sx={{ py: 4 }}>
-                <SuccessIcon sx={{ fontSize: 64, color: 'success.main' }} />
-                <Typography level="h3" textAlign="center">
-                  ¡Pago Completado!
-                </Typography>
-                <Typography level="body-md" textAlign="center" sx={{ color: 'text.tertiary' }}>
-                  Tu pago ha sido procesado exitosamente. Tu suscripción está activa.
-                </Typography>
-                <Button color="success" onClick={handleFinish}>
-                  Ir a Facturación
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-success/30 bg-success/10 p-6">
+            <div className="flex flex-col items-center gap-4 py-6 text-center">
+              <SuccessIcon className="size-16 text-success-text" weight="fill" aria-hidden />
+              <h2 className="text-xl font-semibold text-foreground">¡Pago Completado!</h2>
+              <p className="text-sm text-muted-foreground">
+                Tu pago ha sido procesado exitosamente. Tu suscripción está activa.
+              </p>
+              <Button onClick={handleFinish}>Ir a Facturación</Button>
+            </div>
+          </div>
         )}
+      </div>
 
-        {/* Modal de Éxito */}
-        <Modal open={showSuccessModal} onClose={() => setShowSuccessModal(false)}>
-          <ModalDialog>
-            <ModalClose />
-            <Stack spacing={3} alignItems="center" sx={{ py: 2 }}>
-              <SuccessIcon sx={{ fontSize: 80, color: 'success.main' }} />
-              <Typography level="h3" textAlign="center">
-                ¡Pago Exitoso!
-              </Typography>
-              <Typography level="body-md" textAlign="center">
+      {/* Modal de Éxito */}
+      <Dialog open={showSuccessModal} onOpenChange={(open) => !open && setShowSuccessModal(false)}>
+        <DialogContent className="max-w-md">
+          <div className="flex flex-col items-center gap-4 py-2 text-center">
+            <SuccessIcon className="size-20 text-success-text" weight="fill" aria-hidden />
+            <DialogHeader className="items-center">
+              <DialogTitle>¡Pago Exitoso!</DialogTitle>
+              <DialogDescription className="text-center">
                 Tu pago con PayPal ha sido procesado correctamente.
-              </Typography>
-              <Divider sx={{ width: '100%' }} />
-              <Stack direction="row" spacing={2}>
-                <Button variant="outlined" onClick={() => navigate('/billing')}>
-                  Ver Facturación
-                </Button>
-                <Button color="success" onClick={() => navigate('/')}>
-                  Ir al Dashboard
-                </Button>
-              </Stack>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="my-2 h-px w-full bg-border" aria-hidden />
+            <DialogFooter className="w-full sm:justify-center">
+              <Button variant="outline" onClick={() => navigate('/billing')}>
+                Ver Facturación
+              </Button>
+              <Button onClick={() => navigate('/')}>Ir al Dashboard</Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

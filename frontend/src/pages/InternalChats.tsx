@@ -1,52 +1,28 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  IconButton,
-  Avatar,
-  Input,
-  Divider,
-  Chip,
-  Sheet,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemContent,
-  ListItemDecorator,
-  Badge,
-  Textarea,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Dropdown,
-  Menu,
-  MenuButton,
-  MenuItem,
-} from '@mui/joy'
-import {
-  Forum as InternalChatIcon,
-  Add as AddIcon,
-  Search as SearchIcon,
-  Send as SendIcon,
-  AttachFile as AttachIcon,
-  MoreVert as MoreIcon,
-  Group as GroupIcon,
-  EmojiEmotions as EmojiIcon,
-  Refresh as RefreshIcon,
-  Close as CloseIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  PushPin as PinIcon,
-} from '@mui/icons-material'
+  ChatsCircle,
+  ArrowClockwise,
+  Plus,
+  MagnifyingGlass,
+  PaperPlaneTilt,
+  UsersThree,
+  Paperclip,
+  X,
+  DotsThreeVertical,
+  Trash,
+  PushPin,
+  CaretLeft,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Avatar } from '@/components/ui/avatar'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Checkbox } from '@/components/ui/checkbox'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
+import logger from '../utils/logger'
+import { toast } from 'react-toastify'
 import { useAuth } from '../hooks/useAuth'
 import { useInternalChatSocket } from '../hooks/useInternalChatSocket'
 
@@ -122,6 +98,7 @@ export default function InternalChats() {
   const [selectedUsers, setSelectedUsers] = useState<number[]>([])
   const [chatTitle, setChatTitle] = useState('')
   const [userSearchTerm, setUserSearchTerm] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -197,220 +174,20 @@ export default function InternalChats() {
     try {
       setLoading(true)
       const response = await api.get('/chats')
-      console.log('Chats API full response:', response)
-      console.log('Chats API data:', response.data)
 
       // Backend returns { records, count, hasMore }
       const chatsData = Array.isArray(response.data)
         ? response.data
         : (response.data.records || [])
 
-      console.log('Chats data extracted:', chatsData)
-
       // Transform chats to UI format
       const transformedChats = chatsData.map(transformChat)
-      console.log('Transformed chats:', transformedChats)
 
       setChats(transformedChats)
     } catch (error) {
       console.error('Error fetching chats:', error)
       // Set empty array on error instead of mock data
       setChats([])
-      /*
-      // Mock data removed - using real API data only
-      const mockChats: Chat[] = []
-      /*
-      [
-        {
-          id: 1,
-          name: 'María López',
-          type: 'direct',
-          participants: [
-            {
-              id: 2,
-              name: 'María López',
-              email: 'maria.lopez@empresa.com',
-              online: true,
-              avatar: '',
-            },
-          ],
-          lastMessage: '¿Cómo va el ticket #1234?',
-          lastMessageTime: '2025-01-12T16:30:00',
-          unreadCount: 2,
-          messages: [
-            {
-              id: 1,
-              chatId: 1,
-              senderId: 2,
-              senderName: 'María López',
-              content: 'Hola, necesito ayuda con el ticket #1234',
-              type: 'text',
-              createdAt: '2025-01-12T16:25:00',
-              read: true,
-            },
-            {
-              id: 2,
-              chatId: 1,
-              senderId: 1,
-              senderName: 'Usuario Actual',
-              content: 'Claro, déjame revisarlo',
-              type: 'text',
-              createdAt: '2025-01-12T16:26:00',
-              read: true,
-            },
-            {
-              id: 3,
-              chatId: 1,
-              senderId: 2,
-              senderName: 'María López',
-              content: '¿Cómo va el ticket #1234?',
-              type: 'text',
-              createdAt: '2025-01-12T16:30:00',
-              read: false,
-            },
-          ],
-        },
-        {
-          id: 2,
-          name: 'Equipo de Ventas',
-          type: 'group',
-          participants: [
-            {
-              id: 3,
-              name: 'Carlos Ruiz',
-              email: 'carlos.ruiz@empresa.com',
-              online: true,
-            },
-            {
-              id: 4,
-              name: 'Ana García',
-              email: 'ana.garcia@empresa.com',
-              online: false,
-              lastSeen: '2025-01-12T15:00:00',
-            },
-            {
-              id: 5,
-              name: 'Pedro Sánchez',
-              email: 'pedro.sanchez@empresa.com',
-              online: true,
-            },
-          ],
-          lastMessage: 'Reunión a las 3pm',
-          lastMessageTime: '2025-01-12T14:00:00',
-          unreadCount: 0,
-          messages: [
-            {
-              id: 4,
-              chatId: 2,
-              senderId: 3,
-              senderName: 'Carlos Ruiz',
-              content: 'Chicos, tenemos reunión a las 3pm',
-              type: 'text',
-              createdAt: '2025-01-12T14:00:00',
-              read: true,
-            },
-            {
-              id: 5,
-              chatId: 2,
-              senderId: 5,
-              senderName: 'Pedro Sánchez',
-              content: 'Perfecto, ahí estaré',
-              type: 'text',
-              createdAt: '2025-01-12T14:05:00',
-              read: true,
-            },
-          ],
-        },
-        {
-          id: 3,
-          name: 'Soporte Técnico',
-          type: 'group',
-          participants: [
-            {
-              id: 6,
-              name: 'Laura Martínez',
-              online: true,
-            },
-            {
-              id: 7,
-              name: 'Roberto Díaz',
-              online: true,
-            },
-            {
-              id: 8,
-              name: 'Sofía Torres',
-              online: false,
-              lastSeen: '2025-01-12T12:00:00',
-            },
-          ],
-          lastMessage: 'Cliente reporta error en el sistema',
-          lastMessageTime: '2025-01-12T10:30:00',
-          unreadCount: 5,
-          messages: [
-            {
-              id: 6,
-              chatId: 3,
-              senderId: 6,
-              senderName: 'Laura Martínez',
-              content: 'Cliente reporta error en el sistema',
-              type: 'text',
-              createdAt: '2025-01-12T10:30:00',
-              read: false,
-            },
-          ],
-        },
-        {
-          id: 4,
-          name: 'Juan Pérez',
-          type: 'direct',
-          participants: [
-            {
-              id: 9,
-              name: 'Juan Pérez',
-              online: false,
-              lastSeen: '2025-01-11T18:00:00',
-            },
-          ],
-          lastMessage: 'Gracias por tu ayuda',
-          lastMessageTime: '2025-01-11T17:45:00',
-          unreadCount: 0,
-          messages: [
-            {
-              id: 7,
-              chatId: 4,
-              senderId: 9,
-              senderName: 'Juan Pérez',
-              content: '¿Me puedes ayudar con este cliente?',
-              type: 'text',
-              createdAt: '2025-01-11T17:30:00',
-              read: true,
-            },
-            {
-              id: 8,
-              chatId: 4,
-              senderId: 1,
-              senderName: 'Usuario Actual',
-              content: 'Claro, cuéntame',
-              type: 'text',
-              createdAt: '2025-01-11T17:35:00',
-              read: true,
-            },
-            {
-              id: 9,
-              chatId: 4,
-              senderId: 9,
-              senderName: 'Juan Pérez',
-              content: 'Gracias por tu ayuda',
-              type: 'text',
-              createdAt: '2025-01-11T17:45:00',
-              read: true,
-            },
-          ],
-        },
-      ]
-      setChats(mockChats)
-      setSelectedChat(mockChats[0])
-      */
     } finally {
       setLoading(false)
     }
@@ -419,8 +196,12 @@ export default function InternalChats() {
   const handleSendMessage = async () => {
     if ((!message.trim() && !selectedFile) || !selectedChat) return
 
+    // [Ola 3] Se limpia el input de forma optimista (la UI responde al instante),
+    // pero se guarda el estado previo para poder devolverlo si el envío falla:
+    // antes, un POST fallido dejaba el input vacío y el mensaje se perdía en silencio.
     const text = message
     const file = selectedFile
+    const preview = filePreview
     setMessage('')
     setSelectedFile(null)
     setFilePreview(null)
@@ -465,7 +246,12 @@ export default function InternalChats() {
           : c
       ))
     } catch (error) {
-      console.error('Error sending message:', error)
+      // Devolver lo escrito al input para que el usuario pueda reintentar sin perderlo.
+      setMessage(text)
+      setSelectedFile(file)
+      setFilePreview(preview)
+      logger.error('[InternalChats] error al enviar el mensaje', error)
+      toast.error('No se pudo enviar el mensaje. Tu texto se ha conservado.')
     }
   }
 
@@ -479,14 +265,12 @@ export default function InternalChats() {
   const fetchChatMessages = async (chatId: number) => {
     try {
       const response = await api.get(`/chats/${chatId}/messages`)
-      console.log('Chat messages API response:', response.data)
 
       // Backend returns { records, count, hasMore }
       const messagesData = Array.isArray(response.data)
         ? response.data
         : (response.data.records || [])
 
-      console.log('Messages extracted:', messagesData)
       return messagesData.map((m: any) => ({
         ...m,
         senderName: m.sender?.name || `Usuario ${m.senderId}`,
@@ -502,6 +286,7 @@ export default function InternalChats() {
   const handleSelectChat = async (chat: Chat) => {
     // Set selected chat immediately
     setSelectedChat(chat)
+    setMenuOpen(false)
 
     // Load messages for this chat
     const messages = await fetchChatMessages(chat.id)
@@ -515,7 +300,10 @@ export default function InternalChats() {
     // Mark as read
     try {
       await api.post(`/chats/${chat.id}/read`, { userId: currentUser.id })
-    } catch { /* silent */ }
+    } catch (err) {
+      // Si falla, el badge de no-leídos queda desfasado hasta el próximo refresco.
+      logger.warn('[InternalChats] no se pudo marcar el chat como leído', err)
+    }
 
     // Notify sidebar badge
     window.dispatchEvent(new CustomEvent('chatUnreadsChange', { detail: {} }))
@@ -524,7 +312,6 @@ export default function InternalChats() {
   const fetchUsers = async () => {
     try {
       const response = await api.get('/users')
-      console.log('Users API response:', response.data)
       const usersData = Array.isArray(response.data)
         ? response.data
         : (response.data.users || response.data.records || [])
@@ -565,8 +352,6 @@ export default function InternalChats() {
         users: usersFormatted,
         title: selectedUsers.length > 1 ? chatTitle || 'Grupo sin nombre' : chatTitle
       })
-
-      console.log('Chat created:', response.data)
 
       // Refresh chats list
       await fetchChats()
@@ -626,6 +411,7 @@ export default function InternalChats() {
   }
 
   const handleDeleteChat = async (chatId: number) => {
+    setMenuOpen(false)
     if (!confirm('¿Estás seguro de eliminar este chat?')) return
     try {
       await api.delete(`/chats/${chatId}`)
@@ -636,7 +422,7 @@ export default function InternalChats() {
     }
   }
 
-  const renderMedia = (msg: Message) => {
+  const renderMedia = (msg: Message, isOwn: boolean) => {
     if (!msg.mediaPath && !msg.mediaName) return null
 
     const mediaUrl = msg.mediaUrl || `/public/${msg.mediaPath}`
@@ -645,86 +431,61 @@ export default function InternalChats() {
 
     if (mediaType === 'image') {
       return (
-        <Box
-          component="a"
+        <a
           href={mediaUrl}
           target="_blank"
           rel="noopener noreferrer"
-          sx={{ display: 'block', mb: 0.5 }}
+          className="mb-1 block"
           onClick={(e) => { e.preventDefault(); window.open(mediaUrl, '_blank') }}
         >
-          <Box
-            component="img"
+          <img
             src={mediaUrl}
             alt={filename}
-            sx={{
-              maxWidth: '100%',
-              maxHeight: 250,
-              borderRadius: 'sm',
-              objectFit: 'cover',
-              cursor: 'pointer',
-            }}
+            className="max-h-[250px] max-w-full cursor-pointer rounded-md object-cover"
           />
-        </Box>
+        </a>
       )
     }
 
     if (mediaType === 'video') {
       return (
-        <Box sx={{ mb: 0.5 }}>
+        <div className="mb-1">
           <video
             src={mediaUrl}
             controls
-            style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }}
+            className="max-h-[200px] max-w-full rounded-md"
           />
-          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+          <p className={cn('mt-1 text-[11px]', isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
             {filename}
-          </Typography>
-        </Box>
+          </p>
+        </div>
       )
     }
 
     if (mediaType === 'audio') {
       return (
-        <Box sx={{ mb: 0.5 }}>
-          <audio
-            src={mediaUrl}
-            controls
-            style={{ width: '100%', maxWidth: 300 }}
-          />
-          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+        <div className="mb-1">
+          <audio src={mediaUrl} controls className="w-full max-w-[300px]" />
+          <p className={cn('mt-1 text-[11px]', isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
             {filename}
-          </Typography>
-        </Box>
+          </p>
+        </div>
       )
     }
 
     return (
-      <Box
-        component="a"
+      <a
         href={mediaUrl}
         target="_blank"
         rel="noopener noreferrer"
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          p: 1,
-          borderRadius: 'sm',
-          bgcolor: 'background.level2',
-          textDecoration: 'none',
-          '&:hover': { bgcolor: 'background.level3' },
-          mb: 0.5,
-        }}
+        className={cn(
+          'mb-1 flex items-center gap-2 rounded-md p-2 no-underline transition-colors',
+          isOwn ? 'bg-primary-foreground/15 hover:bg-primary-foreground/25' : 'bg-accent hover:bg-accent/70',
+        )}
       >
-        <AttachIcon fontSize="small" />
-        <Typography
-          level="body-sm"
-          sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-        >
-          {filename}
-        </Typography>
-      </Box>
+        <Paperclip className="size-4 shrink-0" aria-hidden />
+        <span className="truncate text-sm">{filename}</span>
+      </a>
     )
   }
 
@@ -734,532 +495,488 @@ export default function InternalChats() {
       chat.lastMessage?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const stats = {
-    activeChats: chats.filter((c) => (c.unreadCount || 0) > 0).length,
-    totalMessages: chats.reduce((sum, chat) => sum + (chat.messages?.length || 0), 0),
-    onlineUsers: chats.reduce(
-      (sum, chat) => sum + (chat.participants?.filter((p) => p.online).length || 0),
-      0
-    ),
-    groups: chats.filter((c) => c.type === 'group').length,
-  }
+  const filteredUsers = availableUsers.filter(user =>
+    user.name.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+    user.email?.toLowerCase().includes(userSearchTerm.toLowerCase())
+  )
+
+  const stats: { label: string; value: string; tone?: 'primary' | 'success' | 'neutral' }[] = [
+    {
+      label: 'Conversaciones activas',
+      value: String(chats.filter((c) => (c.unreadCount || 0) > 0).length),
+      tone: 'primary',
+    },
+    {
+      label: 'Total mensajes',
+      value: String(chats.reduce((sum, chat) => sum + (chat.messages?.length || 0), 0)),
+    },
+    {
+      label: 'Usuarios online',
+      value: String(
+        chats.reduce(
+          (sum, chat) => sum + (chat.participants?.filter((p) => p.online).length || 0),
+          0,
+        ),
+      ),
+      tone: 'success',
+    },
+    {
+      label: 'Grupos',
+      value: String(chats.filter((c) => c.type === 'group').length),
+    },
+  ]
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <InternalChatIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Chats Internos</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Comunicación en tiempo real entre miembros del equipo
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchChats}>
-              <RefreshIcon />
-            </IconButton>
-            {isAdminOrSuper && (
-              <Button startDecorator={<AddIcon />} color="primary" onClick={openNewChatModalHandler}>
-                Nuevo Chat
-              </Button>
-            )}
-          </Stack>
-        </Stack>
+    <div className="mx-auto flex h-full min-h-[600px] max-w-[1400px] flex-col gap-5">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary">
+            <ChatsCircle className="size-6" weight="duotone" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Chats Internos</h1>
+            <p className="text-sm text-muted-foreground">
+              Comunicación en tiempo real entre miembros del equipo
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={fetchChats}
+            aria-label="Actualizar"
+            className="text-muted-foreground"
+          >
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+          {isAdminOrSuper && (
+            <Button size="sm" onClick={openNewChatModalHandler}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nuevo Chat
+            </Button>
+          )}
+        </div>
+      </div>
 
-        {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Conversaciones Activas
-                </Typography>
-                <Typography level="h2">{stats.activeChats}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Total Mensajes
-                </Typography>
-                <Typography level="h2">{stats.totalMessages}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Usuarios Online
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.onlineUsers}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Grupos
-                </Typography>
-                <Typography level="h2">{stats.groups}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+      {/* Stats */}
+      <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
+        {stats.map((s) => (
+          <StatTile key={s.label} label={s.label} value={s.value} tone={s.tone} />
+        ))}
+      </div>
 
-        {/* Chat Interface */}
-        <Card sx={{ height: 600 }}>
-          <Box sx={{ display: 'flex', height: '100%' }}>
-            {/* Chat List Sidebar */}
-            <Box
-              sx={{
-                width: 320,
-                borderRight: '1px solid',
-                borderColor: 'divider',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <Box sx={{ p: 2 }}>
-                <Input
-                  placeholder="Buscar conversaciones..."
-                  startDecorator={<SearchIcon />}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </Box>
-              <Divider />
-              <Sheet sx={{ overflow: 'auto', flex: 1 }}>
-                <List>
-                  {filteredChats.map((chat) => (
-                    <ListItem key={chat.id}>
-                      <ListItemButton
-                        selected={selectedChat?.id === chat.id}
-                        onClick={() => handleSelectChat(chat)}
-                      >
-                        <ListItemDecorator>
-                          <Badge
-                            badgeContent={chat.unreadCount}
-                            color="danger"
-                            size="sm"
-                            invisible={chat.unreadCount === 0}
-                          >
-                            {chat.type === 'group' ? (
-                              <Avatar size="sm">
-                                <GroupIcon />
-                              </Avatar>
-                            ) : (
-                              <Avatar size="sm">{(chat.name || 'C').charAt(0)}</Avatar>
-                            )}
-                          </Badge>
-                        </ListItemDecorator>
-                        <ListItemContent>
-                          <Stack direction="row" justifyContent="space-between" alignItems="start">
-                            <Box sx={{ flex: 1 }}>
-                              <Typography level="title-sm">{chat.name || 'Chat'}</Typography>
-                              <Typography
-                                level="body-xs"
-                                sx={{
-                                  color: 'text.tertiary',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  fontWeight: (chat.unreadCount || 0) > 0 ? 'bold' : 'normal',
-                                }}
-                              >
-                                {chat.lastMessage}
-                              </Typography>
-                            </Box>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary', ml: 1 }}>
-                              {chat.lastMessageTime && formatTime(chat.lastMessageTime)}
-                            </Typography>
-                          </Stack>
-                        </ListItemContent>
-                      </ListItemButton>
-                    </ListItem>
-                  ))}
-                </List>
-              </Sheet>
-            </Box>
-
-            {/* Chat Messages Area */}
-            {selectedChat ? (
-              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {/* Chat Header */}
-                <Box
-                  sx={{
-                    p: 2,
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    bgcolor: 'background.surface',
-                  }}
+      {/* Chat Interface */}
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+        {/* Chat List Sidebar */}
+        <div
+          className={cn(
+            'flex w-full flex-col border-r border-border md:w-[320px] md:shrink-0',
+            selectedChat && 'hidden md:flex',
+          )}
+        >
+          <div className="p-3">
+            <Input
+              placeholder="Buscar conversaciones..."
+              aria-label="Buscar conversaciones"
+              leftIcon={<MagnifyingGlass />}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            {filteredChats.map((chat) => (
+              <li key={chat.id}>
+                <button
+                  type="button"
+                  onClick={() => handleSelectChat(chat)}
+                  aria-current={selectedChat?.id === chat.id}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-lg px-2.5 py-2.5 text-left transition-colors',
+                    selectedChat?.id === chat.id ? 'bg-primary/[0.08]' : 'hover:bg-accent/60',
+                  )}
                 >
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      {selectedChat.type === 'group' ? (
-                        <Avatar>
-                          <GroupIcon />
-                        </Avatar>
-                      ) : (
-                        <Badge
-                          badgeInset="14%"
-                          color={
-                            selectedChat.participants?.[0]?.online ? 'success' : 'neutral'
-                          }
-                          sx={{
-                            '& .MuiBadge-badge': {
-                              '&::after': {
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: '100%',
-                                borderRadius: '50%',
-                                animation: selectedChat.participants?.[0]?.online
-                                  ? 'ripple 1.2s infinite ease-in-out'
-                                  : 'none',
-                                border: '1px solid currentColor',
-                                content: '""',
-                              },
-                            },
-                            '@keyframes ripple': {
-                              '0%': {
-                                transform: 'scale(.8)',
-                                opacity: 1,
-                              },
-                              '100%': {
-                                transform: 'scale(2.4)',
-                                opacity: 0,
-                              },
-                            },
-                          }}
-                        >
-                          <Avatar>{(selectedChat.name || 'C').charAt(0)}</Avatar>
-                        </Badge>
+                  {chat.type === 'group' ? (
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
+                      <UsersThree className="size-5" weight="duotone" aria-hidden />
+                    </span>
+                  ) : (
+                    <Avatar name={chat.name || 'Chat'} size="md" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {chat.name || 'Chat'}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {chat.lastMessageTime && formatTime(chat.lastMessageTime)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-between gap-2">
+                      <p
+                        className={cn(
+                          'truncate text-[13px] text-muted-foreground',
+                          (chat.unreadCount || 0) > 0 && 'font-semibold text-foreground',
+                        )}
+                      >
+                        {chat.lastMessage}
+                      </p>
+                      {(chat.unreadCount || 0) > 0 && (
+                        <span className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-semibold text-white">
+                          {chat.unreadCount}
+                        </span>
                       )}
-                      <Box>
-                        <Typography level="title-md">{selectedChat.name || 'Chat'}</Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {selectedChat.type === 'group'
-                            ? `${selectedChat.participants?.length || 0} miembros, ${selectedChat.participants?.filter((p) => p.online).length || 0} en línea`
-                            : selectedChat.participants?.[0]?.online
-                              ? 'En línea'
-                              : selectedChat.participants?.[0]?.lastSeen
-                                ? `Última vez ${formatTime(selectedChat.participants[0].lastSeen)}`
-                                : 'Sin conexión reciente'}
-                        </Typography>
-                      </Box>
-                    </Stack>
-                    <Dropdown>
-                      <MenuButton size="sm" variant="plain">
-                        <MoreIcon />
-                      </MenuButton>
-                      <Menu placement="bottom-end">
+                    </div>
+                  </div>
+                </button>
+              </li>
+            ))}
+            {filteredChats.length === 0 && (
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                No hay conversaciones
+              </li>
+            )}
+          </ul>
+        </div>
+
+        {/* Chat Messages Area */}
+        <div className={cn('min-w-0 flex-1', selectedChat ? 'flex' : 'hidden md:flex')}>
+          {selectedChat ? (
+            <div className="relative flex h-full w-full flex-col bg-accent/30 dark:bg-background">
+              {/* Chat Header */}
+              <header className="relative z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
+                <button
+                  type="button"
+                  onClick={() => setSelectedChat(null)}
+                  aria-label="Volver"
+                  className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
+                >
+                  <CaretLeft className="size-5" aria-hidden />
+                </button>
+                {selectedChat.type === 'group' ? (
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
+                    <UsersThree className="size-5" weight="duotone" aria-hidden />
+                  </span>
+                ) : (
+                  <Avatar name={selectedChat.name || 'Chat'} size="md" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-sm font-semibold text-foreground">
+                    {selectedChat.name || 'Chat'}
+                  </h2>
+                  <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                    {selectedChat.type === 'group' ? (
+                      <>
+                        <UsersThree className="size-3.5" aria-hidden />
+                        {`${selectedChat.participants?.length || 0} miembros, ${selectedChat.participants?.filter((p) => p.online).length || 0} en línea`}
+                      </>
+                    ) : selectedChat.participants?.[0]?.online ? (
+                      'En línea'
+                    ) : selectedChat.participants?.[0]?.lastSeen ? (
+                      `Última vez ${formatTime(selectedChat.participants[0].lastSeen)}`
+                    ) : (
+                      'Sin conexión reciente'
+                    )}
+                  </p>
+                </div>
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setMenuOpen((v) => !v)}
+                    aria-label="Más opciones"
+                    className="text-muted-foreground"
+                  >
+                    <DotsThreeVertical className="size-5" weight="bold" aria-hidden />
+                  </Button>
+                  {menuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setMenuOpen(false)}
+                        aria-hidden
+                      />
+                      <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg">
                         {canModifyChat(selectedChat) && (
                           <>
-                            <MenuItem color="danger" onClick={() => handleDeleteChat(selectedChat.id)}>
-                              <DeleteIcon sx={{ mr: 1, fontSize: 18 }} />
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteChat(selectedChat.id)}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive-text transition-colors hover:bg-accent"
+                            >
+                              <Trash className="size-4" aria-hidden />
                               Eliminar Chat
-                            </MenuItem>
-                            <Divider />
+                            </button>
+                            <div className="my-1 h-px bg-border" />
                           </>
                         )}
-                        <MenuItem onClick={() => alert('Mensajes fijados: en desarrollo')}>
-                          <PinIcon sx={{ mr: 1, fontSize: 18 }} />
-                          Mensajes Fijados
-                        </MenuItem>
-                      </Menu>
-                    </Dropdown>
-                  </Stack>
-                </Box>
-
-                {/* Messages */}
-                <Box
-                  sx={{
-                    flex: 1,
-                    overflow: 'auto',
-                    p: 2,
-                    bgcolor: 'background.level1',
-                  }}
-                >
-                  <Stack spacing={2}>
-                    {(selectedChat.messages || []).map((msg) => {
-                      const isOwn = msg.senderId === currentUser.id
-                      return (
-                        <Box
-                          key={msg.id}
-                          sx={{
-                            display: 'flex',
-                            justifyContent: isOwn ? 'flex-end' : 'flex-start',
-                          }}
+                        <button
+                          type="button"
+                          onClick={() => { setMenuOpen(false); alert('Mensajes fijados: en desarrollo') }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
                         >
-                          <Box
-                            sx={{
-                              maxWidth: '70%',
-                              bgcolor: isOwn ? 'primary.softBg' : 'background.surface',
-                              p: 1.5,
-                              borderRadius: 'md',
-                              border: '1px solid',
-                              borderColor: isOwn ? 'primary.outlinedBorder' : 'divider',
-                            }}
-                          >
-                            {!isOwn && selectedChat.type === 'group' && (
-                              <Typography level="body-xs" sx={{ color: 'primary.main', mb: 0.5 }}>
-                                {msg.senderName || `Usuario ${msg.senderId}`}
-                              </Typography>
-                            )}
-                            {renderMedia(msg)}
-                            {msg.message && (
-                              <Typography level="body-sm">{msg.message}</Typography>
-                            )}
-                            <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.5 }}>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                {formatTime(msg.createdAt)}
-                              </Typography>
-                              {isOwn && (
-                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                  {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
-                                </Typography>
-                              )}
-                            </Stack>
-                          </Box>
-                        </Box>
-                      )
-                    })}
-                    <div ref={messagesEndRef} />
-                  </Stack>
-                </Box>
-
-                {/* Message Input */}
-                <Box
-                  sx={{
-                    p: 2,
-                    borderTop: '1px solid',
-                    borderColor: 'divider',
-                    bgcolor: 'background.surface',
-                  }}
-                >
-                  {/* Input file oculto */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    style={{ display: 'none' }}
-                    onChange={handleFileSelect}
-                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.csv,.txt"
-                  />
-                  {/* Preview del archivo seleccionado */}
-                  {selectedFile && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, mb: 1, bgcolor: 'background.level2', borderRadius: 'sm' }}>
-                      {filePreview ? (
-                        <Box
-                          component="img"
-                          src={filePreview}
-                          alt="Preview"
-                          sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1 }}
-                        />
-                      ) : (
-                        <Avatar size="sm"><AttachIcon /></Avatar>
-                      )}
-                      <Typography level="body-sm" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {selectedFile.name}
-                      </Typography>
-                      <IconButton size="sm" onClick={() => { setSelectedFile(null); setFilePreview(null) }}>
-                        <CloseIcon />
-                      </IconButton>
-                    </Box>
+                          <PushPin className="size-4" aria-hidden />
+                          Mensajes Fijados
+                        </button>
+                      </div>
+                    </>
                   )}
-                  <Stack direction="row" spacing={1} alignItems="end">
-                    <IconButton
-                      size="sm"
-                      variant="plain"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <AttachIcon color={selectedFile ? 'primary' : undefined} />
-                    </IconButton>
-                    <Textarea
-                      placeholder="Escribe un mensaje..."
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      minRows={1}
-                      maxRows={4}
-                      sx={{ flex: 1 }}
-                    />
-                    <IconButton
-                      color="primary"
-                      onClick={handleSendMessage}
-                      disabled={!message.trim() && !selectedFile}
-                    >
-                      <SendIcon />
-                    </IconButton>
-                  </Stack>
-                </Box>
-              </Box>
-            ) : (
-              <Box
-                sx={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Box sx={{ textAlign: 'center' }}>
-                  <InternalChatIcon sx={{ fontSize: 64, color: 'text.tertiary', mb: 2 }} />
-                  <Typography level="h4" sx={{ mb: 1 }}>
-                    Selecciona una conversación
-                  </Typography>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Elige un chat para comenzar a conversar
-                  </Typography>
-                </Box>
-              </Box>
-            )}
-          </Box>
-        </Card>
+                </div>
+              </header>
 
-        {/* Modal New Chat */}
-        <Modal open={openNewChatModal} onClose={() => setOpenNewChatModal(false)}>
-          <ModalDialog sx={{ minWidth: 500, maxWidth: 600 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Nuevo Chat Interno
-            </Typography>
-            <Stack spacing={2}>
+              {/* Messages */}
+              <div className="relative z-10 min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 py-5">
+                {(selectedChat.messages || []).map((msg) => {
+                  const isOwn = msg.senderId === currentUser.id
+                  return (
+                    <div key={msg.id} className={cn('flex', isOwn ? 'justify-end' : 'justify-start')}>
+                      <div
+                        className={cn(
+                          'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm',
+                          isOwn
+                            ? 'rounded-br-md bg-primary text-primary-foreground'
+                            : 'rounded-bl-md border border-border bg-card text-card-foreground',
+                        )}
+                      >
+                        {!isOwn && selectedChat.type === 'group' && (
+                          <span className="mb-0.5 block text-[11px] font-semibold text-primary">
+                            {msg.senderName || `Usuario ${msg.senderId}`}
+                          </span>
+                        )}
+                        {renderMedia(msg, isOwn)}
+                        {msg.message && <p className="leading-relaxed">{msg.message}</p>}
+                        <span
+                          className={cn(
+                            'mt-1 flex items-center justify-end gap-1 text-[10px]',
+                            isOwn ? 'text-primary-foreground/65' : 'text-muted-foreground',
+                          )}
+                        >
+                          {formatTime(msg.createdAt)}
+                          {isOwn && (
+                            <span>
+                              {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Message Input */}
+              <div className="relative z-10 shrink-0 border-t border-border bg-card px-4 py-3">
+                {/* Input file oculto */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={handleFileSelect}
+                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.csv,.txt"
+                />
+                {/* Preview del archivo seleccionado */}
+                {selectedFile && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-accent p-2">
+                    {filePreview ? (
+                      <img
+                        src={filePreview}
+                        alt="Preview"
+                        className="size-12 rounded-md object-cover"
+                      />
+                    ) : (
+                      <span className="flex size-12 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                        <Paperclip className="size-5" aria-hidden />
+                      </span>
+                    )}
+                    <span className="flex-1 truncate text-sm text-foreground">
+                      {selectedFile.name}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => { setSelectedFile(null); setFilePreview(null) }}
+                      aria-label="Quitar archivo"
+                    >
+                      <X className="size-4" aria-hidden />
+                    </Button>
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Adjuntar archivo"
+                    className={cn(
+                      'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent',
+                      selectedFile && 'text-primary',
+                    )}
+                  >
+                    <Paperclip className="size-5" aria-hidden />
+                  </button>
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    rows={1}
+                    placeholder="Escribe un mensaje..."
+                    aria-label="Escribe un mensaje"
+                    className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-tight text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendMessage}
+                    disabled={!message.trim() && !selectedFile}
+                    aria-label="Enviar mensaje"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-[background-color,transform] hover:bg-primary-hover active:translate-y-px disabled:opacity-45 disabled:hover:bg-primary"
+                  >
+                    <PaperPlaneTilt className="size-5" weight="fill" aria-hidden />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <ChatsCircle className="size-7" weight="duotone" aria-hidden />
+              </span>
+              <div>
+                <h2 className="font-semibold text-foreground">Selecciona una conversación</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Elige un chat para comenzar a conversar.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal New Chat */}
+      {openNewChatModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setOpenNewChatModal(false)}
+        >
+          <div
+            className="flex max-h-[90vh] w-full max-w-[600px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h2 className="text-lg font-semibold text-foreground">Nuevo Chat Interno</h2>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={() => setOpenNewChatModal(false)}
+                aria-label="Cerrar"
+              >
+                <X className="size-4" aria-hidden />
+              </Button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
               {/* Chat Title */}
-              <FormControl>
-                <FormLabel>Título del Chat (opcional)</FormLabel>
+              <div className="space-y-1.5">
+                <Label htmlFor="chat-title">Título del Chat (opcional)</Label>
                 <Input
+                  id="chat-title"
                   value={chatTitle}
                   onChange={(e) => setChatTitle(e.target.value)}
                   placeholder={selectedUsers.length > 1 ? 'Ej: Equipo de Ventas' : 'Opcional para chats directos'}
                 />
-              </FormControl>
+              </div>
 
               {/* User Search */}
-              <FormControl>
-                <FormLabel>Buscar Usuarios</FormLabel>
+              <div className="space-y-1.5">
+                <Label htmlFor="user-search">Buscar Usuarios</Label>
                 <Input
+                  id="user-search"
                   placeholder="Buscar por nombre..."
-                  startDecorator={<SearchIcon />}
+                  leftIcon={<MagnifyingGlass />}
                   value={userSearchTerm}
                   onChange={(e) => setUserSearchTerm(e.target.value)}
                 />
-              </FormControl>
+              </div>
 
               {/* Users List */}
-              <Box>
-                <Typography level="body-sm" sx={{ mb: 1, fontWeight: 'bold' }}>
+              <div>
+                <p className="mb-2 text-sm font-semibold text-foreground">
                   Selecciona usuarios ({selectedUsers.length} seleccionados)
-                </Typography>
-                <Sheet
-                  sx={{
-                    maxHeight: 300,
-                    overflow: 'auto',
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: 'sm',
-                  }}
-                >
-                  <List>
-                    {availableUsers
-                      .filter(user =>
-                        user.name.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                        user.email?.toLowerCase().includes(userSearchTerm.toLowerCase())
-                      )
-                      .map((user) => (
-                        <ListItem key={user.id}>
-                          <ListItemButton
-                            selected={selectedUsers.includes(user.id)}
-                            onClick={() => handleUserToggle(user.id)}
-                          >
-                            <ListItemDecorator>
-                              <Avatar size="sm">{user.name.charAt(0)}</Avatar>
-                            </ListItemDecorator>
-                            <ListItemContent>
-                              <Typography level="title-sm">{user.name}</Typography>
-                              {user.email && (
-                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                  {user.email}
-                                </Typography>
-                              )}
-                            </ListItemContent>
-                            {selectedUsers.includes(user.id) && (
-                              <Chip size="sm" color="primary" variant="soft">
-                                ✓
-                              </Chip>
+                </p>
+                <ul className="max-h-[300px] overflow-y-auto rounded-lg border border-border">
+                  {filteredUsers.map((user) => {
+                    const checked = selectedUsers.includes(user.id)
+                    return (
+                      <li key={user.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleUserToggle(user.id)}
+                          className={cn(
+                            'flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors',
+                            checked ? 'bg-primary/[0.08]' : 'hover:bg-accent/60',
+                          )}
+                        >
+                          <Checkbox checked={checked} onCheckedChange={() => handleUserToggle(user.id)} />
+                          <Avatar name={user.name} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
+                            {user.email && (
+                              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                             )}
-                          </ListItemButton>
-                        </ListItem>
-                      ))}
-                    {availableUsers.length === 0 && (
-                      <ListItem>
-                        <Typography level="body-sm" sx={{ textAlign: 'center', width: '100%', p: 2 }}>
-                          No hay usuarios disponibles
-                        </Typography>
-                      </ListItem>
-                    )}
-                  </List>
-                </Sheet>
-              </Box>
+                          </div>
+                        </button>
+                      </li>
+                    )
+                  })}
+                  {availableUsers.length === 0 && (
+                    <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      No hay usuarios disponibles
+                    </li>
+                  )}
+                </ul>
+              </div>
 
               {/* Selected Users Summary */}
               {selectedUsers.length > 0 && (
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  <Typography level="body-sm" sx={{ width: '100%', mb: 0.5 }}>
-                    Usuarios seleccionados:
-                  </Typography>
+                <div className="flex flex-wrap gap-2">
+                  <p className="w-full text-sm text-muted-foreground">Usuarios seleccionados:</p>
                   {selectedUsers.map((userId) => {
                     const user = availableUsers.find((u) => u.id === userId)
                     return user ? (
-                      <Chip
+                      <span
                         key={userId}
-                        size="sm"
-                        variant="soft"
-                        color="primary"
-                        endDecorator={
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            onClick={() => handleUserToggle(userId)}
-                          >
-                            <CloseIcon />
-                          </IconButton>
-                        }
+                        className="inline-flex items-center gap-1 rounded-full bg-primary/12 py-1 pl-3 pr-1.5 text-xs font-medium text-primary"
                       >
                         {user.name}
-                      </Chip>
+                        <button
+                          type="button"
+                          onClick={() => handleUserToggle(userId)}
+                          aria-label={`Quitar ${user.name}`}
+                          className="flex size-4 items-center justify-center rounded-full hover:bg-primary/20"
+                        >
+                          <X className="size-3" aria-hidden />
+                        </button>
+                      </span>
                     ) : null
                   })}
-                </Box>
+                </div>
               )}
+            </div>
 
-              {/* Action Buttons */}
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                <Button variant="outlined" color="neutral" onClick={() => setOpenNewChatModal(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  color="primary"
-                  onClick={handleCreateChat}
-                  disabled={selectedUsers.length === 0}
-                >
-                  Crear Chat
-                </Button>
-              </Stack>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+              <Button variant="outline" size="sm" onClick={() => setOpenNewChatModal(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={handleCreateChat} disabled={selectedUsers.length === 0}>
+                Crear Chat
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

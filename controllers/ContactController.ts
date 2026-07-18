@@ -1,7 +1,8 @@
 import * as Yup from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 
 import ListContactsService from "../services/ContactServices/ListContactsService";
 import CreateContactService from "../services/ContactServices/CreateContactService";
@@ -33,6 +34,7 @@ import GetDefaultWhatsApp from "../helpers/GetDefaultWhatsApp";
 import fs from "fs";
 import path from "path";
 import Contact from "../models/Contact";
+import Whatsapp from "../models/Whatsapp";
 import Tag from "../models/Tag";
 import ContactTag from "../models/ContactTag";
 import logger, { logError, logInfo, logWarn, logDebug } from "../utils/logger";
@@ -43,6 +45,7 @@ type IndexQuery = {
   contactTag: string;
   isGroup?: string;
   rowsPerPage?: string;
+  whatsappId?: string;
 };
 
 type IndexGetContactQuery = {
@@ -100,7 +103,7 @@ export const importXls = async (req: Request, res: Response): Promise<Response> 
 
     for (const tagName of tagList) {
       try {
-        let [tag, created] = await Tag.findOrCreate({
+        const [tag, created] = await Tag.findOrCreate({
           where: { name: tagName, companyId, color: "#A4CCCC", kanban: 0 }
 
         });
@@ -132,10 +135,9 @@ export const importXls = async (req: Request, res: Response): Promise<Response> 
 };
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
-  const { searchParam, pageNumber, contactTag: tagIdsStringified, isGroup,rowsPerPage  } = req.query as IndexQuery;
+  const { searchParam, pageNumber, contactTag: tagIdsStringified, isGroup, rowsPerPage, whatsappId } = req.query as IndexQuery;
   const { id: userId, companyId } = req.user;
 
-  // console.log("index", { companyId, userId, searchParam })
 
   let tagsIds: number[] = [];
 
@@ -150,7 +152,8 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     companyId,
     tagsIds,
     isGroup,
-    userId: Number(userId)
+    userId: Number(userId),
+    whatsappId
   });
 
   return res.json({ contacts, count, hasMore });
@@ -163,7 +166,6 @@ export const getContact = async (
   const { name, number } = req.body as IndexGetContactQuery;
   const { companyId } = req.user;
 
-  // console.log("getContact", { companyId, name, number })
 
   const contact = await GetContactService({
     name,
@@ -177,22 +179,23 @@ export const getContact = async (
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
   const newContact: ContactData = req.body;
-  
-  const newRemoteJid = newContact.number;
 
-  // console.log("store", { companyId, newContact })
+  const normalizedNumber = newContact.number.replace("-", "").replace(" ", "");
 
+  // El contacto es canónico por empresa + número. La conexión vive en Ticket
+  // o ContactBinding; guardarla aquí como obligatoria duplica clientes cuando
+  // el mismo número conversa por varias conexiones Baileys/Meta.
   const findContact = await Contact.findOne({
     where: {
-      number: newContact.number.replace("-", "").replace(" ", ""),
+      number: normalizedNumber,
       companyId
     }
-  })
+  });
   if (findContact) {
-    throw new AppError("El contacto ya existe");
+    throw new AppError("ERR_DUPLICATED_CONTACT", 400);
   }
 
-  newContact.number = newContact.number.replace("-", "").replace(" ", "");
+  newContact.number = normalizedNumber;
 
 
   const schema = Yup.object().shape({
@@ -323,7 +326,7 @@ export const toggleAcceptAudio = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
-  var { contactId } = req.params;
+  const { contactId } = req.params;
   const { companyId } = req.user;
   const contact = await ToggleAcceptAudioContactService({ contactId });
 
@@ -341,7 +344,7 @@ export const blockUnblock = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
-  var { contactId } = req.params;
+  const { contactId } = req.params;
   const { companyId } = req.user;
   const { active } = req.body;
 
@@ -360,7 +363,7 @@ export const blockUnblock = async (
 
 export const exportToExcel = async (req: Request, res: Response) => {
   const { companyId, id: userId } = req.user;
-  const { tags } = req.body;
+  const { tags, whatsappId } = req.body;
 
   try {
     // ✅ Generar timestamp como string (igual que el worker)
@@ -379,7 +382,8 @@ export const exportToExcel = async (req: Request, res: Response) => {
       jobId,
       timestamp, // ✅ Pasar timestamp como string
       filters: {
-        tagIds: tags || []
+        tagIds: tags || [],
+        whatsappId: whatsappId ? Number(whatsappId) : undefined
       }
     }, {
       priority: 2,
@@ -416,44 +420,68 @@ export const upload = async (req: Request, res: Response) => {
   const file: Express.Multer.File = head(files) as Express.Multer.File;
   const { companyId } = req.user;
 
-  const response = await ImportContactsService(companyId, file);
+  const result = await ImportContactsService(companyId, file);
 
   const io = getIO();
 
   io.of(String(companyId))
     .emit(`company-${companyId}-contact`, {
       action: "reload",
-      records: response
+      records: result.createdContacts
     });
 
-  return res.status(200).json(response);
+  // Encolar la verificación de WhatsApp (Baileys onWhatsApp) en background, throttled.
+  if (result.createdCount > 0) {
+    try {
+      const contactIds = result.createdContacts.map(c => c.id);
+      await add("VerifyContactsWhatsapp", { companyId, contactIds });
+    } catch (err: any) {
+      log(`[upload] No se pudo encolar verificación WhatsApp: ${err?.message}`);
+    }
+  }
+
+  return res.status(200).json({
+    createdCount: result.createdCount,
+    duplicated: result.duplicated,
+    skippedInvalid: result.skippedInvalid,
+    totalRows: result.totalRows,
+    contacts: result.createdContacts
+  });
 };
 
 export const downloadExport = async (req: Request, res: Response) => {
   const { jobId } = req.params;
   const { companyId } = req.user;
+  const { filename } = req.query as { filename?: string };
 
   try {
     console.log(`📥 [BACKEND] Solicitando descarga de exportación: ${jobId}`);
 
-    // Construir la ruta del archivo basada en el jobId
-    const exportDir = path.join(process.cwd(), 'exports');
+    const exportDir = path.join(process.cwd(), 'public', `company${companyId}`, 'exportcontact');
 
     if (!fs.existsSync(exportDir)) {
       throw new AppError("Directorio de exportaciones no encontrado", 404);
     }
 
-    // Buscar el archivo que corresponde a este jobId
-    const files = fs.readdirSync(exportDir).filter(file =>
-      file.includes(`empresa_${companyId}`) && file.endsWith('.xlsx')
-    );
+    let fileName = filename ? path.basename(filename) : "";
 
-    if (files.length === 0) {
-      throw new AppError("Archivo de exportación no encontrado o ya expiró", 404);
+    if (fileName) {
+      const expectedPrefix = `contatos_empresa_${companyId}_`;
+      if (!fileName.startsWith(expectedPrefix) || !fileName.endsWith(".xlsx")) {
+        throw new AppError("Nombre de archivo de exportación inválido", 400);
+      }
+    } else {
+      const files = fs.readdirSync(exportDir).filter(file =>
+        file.startsWith(`contatos_empresa_${companyId}_`) && file.endsWith('.xlsx')
+      );
+
+      if (files.length === 0) {
+        throw new AppError("Archivo de exportación no encontrado o ya expiró", 404);
+      }
+
+      fileName = files.sort().pop() as string;
     }
 
-    // Tomar el archivo más reciente (por si hay varios)
-    const fileName = files.sort().pop();
     const filePath = path.join(exportDir, fileName);
 
     if (!fs.existsSync(filePath)) {
@@ -471,6 +499,9 @@ export const downloadExport = async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error(`❌ [BACKEND] Error en descarga de exportación: ${error.message}`);
+    if (error instanceof AppError) {
+      throw error;
+    }
     throw new AppError(`Error descargando archivo: ${error.message}`, 500);
   }
 };
@@ -501,7 +532,6 @@ export const getContactProfileURL = async (req: Request, res: Response) => {
   const { number } = req.params
   const { companyId } = req.user;
 
-  // console.log("getContactProfileURL", { number, companyId })
   if (number) {
     const validNumber = await CheckContactNumber(number, companyId);
 
@@ -541,10 +571,8 @@ export const getContactProfileURL = async (req: Request, res: Response) => {
     const numberUser = vNumber.toString().substr(-8, 8);
 
     if (numberDDD <= '30' && numberDDI === '55') {
-      // console.log("menor 30")
       vNumber = `${numberDDI + numberDDD + 9 + numberUser}@s.whatsapp.net`;
     } else if (numberDDD > '30' && numberDDI === '55') {
-      // console.log("maior 30")
       vNumber = `${numberDDI + numberDDD + numberUser}@s.whatsapp.net`;
     } else {
       vNumber = `${number}@s.whatsapp.net`;
@@ -579,7 +607,7 @@ export const getContactProfileURL = async (req: Request, res: Response) => {
   }
 
   export const toggleDisableBot = async (req: Request, res: Response): Promise<Response> => {
-    var { contactId } = req.params;
+    const { contactId } = req.params;
     const { companyId } = req.user;
     const contact = await ToggleDisableBotContactService({ contactId });
 

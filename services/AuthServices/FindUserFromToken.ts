@@ -1,4 +1,5 @@
-import { verify } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+const { verify } = jwt;
 import ShowUserService from "../UserServices/ShowUserService";
 import authConfig from "../../config/auth";
 import User from "../../models/User";

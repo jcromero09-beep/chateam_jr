@@ -4,6 +4,7 @@ import authService from '../services/authService'
 import socketService from '../services/socket'
 import { setLoggingOut } from '../services/api'
 import { toast } from 'react-toastify'
+import type { InterfacePermissions } from '../utils/permissions'
 
 export interface Plan {
   id: number
@@ -38,6 +39,40 @@ export interface Company {
   dueDate: string
 }
 
+export interface Membership {
+  companyId: number
+  companyName: string | null
+  status?: boolean | string | null
+  profile: string
+  isCurrent: boolean
+}
+
+/**
+ * [Ola 4 · RBAC] Rol del usuario en la empresa activa.
+ *
+ * Este tipo faltaba, así que `usePermissions` leía el rol con `(user as any).role`
+ * y el compilador no validaba NADA: un typo en `permissions`/`unrestricted` no daba
+ * error, solo hacía que los permisos se evaluaran mal en silencio.
+ *
+ * Refleja exactamente lo que el backend envía en /auth/me — ROLE_ATTRIBUTES de
+ * services/UserServices/ShowUserService.ts: ["id","name","key","unrestricted",
+ * "editable","permissions"]. Si el backend cambia esa lista, hay que cambiar esto.
+ *
+ * Semántica (models/Role.ts): unrestricted=true => el rol no restringe y manda el
+ * plan; unrestricted=false => `permissions` es una allow-list y el módulo ausente
+ * queda denegado. El acceso efectivo es permisos_del_plan ∩ permisos_del_rol.
+ */
+export interface Role {
+  id: number
+  name: string
+  /** slug estable: 'super_admin' | 'company_admin' | 'supervisor' | 'agent' | ... */
+  key: string
+  unrestricted: boolean
+  editable: boolean
+  /** Mismo shape que Plan.interfacePermissions (JSONB en BD). */
+  permissions: InterfacePermissions
+}
+
 export interface User {
   id: number
   name: string
@@ -47,6 +82,14 @@ export interface User {
   profileImage?: string
   super?: boolean
   company?: Company
+  /** Rol en la empresa activa. null = sin rol asignado (no restringe). */
+  role?: Role | null
+  roleId?: number | null
+  // Impersonación: el super está "dentro" de una empresa (vista operativa).
+  impersonating?: boolean
+  impersonatedCompanyName?: string
+  // Multi-empresa: empresas donde el usuario tiene membresía (selector de empresa).
+  memberships?: Membership[]
 }
 
 export function useAuth() {
@@ -99,19 +142,19 @@ export function useAuth() {
     }
   }, [user])
 
-  const login = async (email: string, password: string, force: boolean = false) => {
+  const login = async (email: string, password: string) => {
     try {
-      const data = await authService.login({ email, password, force })
+      const data = await authService.login({ email, password })
       setUser(data.user)
       setIsAuthenticated(true)
       return { success: true }
     } catch (error: any) {
-      // Auto-force: si hay sesión web activa (409), reintentar cerrando la sesión anterior
-      if (error.response?.status === 409 && !force) {
-        return login(email, password, true)
-      }
-
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Credenciales inválidas'
+      // El backend ahora SIEMPRE toma control (revoca la sesión web previa).
+      // Cualquier 401/403 que llegue aquí es credencial real, horario o canal.
+      const errorMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        'Credenciales inválidas'
       toast.error(errorMessage)
       return { success: false, error: errorMessage }
     }

@@ -29,6 +29,7 @@ interface UserData {
   allowRealTime?: string;
   allowConnections?: string;
   profileImage?: string;
+  notifyNewAppointments?: boolean;
 }
 
 interface Request {
@@ -59,6 +60,15 @@ const UpdateUserService = async ({
 
   if (requestUser?.super === false && hasCompanyId && userData.companyId !== companyId) {
     throw new AppError("O usuário não pertence à esta empresa");
+  }
+
+  // [Ola 0.3] Autorización: un no-admin/no-super solo puede editarse a sí mismo,
+  // y NUNCA cambiar su propio 'profile' (evita privesc user->admin y ATO de otras cuentas del tenant).
+  const requesterPrivileged =
+    requestUser?.super === true || requestUser?.profile === "admin";
+  const isSelfUpdate = String(requestUserId) === String(userId);
+  if (!requesterPrivileged && !isSelfUpdate) {
+    throw new AppError("ERR_NO_PERMISSION", 403);
   }
 
   const schema = Yup.object().shape({
@@ -93,7 +103,8 @@ const UpdateUserService = async ({
     allowConnections,
     defaultTicketsManagerWidth = 550,
     allowRealTime,
-    profileImage
+    profileImage,
+    notifyNewAppointments
   } = userData;
 
   try {
@@ -124,7 +135,12 @@ const UpdateUserService = async ({
   await user.update({
     email,
     password,
-    profile,
+    // [Ola 0.3] Solo admin/super pueden cambiar el rol; un no-privilegiado conserva su profile.
+    profile: requesterPrivileged ? profile : user.profile,
+    // [Fase3·N2.0] roleId solo lo cambia un privilegiado (mismo guard anti-privesc que profile).
+    roleId: requesterPrivileged
+      ? ((userData as any).roleId === undefined ? user.roleId : (userData as any).roleId)
+      : user.roleId,
     name,
     startWork,
     endWork,
@@ -141,8 +157,9 @@ const UpdateUserService = async ({
     defaultTicketsManagerWidth,
     allowRealTime,
     profileImage,
-    allowConnections
-  });
+    allowConnections,
+    notifyNewAppointments
+  } as any);
 
   if (hasQueueIds) {
     await user.$set("queues", Array.isArray(queueIds) ? [...new Set(queueIds)] : []);

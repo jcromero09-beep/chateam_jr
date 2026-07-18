@@ -29,7 +29,9 @@ export type UGCVideoAssetType =
   | "raw_video"
   | "composed_final"
   | "thumbnail"
-  | "subtitle_file";
+  | "subtitle_file"
+  | "generated_image"
+  | "image_thumbnail";
 
 @Table({
   tableName: "UGCVideoAssets",

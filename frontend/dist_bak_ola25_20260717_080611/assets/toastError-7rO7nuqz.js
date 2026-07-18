@@ -1,0 +1,1 @@
+import{y as e}from"./index-DzGCf4fA.js";const t=r=>{const o=r.response?.data?.error||r.message||"An error occurred";e.error(o,{position:"top-right",autoClose:5e3,hideProgressBar:!1,closeOnClick:!0,pauseOnHover:!0,draggable:!0})};export{t};

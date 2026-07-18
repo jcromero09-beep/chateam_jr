@@ -11,6 +11,12 @@ import {
   getSignatureMode
 } from "../services/CoexistenceServices/MetaSignatureValidator";
 import { getTraceId } from "../utils/traceContext";
+// Módulo Comentarios FB/IG — ingesta de entry[].changes[] (feed/comments)
+import IngestCommentService from "../services/SocialCommentServices/IngestCommentService";
+// Fuente ÚNICA de verdad para normalizar comentarios FB/IG (compartida con
+// WebHookController, el callback del objeto 'page'/'instagram' en Meta).
+import { extractCommentEvents } from "../services/SocialCommentServices/extractCommentEvents";
+import logger from "../utils/logger";
 
 /** GET /webhooks/meta - Verificación dinâmica */
 export const verifyMetaWebhook = async (req: Request, res: Response) => {
@@ -26,14 +32,13 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
       return res.status(200).send(challenge as string);
     }
 
-    // 2. Buscar cualquier conexión Meta con este verify token (per-WABA subscription)
-    const whatsapp = await Whatsapp.findOne({
-      where: {
-        tokenMeta: token as string,
-        provider: "meta",
-        channel: "meta"
-      }
+    // 2. Buscar cualquier conexión Meta con este verify token (per-WABA subscription).
+    // [Fase2·A3.1] tokenMeta ahora está cifrado (no-determinístico) → no se puede
+    // filtrar por valor en SQL; se comparan los tokens DESCIFRADOS (el getter descifra).
+    const metaWhatsapps = await Whatsapp.findAll({
+      where: { provider: "meta", channel: "meta" }
     });
+    const whatsapp = metaWhatsapps.find(w => w.tokenMeta === token) || null;
 
     if (whatsapp) {
       console.log("✅ Webhook Meta verificado para conexion:", whatsapp.name);
@@ -41,7 +46,7 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
     }
   }
 
-  console.log("❌ Token de verificación Meta inválido:", token);
+  logger.warn({ present: !!token }, "[MetaWebhook] verify token inválido");
   return res.sendStatus(403);
 };
 
@@ -94,6 +99,36 @@ export const receiveMetaWebhook = async (req: Request, res: Response) => {
   }, TIMEOUT_MS);
 
   try {
+    // ── Comentarios FB/IG: procesar changes 'feed'/'comments' ─────────
+    // Meta reintenta si no recibe 200 — la respuesta ya se envió arriba.
+    const commentEvents = extractCommentEvents(req.body);
+    if (commentEvents.length > 0) {
+      logger.info(
+        `[Webhook Meta] 💬 ${commentEvents.length} evento(s) de comentario detectado(s) (object=${req.body?.object})`
+      );
+      for (const commentEvent of commentEvents) {
+        try {
+          await IngestCommentService(commentEvent);
+        } catch (commentErr) {
+          const msg =
+            commentErr instanceof Error
+              ? commentErr.message
+              : String(commentErr);
+          logger.error(
+            `[Webhook Meta] Error ingiriendo comentario ${commentEvent.commentId}: ${msg}`
+          );
+        }
+      }
+
+      // Los payloads object='page'/'instagram' de comentarios no son
+      // mensajería WhatsApp Cloud — terminar aquí sin romper el flujo actual.
+      if (req.body?.object === "page" || req.body?.object === "instagram") {
+        completed = true;
+        clearTimeout(timeoutId);
+        return;
+      }
+    }
+
     // Verificar si es un evento de actualización de estado de template
     if (isTemplateStatusWebhook(req.body)) {
       console.log("[Webhook Meta] Procesando evento de template status");

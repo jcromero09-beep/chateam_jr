@@ -13,6 +13,10 @@ routes.get("/quick-messages/list", isAuth, QuickMessageController.findList);
 
 routes.get("/quick-messages", isAuth, QuickMessageController.index);
 
+routes.post("/quick-messages/ai/suggest-intent", isAuth, QuickMessageController.suggestAiIntent);
+
+routes.post("/quick-messages/ai/redraft", isAuth, QuickMessageController.redraftMessage);
+
 routes.get("/quick-messages/:id", isAuth, QuickMessageController.show);
 
 routes.post("/quick-messages", isAuth, QuickMessageController.store);

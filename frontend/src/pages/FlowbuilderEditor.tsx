@@ -1,36 +1,20 @@
 import { useCallback, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Typography,
-  Stack,
-  Container,
-  Box,
-  Button,
-  IconButton,
-  Card,
-  CardContent,
-  Modal,
-  ModalDialog,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Chip,
-} from '@mui/joy'
-import {
-  ArrowBack as BackIcon,
-  Save as SaveIcon,
-  PlayArrow as PlayIcon,
-  Message,
-  MicNone,
-  Videocam,
-  DynamicFeed,
-  Image,
-  PictureAsPdf,
-  Dashboard,
-  MoveToInbox as QueueIcon,
-  LocalOffer as TagIcon,
-} from '@mui/icons-material'
+  ArrowLeft,
+  FloppyDisk,
+  Play,
+  ChatText,
+  ListBullets,
+  Microphone,
+  VideoCamera,
+  Image as ImageIcon,
+  FilePdf,
+  SquaresFour,
+  Tray,
+  Tag as TagIcon,
+  CalendarCheck,
+} from '@phosphor-icons/react'
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -44,6 +28,23 @@ import ReactFlow, {
   BackgroundVariant,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import api from '../services/api'
 import { toast } from 'react-toastify'
 
@@ -54,11 +55,19 @@ import messageNode from './FlowBuilder/nodes/messageNode.jsx'
 import startNode from './FlowBuilder/nodes/startNode.jsx'
 // @ts-ignore
 import menuNode from './FlowBuilder/nodes/menuNode.jsx'
+// @ts-ignore
+import singleBlockNode from './FlowBuilder/nodes/singleBlockNode.jsx'
+// @ts-ignore
+import citasNode from './FlowBuilder/nodes/citasNode.jsx'
 
 const nodeTypes = {
   message: messageNode,
   start: startNode,
   menu: menuNode,
+  // singleBlock: nodo agrupador (mensajes secuenciales). Lo usa el flujo demo
+  // generado al crear empresa nueva, y se mantiene como tipo legacy soportado.
+  singleBlock: singleBlockNode,
+  citas: citasNode,
 }
 
 // Import modals
@@ -84,6 +93,8 @@ import FlowBuilderAddListModal from '../components/FlowBuilderAddListModal'
 import FlowBuilderRandomizerModal from '../components/FlowBuilderRandomizerModal'
 // @ts-ignore
 import FlowBuilderIntervalModal from '../components/FlowBuilderIntervalModal'
+// @ts-ignore
+import FlowBuilderCitasModal from '../components/FlowBuilderCitasModal'
 
 const initialNodes: Node[] = [
   {
@@ -116,6 +127,7 @@ export default function FlowbuilderEditor() {
   const [modalSingleBlock, setModalSingleBlock] = useState<string | null>(null)
   const [modalRandomizer, setModalRandomizer] = useState<string | null>(null)
   const [modalInterval, setModalInterval] = useState<string | null>(null)
+  const [modalCitas, setModalCitas] = useState<string | null>(null)
   const [modalQueue, setModalQueue] = useState<string | null>(null)
   const [modalTag, setModalTag] = useState<string | null>(null)
   const [dataNode, setDataNode] = useState<any>(null)
@@ -243,6 +255,10 @@ export default function FlowbuilderEditor() {
     setModalInterval("create")
   }
 
+  const addCitasNode = () => {
+    setModalCitas("create")
+  }
+
   const addQueueNode = () => {
     setSelectedQueueId('')
     setModalQueue("create")
@@ -340,6 +356,9 @@ export default function FlowbuilderEditor() {
       case 'interval':
         setModalInterval("edit")
         break
+      case 'citas':
+        setModalCitas("edit")
+        break
       default:
         console.warn('Tipo de nodo no reconocido para edición:', nodeType)
     }
@@ -372,6 +391,20 @@ export default function FlowbuilderEditor() {
           arrayOption: data.arrayOption,
         },
         type: "menu",
+      },
+    ]);
+  };
+
+  const citasAdd = (data: any) => {
+    const posY = nodes[nodes.length - 1].position.y;
+    const posX = nodes[nodes.length - 1].position.x + 240;
+    setNodes((old) => [
+      ...old,
+      {
+        id: `node-${Date.now()}`,
+        position: { x: posX, y: posY },
+        data: { ...data, type: "citas" },
+        type: "citas",
       },
     ]);
   };
@@ -418,118 +451,126 @@ export default function FlowbuilderEditor() {
   };
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={2}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-4 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <IconButton onClick={() => navigate('/flowbuilder/conversation')}>
-              <BackIcon />
-            </IconButton>
-            <Box>
-              <Typography level="h2">{flowName}</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Editor de flujo de conversación
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
             <Button
-              variant="outlined"
-              color="neutral"
-              startDecorator={<PlayIcon />}
-              disabled
+              variant="ghost"
+              size="icon"
+              aria-label="Volver"
+              className="text-muted-foreground"
+              onClick={() => navigate('/flowbuilder/conversation')}
             >
+              <ArrowLeft className="size-5" aria-hidden />
+            </Button>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {flowName}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Editor de flujo de conversación
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled>
+              <Play className="size-4" aria-hidden />
               Probar
             </Button>
-            <Button
-              startDecorator={<SaveIcon />}
-              onClick={handleSave}
-              disabled={loading}
-            >
+            <Button size="sm" onClick={handleSave} disabled={loading}>
+              <FloppyDisk className="size-4" aria-hidden />
               Guardar
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Toolbar */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Button size="sm" onClick={addTextNode} startDecorator={<Message />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Mensaje de Texto
-              </Button>
-              <Button size="sm" onClick={addMenuNode} startDecorator={<DynamicFeed />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Menú
-              </Button>
-              <Button size="sm" onClick={addAudioNode} startDecorator={<MicNone />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Audio
-              </Button>
-              <Button size="sm" onClick={addVideoNode} startDecorator={<Videocam />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Video
-              </Button>
-              <Button size="sm" onClick={addImageNode} startDecorator={<Image />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Imagen
-              </Button>
-              <Button size="sm" onClick={addPDFNode} startDecorator={<PictureAsPdf />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + PDF
-              </Button>
-              <Button size="sm" onClick={addContentNode} startDecorator={<Dashboard />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Contenido
-              </Button>
-              <Button size="sm" onClick={addRandomizerNode} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Randomizador
-              </Button>
-              <Button size="sm" onClick={addIntervalNode} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2 }}>
-                + Intervalo
-              </Button>
-              <Button size="sm" onClick={addQueueNode} startDecorator={<QueueIcon />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2, bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6D28D9' } }}>
-                + Cola
-              </Button>
-              <Button size="sm" onClick={addTagNode} startDecorator={<TagIcon />} sx={{ borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', px: 2, bgcolor: '#DB2777', '&:hover': { bgcolor: '#BE185D' } }}>
-                + Etiqueta
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={addTextNode} className="rounded-full font-semibold">
+              <ChatText className="size-4" aria-hidden />
+              Mensaje de Texto
+            </Button>
+            <Button size="sm" onClick={addMenuNode} className="rounded-full font-semibold">
+              <ListBullets className="size-4" aria-hidden />
+              Menú
+            </Button>
+            <Button size="sm" onClick={addAudioNode} className="rounded-full font-semibold">
+              <Microphone className="size-4" aria-hidden />
+              Audio
+            </Button>
+            <Button size="sm" onClick={addVideoNode} className="rounded-full font-semibold">
+              <VideoCamera className="size-4" aria-hidden />
+              Video
+            </Button>
+            <Button size="sm" onClick={addImageNode} className="rounded-full font-semibold">
+              <ImageIcon className="size-4" aria-hidden />
+              Imagen
+            </Button>
+            <Button size="sm" onClick={addPDFNode} className="rounded-full font-semibold">
+              <FilePdf className="size-4" aria-hidden />
+              PDF
+            </Button>
+            <Button size="sm" onClick={addContentNode} className="rounded-full font-semibold">
+              <SquaresFour className="size-4" aria-hidden />
+              Contenido
+            </Button>
+            <Button size="sm" onClick={addRandomizerNode} className="rounded-full font-semibold">
+              Randomizador
+            </Button>
+            <Button size="sm" onClick={addIntervalNode} className="rounded-full font-semibold">
+              Intervalo
+            </Button>
+            <Button size="sm" onClick={addQueueNode} className="rounded-full font-semibold">
+              <Tray className="size-4" aria-hidden />
+              Cola
+            </Button>
+            <Button size="sm" onClick={addTagNode} className="rounded-full font-semibold">
+              <TagIcon className="size-4" aria-hidden />
+              Etiqueta
+            </Button>
+            <Button size="sm" onClick={addCitasNode} className="rounded-full font-semibold">
+              <CalendarCheck className="size-4" aria-hidden />
+              Citas
+            </Button>
+          </div>
+        </div>
 
         {/* Flow Editor */}
-        <Card sx={{ height: 'calc(100vh - 280px)' }}>
-          <CardContent sx={{ p: 0, height: '100%' }}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeDoubleClick={handleNodeDoubleClick}
-              nodeTypes={nodeTypes}
-              fitView
-            >
-              <Controls />
-              <MiniMap />
-              <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
-            </ReactFlow>
-          </CardContent>
-        </Card>
+        <div className="h-[calc(100vh-280px)] overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            nodeTypes={nodeTypes}
+            fitView
+          >
+            <Controls />
+            <MiniMap />
+            <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+          </ReactFlow>
+        </div>
 
         {/* Instructions */}
-        <Card variant="soft">
-          <CardContent>
-            <Typography level="body-sm">
-              <strong>💡 Instrucciones:</strong>
-            </Typography>
-            <Typography level="body-xs" sx={{ mt: 0.5 }}>
-              • Arrastra los nodos para organizarlos
-              <br />
-              • Conecta nodos arrastrando desde un punto de conexión a otro
-              <br />
-              • Haz doble clic en un nodo para editarlo
-              <br />
-              • No olvides guardar tu flujo antes de salir
-            </Typography>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-border bg-muted/40 p-4">
+          <p className="text-sm font-medium text-foreground">
+            💡 Instrucciones:
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            • Arrastra los nodos para organizarlos
+            <br />
+            • Conecta nodos arrastrando desde un punto de conexión a otro
+            <br />
+            • Haz doble clic en un nodo para editarlo
+            <br />
+            • No olvides guardar tu flujo antes de salir
+          </p>
+        </div>
 
         {/* Modals */}
         <FlowBuilderAddTextModal
@@ -609,87 +650,120 @@ export default function FlowbuilderEditor() {
           onUpdate={updateNode}
           close={setModalInterval}
         />
+        <FlowBuilderCitasModal
+          open={modalCitas}
+          onSave={citasAdd}
+          data={dataNode}
+          onUpdate={updateNode}
+          close={setModalCitas}
+        />
 
         {/* Modal Cola */}
-        <Modal open={!!modalQueue} onClose={() => setModalQueue(null)}>
-          <ModalDialog sx={{ minWidth: 400 }}>
-            <Typography level="title-lg" sx={{ mb: 0.5 }}>
-              {modalQueue === 'edit' ? 'Editar Nodo Cola' : 'Asignar a Cola'}
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 2 }}>
-              Cuando el flujo llegue a este nodo, el ticket se asignara a la cola seleccionada.
-            </Typography>
-            <FormControl required>
-              <FormLabel>Cola</FormLabel>
-              <Select
-                placeholder="Selecciona una cola..."
-                value={selectedQueueId}
-                onChange={(_, v) => setSelectedQueueId(v as string)}
-              >
-                {queues.map(q => (
-                  <Option key={q.id} value={String(q.id)}>
-                    <Chip size="sm" sx={{ bgcolor: q.color || '#ccc', color: '#fff', mr: 1 }}>{' '}</Chip>
-                    {q.name}
-                  </Option>
-                ))}
+        <Dialog open={!!modalQueue} onOpenChange={(open) => { if (!open) setModalQueue(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {modalQueue === 'edit' ? 'Editar Nodo Cola' : 'Asignar a Cola'}
+              </DialogTitle>
+              <DialogDescription>
+                Cuando el flujo llegue a este nodo, el ticket se asignara a la cola seleccionada.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label htmlFor="queue-select">Cola</Label>
+              <Select value={selectedQueueId} onValueChange={setSelectedQueueId}>
+                <SelectTrigger id="queue-select">
+                  <SelectValue placeholder="Selecciona una cola..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {queues.map(q => (
+                    <SelectItem key={q.id} value={String(q.id)}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="size-2.5 rounded-full"
+                          style={{ backgroundColor: q.color || '#ccc' }}
+                          aria-hidden
+                        />
+                        {q.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
-            </FormControl>
-            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 3 }}>
-              <Button variant="outlined" color="neutral" onClick={() => setModalQueue(null)}>Cancelar</Button>
-              <Button disabled={!selectedQueueId} onClick={() => {
-                if (modalQueue === 'edit' && dataNode) {
-                  const queue = queues.find(q => q.id === Number(selectedQueueId))
-                  updateNode({ ...dataNode, data: { ...dataNode.data, id: Number(selectedQueueId), queueName: queue?.name || '', type: 'ticket' } })
-                } else {
-                  handleSaveQueueNode()
-                }
-              }} sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6D28D9' } }}>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setModalQueue(null)}>Cancelar</Button>
+              <Button
+                size="sm"
+                disabled={!selectedQueueId}
+                onClick={() => {
+                  if (modalQueue === 'edit' && dataNode) {
+                    const queue = queues.find(q => q.id === Number(selectedQueueId))
+                    updateNode({ ...dataNode, data: { ...dataNode.data, id: Number(selectedQueueId), queueName: queue?.name || '', type: 'ticket' } })
+                  } else {
+                    handleSaveQueueNode()
+                  }
+                }}
+              >
                 {modalQueue === 'edit' ? 'Guardar' : 'Agregar'}
               </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Modal Etiqueta */}
-        <Modal open={!!modalTag} onClose={() => setModalTag(null)}>
-          <ModalDialog sx={{ minWidth: 400 }}>
-            <Typography level="title-lg" sx={{ mb: 0.5 }}>
-              {modalTag === 'edit' ? 'Editar Nodo Etiqueta' : 'Asignar Etiqueta'}
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 2 }}>
-              Cuando el flujo llegue a este nodo, se asignara la etiqueta al ticket automaticamente.
-            </Typography>
-            <FormControl required>
-              <FormLabel>Etiqueta (solo normales, no kanban)</FormLabel>
-              <Select
-                placeholder="Selecciona una etiqueta..."
-                value={selectedTagId}
-                onChange={(_, v) => setSelectedTagId(v as string)}
-              >
-                {tags.map(t => (
-                  <Option key={t.id} value={String(t.id)}>
-                    <Chip size="sm" sx={{ bgcolor: t.color || '#ccc', color: '#fff', mr: 1 }}>{' '}</Chip>
-                    {t.name}
-                  </Option>
-                ))}
+        <Dialog open={!!modalTag} onOpenChange={(open) => { if (!open) setModalTag(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {modalTag === 'edit' ? 'Editar Nodo Etiqueta' : 'Asignar Etiqueta'}
+              </DialogTitle>
+              <DialogDescription>
+                Cuando el flujo llegue a este nodo, se asignara la etiqueta al ticket automaticamente.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label htmlFor="tag-select">Etiqueta (solo normales, no kanban)</Label>
+              <Select value={selectedTagId} onValueChange={setSelectedTagId}>
+                <SelectTrigger id="tag-select">
+                  <SelectValue placeholder="Selecciona una etiqueta..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {tags.map(t => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="size-2.5 rounded-full"
+                          style={{ backgroundColor: t.color || '#ccc' }}
+                          aria-hidden
+                        />
+                        {t.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
-            </FormControl>
-            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 3 }}>
-              <Button variant="outlined" color="neutral" onClick={() => setModalTag(null)}>Cancelar</Button>
-              <Button disabled={!selectedTagId} onClick={() => {
-                if (modalTag === 'edit' && dataNode) {
-                  const tag = tags.find(t => t.id === Number(selectedTagId))
-                  updateNode({ ...dataNode, data: { ...dataNode.data, id: Number(selectedTagId), tagName: tag?.name || '', tagColor: tag?.color || '', type: 'tag' } })
-                } else {
-                  handleSaveTagNode()
-                }
-              }} sx={{ bgcolor: '#DB2777', '&:hover': { bgcolor: '#BE185D' } }}>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setModalTag(null)}>Cancelar</Button>
+              <Button
+                size="sm"
+                disabled={!selectedTagId}
+                onClick={() => {
+                  if (modalTag === 'edit' && dataNode) {
+                    const tag = tags.find(t => t.id === Number(selectedTagId))
+                    updateNode({ ...dataNode, data: { ...dataNode.data, id: Number(selectedTagId), tagName: tag?.name || '', tagColor: tag?.color || '', type: 'tag' } })
+                  } else {
+                    handleSaveTagNode()
+                  }
+                }}
+              >
                 {modalTag === 'edit' ? 'Guardar' : 'Agregar'}
               </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
   )
 }

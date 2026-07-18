@@ -17,6 +17,7 @@ import {
   DataType
 } from "sequelize-typescript";
 import Company from "./Company";
+import { encryptSecret, decryptSecret } from "../helpers/secretCrypto"; // [Fase2·A3.1]
 
 
 @Table({ tableName: "CompaniesSettings" })
@@ -140,6 +141,9 @@ closeTicketOnTransfer: boolean;
   facebookAppSecret: string;
 
   @Column(DataType.STRING)
+  metaEmbeddedSignupConfigId: string;
+
+  @Column(DataType.STRING)
   instagramAppId: string;
 
   @Column(DataType.STRING)
@@ -157,7 +161,16 @@ closeTicketOnTransfer: boolean;
   @Column(DataType.STRING)
   facebookBusinessId: string;        // 123456789 (Business Manager ID)
 
-  @Column(DataType.TEXT)
+  // [Fase2·A3.1] Cifrado transparente en reposo. Ver helpers/secretCrypto.ts
+  @Column({
+    type: DataType.TEXT,
+    get(this: CompaniesSettings) {
+      return decryptSecret(this.getDataValue("facebookSystemUserToken"));
+    },
+    set(this: CompaniesSettings, value: string) {
+      this.setDataValue("facebookSystemUserToken", encryptSecret(value) as any);
+    }
+  })
   facebookSystemUserToken: string;   // Token con permisos: ads_read, ads_management, business_management
 
   // Marketing OAuth tracking
@@ -169,6 +182,20 @@ closeTicketOnTransfer: boolean;
 
   @Column(DataType.DATE)
   facebookMarketingConnectedAt: Date; // Fecha de conexión
+
+  // Meta Ads Official MCP connector tracking
+  @Default("not_connected")
+  @Column(DataType.STRING)
+  metaMcpStatus: string; // not_connected | pending | connected | error
+
+  @Column(DataType.STRING)
+  metaMcpServerUrl: string; // https://mcp.facebook.com/ads
+
+  @Column(DataType.DATE)
+  metaMcpConnectedAt: Date;
+
+  @Column(DataType.DATE)
+  metaMcpLastCheckedAt: Date;
 
   // Google Calendar OAuth Credentials (per company)
   @Column(DataType.STRING)
@@ -211,6 +238,22 @@ closeTicketOnTransfer: boolean;
 
   @Column(DataType.INTEGER)
   newCompanyAlertWhatsappId: number;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Alerta WhatsApp por expiración de empresa
+  // - warning: 4 días antes del dueDate
+  // - expired: cuando dueDate ya pasó
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Default("disabled")
+  @Column(DataType.STRING)
+  expirationAlertEnabled: string;
+
+  @Column(DataType.STRING)
+  expirationAlertPhone: string;  // Múltiples números separados por comas
+
+  @Column(DataType.INTEGER)
+  expirationAlertWhatsappId: number;
 
   // ═══════════════════════════════════════════════════════════════════
   // WhatsApp Cloud API / Coexistencia Meta (solo superadmin)

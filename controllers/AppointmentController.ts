@@ -9,6 +9,15 @@ import logger, { logError, logInfo, logWarn } from '../utils/logger';
 
 // ============ APPOINTMENT SERVICES ============
 
+const parseCalendarDate = (value: string): Date => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day, 0, 0, 0, 0);
+  }
+
+  return new Date(value);
+};
+
 export const listServices = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { companyId } = req.user as any;
@@ -104,7 +113,8 @@ export const setAvailability = async (req: Request, res: Response): Promise<Resp
 
     const availability = await AvailabilityService.setAvailability({
       companyId,
-      ...req.body
+      ...req.body,
+      serviceId: req.body.serviceId ? parseInt(req.body.serviceId) : undefined
     });
 
     return res.status(201).json(availability);
@@ -118,10 +128,12 @@ export const getUserAvailability = async (req: Request, res: Response): Promise<
   try {
     const { companyId } = req.user as any;
     const { userId } = req.params;
+    const { serviceId } = req.query;
 
     const availability = await AvailabilityService.getUserAvailability(
       parseInt(userId),
-      companyId
+      companyId,
+      serviceId ? parseInt(serviceId as string) : undefined
     );
 
     return res.json(availability);
@@ -174,10 +186,16 @@ export const createBlock = async (req: Request, res: Response): Promise<Response
 
 export const saveAvailabilityBulk = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId, id: userId } = req.user as any;
-    const { schedule, timezone } = req.body;
+    const { companyId, id: authenticatedUserId } = req.user as any;
+    const { schedule, timezone, serviceId, userId } = req.body;
+    const targetUserId = userId ? parseInt(userId) : authenticatedUserId;
 
-    logInfo('saveAvailabilityBulk endpoint called', { companyId, userId, scheduleLength: schedule?.length });
+    logInfo('saveAvailabilityBulk endpoint called', {
+      companyId,
+      userId: targetUserId,
+      serviceId,
+      scheduleLength: schedule?.length
+    });
 
     if (!schedule || !Array.isArray(schedule)) {
       return res.status(400).json({ error: 'Schedule must be an array' });
@@ -185,7 +203,8 @@ export const saveAvailabilityBulk = async (req: Request, res: Response): Promise
 
     const result = await AvailabilityService.saveAvailabilityBulk({
       companyId,
-      userId,
+      userId: targetUserId,
+      serviceId: serviceId ? parseInt(serviceId) : undefined,
       schedule,
       timezone
     });
@@ -531,7 +550,7 @@ export const getAppointmentsByDate = async (req: Request, res: Response): Promis
 
     const appointments = await BookingService.getAppointmentsByDate({
       companyId,
-      date: new Date(date as string),
+      date: parseCalendarDate(date as string),
       userId: userId ? parseInt(userId as string) : undefined
     });
 
@@ -763,14 +782,15 @@ export const getTemplates = async (req: Request, res: Response): Promise<Respons
 export const createTemplate = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { companyId } = req.user as any;
-    const { name, channel, subject, message, messageConfirm, messageReminder, timing, isActive } = req.body;
+    const { name, channel, subject, message, messageCreated, messageConfirm, messageReminder, timing, isActive } = req.body;
 
     // Retrocompatibilidad: aceptar `message` (legacy) o `messageConfirm`/`messageReminder` (nuevo UI)
     const finalMessageConfirm = messageConfirm || message;
     const finalMessageReminder = messageReminder || message;
+    const finalMessageCreated = messageCreated || finalMessageConfirm || message;
 
-    if (!name || !channel || !finalMessageConfirm || !finalMessageReminder || timing === undefined) {
-      return res.status(400).json({ error: 'name, channel, messageConfirm, messageReminder and timing are required' });
+    if (!name || !channel || !finalMessageCreated || !finalMessageConfirm || !finalMessageReminder || timing === undefined) {
+      return res.status(400).json({ error: 'name, channel, messageCreated, messageConfirm, messageReminder and timing are required' });
     }
 
     const template = await ReminderService.createTemplate({
@@ -778,6 +798,7 @@ export const createTemplate = async (req: Request, res: Response): Promise<Respo
       name,
       channel,
       subject,
+      messageCreated: finalMessageCreated,
       messageConfirm: finalMessageConfirm,
       messageReminder: finalMessageReminder,
       timing,

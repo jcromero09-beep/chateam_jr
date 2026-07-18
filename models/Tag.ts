@@ -167,6 +167,49 @@ class Tag extends Model<Tag> {
     comment: "Prompt de contexto IA para mensaje de seguimiento 3"
   })
   aiGuidance3: string;
+
+  // ─── Conversión personalizada Meta (por etiqueta Kanban) ──────────
+  @Column({
+    type: DataType.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  })
+  sendMetaConversion: boolean;
+
+  @Column({ type: DataType.STRING, allowNull: true })
+  metaConversionName: string;
+
+  @Column({ type: DataType.STRING, allowNull: true })
+  metaEventName: string;
+
+  // [Fase2·B5.1] Valor monetario fijo por etapa (para eventos con valor:
+  // Purchase/InitiateCheckout). Si null, se toma de la cotización/venta manual.
+  @Column({ type: DataType.DECIMAL(12, 2), allowNull: true })
+  metaValue: number;
+
+  @Column({ type: DataType.STRING, allowNull: true, defaultValue: "USD" })
+  metaCurrency: string;
+
+  @Column({ type: DataType.STRING, allowNull: true })
+  metaLeadStatus: string;
+
+  @Column({ type: DataType.STRING, allowNull: true })
+  metaCustomEventType: string;
+
+  @Column({ type: DataType.TEXT, allowNull: true })
+  metaRule: string;
+
+  @Column({ type: DataType.STRING, allowNull: true })
+  metaCustomConversionId: string;
+
+  @Column({ type: DataType.STRING, allowNull: true })
+  metaConversionStatus: string;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  metaLastSyncAt: Date;
+
+  @Column({ type: DataType.TEXT, allowNull: true })
+  metaLastError: string;
 }
 
 export default Tag;

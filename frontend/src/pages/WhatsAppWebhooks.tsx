@@ -1,30 +1,19 @@
 import { useState, useEffect } from 'react'
+import { LinearProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Grid,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  LinearProgress,
-} from '@mui/joy'
-import {
-  Webhook as WebhookIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Refresh as RefreshIcon,
-  ContentCopy as ContentCopyIcon,
-  Visibility as VisibilityIcon,
-} from '@mui/icons-material'
+  WebhooksLogo,
+  CheckCircle,
+  XCircle,
+  ArrowClockwise,
+  Copy,
+  Eye,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { RowAction } from '@/components/ui/row-action'
 import api from '../services/api'
 
 interface WebhookEvent {
@@ -36,6 +25,72 @@ interface WebhookEvent {
   responseTime: number
   payload: string
   retries: number
+}
+
+const columns = [
+  'Timestamp',
+  'Evento',
+  'Estado',
+  'Código HTTP',
+  'Tiempo Respuesta',
+  'Reintentos',
+  'Acciones',
+]
+
+const subscribedEvents = ['messages', 'message_status', 'message_reactions', 'contacts']
+
+const incomingPayload = {
+  object: 'whatsapp_business_account',
+  entry: [
+    {
+      id: 'WABA_ID',
+      changes: [
+        {
+          value: {
+            messaging_product: 'whatsapp',
+            metadata: {
+              display_phone_number: '15550123456',
+              phone_number_id: 'PHONE_NUMBER_ID',
+            },
+            contacts: [{ profile: { name: 'Usuario' }, wa_id: '15559876543' }],
+            messages: [
+              {
+                from: '15559876543',
+                id: 'wamid.xxxxx',
+                timestamp: '1697200000',
+                type: 'text',
+                text: { body: 'Hola' },
+              },
+            ],
+          },
+          field: 'messages',
+        },
+      ],
+    },
+  ],
+}
+
+const statusPayload = {
+  object: 'whatsapp_business_account',
+  entry: [
+    {
+      changes: [
+        {
+          value: {
+            statuses: [
+              {
+                id: 'wamid.xxxxx',
+                status: 'delivered',
+                timestamp: '1697200100',
+                recipient_id: '15559876543',
+              },
+            ],
+          },
+          field: 'messages',
+        },
+      ],
+    },
+  ],
 }
 
 export default function WhatsAppWebhooks() {
@@ -84,12 +139,12 @@ export default function WhatsAppWebhooks() {
     navigator.clipboard.writeText(text)
   }
 
-  const getStatusColor = (status: WebhookEvent['status']) => {
+  const getStatusVariant = (status: WebhookEvent['status']): BadgeProps['variant'] => {
     switch (status) {
       case 'success':
         return 'success'
       case 'failed':
-        return 'danger'
+        return 'destructive'
       case 'pending':
         return 'warning'
       default:
@@ -98,347 +153,259 @@ export default function WhatsAppWebhooks() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WebhookIcon sx={{ fontSize: 32 }} />
-          Webhooks WhatsApp
-        </Typography>
-        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-          Configuración y monitoreo de webhooks para eventos de WhatsApp Business API
-        </Typography>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <WebhooksLogo className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Webhooks WhatsApp
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Configuración y monitoreo de webhooks para eventos de WhatsApp Business API
+              </p>
+            </div>
+          </div>
+        </div>
 
-      {loading && <LinearProgress sx={{ mb: 2 }} />}
+        {loading && <LinearProgress />}
 
-      {/* Stats */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Eventos Totales
-              </Typography>
-              <Typography level="h3">{stats.totalEvents.toLocaleString()}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Tasa de Éxito
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>
-                {stats.successRate}%
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Tiempo Respuesta Promedio
-              </Typography>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>
-                {stats.avgResponseTime}ms
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Fallidos (24h)
-              </Typography>
-              <Typography level="h3" sx={{ color: 'danger.500' }}>
-                {stats.failedLast24h}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Eventos Totales" value={stats.totalEvents.toLocaleString()} />
+          <StatTile label="Tasa de Éxito" value={`${stats.successRate}%`} tone="success" />
+          <StatTile
+            label="Tiempo Respuesta Promedio"
+            value={`${stats.avgResponseTime}ms`}
+            tone="primary"
+          />
+          <StatTile
+            label="Fallidos (24h)"
+            value={String(stats.failedLast24h)}
+            tone="destructive"
+          />
+        </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue={0}>
-        <TabList>
-          <Tab>Configuración</Tab>
-          <Tab>Eventos Recientes</Tab>
-          <Tab>Documentación</Tab>
-        </TabList>
+        {/* Tabs */}
+        <Tabs defaultValue="config">
+          <TabsList>
+            <TabsTrigger value="config">Configuración</TabsTrigger>
+            <TabsTrigger value="events">Eventos Recientes</TabsTrigger>
+            <TabsTrigger value="docs">Documentación</TabsTrigger>
+          </TabsList>
 
-        <TabPanel value={0}>
-          <Grid container spacing={3}>
-            <Grid xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography level="title-lg" sx={{ mb: 2 }}>
-                    Configuración del Webhook
-                  </Typography>
+          {/* Tab: Configuración */}
+          <TabsContent value="config">
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Configuración del Webhook */}
+              <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+                <h2 className="mb-4 text-lg font-semibold text-foreground">
+                  Configuración del Webhook
+                </h2>
 
-                  <Box sx={{ mb: 3 }}>
-                    <Typography level="title-sm" sx={{ mb: 1 }}>
-                      URL del Webhook
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Input
-                        value={webhookUrl}
-                        readOnly
-                        sx={{ flexGrow: 1 }}
-                      />
-                      <IconButton onClick={() => handleCopy(webhookUrl)}>
-                        <ContentCopyIcon />
-                      </IconButton>
-                    </Box>
-                  </Box>
+                <div className="mb-5 space-y-1.5">
+                  <Label htmlFor="webhook-url">URL del Webhook</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="webhook-url"
+                      value={webhookUrl}
+                      readOnly
+                      className="h-11 w-full flex-1 rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Copiar URL del webhook"
+                      onClick={() => handleCopy(webhookUrl)}
+                    >
+                      <Copy className="size-5" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
 
-                  <Box sx={{ mb: 3 }}>
-                    <Typography level="title-sm" sx={{ mb: 1 }}>
-                      Verify Token
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Input
-                        value={verifyToken}
-                        readOnly
-                        sx={{ flexGrow: 1 }}
-                      />
-                      <IconButton onClick={() => handleCopy(verifyToken)}>
-                        <ContentCopyIcon />
-                      </IconButton>
-                    </Box>
-                  </Box>
+                <div className="mb-5 space-y-1.5">
+                  <Label htmlFor="verify-token">Verify Token</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="verify-token"
+                      value={verifyToken}
+                      readOnly
+                      className="h-11 w-full flex-1 rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Copiar verify token"
+                      onClick={() => handleCopy(verifyToken)}
+                    >
+                      <Copy className="size-5" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
 
-                  <Box sx={{ mb: 2 }}>
-                    <Typography level="title-sm" sx={{ mb: 1 }}>
-                      Eventos Suscritos
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      <Chip size="sm" color="primary">messages</Chip>
-                      <Chip size="sm" color="primary">message_status</Chip>
-                      <Chip size="sm" color="primary">message_reactions</Chip>
-                      <Chip size="sm" color="primary">contacts</Chip>
-                    </Box>
-                  </Box>
+                <div className="mb-5">
+                  <p className="mb-2 text-sm font-medium text-foreground">Eventos Suscritos</p>
+                  <div className="flex flex-wrap gap-2">
+                    {subscribedEvents.map((ev) => (
+                      <Badge key={ev} variant="primary">
+                        {ev}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
 
-                  <Button fullWidth startDecorator={<RefreshIcon />}>
-                    Probar Webhook
-                  </Button>
-                </CardContent>
-              </Card>
-            </Grid>
+                <Button className="w-full">
+                  <ArrowClockwise className="size-4" aria-hidden />
+                  Probar Webhook
+                </Button>
+              </div>
 
-            <Grid xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography level="title-lg" sx={{ mb: 2 }}>
-                    Estado del Webhook
-                  </Typography>
+              {/* Estado del Webhook */}
+              <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+                <h2 className="mb-4 text-lg font-semibold text-foreground">
+                  Estado del Webhook
+                </h2>
 
-                  <Box sx={{ mb: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography level="body-sm">Estado</Typography>
-                      <Chip size="sm" color="success" startDecorator={<CheckCircleIcon />}>
-                        Activo
-                      </Chip>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography level="body-sm">Último Evento</Typography>
-                      <Typography level="body-sm">Hace 2 minutos</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography level="body-sm">Verificación Meta</Typography>
-                      <Chip size="sm" color="success">Verificado</Chip>
-                    </Box>
-                  </Box>
+                <div className="mb-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Estado</span>
+                    <Badge variant="success">
+                      <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                      Activo
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Último Evento</span>
+                    <span className="text-sm text-foreground">Hace 2 minutos</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Verificación Meta</span>
+                    <Badge variant="success">Verificado</Badge>
+                  </div>
+                </div>
 
-                  <Typography level="title-sm" sx={{ mb: 1, mt: 3 }}>
-                    Configuración en Meta Dashboard
-                  </Typography>
-                  <Typography level="body-sm" sx={{ mb: 2 }}>
-                    1. Ve a Meta Developer Console<br />
-                    2. Selecciona tu App<br />
-                    3. Ve a WhatsApp {'>'} Configuration<br />
-                    4. Configura la URL del webhook<br />
-                    5. Ingresa el verify token<br />
-                    6. Suscríbete a los eventos necesarios
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </TabPanel>
+                <p className="mb-2 mt-6 text-sm font-medium text-foreground">
+                  Configuración en Meta Dashboard
+                </p>
+                <ol className="list-inside list-decimal space-y-1 text-sm text-muted-foreground">
+                  <li>Ve a Meta Developer Console</li>
+                  <li>Selecciona tu App</li>
+                  <li>Ve a WhatsApp {'>'} Configuration</li>
+                  <li>Configura la URL del webhook</li>
+                  <li>Ingresa el verify token</li>
+                  <li>Suscríbete a los eventos necesarios</li>
+                </ol>
+              </div>
+            </div>
+          </TabsContent>
 
-        <TabPanel value={1}>
-          <Card>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>
-                Eventos Recientes
-              </Typography>
-
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table>
+          {/* Tab: Eventos Recientes */}
+          <TabsContent value="events">
+            <div className="rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="border-b border-border px-6 py-4">
+                <h2 className="text-base font-semibold text-foreground">Eventos Recientes</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
                   <thead>
-                    <tr>
-                      <th style={{ width: 150 }}>Timestamp</th>
-                      <th style={{ width: 150 }}>Evento</th>
-                      <th style={{ width: 100 }}>Estado</th>
-                      <th style={{ width: 100 }}>Código HTTP</th>
-                      <th style={{ width: 120 }}>Tiempo Respuesta</th>
-                      <th style={{ width: 80 }}>Reintentos</th>
-                      <th style={{ width: 100, textAlign: 'center' }}>Acciones</th>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground${
+                            c === 'Acciones' ? ' text-center' : ''
+                          }`}
+                        >
+                          {c}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border">
                     {events.length === 0 && !loading ? (
                       <tr>
-                        <td colSpan={7}>
-                          <Box sx={{ py: 4, textAlign: 'center' }}>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              No hay eventos de webhook registrados.
-                            </Typography>
-                          </Box>
+                        <td
+                          colSpan={7}
+                          className="px-4 py-10 text-center text-muted-foreground"
+                        >
+                          No hay eventos de webhook registrados.
                         </td>
                       </tr>
                     ) : (
                       events.map((event) => (
-                        <tr key={event.id}>
-                          <td>
-                            <Typography level="body-xs">{event.timestamp}</Typography>
+                        <tr key={event.id} className="transition-colors hover:bg-accent/40">
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {event.timestamp}
                           </td>
-                          <td>
-                            <Chip size="sm" variant="outlined">{event.event}</Chip>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline">{event.event}</Badge>
                           </td>
-                          <td>
-                            <Chip
-                              size="sm"
-                              color={getStatusColor(event.status)}
-                              startDecorator={
-                                event.status === 'success' ? (
-                                  <CheckCircleIcon />
-                                ) : (
-                                  <ErrorIcon />
-                                )
-                              }
-                            >
+                          <td className="px-4 py-3">
+                            <Badge variant={getStatusVariant(event.status)}>
+                              {event.status === 'success' ? (
+                                <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                              ) : (
+                                <XCircle className="size-3.5" weight="fill" aria-hidden />
+                              )}
                               {event.status}
-                            </Chip>
+                            </Badge>
                           </td>
-                          <td>
-                            <Typography level="body-sm" fontWeight="lg">
-                              {event.responseCode}
-                            </Typography>
+                          <td className="px-4 py-3 font-semibold tabular-nums text-foreground">
+                            {event.responseCode}
                           </td>
-                          <td>
-                            <Typography level="body-sm">{event.responseTime}ms</Typography>
+                          <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                            {event.responseTime}ms
                           </td>
-                          <td>
-                            <Typography level="body-sm">{event.retries}</Typography>
+                          <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                            {event.retries}
                           </td>
-                          <td>
-                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                              <IconButton size="sm" variant="plain">
-                                <VisibilityIcon />
-                              </IconButton>
-                              <IconButton size="sm" variant="plain">
-                                <RefreshIcon />
-                              </IconButton>
-                            </Box>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <RowAction label="Ver payload">
+                                <Eye className="size-[18px]" aria-hidden />
+                              </RowAction>
+                              <RowAction label="Reintentar">
+                                <ArrowClockwise className="size-[18px]" aria-hidden />
+                              </RowAction>
+                            </div>
                           </td>
                         </tr>
                       ))
                     )}
                   </tbody>
-                </Table>
-              </Sheet>
-            </CardContent>
-          </Card>
-        </TabPanel>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
 
-        <TabPanel value={2}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
+          {/* Tab: Documentación */}
+          <TabsContent value="docs">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-lg font-semibold text-foreground">
                 Documentación de Webhooks
-              </Typography>
+              </h2>
 
-              <Typography level="title-md" sx={{ mb: 1, mt: 2 }}>
+              <h3 className="mb-2 mt-2 text-base font-semibold text-foreground">
                 Ejemplo de Payload - Mensaje Entrante
-              </Typography>
-              <Box sx={{
-                display: 'block',
-                p: 2,
-                mb: 2,
-                overflow: 'auto',
-                bgcolor: 'background.level1',
-                borderRadius: 'sm',
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                border: '1px solid',
-                borderColor: 'divider'
-              }}>
-                <pre style={{ margin: 0 }}>{JSON.stringify({
-                  object: 'whatsapp_business_account',
-                  entry: [{
-                    id: 'WABA_ID',
-                    changes: [{
-                      value: {
-                        messaging_product: 'whatsapp',
-                        metadata: {
-                          display_phone_number: '15550123456',
-                          phone_number_id: 'PHONE_NUMBER_ID'
-                        },
-                        contacts: [{ profile: { name: 'Usuario' }, wa_id: '15559876543' }],
-                        messages: [{
-                          from: '15559876543',
-                          id: 'wamid.xxxxx',
-                          timestamp: '1697200000',
-                          type: 'text',
-                          text: { body: 'Hola' }
-                        }]
-                      },
-                      field: 'messages'
-                    }]
-                  }]
-                }, null, 2)}</pre>
-              </Box>
+              </h3>
+              <div className="mb-4 overflow-auto rounded-md border border-border bg-muted/50 p-4 font-mono text-sm text-foreground">
+                <pre className="m-0">{JSON.stringify(incomingPayload, null, 2)}</pre>
+              </div>
 
-              <Typography level="title-md" sx={{ mb: 1 }}>
+              <h3 className="mb-2 text-base font-semibold text-foreground">
                 Ejemplo de Payload - Estado de Mensaje
-              </Typography>
-              <Box sx={{
-                display: 'block',
-                p: 2,
-                overflow: 'auto',
-                bgcolor: 'background.level1',
-                borderRadius: 'sm',
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                border: '1px solid',
-                borderColor: 'divider'
-              }}>
-                <pre style={{ margin: 0 }}>{JSON.stringify({
-                  object: 'whatsapp_business_account',
-                  entry: [{
-                    changes: [{
-                      value: {
-                        statuses: [{
-                          id: 'wamid.xxxxx',
-                          status: 'delivered',
-                          timestamp: '1697200100',
-                          recipient_id: '15559876543'
-                        }]
-                      },
-                      field: 'messages'
-                    }]
-                  }]
-                }, null, 2)}</pre>
-              </Box>
-            </CardContent>
-          </Card>
-        </TabPanel>
-      </Tabs>
-    </Box>
+              </h3>
+              <div className="overflow-auto rounded-md border border-border bg-muted/50 p-4 font-mono text-sm text-foreground">
+                <pre className="m-0">{JSON.stringify(statusPayload, null, 2)}</pre>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
   )
 }

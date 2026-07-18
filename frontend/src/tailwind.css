@@ -1,0 +1,110 @@
+/* [Fase2·G.0] Entry Tailwind v4 para el rediseño (design system del prototipo).
+   IMPORTANTE: se importa SIN preflight para COEXISTIR con MUI Joy/Material sin
+   resetear las pantallas existentes. Solo theme + utilities + los tokens de marca.
+   Migración strangler: pantallas nuevas usan utilidades Tailwind + estos tokens;
+   pantallas MUI viejas quedan intactas hasta migrarlas. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* [Fase3] Animaciones estilo shadcn (enter/exit: fade, zoom, slide) — antes eran no-ops
+   porque no había plugin instalado. Provee animate-in / animate-out y sus modificadores
+   (fade, zoom, slide-from) que usan los primitivos Radix: dialog, dropdown, select,
+   tooltip, tabs. */
+@import "tw-animate-css";
+
+/* [Barrido UI] Preflight MINIMO solo para botones.
+   Tailwind se importa sin preflight (arriba), asi que TODO <button> hereda el
+   borde y el fondo por defecto del navegador: por eso los componentes del DS se
+   veian como "cajitas sueltas" (tabs, ojo del password, acciones de fila...).
+   Son 265 <button> en el front; esto los arregla de raiz en vez de parchear uno a uno.
+   MUI Joy/Material NO se ve afectado: define sus estilos por CLASE (emotion), que
+   gana en especificidad a un selector de elemento. Y cualquier boton que SI quiera
+   borde lo declara en sus clases (border border-input), que tambien gana. */
+@layer base {
+  button,
+  [type="button"],
+  [type="reset"],
+  [type="submit"] {
+    border: 0 solid;
+    background-color: transparent;
+    background-image: none;
+  }
+}
+
+/* Dark mode por clase `.dark` en <html> (toggle + default del sistema). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tipografía corporativa — Poppins (self-hosted) */
+@font-face { font-family: "Poppins"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/Poppins-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Poppins"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/Poppins-Medium.ttf") format("truetype"); }
+@font-face { font-family: "Poppins"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/Poppins-SemiBold.ttf") format("truetype"); }
+@font-face { font-family: "Poppins"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/Poppins-Bold.ttf") format("truetype"); }
+@font-face { font-family: "Poppins"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/Poppins-ExtraBold.ttf") format("truetype"); }
+
+/* Design tokens — LIGHT */
+:root {
+  --radius: 0.625rem;
+  --background: #f7f9fa; --foreground: #0e2a30;
+  --card: #ffffff; --card-foreground: #0e2a30;
+  --popover: #ffffff; --popover-foreground: #0e2a30;
+  --primary: #005166; --primary-foreground: #ffffff; --primary-hover: #003e4d;
+  --secondary: #eaeef0; --secondary-foreground: #0e2a30;
+  --muted: #eef1f2; --muted-foreground: #54656a;
+  --accent: #e6fbfb; --accent-foreground: #00414f;
+  --destructive: #d63a3f; --destructive-foreground: #ffffff;
+  --success: #1f9d57; --warning: #d98414;
+  --border: #e2e8ea; --input: #cfd8da; --ring: #005166;
+  --brand-teal: #005166; --brand-cyan: #23dada; --brand-coral: #f95c47;
+  --wa: #1f9d57;
+  /* [a11y] Texto semántico sobre superficies CLARAS (tintes /12-/16). Los tokens
+     --success/--warning/--destructive son para superficies, no para texto: en claro
+     no alcanzan 4.5:1. Estos sí. */
+  --success-text: #14663a; --warning-text: #8a5209; --destructive-text: #b02a2f;
+}
+
+/* Design tokens — DARK (primario pasa a cyan) */
+.dark {
+  --background: #04222b; --foreground: #e7f0f1;
+  --card: #08303b; --card-foreground: #e7f0f1;
+  --popover: #08303b; --popover-foreground: #e7f0f1;
+  --primary: #23dada; --primary-foreground: #04222b; --primary-hover: #54e7e7;
+  --secondary: #0e3a45; --secondary-foreground: #e7f0f1;
+  --muted: #0e3a45; --muted-foreground: #92b2b7;
+  --accent: #0e3a45; --accent-foreground: #d6fbfb;
+  --destructive: #f0595e; --destructive-foreground: #04222b;
+  --success: #34c878; --warning: #e9a13c;
+  --border: #16414c; --input: #1e4b57; --ring: #23dada;
+  --brand-teal: #005166; --brand-cyan: #23dada; --brand-coral: #f95c47;
+  --wa: #34c878;
+  /* En oscuro los tintes son oscuros → el texto semántico va claro. */
+  --success-text: #34c878; --warning-text: #e9a13c; --destructive-text: #f0595e;
+}
+
+/* Map tokens -> utilidades Tailwind (bg-primary, text-foreground, border-border, …) */
+@theme inline {
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive); --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success); --color-warning: var(--warning);
+  --color-success-text: var(--success-text); --color-warning-text: var(--warning-text); --color-destructive-text: var(--destructive-text);
+  --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring);
+  --color-brand-teal: var(--brand-teal); --color-brand-cyan: var(--brand-cyan); --color-brand-coral: var(--brand-coral);
+  --color-wa: var(--wa);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* Motion (respeta reduced-motion) */
+@keyframes fade-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes float-slow { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+@media (prefers-reduced-motion: no-preference) {
+  .animate-fade-up { animation: fade-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-float-slow { animation: float-slow 9s ease-in-out infinite; }
+}

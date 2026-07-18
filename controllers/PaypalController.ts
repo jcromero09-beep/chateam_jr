@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { maskEmail } from "../utils/redact";
 import * as Yup from "yup";
 import CreatePaypalOrderService from "../services/PaypalService/CreatePaypalOrderService";
 import CapturePaypalOrderService from "../services/PaypalService/CapturePaypalOrderService";
@@ -11,6 +12,59 @@ import { updateDueDateByCompanyId } from "../services/CompanyService/dateCompany
 import ListWhatsAppsService from "../services/WhatsappService/ListWhatsAppsService";
 import { StartWhatsAppSession } from "../services/WbotServices/StartWhatsAppSession";
 import * as Sentry from "@sentry/node";
+import { processSubplanPaypalCaptureResource } from "./AISubplanPurchaseController";
+import { processPaidPlanPayment } from "../services/SubscriptionService/PlanPaymentService";
+import axios from "axios";
+import { getPayPalCreds } from "../services/PaypalService/paypalConfig";
+
+/**
+ * [Fase A S-5] Verifica la firma del webhook de PayPal contra su API (fail-closed).
+ * Requiere PAYPAL_WEBHOOK_ID + los headers de transmisión + credenciales del SuperAdmin.
+ * Devuelve true SOLO si PayPal responde verification_status === "SUCCESS".
+ */
+async function verifyPaypalWebhookSignature(req: Request): Promise<boolean> {
+  try {
+    const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+    if (!webhookId) {
+      console.error("❌ [PayPal] PAYPAL_WEBHOOK_ID no configurado — no se puede verificar la firma");
+      return false;
+    }
+    const h = req.headers;
+    const transmissionId = h["paypal-transmission-id"] as string;
+    const transmissionTime = h["paypal-transmission-time"] as string;
+    const transmissionSig = h["paypal-transmission-sig"] as string;
+    const certUrl = h["paypal-cert-url"] as string;
+    const authAlgo = h["paypal-auth-algo"] as string;
+    if (!transmissionId || !transmissionTime || !transmissionSig || !certUrl || !authAlgo) {
+      console.error("❌ [PayPal] Faltan headers de transmisión — webhook no verificable");
+      return false;
+    }
+    const { clientId, secret, base } = await getPayPalCreds();
+    const tokenResp = await axios.post(`${base}/v1/oauth2/token`, "grant_type=client_credentials", {
+      auth: { username: clientId, password: secret },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      timeout: 10000
+    });
+    const accessToken = tokenResp.data?.access_token;
+    const verifyResp = await axios.post(
+      `${base}/v1/notifications/verify-webhook-signature`,
+      {
+        transmission_id: transmissionId,
+        transmission_time: transmissionTime,
+        cert_url: certUrl,
+        auth_algo: authAlgo,
+        transmission_sig: transmissionSig,
+        webhook_id: webhookId,
+        webhook_event: req.body
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, timeout: 10000 }
+    );
+    return verifyResp.data?.verification_status === "SUCCESS";
+  } catch (e: any) {
+    console.error("❌ [PayPal] Error verificando firma del webhook:", e.message);
+    return false;
+  }
+}
 
 /**
  * POST /paypal/create-order
@@ -157,6 +211,13 @@ export const captureOrder = async (req: Request, res: Response): Promise<Respons
  */
 export const webhook = async (req: Request, res: Response): Promise<Response> => {
   try {
+    // [Fase A S-5] fail-closed: verificar la firma ANTES de procesar/responder. Sin verificación válida → 400.
+    const verified = await verifyPaypalWebhookSignature(req);
+    if (!verified) {
+      console.error("❌ [PayPal] Webhook con firma inválida o no verificable — rechazado (400)");
+      return res.status(400).json({ success: false, message: "Firma de webhook PayPal inválida" });
+    }
+
     const event = req.body;
 
     console.log("📦 PayPal Webhook Event:", JSON.stringify(event, null, 2));
@@ -238,6 +299,11 @@ async function handlePaymentCaptureCompleted(resource: any) {
   try {
     console.log("✅ Procesando PAYMENT.CAPTURE.COMPLETED");
 
+    const wasSubplanPurchase = await processSubplanPaypalCaptureResource(resource);
+    if (wasSubplanPurchase) {
+      return;
+    }
+
     const captureId = resource.id;
     const customId = resource.custom_id;
 
@@ -270,38 +336,13 @@ async function handlePaymentCaptureCompleted(resource: any) {
       return;
     }
 
-    // Actualizar la factura
-    await invoice.update({
-      status: "paid",
+    await processPaidPlanPayment({
+      invoice,
+      companyId,
+      planId,
       paymentMethod: "paypal",
-      payment_intent: captureId,
-      detail: `${plan.name} - ${months} mes(es)`
-    } as any);
-
-    // Actualizar fecha de vencimiento
-    for (let i = 0; i < months; i++) {
-      await updateDueDateByCompanyId(companyId, planId, `${plan.name} - PayPal`, plan.recurrence);
-    }
-
-    // Reiniciar sesiones de WhatsApp
-    try {
-      const whatsapps = await ListWhatsAppsService({ companyId });
-      for (const wa of whatsapps) {
-        await StartWhatsAppSession(wa, companyId);
-      }
-    } catch (e) {
-      console.error("❌ Error iniciando sesiones de WhatsApp:", e);
-      Sentry.captureException(e);
-    }
-
-    // Emitir evento socket
-    const io = getIO();
-    const company = await Company.findByPk(companyId);
-    io.emit(`company-${companyId}-payment`, {
-      action: "CONCLUIDA",
-      company: company?.toJSON(),
-      invoice: invoice.toJSON(),
-      paymentMethod: "paypal"
+      paymentIntent: captureId,
+      paypalOrderId: resource.supplementary_data?.related_ids?.order_id || invoice.paypalOrderId
     });
 
     console.log(`✅ Pago completado para factura ${invoiceId}`);
@@ -400,7 +441,7 @@ async function handleSubscriptionActivated(resource: any) {
 
     console.log(`Suscripción activada: ${subscriptionId}`);
     console.log(`Plan PayPal: ${planId}`);
-    console.log(`Email: ${subscriberEmail}`);
+    console.log(`Email: ${maskEmail(subscriberEmail)}`);
 
     if (!customId) {
       console.warn("⚠️ No se encontró customId en la suscripción");
@@ -425,38 +466,24 @@ async function handleSubscriptionActivated(resource: any) {
       return;
     }
 
-    // Actualizar la factura con el ID de suscripción de PayPal
-    await invoice.update({
-      status: "paid",
+    if (invoice.status === "paid") {
+      await invoice.update({
+        paymentMethod: "paypal",
+        paypalOrderId: subscriptionId,
+        subscriptionId
+      } as any);
+      console.log(`✅ Suscripción PayPal ya activada para factura ${invoiceId}`);
+      return;
+    }
+
+    await processPaidPlanPayment({
+      invoice,
+      companyId,
+      planId: customData.planId || invoice.planId,
       paymentMethod: "paypal",
-      paypalOrderId: subscriptionId
-    } as any);
-
-    // Actualizar fecha de vencimiento
-    const plan = await Plan.findByPk(invoice.planId);
-    if (plan) {
-      await updateDueDateByCompanyId(companyId, invoice.planId, `${plan.name} - PayPal`, plan.recurrence);
-    }
-
-    // Reiniciar sesiones de WhatsApp
-    try {
-      const whatsapps = await ListWhatsAppsService({ companyId });
-      for (const wa of whatsapps) {
-        await StartWhatsAppSession(wa, companyId);
-      }
-    } catch (e) {
-      console.error("❌ Error iniciando sesiones de WhatsApp:", e);
-      Sentry.captureException(e);
-    }
-
-    // Emitir evento socket
-    const io = getIO();
-    const company = await Company.findByPk(companyId);
-    io.emit(`company-${companyId}-payment`, {
-      action: "SUBSCRIPTION_ACTIVATED",
-      company: company?.toJSON(),
-      invoice: invoice.toJSON(),
-      paymentMethod: "paypal"
+      paymentIntent: subscriptionId,
+      paypalOrderId: subscriptionId,
+      subscriptionId
     });
 
     console.log(`✅ Suscripción PayPal activada para factura ${invoiceId}`);
@@ -582,6 +609,15 @@ async function handlePaymentSaleCompleted(resource: any) {
     console.log(`Suscripción: ${billingAgreementId}`);
     console.log(`Monto: ${amount}`);
 
+    const existingPaymentInvoice = await Invoices.findOne({
+      where: { payment_intent: saleId }
+    });
+
+    if (existingPaymentInvoice) {
+      console.log(`✅ Pago recurrente PayPal ${saleId} ya fue procesado`);
+      return;
+    }
+
     if (!customId) {
       // Intentar buscar por billing_agreement_id
       const invoice = await Invoices.findOne({
@@ -591,36 +627,15 @@ async function handlePaymentSaleCompleted(resource: any) {
       if (invoice) {
         const { planId, companyId } = invoice;
 
-        // Buscar el plan para obtener la recurrencia
-        const plan = await Plan.findByPk(planId);
-        if (plan) {
-          await updateDueDateByCompanyId(companyId, planId, `${plan.name} - PayPal`, plan.recurrence);
-        }
-
-        // Actualizar estado de la factura
-        await invoice.update({
-          status: "paid",
-          payment_intent: saleId
-        } as any);
-
-        // Reiniciar sesiones de WhatsApp
-        try {
-          const whatsapps = await ListWhatsAppsService({ companyId });
-          for (const wa of whatsapps) {
-            await StartWhatsAppSession(wa, companyId);
-          }
-        } catch (e) {
-          Sentry.captureException(e);
-        }
-
-        // Emitir evento socket
-        const io = getIO();
-        const company = await Company.findByPk(companyId);
-        io.emit(`company-${companyId}-payment`, {
-          action: "PAYMENT_RENEWAL",
-          company: company?.toJSON(),
-          invoice: invoice.toJSON(),
-          paymentMethod: "paypal"
+        await processPaidPlanPayment({
+          invoice,
+          companyId,
+          planId,
+          paymentMethod: "paypal",
+          paymentIntent: saleId,
+          paypalOrderId: billingAgreementId,
+          subscriptionId: billingAgreementId,
+          createNewInvoice: invoice.status === "paid"
         });
 
         console.log(`✅ Renovación procesada para company ${companyId}`);
@@ -640,19 +655,18 @@ async function handlePaymentSaleCompleted(resource: any) {
 
     const { invoiceId, companyId, planId } = customData;
 
-    // Actualizar fecha de vencimiento
-    const plan = await Plan.findByPk(planId);
-    if (plan) {
-      await updateDueDateByCompanyId(companyId, planId, `${plan.name} - PayPal`, plan.recurrence);
-    }
-
-    // Buscar y actualizar factura
     const invoice = await Invoices.findByPk(invoiceId);
     if (invoice) {
-      await invoice.update({
-        status: "paid",
-        payment_intent: saleId
-      } as any);
+      await processPaidPlanPayment({
+        invoice,
+        companyId,
+        planId,
+        paymentMethod: "paypal",
+        paymentIntent: saleId,
+        paypalOrderId: billingAgreementId,
+        subscriptionId: billingAgreementId,
+        createNewInvoice: invoice.status === "paid"
+      });
     }
 
     console.log(`✅ Renovación completada para factura ${invoiceId}`);

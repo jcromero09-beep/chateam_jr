@@ -5,7 +5,8 @@ import DeleteQueueService from "../services/QueueService/DeleteQueueService";
 import ListQueuesService from "../services/QueueService/ListQueuesService";
 import ShowQueueService from "../services/QueueService/ShowQueueService";
 import UpdateQueueService from "../services/QueueService/UpdateQueueService";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import { logWarn } from "../utils/logger";
 
 type QueueFilter = {
@@ -37,7 +38,10 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   const { companyId: queryCompanyId } = req.query as unknown as QueueFilter;
   let companyId = userCompanyId;
 
-  if (!isNil(queryCompanyId)) {
+  // [Seguridad] Override por query SOLO para super. Antes cualquier usuario autenticado
+  // listaba las colas de otra empresa con ?companyId=N. Verificado y cerrado 2026-07-15.
+  const isSuper = req.user?.super === true;
+  if (isSuper && !isNil(queryCompanyId)) {
     companyId = +queryCompanyId;
   }
 

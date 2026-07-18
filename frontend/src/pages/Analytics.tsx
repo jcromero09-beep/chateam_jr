@@ -1,27 +1,20 @@
 import { useState, useEffect } from 'react'
+import { LinearProgress } from '@mui/joy'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Select,
-  Option,
-  Box,
-  Grid,
-  Table,
-  Sheet,
-  Chip,
-  LinearProgress,
-} from '@mui/joy'
-import {
-  BarChart as BarChartIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  Remove as RemoveIcon,
-  BarChart as EmptyIcon,
-} from '@mui/icons-material'
+  ChartBar,
+  TrendUp,
+  TrendDown,
+  Minus,
+} from '@phosphor-icons/react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 interface TrendPoint {
@@ -50,6 +43,23 @@ interface StatCard {
   change: string
   trend: 'up' | 'down' | 'neutral'
   color: string
+}
+
+// Mapea el color heredado de MUI Joy (primary/neutral/danger/success/warning)
+// a la variante del Badge del design system.
+const colorToVariant = (color: string): BadgeProps['variant'] => {
+  switch (color) {
+    case 'success':
+      return 'success'
+    case 'warning':
+      return 'warning'
+    case 'danger':
+      return 'destructive'
+    case 'primary':
+      return 'primary'
+    default:
+      return 'neutral'
+  }
 }
 
 export default function Analytics() {
@@ -87,269 +97,255 @@ export default function Analytics() {
   const getTrendIcon = (trend: string) => {
     switch (trend) {
       case 'up':
-        return <TrendingUpIcon sx={{ fontSize: 20 }} />
+        return <TrendUp className="size-5" aria-hidden />
       case 'down':
-        return <TrendingDownIcon sx={{ fontSize: 20 }} />
+        return <TrendDown className="size-5" aria-hidden />
       default:
-        return <RemoveIcon sx={{ fontSize: 20 }} />
+        return <Minus className="size-5" aria-hidden />
     }
   }
 
   const isEmpty = !loading && stats.length === 0 && trendData.length === 0
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <BarChartIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Analytics</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ChartBar className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Analytics
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Análisis y reportes del sistema
-              </Typography>
-            </Box>
-          </Stack>
-          <Select value={period} onChange={(_, value) => setPeriod(value as string)} sx={{ minWidth: 150 }}>
-            <Option value="24hours">Últimas 24h</Option>
-            <Option value="7days">Últimos 7 días</Option>
-            <Option value="30days">Últimos 30 días</Option>
-            <Option value="90days">Últimos 90 días</Option>
+              </p>
+            </div>
+          </div>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[170px]" aria-label="Período">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="24hours">Últimas 24h</SelectItem>
+              <SelectItem value="7days">Últimos 7 días</SelectItem>
+              <SelectItem value="30days">Últimos 30 días</SelectItem>
+              <SelectItem value="90days">Últimos 90 días</SelectItem>
+            </SelectContent>
           </Select>
-        </Stack>
+        </div>
 
         {/* Loading */}
         {loading && <LinearProgress />}
 
         {/* Estado vacío */}
         {isEmpty && (
-          <Card>
-            <CardContent>
-              <Stack spacing={2} alignItems="center" sx={{ py: 6 }}>
-                <EmptyIcon sx={{ fontSize: 56, color: 'text.tertiary' }} />
-                <Typography level="title-lg" sx={{ color: 'text.secondary' }}>
-                  No hay datos de analytics disponibles
-                </Typography>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center', maxWidth: 480 }}>
-                  Los datos se generarán automáticamente a medida que uses la plataforma.
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col items-center gap-2 py-12">
+              <ChartBar className="size-14 text-muted-foreground" aria-hidden />
+              <h2 className="text-lg font-semibold text-foreground">
+                No hay datos de analytics disponibles
+              </h2>
+              <p className="max-w-[480px] text-center text-sm text-muted-foreground">
+                Los datos se generarán automáticamente a medida que uses la plataforma.
+              </p>
+            </div>
+          </div>
         )}
 
         {/* KPI Cards */}
         {stats.length > 0 && (
-          <Grid container spacing={2}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
             {stats.map((stat, index) => (
-              <Grid xs={12} sm={6} md={3} key={index}>
-                <Card>
-                  <CardContent>
-                    <Typography level="body-sm" sx={{ mb: 1 }}>
-                      {stat.title}
-                    </Typography>
-                    <Typography level="h2" sx={{ mb: 1 }}>
-                      {stat.value}
-                    </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip
-                        size="sm"
-                        color={stat.color as any}
-                        startDecorator={getTrendIcon(stat.trend)}
-                        variant="soft"
-                      >
-                        {stat.change}
-                      </Chip>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        vs período anterior
-                      </Typography>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
+              <div
+                key={index}
+                className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+              >
+                <p className="mb-1 text-sm text-muted-foreground">{stat.title}</p>
+                <p className="mb-1 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {stat.value}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Badge variant={colorToVariant(stat.color)}>
+                    {getTrendIcon(stat.trend)}
+                    {stat.change}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    vs período anterior
+                  </span>
+                </div>
+              </div>
             ))}
-          </Grid>
+          </div>
         )}
 
         {/* Charts — solo si hay datos */}
         {(trendData.length > 0 || channelData.length > 0 || agentData.length > 0) && (
-          <Grid container spacing={3}>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-12">
             {/* Line Chart - Tendencia */}
-            <Grid xs={12} md={8}>
-              <Card>
-                <CardContent>
-                  <Typography level="h4" sx={{ mb: 3 }}>
-                    Tendencia de Actividad
-                  </Typography>
-                  {trendData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={trendData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="date"
-                          tickFormatter={(value) =>
-                            new Date(value).toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })
-                          }
-                        />
-                        <YAxis />
-                        <Tooltip
-                          labelFormatter={(value) => new Date(value).toLocaleDateString('es-ES')}
-                          formatter={((value: number, name: string) => [
-                            value,
-                            name === 'tickets'
-                              ? 'Tickets'
-                              : name === 'messages'
-                              ? 'Mensajes'
-                              : 'Contactos Nuevos',
-                          ]) as any}
-                        />
-                        <Line type="monotone" dataKey="tickets" stroke="#3b82f6" strokeWidth={2} name="tickets" />
-                        <Line type="monotone" dataKey="messages" stroke="#10b981" strokeWidth={2} name="messages" />
-                        <Line type="monotone" dataKey="contacts" stroke="#f59e0b" strokeWidth={2} name="contacts" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                        Sin datos de tendencia para este período
-                      </Typography>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02] md:col-span-8">
+              <h3 className="mb-6 text-lg font-semibold text-foreground">
+                Tendencia de Actividad
+              </h3>
+              {trendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={trendData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(value) =>
+                        new Date(value).toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })
+                      }
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(value) => new Date(value).toLocaleDateString('es-ES')}
+                      formatter={((value: number, name: string) => [
+                        value,
+                        name === 'tickets'
+                          ? 'Tickets'
+                          : name === 'messages'
+                          ? 'Mensajes'
+                          : 'Contactos Nuevos',
+                      ]) as any}
+                    />
+                    <Line type="monotone" dataKey="tickets" stroke="#3b82f6" strokeWidth={2} name="tickets" />
+                    <Line type="monotone" dataKey="messages" stroke="#10b981" strokeWidth={2} name="messages" />
+                    <Line type="monotone" dataKey="contacts" stroke="#f59e0b" strokeWidth={2} name="contacts" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-[300px] items-center justify-center">
+                  <p className="text-sm text-muted-foreground">
+                    Sin datos de tendencia para este período
+                  </p>
+                </div>
+              )}
+            </div>
 
             {/* Pie Chart - Distribución por Canal */}
-            <Grid xs={12} md={4}>
-              <Card>
-                <CardContent>
-                  <Typography level="h4" sx={{ mb: 3 }}>
-                    Distribución por Canal
-                  </Typography>
-                  {channelData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                      <PieChart>
-                        <Pie
-                          data={channelData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }: any) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {channelData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                        Sin datos por canal
-                      </Typography>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02] md:col-span-4">
+              <h3 className="mb-6 text-lg font-semibold text-foreground">
+                Distribución por Canal
+              </h3>
+              {channelData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={channelData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }: any) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {channelData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-[300px] items-center justify-center">
+                  <p className="text-sm text-muted-foreground">
+                    Sin datos por canal
+                  </p>
+                </div>
+              )}
+            </div>
 
             {/* Bar Chart - Rendimiento por Agente */}
-            <Grid xs={12}>
-              <Card>
-                <CardContent>
-                  <Typography level="h4" sx={{ mb: 3 }}>
-                    Rendimiento por Agente
-                  </Typography>
-                  {agentData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={agentData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
-                        <Bar dataKey="tickets" fill="#3b82f6" name="Tickets Atendidos" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                        Sin datos de agentes
-                      </Typography>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02] md:col-span-12">
+              <h3 className="mb-6 text-lg font-semibold text-foreground">
+                Rendimiento por Agente
+              </h3>
+              {agentData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={agentData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="tickets" fill="#3b82f6" name="Tickets Atendidos" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-[300px] items-center justify-center">
+                  <p className="text-sm text-muted-foreground">
+                    Sin datos de agentes
+                  </p>
+                </div>
+              )}
+            </div>
 
             {/* Tabla de Agentes */}
             {agentData.length > 0 && (
-              <Grid xs={12}>
-                <Card>
-                  <CardContent>
-                    <Typography level="h4" sx={{ mb: 2 }}>
-                      Detalle de Agentes
-                    </Typography>
-                    <Sheet sx={{ overflow: 'auto' }}>
-                      <Table>
-                        <thead>
-                          <tr>
-                            <th>Agente</th>
-                            <th>Tickets Atendidos</th>
-                            <th>Tiempo Promedio</th>
-                            <th>Satisfacción</th>
-                            <th>Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {agentData.map((agent, index) => (
-                            <tr key={index}>
-                              <td>
-                                <Typography level="body-sm" fontWeight="bold">
-                                  {agent.name}
-                                </Typography>
-                              </td>
-                              <td>
-                                <Typography level="body-sm">{agent.tickets}</Typography>
-                              </td>
-                              <td>
-                                <Typography level="body-sm">{agent.avgTime}</Typography>
-                              </td>
-                              <td>
-                                <Stack direction="row" spacing={1} alignItems="center">
-                                  <Typography level="body-sm" fontWeight="bold">
-                                    {agent.satisfaction}
-                                  </Typography>
-                                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                    / 5.0
-                                  </Typography>
-                                </Stack>
-                              </td>
-                              <td>
-                                <Chip
-                                  size="sm"
-                                  color={agent.satisfaction >= 4.7 ? 'success' : 'primary'}
-                                  variant="soft"
-                                >
-                                  {agent.satisfaction >= 4.7 ? 'Excelente' : 'Bueno'}
-                                </Chip>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </Table>
-                    </Sheet>
-                  </CardContent>
-                </Card>
-              </Grid>
+              <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02] md:col-span-12">
+                <h3 className="mb-4 text-lg font-semibold text-foreground">
+                  Detalle de Agentes
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Agente
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Tickets Atendidos
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Tiempo Promedio
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Satisfacción
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Estado
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {agentData.map((agent, index) => (
+                        <tr key={index} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3 font-semibold text-foreground">
+                            {agent.name}
+                          </td>
+                          <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                            {agent.tickets}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {agent.avgTime}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-foreground">
+                                {agent.satisfaction}
+                              </span>
+                              <span className="text-xs text-muted-foreground">/ 5.0</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={agent.satisfaction >= 4.7 ? 'success' : 'primary'}>
+                              {agent.satisfaction >= 4.7 ? 'Excelente' : 'Bueno'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
-          </Grid>
+          </div>
         )}
-      </Stack>
-    </Container>
+      </div>
+    </div>
   )
 }

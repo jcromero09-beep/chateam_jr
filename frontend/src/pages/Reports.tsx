@@ -1,44 +1,41 @@
 import { useState, useEffect } from 'react'
+// [Fase2·G] Conservado como MUI a propósito: no hay equivalente de progreso en el design system.
+import { LinearProgress } from '@mui/joy'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Button,
+  PresentationChart,
+  ArrowClockwise,
+  Plus,
+  DownloadSimple,
+  FunnelSimple,
+  Trash,
+  ChartBar,
+  ChartPie,
+  EnvelopeSimple,
+  Clock,
+  CheckCircle,
+  WarningCircle,
+  Hourglass,
+  Info,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
   Select,
-  Option,
-  Box,
-  Grid,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Input,
-  Textarea,
-  Divider,
-  LinearProgress,
-} from '@mui/joy'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
-  Assessment as ReportIcon,
-  Download as DownloadIcon,
-  FilterList as FilterIcon,
-  Add as AddIcon,
-  Refresh as RefreshIcon,
-  Delete as DeleteIcon,
-  BarChart as BarChartIcon,
-  PieChart as PieChartIcon,
-  Email as EmailIcon,
-  Schedule as ScheduleIcon,
-  CheckCircle as CompletedIcon,
-  Error as ErrorIcon,
-  HourglassEmpty as ProcessingIcon,
-} from '@mui/icons-material'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 interface Report {
@@ -58,6 +55,48 @@ interface Report {
   scheduledFor?: string
   createdAt: string
   completedAt?: string
+}
+
+const columns = [
+  'Formato',
+  'Nombre del reporte',
+  'Tipo',
+  'Período',
+  'Estado',
+  'Tamaño',
+  'Fecha creación',
+  '',
+]
+
+const inputClass =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
 }
 
 export default function Reports() {
@@ -274,7 +313,7 @@ export default function Reports() {
     failed: reports.filter((r) => r.status === 'failed').length,
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'completed':
         return 'success'
@@ -283,7 +322,7 @@ export default function Reports() {
       case 'scheduled':
         return 'primary'
       case 'failed':
-        return 'danger'
+        return 'destructive'
       default:
         return 'neutral'
     }
@@ -307,13 +346,13 @@ export default function Reports() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
-        return <CompletedIcon />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'processing':
-        return <ProcessingIcon />
+        return <Hourglass className="size-3.5" weight="fill" aria-hidden />
       case 'scheduled':
-        return <ScheduleIcon />
+        return <Clock className="size-3.5" weight="fill" aria-hidden />
       case 'failed':
-        return <ErrorIcon />
+        return <WarningCircle className="size-3.5" weight="fill" aria-hidden />
       default:
         return null
     }
@@ -351,455 +390,425 @@ export default function Reports() {
     }
   }
 
+  // Evita NaN cuando aún no hay reportes cargados.
+  const pct = (count: number) => (stats.total ? (count / stats.total) * 100 : 0)
+
+  const byType = [
+    { type: 'tickets', count: reports.filter((r) => r.type === 'tickets').length },
+    { type: 'campaigns', count: reports.filter((r) => r.type === 'campaigns').length },
+    { type: 'performance', count: reports.filter((r) => r.type === 'performance').length },
+    { type: 'contacts', count: reports.filter((r) => r.type === 'contacts').length },
+  ]
+
+  const byFormat = [
+    { format: 'excel', count: reports.filter((r) => r.format === 'excel').length },
+    { format: 'pdf', count: reports.filter((r) => r.format === 'pdf').length },
+    { format: 'csv', count: reports.filter((r) => r.format === 'csv').length },
+  ]
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ReportIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Reportes</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <PresentationChart className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Reportes
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Generación, programación y descarga de reportes
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchReports}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openGenerateModal}>
-              Generar Reporte
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchReports}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
             </Button>
-          </Stack>
-        </Stack>
+            <Button size="sm" onClick={openGenerateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Generar reporte
+            </Button>
+          </div>
+        </div>
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={2.4}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Total Reportes
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={2.4}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Completados
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.completed}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={2.4}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Procesando
-                </Typography>
-                <Typography level="h2" sx={{ color: 'warning.main' }}>
-                  {stats.processing}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={2.4}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Programados
-                </Typography>
-                <Typography level="h2" sx={{ color: 'primary.main' }}>
-                  {stats.scheduled}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={2.4}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Fallidos
-                </Typography>
-                <Typography level="h2" sx={{ color: 'danger.main' }}>
-                  {stats.failed}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+          <StatTile label="Total reportes" value={String(stats.total)} />
+          <StatTile label="Completados" value={String(stats.completed)} tone="success" />
+          <StatTile label="Procesando" value={String(stats.processing)} tone="warning" />
+          <StatTile label="Programados" value={String(stats.scheduled)} tone="primary" />
+          <StatTile label="Fallidos" value={String(stats.failed)} tone="destructive" />
+        </div>
 
         {/* Quick Stats Visualization */}
-        <Grid container spacing={2}>
-          <Grid xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-                  <BarChartIcon sx={{ color: 'primary.main' }} />
-                  <Typography level="title-md">Reportes por Tipo</Typography>
-                </Stack>
-                <Stack spacing={1.5}>
-                  {[
-                    {
-                      type: 'tickets',
-                      count: reports.filter((r) => r.type === 'tickets').length,
-                    },
-                    {
-                      type: 'campaigns',
-                      count: reports.filter((r) => r.type === 'campaigns').length,
-                    },
-                    {
-                      type: 'performance',
-                      count: reports.filter((r) => r.type === 'performance').length,
-                    },
-                    {
-                      type: 'contacts',
-                      count: reports.filter((r) => r.type === 'contacts').length,
-                    },
-                  ].map((item) => (
-                    <Box key={item.type}>
-                      <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                        <Typography level="body-sm">{getTypeLabel(item.type)}</Typography>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {item.count}
-                        </Typography>
-                      </Stack>
-                      <LinearProgress
-                        determinate
-                        value={(item.count / stats.total) * 100}
-                        sx={{ height: 8 }}
-                      />
-                    </Box>
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-                  <PieChartIcon sx={{ color: 'success.main' }} />
-                  <Typography level="title-md">Formatos de Exportación</Typography>
-                </Stack>
-                <Stack spacing={1.5}>
-                  {[
-                    { format: 'excel', count: reports.filter((r) => r.format === 'excel').length },
-                    { format: 'pdf', count: reports.filter((r) => r.format === 'pdf').length },
-                    { format: 'csv', count: reports.filter((r) => r.format === 'csv').length },
-                  ].map((item) => (
-                    <Box key={item.format}>
-                      <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                        <Typography level="body-sm">
-                          {getFormatIcon(item.format)} {item.format.toUpperCase()}
-                        </Typography>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {item.count}
-                        </Typography>
-                      </Stack>
-                      <LinearProgress
-                        determinate
-                        value={(item.count / stats.total) * 100}
-                        color={
-                          item.format === 'excel'
-                            ? 'success'
-                            : item.format === 'pdf'
-                              ? 'primary'
-                              : 'neutral'
-                        }
-                        sx={{ height: 8 }}
-                      />
-                    </Box>
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center gap-2">
+              <ChartBar className="size-5 text-primary" weight="fill" aria-hidden />
+              <h2 className="text-base font-semibold text-foreground">Reportes por tipo</h2>
+            </div>
+            <div className="space-y-3">
+              {byType.map((item) => (
+                <div key={item.type}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      {getTypeLabel(item.type)}
+                    </span>
+                    <span className="text-sm font-semibold tabular-nums text-foreground">
+                      {item.count}
+                    </span>
+                  </div>
+                  <LinearProgress
+                    determinate
+                    value={pct(item.count)}
+                    sx={{ height: 8 }}
+                    aria-label={`${getTypeLabel(item.type)}: ${item.count} de ${stats.total}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center gap-2">
+              <ChartPie className="size-5 text-success-text" weight="fill" aria-hidden />
+              <h2 className="text-base font-semibold text-foreground">
+                Formatos de exportación
+              </h2>
+            </div>
+            <div className="space-y-3">
+              {byFormat.map((item) => (
+                <div key={item.format}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      <span aria-hidden>{getFormatIcon(item.format)}</span>{' '}
+                      {item.format.toUpperCase()}
+                    </span>
+                    <span className="text-sm font-semibold tabular-nums text-foreground">
+                      {item.count}
+                    </span>
+                  </div>
+                  <LinearProgress
+                    determinate
+                    value={pct(item.count)}
+                    color={
+                      item.format === 'excel'
+                        ? 'success'
+                        : item.format === 'pdf'
+                          ? 'primary'
+                          : 'neutral'
+                    }
+                    sx={{ height: 8 }}
+                    aria-label={`${item.format.toUpperCase()}: ${item.count} de ${stats.total}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* Filters */}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <Select
-                value={period}
-                onChange={(_, value) => setPeriod(value as string)}
-                sx={{ minWidth: 180 }}
-                startDecorator={<FilterIcon />}
-              >
-                <Option value="7days">Últimos 7 días</Option>
-                <Option value="30days">Últimos 30 días</Option>
-                <Option value="90days">Últimos 90 días</Option>
-                <Option value="year">Este año</Option>
-                <Option value="all">Todos</Option>
-              </Select>
-              <Select
-                value={reportType}
-                onChange={(_, value) => setReportType(value as string)}
-                sx={{ minWidth: 180 }}
-              >
-                <Option value="all">Todos los tipos</Option>
-                <Option value="tickets">Tickets</Option>
-                <Option value="campaigns">Campañas</Option>
-                <Option value="performance">Rendimiento</Option>
-                <Option value="contacts">Contactos</Option>
-                <Option value="users">Usuarios</Option>
-                <Option value="queues">Colas</Option>
-              </Select>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger
+              id="reports-period"
+              aria-label="Filtrar por período"
+              className="h-10 sm:w-[200px]"
+            >
+              <span className="flex items-center gap-2 truncate">
+                <FunnelSimple className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <SelectValue />
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7days">Últimos 7 días</SelectItem>
+              <SelectItem value="30days">Últimos 30 días</SelectItem>
+              <SelectItem value="90days">Últimos 90 días</SelectItem>
+              <SelectItem value="year">Este año</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={reportType} onValueChange={setReportType}>
+            <SelectTrigger
+              id="reports-type"
+              aria-label="Filtrar por tipo de reporte"
+              className="h-10 sm:w-[200px]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los tipos</SelectItem>
+              <SelectItem value="tickets">Tickets</SelectItem>
+              <SelectItem value="campaigns">Campañas</SelectItem>
+              <SelectItem value="performance">Rendimiento</SelectItem>
+              <SelectItem value="contacts">Contactos</SelectItem>
+              <SelectItem value="users">Usuarios</SelectItem>
+              <SelectItem value="queues">Colas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Reports Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 60 }}>Formato</th>
-                  <th style={{ width: 300 }}>Nombre del Reporte</th>
-                  <th style={{ width: 120 }}>Tipo</th>
-                  <th style={{ width: 150 }}>Período</th>
-                  <th style={{ width: 120 }}>Estado</th>
-                  <th style={{ width: 100 }}>Tamaño</th>
-                  <th style={{ width: 180 }}>Fecha Creación</th>
-                  <th style={{ width: 200 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando reportes...</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      Cargando reportes...
                     </td>
                   </tr>
                 ) : filteredReports.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron reportes</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron reportes
                     </td>
                   </tr>
                 ) : (
                   filteredReports.map((report) => (
-                    <tr key={report.id}>
-                      <td>
-                        <Typography fontSize={24}>{getFormatIcon(report.format)}</Typography>
+                    <tr key={report.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <span className="text-2xl leading-none" aria-hidden>
+                          {getFormatIcon(report.format)}
+                        </span>
+                        <span className="sr-only">{report.format.toUpperCase()}</span>
                       </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          {report.name}
-                        </Typography>
+                      <td className="px-4 py-3">
+                        <span className="block font-medium text-foreground">{report.name}</span>
                         {report.description && (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                          <span className="block text-xs text-muted-foreground">
                             {report.description}
-                          </Typography>
+                          </span>
                         )}
                       </td>
-                      <td>
-                        <Chip size="sm" variant="soft">
-                          {getTypeLabel(report.type)}
-                        </Chip>
+                      <td className="px-4 py-3">
+                        <Badge>{getTypeLabel(report.type)}</Badge>
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {report.startDate && report.endDate
-                            ? `${new Date(report.startDate).toLocaleDateString('es-ES')} - ${new Date(report.endDate).toLocaleDateString('es-ES')}`
-                            : '-'}
-                        </Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                        {report.startDate && report.endDate
+                          ? `${new Date(report.startDate).toLocaleDateString('es-ES')} - ${new Date(report.endDate).toLocaleDateString('es-ES')}`
+                          : '-'}
                       </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(report.status)}
-                          startDecorator={getStatusIcon(report.status)}
-                        >
+                      <td className="px-4 py-3">
+                        <Badge variant={getStatusVariant(report.status)}>
+                          {getStatusIcon(report.status)}
                           {getStatusLabel(report.status)}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Typography level="body-sm">{report.fileSize || '-'}</Typography>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                        {report.fileSize || '-'}
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {new Date(report.createdAt).toLocaleString('es-ES')}
-                        </Typography>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                        {new Date(report.createdAt).toLocaleString('es-ES')}
                       </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
                           {report.status === 'completed' && (
                             <>
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="success"
+                              <ActionBtn
+                                label="Descargar"
                                 onClick={() => handleDownload(report)}
-                                title="Descargar"
+                                className="text-success-text hover:bg-success/10 hover:text-success-text"
                               >
-                                <DownloadIcon />
-                              </IconButton>
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="primary"
+                                <DownloadSimple className="size-[18px]" aria-hidden />
+                              </ActionBtn>
+                              <ActionBtn
+                                label="Enviar por email"
                                 onClick={() => handleEmailReport(report)}
-                                title="Enviar por Email"
+                                className="text-primary hover:bg-primary/10 hover:text-primary"
                               >
-                                <EmailIcon />
-                              </IconButton>
+                                <EnvelopeSimple className="size-[18px]" aria-hidden />
+                              </ActionBtn>
                             </>
                           )}
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                          <ActionBtn
+                            label="Eliminar"
                             onClick={() => handleDelete(report.id)}
-                            title="Eliminar"
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Stack>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Generate Report */}
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ minWidth: 600 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Generar Nuevo Reporte
-            </Typography>
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>Nombre del Reporte</FormLabel>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Ej: Reporte de Tickets - Enero 2025"
+      {/* Modal Generate Report */}
+      <Dialog open={openModal} onOpenChange={setOpenModal}>
+        <DialogContent className="max-w-2xl" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>Generar nuevo reporte</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="report-name">Nombre del reporte</Label>
+              <input
+                id="report-name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="Ej: Reporte de Tickets - Enero 2025"
+                className={inputClass}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="report-description">Descripción (opcional)</Label>
+              <textarea
+                id="report-description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Breve descripción del reporte..."
+                rows={2}
+                className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors [font-family:inherit] placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="report-type-field">Tipo de reporte</Label>
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) => setFormData({ ...formData, type: value })}
+                >
+                  <SelectTrigger
+                    id="report-type-field"
+                    aria-label="Tipo de reporte"
+                    className="h-11"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tickets">Tickets</SelectItem>
+                    <SelectItem value="campaigns">Campañas</SelectItem>
+                    <SelectItem value="performance">Rendimiento</SelectItem>
+                    <SelectItem value="contacts">Contactos</SelectItem>
+                    <SelectItem value="users">Usuarios</SelectItem>
+                    <SelectItem value="queues">Colas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="report-format-field">Formato de exportación</Label>
+                <Select
+                  value={formData.format}
+                  onValueChange={(value) => setFormData({ ...formData, format: value })}
+                >
+                  <SelectTrigger
+                    id="report-format-field"
+                    aria-label="Formato de exportación"
+                    className="h-11"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="excel">Excel (.xlsx)</SelectItem>
+                    <SelectItem value="pdf">PDF (.pdf)</SelectItem>
+                    <SelectItem value="csv">CSV (.csv)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="border-t border-border" />
+
+            <h3 className="text-sm font-semibold text-foreground">Período del reporte</h3>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="report-start-date">Fecha inicio</Label>
+                <input
+                  id="report-start-date"
+                  type="date"
+                  value={formData.startDate}
+                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  className={inputClass}
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Descripción (Opcional)</FormLabel>
-                <Textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Breve descripción del reporte..."
-                  minRows={2}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="report-end-date">Fecha fin</Label>
+                <input
+                  id="report-end-date"
+                  type="date"
+                  value={formData.endDate}
+                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  className={inputClass}
                 />
-              </FormControl>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Tipo de Reporte</FormLabel>
-                    <Select
-                      value={formData.type}
-                      onChange={(_, value) => setFormData({ ...formData, type: value as string })}
-                    >
-                      <Option value="tickets">Tickets</Option>
-                      <Option value="campaigns">Campañas</Option>
-                      <Option value="performance">Rendimiento</Option>
-                      <Option value="contacts">Contactos</Option>
-                      <Option value="users">Usuarios</Option>
-                      <Option value="queues">Colas</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Formato de Exportación</FormLabel>
-                    <Select
-                      value={formData.format}
-                      onChange={(_, value) =>
-                        setFormData({ ...formData, format: value as string })
-                      }
-                    >
-                      <Option value="excel">Excel (.xlsx)</Option>
-                      <Option value="pdf">PDF (.pdf)</Option>
-                      <Option value="csv">CSV (.csv)</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
-              <Divider />
-              <Typography level="title-sm">Período del Reporte</Typography>
-              <Grid container spacing={2}>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Fecha Inicio</FormLabel>
-                    <Input
-                      type="date"
-                      value={formData.startDate}
-                      onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={6}>
-                  <FormControl>
-                    <FormLabel>Fecha Fin</FormLabel>
-                    <Input
-                      type="date"
-                      value={formData.endDate}
-                      onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
-              <Divider />
-              <FormControl>
-                <Stack direction="row" spacing={2} alignItems="center">
-                  <FormLabel>Programar Generación</FormLabel>
-                  <input
-                    type="checkbox"
-                    checked={formData.scheduled}
-                    onChange={(e) => setFormData({ ...formData, scheduled: e.target.checked })}
-                  />
-                </Stack>
-              </FormControl>
-              {formData.scheduled && (
-                <FormControl>
-                  <FormLabel>Fecha y Hora de Generación</FormLabel>
-                  <Input
-                    type="datetime-local"
-                    value={formData.scheduledFor}
-                    onChange={(e) => setFormData({ ...formData, scheduledFor: e.target.value })}
-                  />
-                </FormControl>
-              )}
-              <Box
-                sx={{
-                  p: 2,
-                  bgcolor: 'background.level1',
-                  borderRadius: 'sm',
-                }}
-              >
-                <Typography level="body-sm">
-                  <strong>ℹ️ Información:</strong>
-                  <br />
-                  El reporte se generará en segundo plano. Recibirás una notificación cuando esté
-                  listo para descargar. Los reportes grandes pueden tardar varios minutos en
-                  procesarse.
-                </Typography>
-              </Box>
-              <Button color="primary" onClick={handleGenerate} fullWidth>
-                {formData.scheduled ? 'Programar Reporte' : 'Generar Reporte'}
-              </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              </div>
+            </div>
+
+            <div className="border-t border-border" />
+
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="report-scheduled"
+                checked={formData.scheduled}
+                onCheckedChange={(checked) => setFormData({ ...formData, scheduled: checked })}
+              />
+              <Label htmlFor="report-scheduled" className="cursor-pointer">
+                Programar generación
+              </Label>
+            </div>
+
+            {formData.scheduled && (
+              <div className="space-y-1.5">
+                <Label htmlFor="report-scheduled-for">Fecha y hora de generación</Label>
+                <input
+                  id="report-scheduled-for"
+                  type="datetime-local"
+                  value={formData.scheduledFor}
+                  onChange={(e) => setFormData({ ...formData, scheduledFor: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            <div className="flex gap-3 rounded-lg bg-muted p-4">
+              <Info className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <p className="text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">Información:</strong> el reporte
+                se generará en segundo plano. Recibirás una notificación cuando esté listo para
+                descargar. Los reportes grandes pueden tardar varios minutos en procesarse.
+              </p>
+            </div>
+
+            <Button className="w-full" onClick={handleGenerate}>
+              {formData.scheduled ? 'Programar reporte' : 'Generar reporte'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

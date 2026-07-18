@@ -13,10 +13,13 @@ import CreateCompanyService from "../services/CompanyService/CreateCompanyServic
 import { SendMail } from "../helpers/SendMail";
 import { useDate } from "../utils/useDate";
 import User from "../models/User";
+import logger from "../utils/logger";
 
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import ToggleChangeWidthService from "../services/UserServices/ToggleChangeWidthService";
 import APIShowEmailUserService from "../services/UserServices/APIShowEmailUserService";
+import VerifyGoogleIdTokenService from "../services/AuthServices/VerifyGoogleIdTokenService";
 
 
 type IndexQuery = {
@@ -66,12 +69,25 @@ export const get = async (req: Request, res: Response): Promise<Response> => {
     const user = await User.findByPk(id);
     const OnlineUser = user.online
     if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
-//console.log('user online',OnlineUser )
     return res.json({ id: user.id, online: user.online });
   } catch (err) {
     console.error("Error actualizando estado online:", err);
     return res.status(500).json({ error: "Error interno del servidor" });
   }
+};
+
+export const verifyGoogle = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { credential } = req.body;
+  const profile = await VerifyGoogleIdTokenService(credential);
+
+  return res.status(200).json({
+    email: profile.email,
+    name: profile.name,
+    picture: profile.picture
+  });
 };
 
 
@@ -101,8 +117,16 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     showDashboard,
     defaultTicketsManagerWidth = 550,
     allowRealTime,
-    allowConnections
+    allowConnections,
+    referralSlug,
+    ref,
+    googleIdToken
   } = req.body;
+  // Normalizar slug de referencia (afiliado)
+  const referralSlugFinal: string | undefined =
+    (typeof referralSlug === "string" && referralSlug.trim()) ||
+    (typeof ref === "string" && ref.trim()) ||
+    undefined;
   let userCompanyId: number | null = null;
 
   const { dateToClient } = useDate();
@@ -127,6 +151,14 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
   // const companyUser = bodyCompanyId || userCompanyId;
   const companyUser = userCompanyId;
+  let verifiedEmail = typeof email === "string" ? email.trim().toLowerCase() : email;
+  let verifiedName = name;
+
+  if (req.url === "/signup" && googleIdToken) {
+    const googleProfile = await VerifyGoogleIdTokenService(googleIdToken);
+    verifiedEmail = googleProfile.email;
+    verifiedName = name || googleProfile.name || googleProfile.email;
+  }
 
   if (!companyUser) {
 
@@ -137,16 +169,16 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
     const companyData = {
       name: companyName,
-      email: email,
+      email: verifiedEmail,
       phone: phone,
-      planId: planId,
+      planId: 1,
       status: true,
       dueDate: date,
       recurrence: "",
       document: "",
       paymentMethod: "",
       password: password,
-      companyUserName: name,
+      companyUserName: verifiedName,
       startWork: startWork,
       endWork: endWork,
       defaultTheme: 'light',
@@ -157,22 +189,30 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
       showDashboard: 'disabled',
       defaultTicketsManagerWidth: 550,
       allowRealTime: 'disabled',
-      allowConnections: 'disabled'
+      allowConnections: 'disabled',
+      referralSlug: referralSlugFinal
     };
 
     const user = await CreateCompanyService(companyData);
 
     try {
       const _email = {
-        to: email,
+        to: verifiedEmail,
         subject: `Nombre de usuario y contraseña de la empresa ${companyName}`,
-        text: `Hola, ${name}, este es un correo sobre el ${companyName}!<br><br>
-        Introduzca a continuación los datos de su empresa:<br><br>Nombre: ${companyName}<br>Email: ${email}<br>Contraseña: ${password}<br>Fecha de vencimiento de la prueba: ${dateToClient(date)}`
+        text: `Hola, ${verifiedName}, este es un correo sobre el ${companyName}!<br><br>
+        Introduzca a continuación los datos de su empresa:<br><br>Nombre: ${companyName}<br>Email: ${verifiedEmail}<br>Contraseña: ${password}<br>Fecha de vencimiento de la prueba: ${dateToClient(date)}`
       }
 
       await SendMail(_email)
-    } catch (error) {
-      //console.log('No pude enviar el correo electrónico')
+    } catch (error: any) {
+      // BUG fix: antes el catch estaba VACÍO (log comentado). Si el correo de credenciales
+      // fallaba (Listmonk + SMTP caídos, email inválido…), la empresa se creaba igual y se
+      // devolvía 200, pero el usuario NUNCA recibía su usuario/contraseña y no quedaba rastro.
+      // Ahora se registra el fallo para que operaciones pueda detectarlo y reenviar manualmente.
+      logger.error(
+        `[UserController] No se pudo enviar el correo de credenciales a ${verifiedEmail} ` +
+        `(empresa "${companyName}"): ${error?.message || error}`
+      );
     }
 
     return res.status(200).json(user);
@@ -349,8 +389,14 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.query;
   const { companyId: userCompanyId } = req.user;
 
+  // [Seguridad] El `companyId` del query SOLO lo puede usar un super (paneles de plataforma).
+  // Antes cualquier usuario autenticado listaba usuarios de otra empresa con ?companyId=N,
+  // devolviendo nombres y EMAILS (PII) ajenos. Verificado y cerrado 2026-07-15.
+  const isSuper = req.user?.super === true;
+  const effectiveCompanyId = isSuper && companyId ? +companyId : userCompanyId;
+
   const users = await SimpleListService({
-    companyId: companyId ? +companyId : userCompanyId
+    companyId: effectiveCompanyId
   });
 
   return res.status(200).json(users);
@@ -388,7 +434,7 @@ export const mediaUpload = async (
 };
 
 export const toggleChangeWidht = async (req: Request, res: Response): Promise<Response> => {
-  var { userId } = req.params;
+  const { userId } = req.params;
   const { defaultTicketsManagerWidth } = req.body;
 
   const { companyId } = req.user;

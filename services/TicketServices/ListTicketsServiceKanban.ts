@@ -9,7 +9,8 @@ import User from "../../models/User";
 import ShowUserService from "../UserServices/ShowUserService";
 import Tag from "../../models/Tag";
 import TicketTag from "../../models/TicketTag";
-import { intersection } from "lodash";
+import lodash from "lodash";
+const { intersection } = lodash;
 import Whatsapp from "../../models/Whatsapp";
 
 interface Request {
@@ -62,6 +63,12 @@ const ListTicketsServiceKanban = async ({
   const restrictedQueueIds = hasQueueFilter
     ? intersection(userQueueIds, requestedQueueIds)
     : userQueueIds;
+  // [Ola bugs 2026-07] Paridad con ListTicketsService: un agente de perfil "user" con
+  // una conexión WhatsApp asignada solo debe ver tickets de ESA conexión. El Kanban no
+  // lo aplicaba, así que ese agente veía en el Kanban tickets de otras conexiones de sus
+  // mismas colas (inconsistencia de visibilidad; misma empresa/colas, no cross-tenant).
+  const shouldRestrictByAssignedWhatsapp =
+    user.profile === "user" && user.whatsappId !== undefined && user.whatsappId !== null;
 
   const getQueueVisibilityCondition = ({
     includeWithoutQueue = showTicketWithoutQueue,
@@ -234,7 +241,7 @@ const ListTicketsServiceKanban = async ({
 
   if (Array.isArray(tags) && tags.length > 0) {
     const ticketsTagFilter: any[] | null = [];
-    for (let tag of tags) {
+    for (const tag of tags) {
       const ticketTags = await TicketTag.findAll({
         where: { tagId: tag }
       });
@@ -255,7 +262,7 @@ const ListTicketsServiceKanban = async ({
 
   if (Array.isArray(users) && users.length > 0) {
     const ticketsUserFilter: any[] | null = [];
-    for (let user of users) {
+    for (const user of users) {
       const ticketUsers = await Ticket.findAll({
         where: { userId: user }
       });
@@ -281,6 +288,16 @@ const ListTicketsServiceKanban = async ({
     ...whereCondition,
     companyId
   };
+
+  // Se aplica al final, tras toda la lógica por-status (como el listado principal en
+  // ListTicketsService), para que ninguna reconstrucción posterior de whereCondition
+  // lo pise. Solo NARROWS la visibilidad de agentes "user" con conexión asignada.
+  if (shouldRestrictByAssignedWhatsapp) {
+    whereCondition = {
+      ...whereCondition,
+      whatsappId: user.whatsappId
+    };
+  }
 
   const { count, rows: tickets } = await Ticket.findAndCountAll({
     where: whereCondition,

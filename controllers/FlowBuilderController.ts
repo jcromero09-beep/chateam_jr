@@ -24,7 +24,6 @@ export const createFlow = async (
   const { name } = req.body;
   const userId = req.user.id;
   const { companyId } = req.user;
-//console.log('createFlow',req.body)
   const flow = await CreateFlowBuilderService({
     userId,
     name,
@@ -103,14 +102,12 @@ export const FlowDataUpdate = async (
   res: Response
 ): Promise<Response> => {
   const userId = req.user.id;
-  //console.log('FlowDataUpdate',req.body)
   const bodyData = req.body;
 
   const { companyId } = req.user;
 
   const keys = Object.keys(bodyData);
 
-  //console.log(keys);
 
   const webhook = await FlowUpdateDataService({
     companyId,

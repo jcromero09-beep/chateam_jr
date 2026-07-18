@@ -145,7 +145,7 @@ export const classifyComment = async (req: Request, res: Response): Promise<Resp
       classification.commentType,
       classification.sentiment,
       classification.purchaseIntentScore,
-      "gpt-4o-mini"
+      "gpt-5.5"
     );
 
     await comment.reload();

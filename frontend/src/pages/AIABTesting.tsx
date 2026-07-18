@@ -5,48 +5,48 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  Input,
-  Textarea,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-} from '@mui/joy';
-import {
-  FlaskConical,
+  Flask,
   Plus,
   Play,
   Pause,
-  RefreshCw,
+  ArrowClockwise,
   Trophy,
   X,
-  CheckCircle2,
-  CircleDot,
+  CheckCircle,
+  Circle,
   Clock,
   FileText,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
+import { Button } from '@/components/ui/button';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { RowAction } from '@/components/ui/row-action';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import api from '../services/api';
 
 // Logging solo en desarrollo
 const isDev = import.meta.env.DEV;
 const devLog = (...args: unknown[]) => { if (isDev) console.log(...args); };
 const devError = (...args: unknown[]) => { if (isDev) console.error(...args); };
+
+// Clases compartidas para campos de formulario (mismo look que el <Input> del DS)
+const fieldClass =
+  'w-full rounded-md border border-input bg-card text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-55';
 
 // Tipos
 type ABTestStatus = 'draft' | 'running' | 'paused' | 'completed';
@@ -106,12 +106,12 @@ const INITIAL_FORM: CreateTestForm = {
 
 const STATUS_CONFIG: Record<
   ABTestStatus,
-  { label: string; color: 'neutral' | 'primary' | 'warning' | 'success' | 'danger'; icon: React.ReactNode }
+  { label: string; variant: BadgeProps['variant']; icon: React.ReactNode }
 > = {
-  draft: { label: 'Borrador', color: 'neutral', icon: <FileText size={12} /> },
-  running: { label: 'Activo', color: 'success', icon: <CircleDot size={12} /> },
-  paused: { label: 'Pausado', color: 'warning', icon: <Pause size={12} /> },
-  completed: { label: 'Completado', color: 'primary', icon: <CheckCircle2 size={12} /> },
+  draft: { label: 'Borrador', variant: 'neutral', icon: <FileText className="size-3" aria-hidden /> },
+  running: { label: 'Activo', variant: 'success', icon: <Circle className="size-3" weight="fill" aria-hidden /> },
+  paused: { label: 'Pausado', variant: 'warning', icon: <Pause className="size-3" weight="fill" aria-hidden /> },
+  completed: { label: 'Completado', variant: 'primary', icon: <CheckCircle className="size-3" weight="fill" aria-hidden /> },
 };
 
 export default function AIABTesting() {
@@ -231,6 +231,12 @@ export default function AIABTesting() {
     }
   };
 
+  const closeModal = () => {
+    setModalOpen(false);
+    setForm(INITIAL_FORM);
+    setFormError(null);
+  };
+
   // ─── Formateo ────────────────────────────────────────────────────────────
   const formatDate = (iso?: string) => {
     if (!iso) return '—';
@@ -248,345 +254,343 @@ export default function AIABTesting() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <FlaskConical size={28} color="var(--joy-palette-primary-500)" />
-            Tests A/B de IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Experimenta y compara variantes de prompts para optimizar resultados
-          </Typography>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Flask className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Tests A/B de IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Experimenta y compara variantes de prompts para optimizar resultados
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={loadTests} loading={loading}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
+            </Button>
+            <Button size="sm" onClick={() => setModalOpen(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Crear Test
+            </Button>
+          </div>
+        </div>
 
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startDecorator={<RefreshCw size={14} />}
-            onClick={loadTests}
-            loading={loading}
+        {/* Error */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
           >
-            Actualizar
-          </Button>
-          <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
-            Crear Test
-          </Button>
-        </Box>
-      </Box>
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-destructive/15"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* Error */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 3 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
+        {/* ── Stats Cards ──────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center gap-2">
+              <Flask className="size-[18px] text-muted-foreground" aria-hidden />
+              <p className="text-sm text-muted-foreground">Total Tests</p>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {stats.total}
+              </p>
+            )}
+          </div>
 
-      {/* ── Stats Cards ──────────────────────────────────────────────────── */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <FlaskConical size={18} color="var(--joy-palette-neutral-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Total Tests
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">{stats.total}</Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center gap-2">
+              <Circle className="size-[18px] text-success-text" weight="fill" aria-hidden />
+              <p className="text-sm text-muted-foreground">Activos</p>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+                {stats.active}
+              </p>
+            )}
+          </div>
 
-        <Grid xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <CircleDot size={18} color="var(--joy-palette-success-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Activos
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3" sx={{ color: 'success.500' }}>
-                  {stats.active}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-[18px] text-primary" weight="fill" aria-hidden />
+              <p className="text-sm text-muted-foreground">Completados</p>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-primary">
+                {stats.completed}
+              </p>
+            )}
+          </div>
+        </div>
 
-        <Grid xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <CheckCircle2 size={18} color="var(--joy-palette-primary-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Completados
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3" sx={{ color: 'primary.500' }}>
-                  {stats.completed}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* ── Tabla de tests ─────────────────────────────────────────────────── */}
-      <Card>
-        <CardContent>
-          <Typography level="title-md" sx={{ mb: 2 }}>
-            Lista de Tests
-          </Typography>
+        {/* ── Tabla de tests ─────────────────────────────────────────────────── */}
+        <div>
+          <h2 className="mb-3 text-base font-semibold text-foreground">Lista de Tests</h2>
 
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+            <div className="flex justify-center rounded-xl border border-border bg-card py-12">
               <CircularProgress size="lg" />
-            </Box>
+            </div>
           ) : tests.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 8, color: 'text.tertiary' }}>
-              <FlaskConical size={48} />
-              <Typography level="body-md" sx={{ mt: 2 }}>
+            <div className="flex flex-col items-center rounded-xl border border-border bg-card px-4 py-12 text-center">
+              <Flask className="size-12 text-muted-foreground" aria-hidden />
+              <p className="mt-3 text-sm font-medium text-foreground">
                 No hay tests A/B creados aún
-              </Typography>
-              <Typography level="body-sm" sx={{ mt: 0.5, mb: 3 }}>
+              </p>
+              <p className="mt-1 mb-5 text-sm text-muted-foreground">
                 Crea tu primer experimento para comparar variantes de prompts
-              </Typography>
-              <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
+              </p>
+              <Button size="sm" onClick={() => setModalOpen(true)}>
+                <Plus className="size-4" weight="bold" aria-hidden />
                 Crear primer Test
               </Button>
-            </Box>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto', borderRadius: 'sm' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ minWidth: 200 }}>Nombre</th>
-                    <th style={{ width: 130, textAlign: 'center' }}>Estado</th>
-                    <th style={{ width: 100, textAlign: 'center' }}>Variantes</th>
-                    <th style={{ width: 130 }}>Fecha inicio</th>
-                    <th style={{ width: 160 }}>Ganador</th>
-                    <th style={{ width: 120, textAlign: 'center' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tests.map((test) => {
-                    const statusCfg = STATUS_CONFIG[test.status] ?? STATUS_CONFIG.draft;
-                    const isActioning = actionLoading === test.id;
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="min-w-[200px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Nombre
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Estado
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Variantes
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Fecha inicio
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Ganador
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {tests.map((test) => {
+                      const statusCfg = STATUS_CONFIG[test.status] ?? STATUS_CONFIG.draft;
+                      const isActioning = actionLoading === test.id;
 
-                    return (
-                      <tr key={test.id}>
-                        <td>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="lg">
-                              {test.name}
-                            </Typography>
-                            {test.description && (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                {test.description.substring(0, 60)}
-                                {test.description.length > 60 ? '...' : ''}
-                              </Typography>
+                      return (
+                        <tr key={test.id} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3">
+                            <div>
+                              <p className="font-semibold text-foreground">{test.name}</p>
+                              {test.description && (
+                                <p className="text-xs text-muted-foreground">
+                                  {test.description.substring(0, 60)}
+                                  {test.description.length > 60 ? '...' : ''}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <Badge variant={statusCfg.variant}>
+                              {statusCfg.icon}
+                              {statusCfg.label}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-center tabular-nums text-foreground">
+                            {getVariantsCount(test)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3">
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Clock className="size-3.5" aria-hidden />
+                              <span className="text-xs">
+                                {formatDate(test.startDate ?? test.createdAt)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {test.winner ? (
+                              <div className="flex items-center gap-1.5">
+                                <Trophy className="size-4 text-warning-text" weight="fill" aria-hidden />
+                                <span className="text-sm text-warning-text">{test.winner}</span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {test.status === 'completed' ? 'Sin ganador' : '—'}
+                              </span>
                             )}
-                          </Box>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <Chip
-                            size="sm"
-                            color={statusCfg.color}
-                            variant="soft"
-                            startDecorator={statusCfg.icon}
-                          >
-                            {statusCfg.label}
-                          </Chip>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <Typography level="body-sm">{getVariantsCount(test)}</Typography>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Clock size={12} color="var(--joy-palette-text-tertiary)" />
-                            <Typography level="body-xs">
-                              {formatDate(test.startDate ?? test.createdAt)}
-                            </Typography>
-                          </Box>
-                        </td>
-                        <td>
-                          {test.winner ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <Trophy size={14} color="var(--joy-palette-warning-500)" />
-                              <Typography level="body-sm" sx={{ color: 'warning.600' }}>
-                                {test.winner}
-                              </Typography>
-                            </Box>
-                          ) : (
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {test.status === 'completed' ? 'Sin ganador' : '—'}
-                            </Typography>
-                          )}
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            {(test.status === 'draft' || test.status === 'paused') && (
-                              <Button
-                                size="sm"
-                                color="success"
-                                variant="soft"
-                                startDecorator={
-                                  isActioning ? <CircularProgress size="sm" /> : <Play size={14} />
-                                }
-                                disabled={isActioning}
-                                onClick={() => handleStart(test.id)}
-                              >
-                                Iniciar
-                              </Button>
-                            )}
-                            {test.status === 'running' && (
-                              <Button
-                                size="sm"
-                                color="warning"
-                                variant="soft"
-                                startDecorator={
-                                  isActioning ? <CircularProgress size="sm" /> : <Pause size={14} />
-                                }
-                                disabled={isActioning}
-                                onClick={() => handlePause(test.id)}
-                              >
-                                Pausar
-                              </Button>
-                            )}
-                            {test.status === 'completed' && (
-                              <Chip size="sm" color="primary" variant="plain">
-                                Finalizado
-                              </Chip>
-                            )}
-                          </Box>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
-            </Sheet>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {(test.status === 'draft' || test.status === 'paused') && (
+                                <button
+                                  type="button"
+                                  disabled={isActioning}
+                                  onClick={() => handleStart(test.id)}
+                                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-success/14 px-3 text-xs font-medium text-success-text transition-colors hover:bg-success/20 disabled:cursor-not-allowed disabled:opacity-55"
+                                >
+                                  {isActioning ? (
+                                    <CircularProgress size="sm" />
+                                  ) : (
+                                    <Play className="size-3.5" weight="fill" aria-hidden />
+                                  )}
+                                  Iniciar
+                                </button>
+                              )}
+                              {test.status === 'running' && (
+                                <button
+                                  type="button"
+                                  disabled={isActioning}
+                                  onClick={() => handlePause(test.id)}
+                                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-warning/16 px-3 text-xs font-medium text-warning-text transition-colors hover:bg-warning/24 disabled:cursor-not-allowed disabled:opacity-55"
+                                >
+                                  {isActioning ? (
+                                    <CircularProgress size="sm" />
+                                  ) : (
+                                    <Pause className="size-3.5" weight="fill" aria-hidden />
+                                  )}
+                                  Pausar
+                                </button>
+                              )}
+                              {test.status === 'completed' && (
+                                <Badge variant="primary">Finalizado</Badge>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* ── Modal Crear Test ──────────────────────────────────────────────── */}
-      <Modal open={modalOpen} onClose={() => { setModalOpen(false); setForm(INITIAL_FORM); setFormError(null); }}>
-        <ModalDialog sx={{ minWidth: { xs: '90vw', sm: 480 } }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            Crear nuevo Test A/B
-          </Typography>
+      <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) closeModal(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Crear nuevo Test A/B</DialogTitle>
+          </DialogHeader>
 
           {formError && (
-            <Alert color="danger" size="sm" sx={{ mb: 2 }}>
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/12 px-3 py-2 text-sm text-destructive-text"
+            >
               {formError}
-            </Alert>
+            </div>
           )}
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <FormControl required>
-              <FormLabel>Nombre del test</FormLabel>
-              <Input
+          <div className="flex flex-col gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="abtest-name">Nombre del test</Label>
+              <input
+                id="abtest-name"
+                className={`${fieldClass} h-11 px-3.5`}
                 placeholder="Ej: Test de tono de respuesta"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
               />
-            </FormControl>
+            </div>
 
-            <FormControl>
-              <FormLabel>Descripción (opcional)</FormLabel>
-              <Textarea
+            <div className="space-y-1.5">
+              <Label htmlFor="abtest-description">Descripción (opcional)</Label>
+              <textarea
+                id="abtest-description"
+                className={`${fieldClass} min-h-[64px] resize-y px-3.5 py-2.5`}
+                rows={2}
                 placeholder="Describe el objetivo del experimento..."
-                minRows={2}
-                maxRows={4}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
-            </FormControl>
+            </div>
 
-            <FormControl required>
-              <FormLabel>Tipo de test</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="abtest-type">Tipo de test</Label>
               <Select
                 value={form.testType}
-                onChange={(_e, val) => val && setForm({ ...form, testType: val as TestType })}
+                onValueChange={(val) => setForm({ ...form, testType: val as TestType })}
               >
-                {Object.entries(TEST_TYPE_LABELS).map(([key, label]) => (
-                  <Option key={key} value={key}>{label}</Option>
-                ))}
+                <SelectTrigger id="abtest-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TEST_TYPE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
-            </FormControl>
+            </div>
 
             {/* Variantes */}
-            <Typography level="title-sm" sx={{ mt: 1 }}>
+            <p className="text-sm font-semibold text-foreground">
               Variantes ({form.variants.length})
-            </Typography>
+            </p>
             {form.variants.map((v, idx) => (
-              <Card key={idx} variant="outlined" size="sm" sx={{ p: 1.5 }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
-                  <Input
-                    size="sm"
+              <div key={idx} className="space-y-2 rounded-lg border border-border p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    className={`${fieldClass} h-9 flex-1 px-3`}
                     placeholder={`Variante ${idx + 1}`}
+                    aria-label={`Nombre variante ${idx + 1}`}
                     value={v.name}
                     onChange={(e) => {
                       const updated = [...form.variants];
                       updated[idx] = { ...updated[idx], name: e.target.value };
                       setForm({ ...form, variants: updated });
                     }}
-                    sx={{ flex: 1 }}
                   />
-                  <Chip size="sm" variant="soft" color={idx === 0 ? 'primary' : 'neutral'}>
+                  <Badge variant={idx === 0 ? 'primary' : 'neutral'}>
                     {idx === 0 ? 'Control' : `Var ${idx}`}
-                  </Chip>
+                  </Badge>
                   {form.variants.length > 2 && (
-                    <IconButton
-                      size="sm"
-                      variant="plain"
-                      color="danger"
-                      onClick={() => {
-                        const updated = form.variants.filter((_, i) => i !== idx);
-                        setForm({ ...form, variants: updated });
-                      }}
+                    <RowAction
+                      label="Eliminar variante"
+                      className="hover:bg-destructive/10 hover:text-destructive-text"
                     >
-                      <X size={14} />
-                    </IconButton>
+                      <button
+                        type="button"
+                        aria-label="Eliminar variante"
+                        onClick={() => {
+                          const updated = form.variants.filter((_, i) => i !== idx);
+                          setForm({ ...form, variants: updated });
+                        }}
+                        className="flex size-full items-center justify-center"
+                      >
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </RowAction>
                   )}
-                </Box>
-                <Textarea
-                  size="sm"
-                  minRows={2}
-                  maxRows={5}
+                </div>
+                <textarea
+                  className={`${fieldClass} min-h-[56px] resize-y px-3 py-2 font-mono text-xs`}
+                  rows={2}
+                  aria-label={`Configuración variante ${idx + 1}`}
                   placeholder={
                     form.testType === 'classifier_prompt'
                       ? '{"classifierPrompt": "Tu prompt personalizado aquí... usa {CONVERSATION} como placeholder"}'
@@ -599,41 +603,39 @@ export default function AIABTesting() {
                     setForm({ ...form, variants: updated });
                   }}
                 />
-              </Card>
+              </div>
             ))}
             {form.variants.length < 4 && (
               <Button
+                variant="outline"
                 size="sm"
-                variant="soft"
                 onClick={() => setForm({
                   ...form,
                   variants: [...form.variants, { name: `Variante ${String.fromCharCode(66 + form.variants.length - 1)}`, configJson: '{}' }]
                 })}
               >
-                + Agregar variante
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Agregar variante
               </Button>
             )}
+          </div>
 
-            <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'flex-end', mt: 1 }}>
-              <Button
-                variant="outlined"
-                onClick={() => { setModalOpen(false); setForm(INITIAL_FORM); setFormError(null); }}
-                disabled={creating}
-              >
-                Cancelar
-              </Button>
-              <Button
-                startDecorator={creating ? <CircularProgress size="sm" /> : <Plus size={16} />}
-                loading={creating}
-                disabled={!form.name.trim()}
-                onClick={handleCreate}
-              >
-                Crear Test
-              </Button>
-            </Box>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Box>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={closeModal} disabled={creating}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              loading={creating}
+              disabled={!form.name.trim()}
+              onClick={handleCreate}
+            >
+              {!creating && <Plus className="size-4" weight="bold" aria-hidden />}
+              Crear Test
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

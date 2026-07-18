@@ -14,7 +14,7 @@ const UpdateFlowDefaultService = async ({
   companyId,
   flowIdWelcome,
   flowIdPhrase
-}: Request): Promise<String> => {
+}: Request): Promise<string> => {
   try {
 
     const flow = await FlowDefaultModel.update({ flowIdWelcome, flowIdNotPhrase: flowIdPhrase }, {

@@ -1,48 +1,56 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Textarea,
-  Select,
-  Option,
-  CircularProgress,
-  Tooltip,
-  Switch,
-} from '@mui/joy'
-import {
-  Speed as QuickRepliesIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  ContentCopy as CopyIcon,
-  AttachFile as AttachFileIcon,
-  CloudUpload as CloudUploadIcon,
-  Close as CloseIcon,
-  InsertDriveFile as FileIcon,
-  Image as ImageIcon,
-  VideoFile as VideoFileIcon,
-  AudioFile as AudioFileIcon,
-  AutoAwesome as AutoAwesomeIcon,
-} from '@mui/icons-material'
+  Lightning,
+  ArrowClockwise,
+  Plus,
+  MagnifyingGlass,
+  Copy,
+  PencilSimple,
+  Trash,
+  FileImage,
+  FileVideo,
+  FileAudio,
+  File as FileIcon,
+  CloudArrowUp,
+  X,
+  Sparkle,
+  Paperclip,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { StatTile } from '@/components/ui/stat-tile'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
+
+/** Botón de acción de fila (mismo look que row-action, pero con onClick). */
+function IconAction({
+  label,
+  className,
+  onClick,
+  children,
+}: {
+  label: string
+  className?: string
+  onClick?: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
 
 interface QuickMessage {
   id: number
@@ -55,6 +63,8 @@ interface QuickMessage {
   createdAt: string
   /** Descripción semántica para búsqueda por IA */
   intent?: string
+  /** Key estable para matching por IA */
+  intentKey?: string
   /** Si está habilitado para uso por el orquestador IA */
   isAiEnabled?: boolean
 }
@@ -64,12 +74,17 @@ const isImageFile = (name: string): boolean => /\.(jpg|jpeg|png|gif|webp|bmp|svg
 const isVideoFile = (name: string): boolean => /\.(mp4|mov|avi|webm|mkv)$/i.test(name)
 const isAudioFile = (name: string): boolean => /\.(mp3|wav|ogg|opus|aac|m4a)$/i.test(name)
 
-const getFileIcon = (name: string) => {
-  if (isImageFile(name)) return <ImageIcon />
-  if (isVideoFile(name)) return <VideoFileIcon />
-  if (isAudioFile(name)) return <AudioFileIcon />
-  return <FileIcon />
+const getFileIcon = (name: string, className = 'size-[18px]') => {
+  if (isImageFile(name)) return <FileImage className={className} aria-hidden />
+  if (isVideoFile(name)) return <FileVideo className={className} aria-hidden />
+  if (isAudioFile(name)) return <FileAudio className={className} aria-hidden />
+  return <FileIcon className={className} aria-hidden />
 }
+
+// Funcionalidad de IA semántica ("Habilitar para IA" / intent / key) temporalmente
+// desactivada. Cambiar a true para reactivar el toggle del modal, la tarjeta
+// "Habilitados para IA" y la columna "IA" de la tabla.
+const AI_FEATURES_ENABLED = false
 
 export default function QuickReplies() {
   const [messages, setMessages] = useState<QuickMessage[]>([])
@@ -82,6 +97,7 @@ export default function QuickReplies() {
     shortcode: '',
     message: '',
     geral: true,
+    intentKey: '',
     intent: '',
     isAiEnabled: false,
   })
@@ -91,6 +107,8 @@ export default function QuickReplies() {
   const [existingMedia, setExistingMedia] = useState<{ path: string; name: string } | null>(null)
   const [removeMedia, setRemoveMedia] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [suggestingIntent, setSuggestingIntent] = useState(false)
+  const [redrafting, setRedrafting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -135,10 +153,101 @@ export default function QuickReplies() {
     await api.delete(`/quick-messages/${quickMessageId}/media-upload`)
   }
 
+  const fileToDataUrl = (file: File): Promise<string> => (
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  )
+
+  const requestAiIntentSuggestion = async () => {
+    let mediaDataUrl: string | undefined
+
+    if (selectedFile?.type.startsWith('image/') && selectedFile.size <= 4 * 1024 * 1024) {
+      mediaDataUrl = await fileToDataUrl(selectedFile)
+    }
+
+    const response = await api.post('/quick-messages/ai/suggest-intent', {
+      shortcode: formData.shortcode,
+      message: formData.message,
+      mediaName: selectedFile?.name || existingMedia?.name,
+      mediaUrl: !selectedFile ? existingMedia?.path : undefined,
+      mediaDataUrl,
+    })
+
+    return response.data || {}
+  }
+
+  const ensureAiIntentBeforeSave = async () => {
+    if (!formData.isAiEnabled || (formData.intent.trim() && formData.intentKey.trim())) {
+      return formData
+    }
+
+    try {
+      const suggestion = await requestAiIntentSuggestion()
+      const nextFormData = {
+        ...formData,
+        intentKey: formData.intentKey || suggestion.intentKey || '',
+        intent: formData.intent || suggestion.intent || '',
+      }
+      setFormData(nextFormData)
+      return nextFormData
+    } catch (error) {
+      console.error('Error ensuring AI intent:', error)
+      return formData
+    }
+  }
+
+  const handleSuggestAiIntent = async () => {
+    try {
+      setSuggestingIntent(true)
+      setFormData((prev) => ({
+        ...prev,
+        isAiEnabled: true,
+        intentKey: '',
+        intent: '',
+      }))
+      const suggestion = await requestAiIntentSuggestion()
+
+      setFormData((prev) => ({
+        ...prev,
+        isAiEnabled: true,
+        intentKey: suggestion.intentKey || '',
+        intent: suggestion.intent || '',
+      }))
+    } catch (error) {
+      console.error('Error generating AI intent:', error)
+    } finally {
+      setSuggestingIntent(false)
+    }
+  }
+
+  const handleRedraftWithAI = async () => {
+    if (!formData.message.trim()) return
+    try {
+      setRedrafting(true)
+      const response = await api.post('/quick-messages/ai/redraft', {
+        shortcode: formData.shortcode,
+        message: formData.message,
+      })
+      const redrafted = response.data?.message
+      if (redrafted && typeof redrafted === 'string') {
+        setFormData((prev) => ({ ...prev, message: redrafted }))
+      }
+    } catch (error) {
+      console.error('Error redactando con IA:', error)
+    } finally {
+      setRedrafting(false)
+    }
+  }
+
   const handleCreate = async () => {
     try {
       setUploading(true)
-      const response = await api.post('/quick-messages', formData)
+      const payload = await ensureAiIntentBeforeSave()
+      const response = await api.post('/quick-messages', payload)
       const newId = response.data.id
       if (selectedFile && newId) {
         await uploadMedia(newId)
@@ -161,7 +270,8 @@ export default function QuickReplies() {
       if (removeMedia && !selectedFile && existingMedia) {
         await deleteMediaFromServer(selectedMessage.id)
       }
-      await api.put(`/quick-messages/${selectedMessage.id}`, formData)
+      const payload = await ensureAiIntentBeforeSave()
+      await api.put(`/quick-messages/${selectedMessage.id}`, payload)
       // Si hay nuevo archivo, subir (si había media anterior, el backend la reemplaza)
       if (selectedFile) {
         if (existingMedia) {
@@ -201,6 +311,7 @@ export default function QuickReplies() {
       shortcode: message.shortcode,
       message: message.message,
       geral: message.geral ?? true,
+      intentKey: message.intentKey || '',
       intent: message.intent || '',
       isAiEnabled: message.isAiEnabled ?? false,
     })
@@ -225,6 +336,7 @@ export default function QuickReplies() {
       shortcode: '',
       message: '',
       geral: true,
+      intentKey: '',
       intent: '',
       isAiEnabled: false,
     })
@@ -253,7 +365,9 @@ export default function QuickReplies() {
   const filteredMessages = messages.filter((msg) => {
     const matchesSearch =
       msg.shortcode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+      msg.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (msg.intent || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (msg.intentKey || '').toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesCategory =
       categoryFilter === 'all' ||
@@ -271,479 +385,486 @@ export default function QuickReplies() {
     aiEnabled: messages.filter((m) => m.isAiEnabled).length,
   }
 
+  const statTiles: { label: string; value: string; tone: 'primary' | 'success' | 'neutral' }[] = [
+    { label: 'Total mensajes', value: String(stats.total), tone: 'neutral' },
+    { label: 'Globales', value: String(stats.global), tone: 'success' },
+    { label: 'Personales', value: String(stats.personal), tone: 'primary' },
+    { label: 'Con archivos', value: String(stats.withMedia), tone: 'neutral' },
+    ...(AI_FEATURES_ENABLED
+      ? [{ label: 'Habilitados IA', value: String(stats.aiEnabled), tone: 'primary' as const }]
+      : []),
+  ]
+
+  const columns = ['Atajo', 'Mensaje', 'Tipo', 'Archivo', ...(AI_FEATURES_ENABLED ? ['IA'] : []), 'Creado', '']
+  const colSpan = columns.length
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <QuickRepliesIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Mensajes Rápidos</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Lightning className="size-6" weight="fill" aria-hidden />
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Mensajes Rápidos</h1>
+              <p className="text-sm text-muted-foreground">
                 Respuestas predefinidas para agilizar las conversaciones
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchMessages}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
-              Nuevo Mensaje
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              onClick={fetchMessages}
+              className="text-muted-foreground"
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
             </Button>
-          </Stack>
-        </Stack>
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nuevo mensaje
+            </Button>
+          </div>
+        </div>
 
         {/* Stats */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Total Mensajes
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Globales
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.global}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Personales
-                </Typography>
-                <Typography level="h2" sx={{ color: 'primary.main' }}>
-                  {stats.personal}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Con Archivos
-                </Typography>
-                <Typography level="h2">{stats.withMedia}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card sx={{ bgcolor: 'primary.softBg' }}>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  Habilitados para IA
-                </Typography>
-                <Typography level="h2" sx={{ color: 'primary.500' }}>
-                  {stats.aiEnabled}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          {statTiles.map((s) => (
+            <StatTile key={s.label} label={s.label} value={s.value} tone={s.tone} />
+          ))}
+        </div>
 
         {/* Filters */}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <Input
-                placeholder="Buscar mensajes rápidos..."
-                startDecorator={<SearchIcon />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ flexGrow: 1 }}
-              />
-              <Select
-                value={categoryFilter}
-                onChange={(_, value) => setCategoryFilter(value as string)}
-                sx={{ minWidth: 180 }}
-              >
-                <Option value="all">Todos</Option>
-                <Option value="global">Globales</Option>
-                <Option value="personal">Personales</Option>
-              </Select>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="w-full sm:max-w-md">
+            <Input
+              placeholder="Buscar mensajes rápidos"
+              aria-label="Buscar mensajes rápidos"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              leftIcon={<MagnifyingGlass aria-hidden />}
+            />
+          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="Filtrar por tipo"
+            className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:w-48"
+          >
+            <option value="all">Todos</option>
+            <option value="global">Globales</option>
+            <option value="personal">Personales</option>
+          </select>
+        </div>
 
-        {/* Quick Messages Table */}
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        {/* Table */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 150 }}>Atajo</th>
-                  <th>Mensaje</th>
-                  <th style={{ width: 100 }}>Tipo</th>
-                  <th style={{ width: 100 }}>Archivo</th>
-                  <th style={{ width: 60 }}>IA</th>
-                  <th style={{ width: 180 }}>Fecha Creación</th>
-                  <th style={{ width: 180 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando mensajes...</Typography>
+                    <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                      Cargando mensajes...
                     </td>
                   </tr>
                 ) : filteredMessages.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron mensajes</Typography>
+                    <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron mensajes
                     </td>
                   </tr>
                 ) : (
                   filteredMessages.map((message) => (
-                    <tr key={message.id}>
-                      <td>
-                        <Chip size="sm" variant="soft" color="primary">
+                    <tr key={message.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <span className="rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                           {message.shortcode}
-                        </Chip>
+                        </span>
                       </td>
-                      <td>
-                        <Typography level="body-sm" noWrap sx={{ maxWidth: 400 }}>
-                          {message.message}
-                        </Typography>
+                      <td className="max-w-md px-4 py-3 text-muted-foreground">
+                        <span className="line-clamp-1">{message.message}</span>
                       </td>
-                      <td>
-                        <Chip size="sm" color={message.geral ? 'success' : 'neutral'}>
+                      <td className="px-4 py-3">
+                        <Badge variant={message.geral ? 'accent' : 'neutral'}>
                           {message.geral ? 'Global' : 'Personal'}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
+                      <td className="px-4 py-3">
                         {message.mediaPath ? (
-                          <Tooltip title={message.mediaName || 'Ver archivo'}>
-                            <IconButton
-                              size="sm"
-                              variant="soft"
-                              color="primary"
-                              onClick={() => window.open(message.mediaPath, '_blank')}
-                            >
-                              {getFileIcon(message.mediaName || '')}
-                            </IconButton>
-                          </Tooltip>
+                          <IconAction
+                            label={message.mediaName || 'Ver archivo'}
+                            className="text-primary hover:text-primary"
+                            onClick={() => window.open(message.mediaPath, '_blank')}
+                          >
+                            {getFileIcon(message.mediaName || '')}
+                          </IconAction>
                         ) : (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            -
-                          </Typography>
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td>
-                        {message.isAiEnabled ? (
-                          <Tooltip title={`Intent: ${message.intent || '(sin descripción)'}`}>
-                            <Chip
-                              size="sm"
-                              color="primary"
-                              variant="soft"
-                              startDecorator={<AutoAwesomeIcon sx={{ fontSize: 12 }} />}
+                      {AI_FEATURES_ENABLED && (
+                        <td className="px-4 py-3">
+                          {message.isAiEnabled ? (
+                            <Badge
+                              variant="primary"
+                              title={`Key: ${message.intentKey || '(sin key)'} | Intent: ${message.intent || '(sin descripción)'}`}
                             >
+                              <Sparkle className="size-3" weight="fill" aria-hidden />
                               IA
-                            </Chip>
-                          </Tooltip>
-                        ) : (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            -
-                          </Typography>
-                        )}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      )}
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {new Date(message.createdAt).toLocaleDateString('es-ES')}
                       </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {new Date(message.createdAt).toLocaleDateString('es-ES')}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="neutral"
-                            onClick={() => handleCopyMessage(message.message)}
-                            title="Copiar mensaje"
-                          >
-                            <CopyIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
-                            onClick={() => openEditModal(message)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <IconAction label="Copiar" onClick={() => handleCopyMessage(message.message)}>
+                            <Copy className="size-[18px]" aria-hidden />
+                          </IconAction>
+                          <IconAction label="Editar" onClick={() => openEditModal(message)}>
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </IconAction>
+                          <IconAction
+                            label="Eliminar"
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                             onClick={() => handleDelete(message.id)}
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Stack>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </IconAction>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        {/* Modal Create/Edit */}
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ minWidth: 600 }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              {selectedMessage ? 'Editar Mensaje Rápido' : 'Nuevo Mensaje Rápido'}
-            </Typography>
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>Atajo</FormLabel>
+      {/* Modal Create/Edit */}
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !uploading && setOpenModal(false)}
+        >
+          <div
+            className="flex max-h-[calc(100vh-32px)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
+              <h2 className="text-lg font-semibold text-foreground">
+                {selectedMessage ? 'Editar Mensaje Rápido' : 'Nuevo Mensaje Rápido'}
+              </h2>
+              <IconAction label="Cerrar" onClick={() => setOpenModal(false)}>
+                <X className="size-[18px]" aria-hidden />
+              </IconAction>
+            </div>
+
+            {/* Modal body */}
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+              <div className="space-y-1.5">
+                <Label htmlFor="qr-shortcode">Atajo</Label>
                 <Input
+                  id="qr-shortcode"
                   value={formData.shortcode}
                   onChange={(e) => setFormData({ ...formData, shortcode: e.target.value })}
                   placeholder="/ejemplo"
-                  startDecorator="/"
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Mensaje</FormLabel>
-                <Textarea
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="qr-message">Mensaje</Label>
+                <textarea
+                  id="qr-message"
                   value={formData.message}
                   onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                   placeholder="Escribe el mensaje predefinido..."
-                  minRows={4}
-                  maxRows={8}
+                  rows={4}
+                  className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                 />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Tipo de Mensaje</FormLabel>
-                <Select
-                  value={formData.geral ? 'global' : 'personal'}
-                  onChange={(_, value) => setFormData({ ...formData, geral: value === 'global' })}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  loading={redrafting}
+                  onClick={handleRedraftWithAI}
+                  disabled={redrafting || !formData.message.trim()}
+                  className="mt-1"
                 >
-                  <Option value="global">Global (Todos los usuarios)</Option>
-                  <Option value="personal">Personal (Solo yo)</Option>
-                </Select>
-              </FormControl>
+                  {!redrafting && <Sparkle className="size-4" aria-hidden />}
+                  {redrafting ? 'Redactando...' : 'Redactar con IA'}
+                </Button>
+              </div>
 
-              {/* Sección IA */}
-              <Box sx={{ p: 2, bgcolor: 'background.level1', borderRadius: 'sm', border: '1px solid', borderColor: 'divider' }}>
-                <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                  <Box sx={{ flex: 1 }}>
-                    <Typography level="body-sm" fontWeight="bold">
-                      <AutoAwesomeIcon sx={{ fontSize: 16, mr: 0.5, color: 'primary.500' }} />
-                      Habilitar para IA
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.25 }}>
-                      Permite que el orquestador IA use este mensaje en respuestas semánticas
-                    </Typography>
-                  </Box>
-                  <Switch
-                    checked={formData.isAiEnabled}
-                    onChange={(e) => setFormData({ ...formData, isAiEnabled: e.target.checked })}
-                    color={formData.isAiEnabled ? 'primary' : 'neutral'}
-                  />
-                </Stack>
+              <div className="space-y-1.5">
+                <Label htmlFor="qr-type">Tipo de Mensaje</Label>
+                <select
+                  id="qr-type"
+                  value={formData.geral ? 'global' : 'personal'}
+                  onChange={(e) => setFormData({ ...formData, geral: e.target.value === 'global' })}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                >
+                  <option value="global">Global (Todos los usuarios)</option>
+                  <option value="personal">Personal (Solo yo)</option>
+                </select>
+              </div>
 
-                {/* Campo de intención — solo visible si IA está habilitada */}
-                {formData.isAiEnabled && (
-                  <FormControl sx={{ mt: 2 }}>
-                    <FormLabel sx={{ fontSize: 'sm' }}>
-                      Intención (para búsqueda semántica)
-                    </FormLabel>
-                    <Input
-                      value={formData.intent}
-                      onChange={(e) => setFormData({ ...formData, intent: e.target.value })}
-                      placeholder="Ej: saludo informal, despedirse, pedir email, resolver duda de producto"
-                      size="sm"
-                    />
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                      Describe en 1-2 frases cortas la intención de este mensaje. La IA usará esto para encontrarlo semánticamente.
-                    </Typography>
-                  </FormControl>
-                )}
-              </Box>
+              {/* Sección IA (desactivada temporalmente — AI_FEATURES_ENABLED) */}
+              {AI_FEATURES_ENABLED && (
+                <div className="rounded-lg border border-border bg-accent/40 p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                        <Sparkle className="size-4 text-primary" weight="fill" aria-hidden />
+                        Habilitar para IA
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Permite que el orquestador IA use este mensaje en respuestas semánticas
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={formData.isAiEnabled}
+                      onClick={() => setFormData({ ...formData, isAiEnabled: !formData.isAiEnabled })}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                        formData.isAiEnabled ? 'bg-primary' : 'bg-muted',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'inline-block size-5 translate-x-0.5 rounded-full bg-white shadow transition-transform',
+                          formData.isAiEnabled && 'translate-x-[22px]',
+                        )}
+                      />
+                    </button>
+                  </div>
+
+                  {formData.isAiEnabled && (
+                    <div className="mt-4 space-y-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        loading={suggestingIntent}
+                        onClick={handleSuggestAiIntent}
+                        disabled={
+                          suggestingIntent || (!formData.message.trim() && !selectedFile && !existingMedia)
+                        }
+                      >
+                        {!suggestingIntent && <Sparkle className="size-4" aria-hidden />}
+                        {suggestingIntent ? 'Generando...' : 'Generar key con IA'}
+                      </Button>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="qr-intentkey">Key IA</Label>
+                        <Input
+                          id="qr-intentkey"
+                          value={formData.intentKey}
+                          onChange={(e) => setFormData({ ...formData, intentKey: e.target.value })}
+                          placeholder="location_question, plan_gold_selection, pricing_question"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="qr-intent">Intención (para búsqueda semántica)</Label>
+                        <Input
+                          id="qr-intent"
+                          value={formData.intent}
+                          onChange={(e) => setFormData({ ...formData, intent: e.target.value })}
+                          placeholder="Ej: usar cuando el cliente pregunte ubicación, dirección o mapa"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          La búsqueda IA usa la key, el mensaje, el atajo y el archivo para encontrar esta respuesta.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Archivo multimedia */}
-              <FormControl>
-                <FormLabel>Archivo Multimedia (opcional)</FormLabel>
+              <div className="space-y-1.5">
+                <Label>Archivo Multimedia (opcional)</Label>
                 <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileSelect}
                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
-                  style={{ display: 'none' }}
+                  className="hidden"
                 />
 
                 {/* Estado: sin archivo */}
                 {!selectedFile && !existingMedia?.path && !removeMedia && (
-                  <Box
+                  <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    sx={{
-                      border: '2px dashed',
-                      borderColor: 'neutral.300',
-                      borderRadius: 'sm',
-                      p: 3,
-                      textAlign: 'center',
-                      cursor: 'pointer',
-                      transition: 'border-color 0.2s',
-                      '&:hover': { borderColor: 'primary.400' },
-                    }}
+                    className="flex w-full flex-col items-center gap-1 rounded-md border-2 border-dashed border-border p-6 text-center transition-colors hover:border-primary/50"
                   >
-                    <CloudUploadIcon sx={{ fontSize: 36, color: 'neutral.400', mb: 1 }} />
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    <CloudArrowUp className="size-9 text-muted-foreground" aria-hidden />
+                    <span className="text-sm text-muted-foreground">
                       Haz clic para adjuntar imagen, video, audio o documento
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
                       Formatos: JPG, PNG, GIF, MP4, MP3, PDF, DOC, XLS...
-                    </Typography>
-                  </Box>
+                    </span>
+                  </button>
                 )}
 
                 {/* Estado: archivo nuevo seleccionado */}
                 {selectedFile && (
-                  <Box sx={{ border: '1px solid', borderColor: 'primary.300', borderRadius: 'sm', p: 1.5 }}>
-                    <Stack direction="row" spacing={1.5} alignItems="center">
-                      {selectedFile.type.startsWith('image/') ? (
-                        <Box
-                          component="img"
-                          src={URL.createObjectURL(selectedFile)}
-                          alt="preview"
-                          sx={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 'sm' }}
-                        />
-                      ) : (
-                        <Box sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'primary.softBg', borderRadius: 'sm' }}>
-                          {getFileIcon(selectedFile.name)}
-                        </Box>
-                      )}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography level="body-sm" fontWeight="bold" noWrap>
-                          {selectedFile.name}
-                        </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {(selectedFile.size / 1024).toFixed(1)} KB
-                        </Typography>
-                      </Box>
-                      <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Cambiar archivo">
-                          <IconButton size="sm" variant="plain" color="primary" onClick={() => fileInputRef.current?.click()}>
-                            <CloudUploadIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Quitar archivo">
-                          <IconButton size="sm" variant="plain" color="danger" onClick={handleRemoveFile}>
-                            <CloseIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </Stack>
-                  </Box>
+                  <div className="flex items-center gap-3 rounded-md border border-primary/40 p-3">
+                    {selectedFile.type.startsWith('image/') ? (
+                      <img
+                        src={URL.createObjectURL(selectedFile)}
+                        alt="preview"
+                        className="size-14 rounded-md object-cover"
+                      />
+                    ) : (
+                      <div className="flex size-14 items-center justify-center rounded-md bg-primary/10 text-primary">
+                        {getFileIcon(selectedFile.name, 'size-6')}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">{selectedFile.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(selectedFile.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <IconAction
+                        label="Cambiar archivo"
+                        className="text-primary hover:text-primary"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <CloudArrowUp className="size-[18px]" aria-hidden />
+                      </IconAction>
+                      <IconAction
+                        label="Quitar archivo"
+                        className="hover:bg-destructive/10 hover:text-destructive-text"
+                        onClick={handleRemoveFile}
+                      >
+                        <X className="size-[18px]" aria-hidden />
+                      </IconAction>
+                    </div>
+                  </div>
                 )}
 
                 {/* Estado: archivo existente (editando) */}
                 {!selectedFile && existingMedia?.path && !removeMedia && (
-                  <Box sx={{ border: '1px solid', borderColor: 'success.300', borderRadius: 'sm', p: 1.5 }}>
-                    <Stack direction="row" spacing={1.5} alignItems="center">
-                      {isImageFile(existingMedia.name) ? (
-                        <Box
-                          component="img"
-                          src={existingMedia.path}
-                          alt="media actual"
-                          sx={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 'sm' }}
-                        />
-                      ) : (
-                        <Box sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'success.softBg', borderRadius: 'sm' }}>
-                          {getFileIcon(existingMedia.name)}
-                        </Box>
-                      )}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography level="body-sm" fontWeight="bold" noWrap>
-                          {existingMedia.name}
-                        </Typography>
-                        <Chip size="sm" color="success" variant="soft" sx={{ mt: 0.5 }}>
-                          Archivo actual
-                        </Chip>
-                      </Box>
-                      <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Reemplazar archivo">
-                          <IconButton size="sm" variant="plain" color="primary" onClick={() => fileInputRef.current?.click()}>
-                            <CloudUploadIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Eliminar archivo">
-                          <IconButton size="sm" variant="plain" color="danger" onClick={handleRemoveFile}>
-                            <CloseIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </Stack>
-                  </Box>
+                  <div className="flex items-center gap-3 rounded-md border border-success/40 p-3">
+                    {isImageFile(existingMedia.name) ? (
+                      <img
+                        src={existingMedia.path}
+                        alt="media actual"
+                        className="size-14 rounded-md object-cover"
+                      />
+                    ) : (
+                      <div className="flex size-14 items-center justify-center rounded-md bg-success/10 text-success-text">
+                        {getFileIcon(existingMedia.name, 'size-6')}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">{existingMedia.name}</p>
+                      <Badge variant="success" className="mt-1">Archivo actual</Badge>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <IconAction
+                        label="Reemplazar archivo"
+                        className="text-primary hover:text-primary"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <CloudArrowUp className="size-[18px]" aria-hidden />
+                      </IconAction>
+                      <IconAction
+                        label="Eliminar archivo"
+                        className="hover:bg-destructive/10 hover:text-destructive-text"
+                        onClick={handleRemoveFile}
+                      >
+                        <X className="size-[18px]" aria-hidden />
+                      </IconAction>
+                    </div>
+                  </div>
                 )}
 
                 {/* Estado: archivo eliminado (se marcó para borrar) */}
                 {!selectedFile && removeMedia && (
-                  <Box
+                  <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    sx={{
-                      border: '2px dashed',
-                      borderColor: 'danger.300',
-                      borderRadius: 'sm',
-                      p: 2,
-                      textAlign: 'center',
-                      cursor: 'pointer',
-                      '&:hover': { borderColor: 'primary.400' },
-                    }}
+                    className="flex w-full flex-col items-center gap-1 rounded-md border-2 border-dashed border-destructive/40 p-4 text-center transition-colors hover:border-primary/50"
                   >
-                    <Typography level="body-sm" sx={{ color: 'danger.500' }}>
-                      Archivo marcado para eliminar
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+                    <span className="text-sm text-destructive-text">Archivo marcado para eliminar</span>
+                    <span className="text-xs text-muted-foreground">
                       Haz clic para adjuntar uno nuevo, o guarda para eliminar
-                    </Typography>
-                  </Box>
+                    </span>
+                  </button>
                 )}
-              </FormControl>
+              </div>
 
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 2, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-                <Typography level="body-sm" sx={{ flex: 1 }}>
-                  <strong>Vista Previa:</strong><br />
+              {/* Vista previa */}
+              <div className="rounded-md bg-accent/40 p-3">
+                <p className="line-clamp-3 text-sm text-foreground">
+                  <strong>Vista Previa:</strong>
+                  <br />
                   {formData.shortcode || '/atajo'} → {formData.message || 'Mensaje aquí...'}
                   {(selectedFile || (existingMedia && !removeMedia)) && (
                     <>
                       <br />
-                      <AttachFileIcon sx={{ fontSize: 14, verticalAlign: 'middle', mr: 0.5 }} />
+                      <Paperclip className="mr-1 inline size-3.5 align-middle" aria-hidden />
                       {selectedFile?.name || existingMedia?.name}
                     </>
                   )}
-                </Typography>
-              </Box>
+                </p>
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex justify-end gap-2 border-t border-border bg-muted/30 px-6 py-4">
               <Button
-                color="primary"
-                onClick={selectedMessage ? handleUpdate : handleCreate}
+                variant="ghost"
+                size="sm"
+                onClick={() => setOpenModal(false)}
                 disabled={uploading}
-                startDecorator={uploading ? <CircularProgress size="sm" /> : undefined}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                onClick={selectedMessage ? handleUpdate : handleCreate}
+                loading={uploading}
+                disabled={uploading}
               >
                 {uploading ? 'Guardando...' : `${selectedMessage ? 'Actualizar' : 'Crear'} Mensaje`}
               </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

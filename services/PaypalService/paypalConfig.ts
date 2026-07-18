@@ -69,3 +69,23 @@ export const getPayPalClient = async (): Promise<paypal.core.PayPalHttpClient> =
 export const resetPayPalClient = (): void => {
   cachedClient = null;
 };
+
+/**
+ * [Fase A S-5] Credenciales crudas + base URL de la API PayPal (para verificación de webhooks).
+ * Mismo origen que getPayPalClient (Company del SuperAdmin).
+ */
+export const getPayPalCreds = async (): Promise<{ clientId: string; secret: string; base: string }> => {
+  const superAdmin = await User.findOne({ where: { super: true } });
+  const superAdminCompany = superAdmin ? await Company.findByPk(superAdmin.companyId) : null;
+  const clientId = superAdminCompany?.paypalClientId;
+  const secret = superAdminCompany?.paypalSecretKey;
+  if (!clientId || !secret) {
+    throw new AppError("Credenciales de PayPal no configuradas", 500);
+  }
+  const mode = process.env.PAYPAL_MODE || "sandbox";
+  const base =
+    mode === "production" || mode === "live"
+      ? "https://api-m.paypal.com"
+      : "https://api-m.sandbox.paypal.com";
+  return { clientId, secret, base };
+};

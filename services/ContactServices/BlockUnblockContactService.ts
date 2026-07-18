@@ -2,12 +2,13 @@ import AppError from "../../errors/AppError";
 import GetDefaultWhatsApp from "../../helpers/GetDefaultWhatsApp";
 import { getWbot } from "../../libs/wbot";
 import Contact from "../../models/Contact";
-import FindCompaniesWhatsappService from "../CompanyService/FindCompaniesWhatsappService";
+import Ticket from "../../models/Ticket";
+import Whatsapp from "../../models/Whatsapp";
 
 interface Request {
     contactId: string;
     companyId: string | number;
-    active: boolean
+    active?: boolean
 }
 
 function formatBRNumber(jid: string) {
@@ -22,13 +23,13 @@ function formatBRNumber(jid: string) {
                 return match[1] + match[2] + match[3];
             }
         }
-    } else {
-        return jid;
     }
+
+    return jid;
 }
 
 function createJid(number: string) {
-    if (number.includes('@g.us') || number.includes('@s.whatsapp.net')) {
+    if (number.includes('@g.us') || number.includes('@s.whatsapp.net') || number.includes('@lid')) {
         return formatBRNumber(number) as string;
     }
     return number.includes('-')
@@ -36,58 +37,58 @@ function createJid(number: string) {
         : `${formatBRNumber(number)}@s.whatsapp.net`;
 }
 
+const resolveWhatsappForBlock = async (contact: Contact, companyId: number): Promise<Whatsapp> => {
+    if (contact.whatsappId) {
+        const whatsapp = await Whatsapp.findOne({
+            where: { id: contact.whatsappId, companyId, status: "CONNECTED" }
+        });
+        if (whatsapp) return whatsapp;
+    }
+
+    const latestTicket = await Ticket.findOne({
+        where: { contactId: contact.id, companyId },
+        order: [["updatedAt", "DESC"]]
+    });
+
+    if (latestTicket?.whatsappId) {
+        const whatsapp = await Whatsapp.findOne({
+            where: { id: latestTicket.whatsappId, companyId, status: "CONNECTED" }
+        });
+        if (whatsapp) return whatsapp;
+    }
+
+    return GetDefaultWhatsApp(undefined, companyId);
+};
+
 const BlockUnblockContactService = async ({
     contactId,
     companyId,
     active
 }: Request): Promise<Contact> => {
-    const contact = await Contact.findByPk(contactId);
+    const numericCompanyId = Number(companyId);
+    const contact = await Contact.findOne({
+        where: { id: contactId, companyId: numericCompanyId }
+    });
 
     if (!contact) {
         throw new AppError("ERR_NO_CONTACT_FOUND", 404);
     }
 
-    // console.log('active', active)
-    // console.log('companyId', companyId)
-    // console.log('contact.number', contact.number)
+    const nextActive = typeof active === "boolean" ? active : !contact.active;
+    const whatsapp = await resolveWhatsappForBlock(contact, numericCompanyId);
+    const wbot = getWbot(whatsapp.id);
+    const jid = createJid(contact.remoteJid || contact.number);
 
-    if (active) {
-        try {
-            //const whatsappCompany = await GetDefaultWhatsApp(Number(companyId))
-
-            const whatsappCompany = null;
-
-            const wbot = getWbot(whatsappCompany.id);
-
-            const jid = createJid(contact.number);
-
-            await wbot.updateBlockStatus(jid, "unblock");
-
-            await contact.update({ active: true });
-
-        } catch (error) {
-            console.log('Não consegui desbloquear o contato')
-        }
+    try {
+        await wbot.updateBlockStatus(jid, nextActive ? "unblock" : "block");
+    } catch (error: any) {
+        throw new AppError(
+            `No se pudo ${nextActive ? "desbloquear" : "bloquear"} el contacto en WhatsApp: ${error?.message || error}`,
+            500
+        );
     }
 
-    if (!active) {
-         try {
-            //const whatsappCompany = await GetDefaultWhatsApp(Number(companyId))
-
-            const whatsappCompany = null;
-            
-            const wbot = getWbot(whatsappCompany.id);
-
-            const jid = createJid(contact.number);
-
-            await wbot.updateBlockStatus(jid, "block");
-
-            await contact.update({ active: false });
-
-        } catch (error) {
-            console.log('Não consegui bloquear o contato')
-        }
-    }
+    await contact.update({ active: nextActive });
 
     return contact;
 };

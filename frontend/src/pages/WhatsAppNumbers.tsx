@@ -1,31 +1,21 @@
 import { useState, useEffect } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Modal,
-  ModalDialog,
-  Input,
-  FormControl,
-  FormLabel,
-  Grid,
-  LinearProgress,
-} from '@mui/joy'
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  QrCode as QrCodeIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Phone as PhoneIcon,
-} from '@mui/icons-material'
+  Phone,
+  Plus,
+  PencilSimple,
+  Trash,
+  QrCode,
+  CheckCircle,
+  WarningCircle,
+  X,
+} from '@phosphor-icons/react'
+// [migración] LinearProgress se conserva de MUI Joy (sin equivalente en el DS).
+import { LinearProgress } from '@mui/joy'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 interface PhoneNumber {
@@ -40,6 +30,48 @@ interface PhoneNumber {
   tier: string
   messagingLimit: string
   createdAt: string
+}
+
+const columns = [
+  'Número',
+  'Nombre Verificado',
+  'Estado',
+  'WABA ID',
+  'Calidad',
+  'Límite Diario',
+  'Fecha Creación',
+  '',
+]
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick?: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
 }
 
 export default function WhatsAppNumbers() {
@@ -78,7 +110,7 @@ export default function WhatsAppNumbers() {
     // TODO: llamar api.delete(`/whatsapp/numbers/${_id}`) y recargar lista
   }
 
-  const getStatusColor = (status: PhoneNumber['status']) => {
+  const getStatusVariant = (status: PhoneNumber['status']): BadgeProps['variant'] => {
     switch (status) {
       case 'active':
         return 'success'
@@ -87,7 +119,7 @@ export default function WhatsAppNumbers() {
       case 'inactive':
         return 'neutral'
       case 'error':
-        return 'danger'
+        return 'destructive'
       default:
         return 'neutral'
     }
@@ -99,231 +131,220 @@ export default function WhatsAppNumbers() {
       : Math.round(numbers.reduce((acc, n) => acc + n.quality, 0) / numbers.length)
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PhoneIcon sx={{ fontSize: 32 }} />
-            Gestión de Números WhatsApp
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Administra tus números de teléfono de WhatsApp Business API
-          </Typography>
-        </Box>
-        <Button startDecorator={<AddIcon />} onClick={handleAdd}>
-          Agregar Número
-        </Button>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Phone className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Gestión de Números WhatsApp
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Administra tus números de teléfono de WhatsApp Business API
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleAdd}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Agregar Número
+            </Button>
+          </div>
+        </div>
 
-      {loading && <LinearProgress sx={{ mb: 2 }} />}
+        {loading && <LinearProgress sx={{ mb: 0 }} />}
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total de Números
-              </Typography>
-              <Typography level="h3">{numbers.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Números Activos
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>
-                {numbers.filter((n) => n.status === 'active').length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Con Errores
-              </Typography>
-              <Typography level="h3" sx={{ color: 'danger.500' }}>
-                {numbers.filter((n) => n.status === 'error').length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Calidad Promedio
-              </Typography>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>
-                {avgQuality}%
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total de Números" value={String(numbers.length)} />
+          <StatTile
+            label="Números Activos"
+            value={String(numbers.filter((n) => n.status === 'active').length)}
+            tone="success"
+          />
+          <StatTile
+            label="Con Errores"
+            value={String(numbers.filter((n) => n.status === 'error').length)}
+            tone="destructive"
+          />
+          <StatTile label="Calidad Promedio" value={`${avgQuality}%`} tone="primary" />
+        </div>
 
-      <Card>
-        <CardContent>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table>
+        {/* Numbers Table */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 180 }}>Número</th>
-                  <th style={{ width: 150 }}>Nombre Verificado</th>
-                  <th style={{ width: 120 }}>Estado</th>
-                  <th style={{ width: 150 }}>WABA ID</th>
-                  <th style={{ width: 100 }}>Calidad</th>
-                  <th style={{ width: 120 }}>Límite Diario</th>
-                  <th style={{ width: 120 }}>Fecha Creación</th>
-                  <th style={{ width: 120, textAlign: 'center' }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {numbers.length === 0 && !loading ? (
                   <tr>
-                    <td colSpan={8}>
-                      <Box sx={{ py: 4, textAlign: 'center' }}>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          No hay números de WhatsApp configurados. Agrega tu primer número para comenzar.
-                        </Typography>
-                      </Box>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      No hay números de WhatsApp configurados. Agrega tu primer número para comenzar.
                     </td>
                   </tr>
                 ) : (
                   numbers.map((number) => (
-                    <tr key={number.id}>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="lg">
+                    <tr key={number.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <div>
+                          <span className="block font-medium text-foreground">
                             {number.phoneNumber}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
                             {number.displayName}
-                          </Typography>
-                        </Box>
+                          </span>
+                        </div>
                       </td>
-                      <td>
-                        <Typography level="body-sm">{number.verifiedName}</Typography>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(number.status)}
-                          startDecorator={
-                            number.status === 'active' ? <CheckCircleIcon /> : <ErrorIcon />
-                          }
-                        >
+                      <td className="px-4 py-3 text-foreground">{number.verifiedName}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={getStatusVariant(number.status)}>
+                          {number.status === 'active' ? (
+                            <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                          ) : (
+                            <WarningCircle className="size-3.5" weight="fill" aria-hidden />
+                          )}
                           {number.status.charAt(0).toUpperCase() + number.status.slice(1)}
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Typography level="body-xs" fontFamily="monospace">
+                      <td className="px-4 py-3">
+                        <span className="font-mono text-xs text-muted-foreground">
                           {number.wabaId}
-                        </Typography>
+                        </span>
                       </td>
-                      <td>
-                        <Chip size="sm" color={number.quality >= 80 ? 'success' : 'warning'}>
+                      <td className="px-4 py-3">
+                        <Badge variant={number.quality >= 80 ? 'success' : 'warning'}>
                           {number.quality}%
-                        </Chip>
+                        </Badge>
                       </td>
-                      <td>
-                        <Typography level="body-sm">{number.messagingLimit}</Typography>
+                      <td className="px-4 py-3 text-foreground">{number.messagingLimit}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                        {number.createdAt}
                       </td>
-                      <td>
-                        <Typography level="body-xs">{number.createdAt}</Typography>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            onClick={() => handleEdit(number)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton size="sm" variant="plain" color="neutral">
-                            <QrCodeIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <ActionBtn label="Editar" onClick={() => handleEdit(number)}>
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn label="Ver código QR">
+                            <QrCode className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Eliminar"
                             onClick={() => handleDelete(number.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
                           >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Box>
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </CardContent>
-      </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
       {/* Modal Crear/Editar */}
-      <Modal open={openModal} onClose={() => setOpenModal(false)}>
-        <ModalDialog sx={{ minWidth: 500 }}>
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {editingNumber ? 'Editar Número' : 'Agregar Número'}
-          </Typography>
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setOpenModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                {editingNumber ? 'Editar Número' : 'Agregar Número'}
+              </h2>
+              <ActionBtn label="Cerrar" onClick={() => setOpenModal(false)}>
+                <X className="size-[18px]" aria-hidden />
+              </ActionBtn>
+            </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Número de Teléfono</FormLabel>
-            <Input
-              placeholder="+1 555-0000"
-              defaultValue={editingNumber?.phoneNumber}
-            />
-          </FormControl>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-phone">Número de Teléfono</Label>
+                <input
+                  id="wa-phone"
+                  placeholder="+1 555-0000"
+                  defaultValue={editingNumber?.phoneNumber}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Nombre para Mostrar</FormLabel>
-            <Input
-              placeholder="Ej: Soporte Principal"
-              defaultValue={editingNumber?.displayName}
-            />
-          </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-display">Nombre para Mostrar</Label>
+                <input
+                  id="wa-display"
+                  placeholder="Ej: Soporte Principal"
+                  defaultValue={editingNumber?.displayName}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>WABA ID</FormLabel>
-            <Input
-              placeholder="WABA_XXXXXXXX"
-              defaultValue={editingNumber?.wabaId}
-            />
-          </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-waba">WABA ID</Label>
+                <input
+                  id="wa-waba"
+                  placeholder="WABA_XXXXXXXX"
+                  defaultValue={editingNumber?.wabaId}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Phone Number ID</FormLabel>
-            <Input
-              placeholder="PHONE_XXXXXXXX"
-              defaultValue={editingNumber?.phoneNumberId}
-            />
-          </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-phoneid">Phone Number ID</Label>
+                <input
+                  id="wa-phoneid"
+                  placeholder="PHONE_XXXXXXXX"
+                  defaultValue={editingNumber?.phoneNumberId}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Nombre Verificado (Meta)</FormLabel>
-            <Input
-              placeholder="Tu Empresa S.A."
-              defaultValue={editingNumber?.verifiedName}
-            />
-          </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-verified">Nombre Verificado (Meta)</Label>
+                <input
+                  id="wa-verified"
+                  placeholder="Tu Empresa S.A."
+                  defaultValue={editingNumber?.verifiedName}
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
-            <Button variant="outlined" color="neutral" onClick={() => setOpenModal(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => setOpenModal(false)}>
-              {editingNumber ? 'Actualizar' : 'Crear'}
-            </Button>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Box>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={() => setOpenModal(false)}>
+                  {editingNumber ? 'Actualizar' : 'Crear'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

@@ -1,91 +1,145 @@
 /**
- * WalletService — Módulo Afiliados Independiente
- * getBalance() + listTransactions() con filtro tipo, paginación.
- * BD SAGRADA: nunca elimina, solo consulta.
+ * WalletService — Resumen del afiliador en tokens IA / días extra.
+ *
+ * Modelo nuevo (cobro manual):
+ *  - "Pendiente por cobrar": referral con rewardStatus="claimable" (referido en plan pagado pero aún no cobrado).
+ *  - "Cobrado": referral con rewardStatus="claimed".
+ *  - Se computan tokens/días esperados (según el programa) para los pendientes
+ *    y tokens/días entregados (rewardTokens/rewardDays del propio referral) para los cobrados.
  */
 
-import { Op } from "sequelize";
-import AffiliateWallet from "../../models/AffiliateWallet";
-import AffiliateTransaction from "../../models/AffiliateTransaction";
+import AIAffiliateReferral from "../../models/AIAffiliateReferral";
 import AIAffiliateProgram from "../../models/AIAffiliateProgram";
-import AppError from "../../errors/AppError";
+import Company from "../../models/Company";
+import { Op, fn, col, literal } from "sequelize";
 
-interface WalletBalance {
-  wallet: AffiliateWallet;
-  programName: string;
+export interface WalletSummary {
+  companyId: number;
+  totalReferrals: number;
+  registeredReferrals: number;
+  activeReferrals: number;
+  pendingClaim: number;
+  claimedCount: number;
+  pendingTokens: number;
+  pendingDays: number;
+  tokensEarned: number;
+  daysEarned: number;
+  currentTokenBalance: number;
+  currency: string;
 }
 
-/**
- * Obtener balance de la wallet de un programa
- */
-export const getBalance = async (
-  companyId: number,
-  programId?: number
-): Promise<WalletBalance> => {
-  const whereProgram: Record<string, unknown> = { companyId };
-  if (programId) {
-    whereProgram.id = programId;
-  }
+export const getBalance = async (companyId: number): Promise<WalletSummary> => {
+  const baseWhere = { affiliateCompanyId: companyId };
 
-  const program = await AIAffiliateProgram.findOne({
-    where: whereProgram,
-    attributes: ["id", "name"],
+  const [totalReferrals, registeredReferrals, activeReferrals, pendingClaim, claimedCount] =
+    await Promise.all([
+      AIAffiliateReferral.count({ where: baseWhere }),
+      AIAffiliateReferral.count({ where: { ...baseWhere, rewardStatus: "pending" } }),
+      AIAffiliateReferral.count({ where: { ...baseWhere, rewardStatus: { [Op.ne]: "pending" } } }),
+      AIAffiliateReferral.count({ where: { ...baseWhere, rewardStatus: "claimable" } }),
+      AIAffiliateReferral.count({ where: { ...baseWhere, rewardStatus: "claimed" } })
+    ]);
+
+  // Tokens/días YA cobrados (suma directa de los reward* de los referrals claimed)
+  const claimedTotals = (await AIAffiliateReferral.findOne({
+    where: { ...baseWhere, rewardStatus: "claimed" },
+    attributes: [
+      [fn("SUM", col("rewardTokens")), "tokensEarned"],
+      [fn("SUM", col("rewardDays")), "daysEarned"]
+    ],
+    raw: true
+  })) as unknown as { tokensEarned: string | null; daysEarned: string | null };
+
+  // Tokens/días PENDIENTES (cobrables): se proyectan desde el programa asociado
+  const pendingRefs = await AIAffiliateReferral.findAll({
+    where: { ...baseWhere, rewardStatus: "claimable" },
     include: [
-      { model: AffiliateWallet, as: "wallet", required: false }
+      {
+        model: AIAffiliateProgram,
+        as: "affiliate",
+        attributes: ["id", "rewardType", "rewardTokens", "rewardDays"]
+      }
     ]
   });
 
-  if (!program) {
-    throw new AppError("ERR_AFFILIATE_PROGRAM_NOT_FOUND", 404);
+  let pendingTokens = 0;
+  let pendingDays = 0;
+  for (const ref of pendingRefs) {
+    const program: any = (ref as any).affiliate;
+    if (!program) continue;
+    if (program.rewardType === "tokens") pendingTokens += Number(program.rewardTokens || 0);
+    if (program.rewardType === "days") pendingDays += Number(program.rewardDays || 0);
   }
 
-  // Si no tiene wallet, crear una automáticamente
-  let wallet = program.wallet;
-  if (!wallet) {
-    wallet = await AffiliateWallet.create({
-      companyId,
-      affiliateId: program.id,
-      availableBalance: 0,
-      pendingBalance: 0,
-      totalEarned: 0,
-      totalWithdrawn: 0,
-      currency: "USD",
-      status: "active"
-    });
-  }
+  const company = await Company.findByPk(companyId);
 
-  return { wallet, programName: program.name };
+  return {
+    companyId,
+    totalReferrals,
+    registeredReferrals,
+    activeReferrals,
+    pendingClaim,
+    claimedCount,
+    pendingTokens,
+    pendingDays,
+    tokensEarned: Number(claimedTotals?.tokensEarned || 0),
+    daysEarned: Number(claimedTotals?.daysEarned || 0),
+    currentTokenBalance: Number(company?.aiTokenBalance || 0),
+    currency: "USD"
+  };
 };
 
 interface TransactionListParams {
   companyId: number;
   page?: number;
   limit?: number;
+  /** "tokens" | "days" | "claimable" | "claimed" | undefined */
   type?: string;
 }
 
 /**
- * Listar transacciones de la wallet
+ * Lista referidos con su recompensa (claimable o claimed) para el wallet.
  */
 export const listTransactions = async ({
   companyId,
   page = 1,
   limit = 20,
   type
-}: TransactionListParams): Promise<{ rows: AffiliateTransaction[]; count: number; hasMore: boolean }> => {
-  const where: Record<string, unknown> = { companyId };
+}: TransactionListParams): Promise<{ rows: any[]; count: number; hasMore: boolean }> => {
+  const where: Record<string, unknown> = {
+    affiliateCompanyId: companyId,
+    rewardStatus: { [Op.in]: ["claimable", "claimed"] }
+  };
 
-  if (type) {
-    where.type = type;
-  }
+  if (type === "claimable") where.rewardStatus = "claimable";
+  if (type === "claimed") where.rewardStatus = "claimed";
+  if (type === "tokens") where.rewardType = "tokens";
+  if (type === "days") where.rewardType = "days";
 
   const offset = (page - 1) * limit;
 
-  const { rows, count } = await AffiliateTransaction.findAndCountAll({
+  const { rows, count } = await AIAffiliateReferral.findAndCountAll({
     where,
-    order: [["createdAt", "DESC"]],
+    include: [
+      {
+        model: AIAffiliateProgram,
+        as: "affiliate",
+        attributes: ["id", "name", "rewardType", "rewardTokens", "rewardDays"]
+      },
+      {
+        model: Company,
+        as: "referredCompany",
+        attributes: ["id", "name", "email", "planId"],
+        required: false
+      }
+    ],
+    order: [
+      [literal(`CASE WHEN "AIAffiliateReferral"."rewardStatus" = 'claimable' THEN 0 ELSE 1 END`), "ASC"],
+      ["createdAt", "DESC"]
+    ],
     limit,
-    offset
+    offset,
+    distinct: true
   });
 
   return { rows, count, hasMore: offset + rows.length < count };

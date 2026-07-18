@@ -77,6 +77,23 @@ class EmailTemplate extends Model {
   @Column(DataType.STRING(50))
   status: string;
 
+  /**
+   * Tipo de plantilla:
+   *   - 'campaign': para envios masivos (campanas de email marketing)
+   *   - 'tx': para envios transaccionales (passthrough)
+   */
+  @Default('campaign')
+  @Column(DataType.STRING(50))
+  type: string;
+
+  /** Provider donde se sincronizo: 'acelle' | 'listmonk' */
+  @Column(DataType.STRING(50))
+  provider: string;
+
+  /** ID externo de la plantilla en el provider */
+  @Column(DataType.STRING(255))
+  providerTemplateId: string;
+
   @ForeignKey(() => User)
   @Column(DataType.BIGINT)
   createdBy: number;

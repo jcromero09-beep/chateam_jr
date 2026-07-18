@@ -22,7 +22,7 @@ export class MediaController {
     try {
       const { originalName, mimeType, sizeBytes, retentionDays, tags, metadata } = req.body;
       const companyId = req.tenant?.id || 1; // Usar tenant del middleware
-      const userId = (req as any).user?.id || 1; // Asumir usuario autenticado
+      const userId = req.user?.id || 1; // Asumir usuario autenticado
 
       // Validaciones
       if (!originalName || !mimeType || !sizeBytes) {
@@ -115,7 +115,7 @@ export class MediaController {
         }
 
         const companyId = req.tenant?.id || 1;
-        const userId = (req as any).user?.id || 1;
+        const userId = req.user?.id || 1;
 
         const result = await this.fileService.uploadBuffer(
           req.file.buffer,

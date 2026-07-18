@@ -1,27 +1,40 @@
-import { Typography, Stack, Container, Card, CardContent, Box, Grid, Button } from '@mui/joy'
-import { Contacts as ContactsIcon, Upload as UploadIcon } from '@mui/icons-material'
+import { AddressBook, UploadSimple } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { StatTile } from '@/components/ui/stat-tile'
 
 export default function CampaignsContacts() {
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ContactsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Contactos de Campañas</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Gestión de listas de contactos para campañas</Typography>
-            </Box>
-          </Stack>
-          <Button startDecorator={<UploadIcon />} color="primary">Importar Contactos</Button>
-        </Stack>
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Total Contactos</Typography><Typography level="h2">12,543</Typography></CardContent></Card></Grid>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Activos</Typography><Typography level="h2" sx={{ color: 'success.main' }}>10,234</Typography></CardContent></Card></Grid>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Listas</Typography><Typography level="h2">24</Typography></CardContent></Card></Grid>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Importados Hoy</Typography><Typography level="h2">456</Typography></CardContent></Card></Grid>
-        </Grid>
-      </Stack>
-    </Container>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <AddressBook className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Contactos de Campañas
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestión de listas de contactos para campañas
+              </p>
+            </div>
+          </div>
+          <Button>
+            <UploadSimple className="size-4" weight="bold" aria-hidden />
+            Importar Contactos
+          </Button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Contactos" value="12,543" />
+          <StatTile label="Activos" value="10,234" tone="success" />
+          <StatTile label="Listas" value="24" />
+          <StatTile label="Importados Hoy" value="456" />
+        </div>
+      </div>
+    </div>
   )
 }

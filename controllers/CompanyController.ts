@@ -1,4 +1,5 @@
-import { verify } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+const { verify } = jwt;
 import authConfig from "../config/auth";
 import * as Yup from "yup";
 import { Request, Response } from "express";
@@ -17,6 +18,10 @@ import ShowPlanCompanyService from "../services/CompanyService/ShowPlanCompanySe
 import User from "../models/User";
 import ListCompaniesPlanService from "../services/CompanyService/ListCompaniesPlanService";
 import NotifyCompanyCreatedService from "../services/CompanyService/NotifyCompanyCreatedService";
+import {
+  buildWebsiteEventUserFromCompany,
+  sendWebsiteConversionEventAsync
+} from "../services/FacebookConversionService/SendWebsiteEvent";
 
 interface TokenPayload {
   id: string;
@@ -76,8 +81,9 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     return res.json({ companies, count, hasMore });
 
   } else {
+    // [Ola 0.1] No-super: acotar SIEMPRE a la propia empresa (el searchParam se ignoraba en el service).
     const { companies, count, hasMore } = await ListCompaniesService({
-      searchParam: company.name,
+      companyId,
       pageNumber
     });
     return res.json({ companies, count, hasMore });
@@ -101,6 +107,32 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   }
 
   const company = await CreateCompanyService(newCompany);
+
+  buildWebsiteEventUserFromCompany(company)
+    .then(user =>
+      sendWebsiteConversionEventAsync({
+        eventName: "CompleteRegistration",
+        eventId: `reg_${company.id}_${Math.floor(new Date(company.createdAt || Date.now()).getTime() / 1000)}`,
+        user,
+        context: {
+          req,
+          eventSourceUrl: `${process.env.FRONTEND_URL || req.get("origin") || "https://chateam.com"}/signup`
+        },
+        customData: {
+          content_name: "Registro Chateam",
+          status: "completed",
+          currency: "USD",
+          value: 0,
+          company_id: company.id,
+          company_name: company.name,
+          plan_id: company.planId || null,
+          recurrence: company.recurrence || null,
+          payment_method: company.paymentMethod || null,
+          source: "company_created"
+        }
+      })
+    )
+    .catch(err => console.error("[FB-WEB-CAPI] Error preparando CompleteRegistration:", err.message));
 
   // Notificar creación de empresa por WhatsApp (fire-and-forget)
   NotifyCompanyCreatedService(
@@ -160,7 +192,7 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
     return res.status(200).json(companies);
   } else {
     const companies: Company[] = await FindAllCompaniesService();
-    let company = [];
+    const company = [];
 
     for (let i = 0; i < companies.length; i++) {
       const id = companies[i].id;

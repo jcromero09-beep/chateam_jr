@@ -10,6 +10,7 @@ import {
   Unique,
   HasMany
 } from "sequelize-typescript";
+import AICompanyExtension from "./AICompanyExtension";
 
 @Table({
   tableName: "AIExtensions",
@@ -59,7 +60,7 @@ class AIExtension extends Model<AIExtension> {
   @CreatedAt
   createdAt!: Date;
 
-  @HasMany(() => require("./AICompanyExtension").default)
+  @HasMany(() => AICompanyExtension)
   companyExtensions!: any[];
 }
 

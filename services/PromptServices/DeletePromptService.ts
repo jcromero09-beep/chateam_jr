@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import ShowPromptService from "./ShowPromptService";
 import path from "path";
 import fs from "fs";
@@ -24,7 +30,7 @@ const DeletePromptService = async (promptId: number | string, companyId: number 
     const baseName = path.basename(nombreArchivo, ext); // cedula
 
     const filePath = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "..",
@@ -36,7 +42,7 @@ const DeletePromptService = async (promptId: number | string, companyId: number 
     );
 
     const embeddingPath = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "..",

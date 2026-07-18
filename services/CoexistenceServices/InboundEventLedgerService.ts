@@ -54,6 +54,7 @@ export type LedgerProvider =
   | "meta_status"
   | "meta_history"
   | "meta_appsync"
+  | "meta_comment"
   | "baileys"
   | "baileys_fromme"
   | "baileys_ack";

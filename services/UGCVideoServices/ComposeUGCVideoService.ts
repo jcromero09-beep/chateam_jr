@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Service: ComposeUGCVideoService
  * Composicion final del video UGC.

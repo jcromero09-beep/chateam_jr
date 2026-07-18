@@ -1,5 +1,6 @@
 import { Op, fn, col, where } from "sequelize";
-import { isEmpty } from "lodash";
+import lodash from "lodash";
+const { isEmpty } = lodash;
 import Announcement from "../../models/Announcement";
 
 interface Request {

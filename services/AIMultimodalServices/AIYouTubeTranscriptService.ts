@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from "../../utils/logger";
 
 export interface TranscriptResult {
@@ -90,7 +94,7 @@ Titulo: ${title}
 Transcripcion: ${transcript.substring(0, 4000)}
 
 Resumen:`,
-          modelKey: 'gpt-4.1-mini',
+          modelKey: 'gpt-5.5',
           maxTokens: 300,
           temperature: 0.3
         });

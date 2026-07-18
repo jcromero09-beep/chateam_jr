@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import fs from 'fs';
 import path from 'path';
 import FormData from 'form-data';
@@ -36,7 +42,7 @@ async function fetchOpenAIToken() {
 
 const TranscribeAudioMessageToText = async (fileName: string, companyId: number): Promise<Response> => {
   const token = await fetchOpenAIToken();
-  const publicFolder = path.resolve(__dirname, "..", "..", "public");
+  const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
   const filePath = `${publicFolder}/company${companyId}/${fileName}`;
   

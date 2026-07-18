@@ -6,31 +6,44 @@
  * 2. ✍️ Generador de Copy   — Copy optimizado por nivel de conciencia (Eugene Schwartz)
  * 3. 📊 Score de Creativo   — Scoring predictivo 0-100 antes de lanzar
  * 4. 🚨 Anomalías           — Detección estadística (Z-Score + IQR)
+ *
+ * [Re-skin] Migrada de MUI Joy al design system Tailwind v4 + shadcn/Radix.
+ * Se conservan de @mui/joy SOLO los indicadores de progreso (CircularProgress /
+ * LinearProgress), que aún no tienen equivalente en el design system.
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import { CircularProgress, LinearProgress } from "@mui/joy";
 import {
-  Box, Typography, Tabs, TabList, Tab, Card, CardContent, Button, IconButton,
-  Chip, CircularProgress, Alert, Stack, Divider, LinearProgress,
-  Select, Option, Textarea, Input, FormControl, FormLabel,
-  Modal, ModalDialog, DialogTitle, DialogContent,
-  Badge, Tooltip, List, ListItem, ListItemContent
-} from "@mui/joy";
+  Brain,
+  PencilSimple,
+  ChartBar,
+  Warning,
+  ArrowClockwise,
+  CheckCircle,
+  XCircle,
+  Lightbulb,
+  Copy as CopyIcon,
+} from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  Psychology as PsychologyIcon,
-  Edit as EditIcon,
-  BarChart as BarChartIcon,
-  Warning as WarningIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  TipsAndUpdates as TipsIcon,
-  Campaign as CampaignIcon,
-  ContentCopy as CopyIcon,
-  Star as StarIcon,
-  Close as CloseIcon,
-  Add as AddIcon
-} from "@mui/icons-material";
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import { useAuth } from "../context/Auth/AuthContext";
 import api from "../services/api";
 
@@ -159,20 +172,61 @@ const DIAGNOSIS_LABELS: Record<string, { label: string; icon: string }> = {
   placement_mismatch: { label: "Desajuste de Placements", icon: "📱" }
 };
 
-const getSeverityColor = (severity: string): "danger" | "warning" | "success" | "neutral" => {
+/** Tonos semánticos del design system (superficie + texto accesible). */
+type Tone = "destructive" | "warning" | "success" | "primary" | "neutral";
+
+const TONE_SURFACE: Record<Tone, string> = {
+  destructive: "border-destructive/25 bg-destructive/10",
+  warning: "border-warning/25 bg-warning/12",
+  success: "border-success/25 bg-success/12",
+  primary: "border-primary/25 bg-primary/10",
+  neutral: "border-border bg-muted",
+};
+
+// [a11y] Los tokens de superficie (--success/--warning/--destructive) no llegan a
+// 4.5:1 como texto en claro; para texto van los *-text.
+const TONE_TEXT: Record<Tone, string> = {
+  destructive: "text-destructive-text",
+  warning: "text-warning-text",
+  success: "text-success-text",
+  primary: "text-primary",
+  neutral: "text-muted-foreground",
+};
+
+const CARD = "rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]";
+
+const TEXTAREA_CLS =
+  "w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors [font-family:inherit] placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+
+const getSeverityVariant = (severity: string): BadgeProps["variant"] => {
   switch (severity) {
-    case "critical": return "danger";
+    case "critical": return "destructive";
     case "high": case "warning": return "warning";
     case "medium": case "low": return "success";
     default: return "neutral";
   }
 };
 
+/** Color para los progress de MUI Joy (paleta Joy, no del design system). */
 const getScoreColor = (score: number): "danger" | "warning" | "success" | "primary" => {
   if (score >= 80) return "success";
   if (score >= 60) return "primary";
   if (score >= 40) return "warning";
   return "danger";
+};
+
+const getScoreTone = (score: number): Tone => {
+  if (score >= 80) return "success";
+  if (score >= 60) return "primary";
+  if (score >= 40) return "warning";
+  return "destructive";
+};
+
+const getScoreVariant = (score: number): BadgeProps["variant"] => {
+  if (score >= 80) return "success";
+  if (score >= 60) return "primary";
+  if (score >= 40) return "warning";
+  return "destructive";
 };
 
 const FACTOR_LABELS: Record<string, string> = {
@@ -182,6 +236,113 @@ const FACTOR_LABELS: Record<string, string> = {
   emotionalTrigger: "Gatillo Emocional",
   audienceAlignment: "Alineación con Audiencia"
 };
+
+// ============================================================
+// SUBCOMPONENTES DE PRESENTACIÓN
+// ============================================================
+
+/** Reemplaza <Alert> de Joy con tokens del design system. */
+function Callout({
+  tone = "neutral",
+  icon,
+  className,
+  role = "status",
+  children,
+}: {
+  tone?: Tone;
+  icon?: React.ReactNode;
+  className?: string;
+  role?: "status" | "alert";
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role={role}
+      className={cn(
+        "flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm",
+        TONE_SURFACE[tone],
+        tone === "neutral" ? "text-foreground" : TONE_TEXT[tone],
+        className,
+      )}
+    >
+      {icon && <span className="mt-px shrink-0 [&_svg]:size-[18px]">{icon}</span>}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+/** Campo de formulario: label + control + hint (reemplaza FormControl/FormLabel). */
+function Field({
+  label,
+  htmlFor,
+  required,
+  hint,
+  children,
+}: {
+  label: React.ReactNode;
+  htmlFor?: string;
+  required?: boolean;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={htmlFor}>
+        {label}
+        {required && (
+          <span className="ml-0.5 text-destructive-text" aria-hidden>
+            *
+          </span>
+        )}
+      </Label>
+      {children}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/** Lista de bullets con flecha (reemplaza Typography startDecorator="→"). */
+function ArrowList({ items, className }: { items: string[]; className?: string }) {
+  return (
+    <ul className={cn("m-0 list-none space-y-0.5 p-0", className)}>
+      {items.map((it, i) => (
+        <li key={i} className="flex gap-1.5">
+          <span aria-hidden>→</span>
+          <span className="min-w-0 flex-1">{it}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Botón de copiar al portapapeles (reemplaza IconButton). */
+function CopyButton({
+  copied,
+  label,
+  onClick,
+}: {
+  copied: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn("size-8", copied && "text-success-text")}
+    >
+      {copied ? (
+        <CheckCircle className="size-[18px]" weight="fill" aria-hidden />
+      ) : (
+        <CopyIcon className="size-[18px]" aria-hidden />
+      )}
+    </Button>
+  );
+}
 
 // ============================================================
 // COMPONENTE PRINCIPAL
@@ -361,524 +522,621 @@ const CampaignAI: React.FC = () => {
   // ──────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: "auto" }}>
-      {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={2} mb={3}>
-        <PsychologyIcon sx={{ fontSize: 36, color: "primary.500" }} />
-        <Box>
-          <Typography level="h3" fontWeight="bold">IA Avanzada para Meta Ads</Typography>
-          <Typography level="body-sm" color="neutral">
-            Diagnóstico inteligente, generación de copy, scoring predictivo y detección de anomalías
-          </Typography>
-        </Box>
-      </Stack>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1200px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <Brain className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              IA Avanzada para Meta Ads
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Diagnóstico inteligente, generación de copy, scoring predictivo y detección de anomalías
+            </p>
+          </div>
+        </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v as number)} sx={{ mb: 3 }}>
-        <TabList>
-          <Tab sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><PsychologyIcon sx={{ fontSize: 18 }} />Diagnóstico</Tab>
-          <Tab sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><EditIcon sx={{ fontSize: 18 }} />Generador de Copy</Tab>
-          <Tab sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><BarChartIcon sx={{ fontSize: 18 }} />Score de Creativo</Tab>
-          <Tab sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><WarningIcon sx={{ fontSize: 18 }} />Anomalías</Tab>
-        </TabList>
-      </Tabs>
+        {/* Tabs */}
+        <Tabs
+          value={String(activeTab)}
+          onValueChange={(v) => setActiveTab(Number(v))}
+          className="space-y-6"
+        >
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="0">
+              <Brain className="size-[18px]" aria-hidden />
+              Diagnóstico
+            </TabsTrigger>
+            <TabsTrigger value="1">
+              <PencilSimple className="size-[18px]" aria-hidden />
+              Generador de Copy
+            </TabsTrigger>
+            <TabsTrigger value="2">
+              <ChartBar className="size-[18px]" aria-hidden />
+              Score de Creativo
+            </TabsTrigger>
+            <TabsTrigger value="3">
+              <Warning className="size-[18px]" aria-hidden />
+              Anomalías
+            </TabsTrigger>
+          </TabsList>
 
-      {/* ══════════════════════════════════════════════════════ */}
-      {/* TAB 1: DIAGNÓSTICO PROFUNDO */}
-      {/* ══════════════════════════════════════════════════════ */}
-      {activeTab === 0 && (
-        <Box>
-          <Typography level="title-lg" mb={2}>🔍 Diagnóstico Profundo de Campaña</Typography>
-          <Typography level="body-sm" color="neutral" mb={3}>
-            Analiza 6 tipos de problemas: fatiga creativa, saturación de audiencia, competencia en subasta,
-            fase de aprendizaje bloqueada, restricción de presupuesto y desajuste de placements.
-          </Typography>
+          {/* ══════════════════════════════════════════════════════ */}
+          {/* TAB 1: DIAGNÓSTICO PROFUNDO */}
+          {/* ══════════════════════════════════════════════════════ */}
+          <TabsContent value="0" className="mt-0 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                🔍 Diagnóstico Profundo de Campaña
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Analiza 6 tipos de problemas: fatiga creativa, saturación de audiencia, competencia en subasta,
+                fase de aprendizaje bloqueada, restricción de presupuesto y desajuste de placements.
+              </p>
+            </div>
 
-          <Card variant="outlined" sx={{ mb: 3 }}>
-            <CardContent>
-              <Stack spacing={2}>
-                <FormControl>
-                  <FormLabel>Selecciona una campaña</FormLabel>
-                  <Select
-                    placeholder={loadingCampaigns ? "Cargando campañas..." : "Elige una campaña para diagnosticar"}
-                    value={diagCampaignId}
-                    onChange={(_, v) => setDiagCampaignId(String(v || ""))}
-                    disabled={loadingCampaigns}
-                  >
+            <div className={cn(CARD, "space-y-4")}>
+              <Field label="Selecciona una campaña" htmlFor="diag-campaign">
+                <Select
+                  value={diagCampaignId}
+                  onValueChange={(v) => setDiagCampaignId(v)}
+                  disabled={loadingCampaigns}
+                >
+                  <SelectTrigger id="diag-campaign" className="h-11">
+                    <SelectValue
+                      placeholder={loadingCampaigns ? "Cargando campañas..." : "Elige una campaña para diagnosticar"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
                     {campaigns.map(c => (
-                      <Option key={c.id} value={c.id}>
+                      <SelectItem key={c.id} value={c.id}>
                         {c.name} {c.impressions ? `(${Number(c.impressions).toLocaleString()} impresiones)` : ""}
-                      </Option>
+                      </SelectItem>
                     ))}
-                  </Select>
-                </FormControl>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div>
                 <Button
                   onClick={runDiagnosis}
                   disabled={!diagCampaignId || diagLoading}
                   loading={diagLoading}
-                  startDecorator={<PsychologyIcon />}
-                  sx={{ alignSelf: "flex-start" }}
                 >
+                  {!diagLoading && <Brain className="size-4" weight="fill" aria-hidden />}
                   {diagLoading ? "Analizando con IA..." : "Ejecutar Diagnóstico"}
                 </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+              </div>
+            </div>
 
-          {diagError && <Alert color="danger" sx={{ mb: 2 }}>{diagError}</Alert>}
+            {diagError && (
+              <Callout tone="destructive" role="alert" icon={<XCircle weight="fill" aria-hidden />}>
+                {diagError}
+              </Callout>
+            )}
 
-          {diagResult && (
-            <Box>
-              {/* Salud General */}
-              <Card
-                variant="soft"
-                color={diagResult.overallHealth === "critical" ? "danger" : diagResult.overallHealth === "warning" ? "warning" : "success"}
-                sx={{ mb: 3 }}
-              >
-                <CardContent>
-                  <Stack direction="row" alignItems="center" spacing={2}>
-                    {diagResult.overallHealth === "critical" ? <ErrorIcon /> : diagResult.overallHealth === "warning" ? <WarningIcon /> : <CheckIcon />}
-                    <Box>
-                      <Typography level="title-md" fontWeight="bold">
-                        Campaña: {diagResult.campaignName}
-                      </Typography>
-                      <Typography level="body-sm">
-                        Salud general: <strong>{diagResult.overallHealth === "critical" ? "🔴 Crítica" : diagResult.overallHealth === "warning" ? "🟡 Advertencia" : "🟢 Buena"}</strong>
-                        {" · "}Tokens usados: {diagResult.tokensUsed}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </CardContent>
-              </Card>
-
-              {/* Lista de diagnósticos */}
-              <Stack spacing={2}>
-                {diagResult.diagnoses.map((d) => {
-                  const meta = DIAGNOSIS_LABELS[d.type] || { label: d.type, icon: "🔍" };
+            {diagResult && (
+              <div className="space-y-4">
+                {/* Salud General */}
+                {(() => {
+                  const healthTone: Tone =
+                    diagResult.overallHealth === "critical"
+                      ? "destructive"
+                      : diagResult.overallHealth === "warning"
+                        ? "warning"
+                        : "success";
                   return (
-                    <Card key={d.type} variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" alignItems="flex-start" spacing={2}>
-                          <Typography sx={{ fontSize: 28 }}>{meta.icon}</Typography>
-                          <Box flex={1}>
-                            <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-                              <Typography level="title-sm" fontWeight="bold">{meta.label}</Typography>
-                              <Chip
-                                size="sm"
-                                color={d.detected ? getSeverityColor(d.severity) : "neutral"}
-                                variant="soft"
-                              >
+                    <div
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border p-5",
+                        TONE_SURFACE[healthTone],
+                      )}
+                    >
+                      <span className={cn("shrink-0", TONE_TEXT[healthTone])}>
+                        {diagResult.overallHealth === "critical" ? (
+                          <XCircle className="size-7" weight="fill" aria-hidden />
+                        ) : diagResult.overallHealth === "warning" ? (
+                          <Warning className="size-7" weight="fill" aria-hidden />
+                        ) : (
+                          <CheckCircle className="size-7" weight="fill" aria-hidden />
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-foreground">
+                          Campaña: {diagResult.campaignName}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Salud general:{" "}
+                          <strong className={TONE_TEXT[healthTone]}>
+                            {diagResult.overallHealth === "critical"
+                              ? "🔴 Crítica"
+                              : diagResult.overallHealth === "warning"
+                                ? "🟡 Advertencia"
+                                : "🟢 Buena"}
+                          </strong>
+                          {" · "}Tokens usados: {diagResult.tokensUsed}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Lista de diagnósticos */}
+                <div className="space-y-3">
+                  {diagResult.diagnoses.map((d) => {
+                    const meta = DIAGNOSIS_LABELS[d.type] || { label: d.type, icon: "🔍" };
+                    return (
+                      <div key={d.type} className={CARD}>
+                        <div className="flex items-start gap-3">
+                          <span className="text-2xl leading-none" aria-hidden>{meta.icon}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1.5 flex items-center gap-2">
+                              <h3 className="text-sm font-semibold text-foreground">{meta.label}</h3>
+                              <Badge variant={d.detected ? getSeverityVariant(d.severity) : "neutral"}>
                                 {d.detected ? d.severity.toUpperCase() : "OK"}
-                              </Chip>
-                            </Stack>
+                              </Badge>
+                            </div>
 
                             {d.detected && d.impact && (
-                              <Typography level="body-sm" color="danger" mb={1}>
-                                {d.impact}
-                              </Typography>
+                              <p className="mb-1.5 text-sm text-destructive-text">{d.impact}</p>
                             )}
 
                             {!d.detected && (
-                              <Typography level="body-sm" color="success">
+                              <p className="text-sm text-success-text">
                                 ✅ No se detectaron problemas de este tipo
-                              </Typography>
+                              </p>
                             )}
 
                             {d.detected && d.recommendations.length > 0 && (
-                              <Box mt={1}>
-                                <Typography level="body-xs" fontWeight="bold" color="neutral" mb={0.5}>
+                              <div className="mt-2">
+                                <p className="mb-1 text-xs font-semibold text-muted-foreground">
                                   Recomendaciones:
-                                </Typography>
-                                {d.recommendations.map((r, i) => (
-                                  <Typography key={i} level="body-xs" startDecorator="→" sx={{ display: "flex", gap: 0.5 }}>
-                                    {r}
-                                  </Typography>
-                                ))}
-                              </Box>
+                                </p>
+                                <ArrowList items={d.recommendations} className="text-xs text-foreground" />
+                              </div>
                             )}
 
                             {/* Evidencia */}
                             {d.detected && Object.keys(d.evidence || {}).length > 0 && (
-                              <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
                                 {Object.entries(d.evidence).map(([k, v]) => (
-                                  <Chip key={k} size="sm" variant="outlined" color="neutral">
+                                  <Badge key={k} variant="outline">
                                     {k}: {typeof v === "number" ? v.toFixed(2) : String(v)}
-                                  </Chip>
+                                  </Badge>
                                 ))}
-                              </Stack>
+                              </div>
                             )}
-                          </Box>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </Stack>
-            </Box>
-          )}
-        </Box>
-      )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </TabsContent>
 
-      {/* ══════════════════════════════════════════════════════ */}
-      {/* TAB 2: GENERADOR DE COPY */}
-      {/* ══════════════════════════════════════════════════════ */}
-      {activeTab === 1 && (
-        <Box>
-          <Typography level="title-lg" mb={1}>✍️ Generador de Copy para Meta Ads</Typography>
-          <Typography level="body-sm" color="neutral" mb={3}>
-            Genera copy optimizado usando el framework de los 5 niveles de conciencia de Eugene Schwartz.
-          </Typography>
+          {/* ══════════════════════════════════════════════════════ */}
+          {/* TAB 2: GENERADOR DE COPY */}
+          {/* ══════════════════════════════════════════════════════ */}
+          <TabsContent value="1" className="mt-0 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                ✍️ Generador de Copy para Meta Ads
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Genera copy optimizado usando el framework de los 5 niveles de conciencia de Eugene Schwartz.
+              </p>
+            </div>
 
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3 }}>
-            {/* Formulario */}
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="title-sm" mb={2}>📝 Datos del producto</Typography>
-                <Stack spacing={2}>
-                  <FormControl required>
-                    <FormLabel>Nombre del producto/servicio</FormLabel>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Formulario */}
+              <div className={CARD}>
+                <h3 className="mb-4 text-sm font-semibold text-foreground">📝 Datos del producto</h3>
+                <div className="space-y-4">
+                  <Field label="Nombre del producto/servicio" htmlFor="copy-product-name" required>
                     <Input
+                      id="copy-product-name"
                       placeholder="Ej: Curso de Marketing Digital"
                       value={copyForm.productName}
                       onChange={e => setCopyForm(f => ({ ...f, productName: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl required>
-                    <FormLabel>Descripción del producto</FormLabel>
-                    <Textarea
-                      minRows={2}
+                  <Field label="Descripción del producto" htmlFor="copy-product-desc" required>
+                    <textarea
+                      id="copy-product-desc"
+                      rows={2}
+                      className={TEXTAREA_CLS}
                       placeholder="¿Qué hace? ¿Qué problema resuelve? ¿Cuál es el precio?"
                       value={copyForm.productDescription}
                       onChange={e => setCopyForm(f => ({ ...f, productDescription: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl required>
-                    <FormLabel>Audiencia objetivo</FormLabel>
-                    <Textarea
-                      minRows={2}
+                  <Field label="Audiencia objetivo" htmlFor="copy-audience" required>
+                    <textarea
+                      id="copy-audience"
+                      rows={2}
+                      className={TEXTAREA_CLS}
                       placeholder="Ej: Emprendedores de 25-45 años que quieren generar ingresos online..."
                       value={copyForm.targetAudience}
                       onChange={e => setCopyForm(f => ({ ...f, targetAudience: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl>
-                    <FormLabel>Propuesta de valor única</FormLabel>
+                  <Field label="Propuesta de valor única" htmlFor="copy-uvp">
                     <Input
+                      id="copy-uvp"
                       placeholder="¿Qué te hace diferente de la competencia?"
                       value={copyForm.uniqueValueProposition}
                       onChange={e => setCopyForm(f => ({ ...f, uniqueValueProposition: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl>
-                    <FormLabel>Industria</FormLabel>
+                  <Field label="Industria" htmlFor="copy-industry">
                     <Input
+                      id="copy-industry"
                       placeholder="Ej: Educación online, Salud, E-commerce..."
                       value={copyForm.industry}
                       onChange={e => setCopyForm(f => ({ ...f, industry: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl required>
-                    <FormLabel>🧠 Nivel de conciencia del usuario</FormLabel>
-                    <Select value={copyForm.consciousnessLevel} onChange={(_, v) => setCopyForm(f => ({ ...f, consciousnessLevel: String(v) }))}>
-                      {(copyMeta?.consciousnessLevels || [
-                        { value: "unaware", label: "Sin conciencia" },
-                        { value: "problem_aware", label: "Consciente del problema" },
-                        { value: "solution_aware", label: "Consciente de la solución" },
-                        { value: "product_aware", label: "Consciente del producto" },
-                        { value: "most_aware", label: "Listo para comprar" }
-                      ]).map(l => (
-                        <Option key={l.value} value={l.value}>{l.label}</Option>
-                      ))}
-                    </Select>
-                    {copyMeta && (
-                      <Typography level="body-xs" color="neutral" mt={0.5}>
-                        {copyMeta.consciousnessLevels.find(l => l.value === copyForm.consciousnessLevel)?.description}
-                      </Typography>
-                    )}
-                  </FormControl>
-
-                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
-                    <FormControl>
-                      <FormLabel>Tono</FormLabel>
-                      <Select value={copyForm.tone} onChange={(_, v) => setCopyForm(f => ({ ...f, tone: String(v) }))}>
-                        {(copyMeta?.tones || [
-                          { value: "professional", label: "Profesional" },
-                          { value: "casual", label: "Casual" },
-                          { value: "urgent", label: "Urgente" }
-                        ]).map(t => (
-                          <Option key={t.value} value={t.value}>{t.label}</Option>
+                  <Field
+                    label="🧠 Nivel de conciencia del usuario"
+                    htmlFor="copy-consciousness"
+                    required
+                    hint={
+                      copyMeta
+                        ? copyMeta.consciousnessLevels.find(l => l.value === copyForm.consciousnessLevel)?.description
+                        : undefined
+                    }
+                  >
+                    <Select
+                      value={copyForm.consciousnessLevel}
+                      onValueChange={(v) => setCopyForm(f => ({ ...f, consciousnessLevel: v }))}
+                    >
+                      <SelectTrigger id="copy-consciousness" className="h-11">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(copyMeta?.consciousnessLevels || [
+                          { value: "unaware", label: "Sin conciencia" },
+                          { value: "problem_aware", label: "Consciente del problema" },
+                          { value: "solution_aware", label: "Consciente de la solución" },
+                          { value: "product_aware", label: "Consciente del producto" },
+                          { value: "most_aware", label: "Listo para comprar" }
+                        ]).map(l => (
+                          <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
                         ))}
-                      </Select>
-                    </FormControl>
-
-                    <FormControl>
-                      <FormLabel>Objetivo</FormLabel>
-                      <Select value={copyForm.objective} onChange={(_, v) => setCopyForm(f => ({ ...f, objective: String(v) }))}>
-                        {(copyMeta?.objectives || [
-                          { value: "SALES", label: "Ventas" },
-                          { value: "LEADS", label: "Leads" },
-                          { value: "TRAFFIC", label: "Tráfico" }
-                        ]).map(o => (
-                          <Option key={o.value} value={o.value}>{o.label}</Option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Box>
-
-                  <FormControl>
-                    <FormLabel>Número de variaciones (1-5)</FormLabel>
-                    <Select value={copyForm.variationsCount} onChange={(_, v) => setCopyForm(f => ({ ...f, variationsCount: Number(v) }))}>
-                      {[1, 2, 3, 4, 5].map(n => <Option key={n} value={n}>{n} variación{n > 1 ? "es" : ""}</Option>)}
+                      </SelectContent>
                     </Select>
-                  </FormControl>
+                  </Field>
 
-                  {copyError && <Alert color="danger">{copyError}</Alert>}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Tono" htmlFor="copy-tone">
+                      <Select
+                        value={copyForm.tone}
+                        onValueChange={(v) => setCopyForm(f => ({ ...f, tone: v }))}
+                      >
+                        <SelectTrigger id="copy-tone" className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(copyMeta?.tones || [
+                            { value: "professional", label: "Profesional" },
+                            { value: "casual", label: "Casual" },
+                            { value: "urgent", label: "Urgente" }
+                          ]).map(t => (
+                            <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field label="Objetivo" htmlFor="copy-objective">
+                      <Select
+                        value={copyForm.objective}
+                        onValueChange={(v) => setCopyForm(f => ({ ...f, objective: v }))}
+                      >
+                        <SelectTrigger id="copy-objective" className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(copyMeta?.objectives || [
+                            { value: "SALES", label: "Ventas" },
+                            { value: "LEADS", label: "Leads" },
+                            { value: "TRAFFIC", label: "Tráfico" }
+                          ]).map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+
+                  <Field label="Número de variaciones (1-5)" htmlFor="copy-variations">
+                    <Select
+                      value={String(copyForm.variationsCount)}
+                      onValueChange={(v) => setCopyForm(f => ({ ...f, variationsCount: Number(v) }))}
+                    >
+                      <SelectTrigger id="copy-variations" className="h-11">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5].map(n => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n} variación{n > 1 ? "es" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  {copyError && (
+                    <Callout tone="destructive" role="alert" icon={<XCircle weight="fill" aria-hidden />}>
+                      {copyError}
+                    </Callout>
+                  )}
 
                   <Button
                     onClick={generateCopy}
                     disabled={!copyForm.productName || !copyForm.productDescription || !copyForm.targetAudience || copyLoading}
                     loading={copyLoading}
-                    startDecorator={<EditIcon />}
-                    fullWidth
+                    className="w-full"
                   >
+                    {!copyLoading && <PencilSimple className="size-4" aria-hidden />}
                     {copyLoading ? "Generando con IA..." : "Generar Copy"}
                   </Button>
-                </Stack>
-              </CardContent>
-            </Card>
+                </div>
+              </div>
 
-            {/* Resultados */}
-            <Box>
-              {!copyResult && !copyLoading && (
-                <Card variant="soft" color="neutral" sx={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <CardContent sx={{ textAlign: "center" }}>
-                    <EditIcon sx={{ fontSize: 48, color: "neutral.400", mb: 1 }} />
-                    <Typography level="body-md" color="neutral">
+              {/* Resultados */}
+              <div>
+                {!copyResult && !copyLoading && (
+                  <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 p-6 text-center">
+                    <PencilSimple className="size-12 text-muted-foreground/60" aria-hidden />
+                    <p className="text-sm text-muted-foreground">
                       Las variaciones de copy aparecerán aquí
-                    </Typography>
-                  </CardContent>
-                </Card>
-              )}
+                    </p>
+                  </div>
+                )}
 
-              {copyResult && (
-                <Stack spacing={2}>
-                  <Typography level="body-sm" color="neutral">
-                    {copyResult.variations.length} variaciones generadas · {copyResult.tokensUsed} tokens usados
-                  </Typography>
+                {copyResult && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      {copyResult.variations.length} variaciones generadas · {copyResult.tokensUsed} tokens usados
+                    </p>
 
-                  {copyResult.variations.map((v, idx) => (
-                    <Card key={v.id} variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1}>
-                          <Typography level="title-sm" fontWeight="bold">Variación {idx + 1}</Typography>
-                          <Stack direction="row" spacing={0.5}>
+                    {copyResult.variations.map((v, idx) => (
+                      <div key={v.id} className={CARD}>
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <h3 className="text-sm font-semibold text-foreground">Variación {idx + 1}</h3>
+                          <div className="flex flex-wrap justify-end gap-1">
                             {v.psychologicalTriggers?.slice(0, 2).map(t => (
-                              <Chip key={t} size="sm" variant="soft" color="primary">{t}</Chip>
+                              <Badge key={t} variant="primary">{t}</Badge>
                             ))}
-                          </Stack>
-                        </Stack>
+                          </div>
+                        </div>
 
-                        <Stack spacing={1.5}>
-                          <Box>
-                            <Typography level="body-xs" fontWeight="bold" color="neutral">HOOK (apertura)</Typography>
-                            <Typography level="body-sm" sx={{ fontStyle: "italic" }}>"{v.hook}"</Typography>
-                          </Box>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground">HOOK (apertura)</p>
+                            <p className="text-sm italic text-foreground">"{v.hook}"</p>
+                          </div>
 
-                          <Divider />
+                          <div className="border-t border-border" />
 
-                          <Box>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center">
-                              <Typography level="body-xs" fontWeight="bold" color="neutral">TITULAR (headline)</Typography>
-                              <IconButton
-                                size="sm"
-                                variant="soft"
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-muted-foreground">TITULAR (headline)</p>
+                              <CopyButton
+                                copied={copiedId === `h_${idx}`}
+                                label={`Copiar titular de la variación ${idx + 1}`}
                                 onClick={() => copyToClipboard(v.headline, `h_${idx}`)}
-                              >
-                                {copiedId === `h_${idx}` ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
-                              </IconButton>
-                            </Stack>
-                            <Typography level="body-md" fontWeight="bold">{v.headline}</Typography>
-                          </Box>
+                              />
+                            </div>
+                            <p className="font-semibold text-foreground">{v.headline}</p>
+                          </div>
 
-                          <Box>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center">
-                              <Typography level="body-xs" fontWeight="bold" color="neutral">TEXTO PRINCIPAL</Typography>
-                              <IconButton
-                                size="sm"
-                                variant="soft"
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-muted-foreground">TEXTO PRINCIPAL</p>
+                              <CopyButton
+                                copied={copiedId === `p_${idx}`}
+                                label={`Copiar texto principal de la variación ${idx + 1}`}
                                 onClick={() => copyToClipboard(v.primaryText, `p_${idx}`)}
-                              >
-                                {copiedId === `p_${idx}` ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
-                              </IconButton>
-                            </Stack>
-                            <Typography level="body-sm">{v.primaryText}</Typography>
-                          </Box>
+                              />
+                            </div>
+                            <p className="text-sm text-foreground">{v.primaryText}</p>
+                          </div>
 
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Chip size="sm" variant="solid" color="primary">{v.cta}</Chip>
-                            <Typography level="body-xs" color="neutral">{v.approach}</Typography>
-                          </Stack>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="primary">{v.cta}</Badge>
+                            <span className="text-xs text-muted-foreground">{v.approach}</span>
+                          </div>
 
                           <Button
                             size="sm"
-                            variant="soft"
-                            startDecorator={<CopyIcon />}
+                            variant="outline"
                             onClick={() => copyToClipboard(
                               `Hook: ${v.hook}\n\nTitular: ${v.headline}\n\nTexto: ${v.primaryText}\n\nDescripción: ${v.description}\n\nCTA: ${v.cta}`,
                               `all_${idx}`
                             )}
                           >
+                            <CopyIcon className="size-4" aria-hidden />
                             {copiedId === `all_${idx}` ? "✓ Copiado" : "Copiar todo"}
                           </Button>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </Stack>
-              )}
-            </Box>
-          </Box>
-        </Box>
-      )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
 
-      {/* ══════════════════════════════════════════════════════ */}
-      {/* TAB 3: SCORE DE CREATIVO */}
-      {/* ══════════════════════════════════════════════════════ */}
-      {activeTab === 2 && (
-        <Box>
-          <Typography level="title-lg" mb={1}>📊 Score Predictivo de Creativo</Typography>
-          <Typography level="body-sm" color="neutral" mb={3}>
-            Predice el rendimiento de tu creativo ANTES de lanzarlo. Score 0-100 con 5 factores ponderados.
-          </Typography>
+          {/* ══════════════════════════════════════════════════════ */}
+          {/* TAB 3: SCORE DE CREATIVO */}
+          {/* ══════════════════════════════════════════════════════ */}
+          <TabsContent value="2" className="mt-0 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                📊 Score Predictivo de Creativo
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Predice el rendimiento de tu creativo ANTES de lanzarlo. Score 0-100 con 5 factores ponderados.
+              </p>
+            </div>
 
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3 }}>
-            {/* Formulario */}
-            <Card variant="outlined">
-              <CardContent>
-                <Typography level="title-sm" mb={2}>📝 Contenido del creativo</Typography>
-                <Stack spacing={2}>
-                  <FormControl required>
-                    <FormLabel>Titular (headline)</FormLabel>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Formulario */}
+              <div className={CARD}>
+                <h3 className="mb-4 text-sm font-semibold text-foreground">📝 Contenido del creativo</h3>
+                <div className="space-y-4">
+                  <Field
+                    label="Titular (headline)"
+                    htmlFor="score-headline"
+                    required
+                    hint={
+                      <span className={scoreForm.headline.length > 40 ? "text-destructive-text" : undefined}>
+                        {scoreForm.headline.length}/40 caracteres
+                      </span>
+                    }
+                  >
                     <Input
+                      id="score-headline"
                       placeholder="Max 40 caracteres"
                       value={scoreForm.headline}
+                      invalid={scoreForm.headline.length > 40}
                       onChange={e => setScoreForm(f => ({ ...f, headline: e.target.value }))}
                     />
-                    <Typography level="body-xs" color={scoreForm.headline.length > 40 ? "danger" : "neutral"}>
-                      {scoreForm.headline.length}/40 caracteres
-                    </Typography>
-                  </FormControl>
+                  </Field>
 
-                  <FormControl required>
-                    <FormLabel>Texto principal (primary text)</FormLabel>
-                    <Textarea
-                      minRows={3}
+                  <Field label="Texto principal (primary text)" htmlFor="score-primary" required>
+                    <textarea
+                      id="score-primary"
+                      rows={3}
+                      className={TEXTAREA_CLS}
                       placeholder="Escribe el cuerpo del anuncio..."
                       value={scoreForm.primaryText}
                       onChange={e => setScoreForm(f => ({ ...f, primaryText: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl>
-                    <FormLabel>Descripción (link description)</FormLabel>
+                  <Field label="Descripción (link description)" htmlFor="score-desc">
                     <Input
+                      id="score-desc"
                       placeholder="Max 30 caracteres"
                       value={scoreForm.description}
                       onChange={e => setScoreForm(f => ({ ...f, description: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl>
-                    <FormLabel>Botón CTA</FormLabel>
+                  <Field label="Botón CTA" htmlFor="score-cta">
                     <Input
+                      id="score-cta"
                       placeholder="Ej: Comprar ahora, Más información, Registrarse..."
                       value={scoreForm.cta}
                       onChange={e => setScoreForm(f => ({ ...f, cta: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <FormControl required>
-                    <FormLabel>Audiencia objetivo</FormLabel>
-                    <Textarea
-                      minRows={2}
+                  <Field label="Audiencia objetivo" htmlFor="score-audience" required>
+                    <textarea
+                      id="score-audience"
+                      rows={2}
+                      className={TEXTAREA_CLS}
                       placeholder="Describe tu audiencia objetivo..."
                       value={scoreForm.targetAudience}
                       onChange={e => setScoreForm(f => ({ ...f, targetAudience: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
-                    <FormControl required>
-                      <FormLabel>Objetivo</FormLabel>
-                      <Select value={scoreForm.objective} onChange={(_, v) => setScoreForm(f => ({ ...f, objective: String(v) }))}>
-                        <Option value="SALES">Ventas</Option>
-                        <Option value="LEADS">Leads</Option>
-                        <Option value="TRAFFIC">Tráfico</Option>
-                        <Option value="AWARENESS">Reconocimiento</Option>
-                        <Option value="ENGAGEMENT">Interacción</Option>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Objetivo" htmlFor="score-objective" required>
+                      <Select
+                        value={scoreForm.objective}
+                        onValueChange={(v) => setScoreForm(f => ({ ...f, objective: v }))}
+                      >
+                        <SelectTrigger id="score-objective" className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="SALES">Ventas</SelectItem>
+                          <SelectItem value="LEADS">Leads</SelectItem>
+                          <SelectItem value="TRAFFIC">Tráfico</SelectItem>
+                          <SelectItem value="AWARENESS">Reconocimiento</SelectItem>
+                          <SelectItem value="ENGAGEMENT">Interacción</SelectItem>
+                        </SelectContent>
                       </Select>
-                    </FormControl>
+                    </Field>
 
-                    <FormControl>
-                      <FormLabel>Industria</FormLabel>
+                    <Field label="Industria" htmlFor="score-industry">
                       <Input
+                        id="score-industry"
                         placeholder="Ej: E-commerce"
                         value={scoreForm.industry}
                         onChange={e => setScoreForm(f => ({ ...f, industry: e.target.value }))}
                       />
-                    </FormControl>
-                  </Box>
+                    </Field>
+                  </div>
 
-                  <FormControl>
-                    <FormLabel>Descripción del visual (opcional)</FormLabel>
-                    <Textarea
-                      minRows={2}
+                  <Field label="Descripción del visual (opcional)" htmlFor="score-image">
+                    <textarea
+                      id="score-image"
+                      rows={2}
+                      className={TEXTAREA_CLS}
                       placeholder="Describe la imagen o video que acompaña el anuncio..."
                       value={scoreForm.imageDescription}
                       onChange={e => setScoreForm(f => ({ ...f, imageDescription: e.target.value }))}
                     />
-                  </FormControl>
+                  </Field>
 
-                  {scoreError && <Alert color="danger">{scoreError}</Alert>}
+                  {scoreError && (
+                    <Callout tone="destructive" role="alert" icon={<XCircle weight="fill" aria-hidden />}>
+                      {scoreError}
+                    </Callout>
+                  )}
 
                   <Button
                     onClick={scoreCreative}
                     disabled={!scoreForm.headline || !scoreForm.primaryText || !scoreForm.targetAudience || scoreLoading}
                     loading={scoreLoading}
-                    startDecorator={<BarChartIcon />}
-                    fullWidth
+                    className="w-full"
                   >
+                    {!scoreLoading && <ChartBar className="size-4" aria-hidden />}
                     {scoreLoading ? "Calculando score..." : "Calcular Score Predictivo"}
                   </Button>
-                </Stack>
-              </CardContent>
-            </Card>
+                </div>
+              </div>
 
-            {/* Resultados */}
-            <Box>
-              {!scoreResult && !scoreLoading && (
-                <Card variant="soft" color="neutral" sx={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <CardContent sx={{ textAlign: "center" }}>
-                    <BarChartIcon sx={{ fontSize: 48, color: "neutral.400", mb: 1 }} />
-                    <Typography level="body-md" color="neutral">
+              {/* Resultados */}
+              <div>
+                {!scoreResult && !scoreLoading && (
+                  <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 p-6 text-center">
+                    <ChartBar className="size-12 text-muted-foreground/60" aria-hidden />
+                    <p className="text-sm text-muted-foreground">
                       El análisis del creativo aparecerá aquí
-                    </Typography>
-                  </CardContent>
-                </Card>
-              )}
+                    </p>
+                  </div>
+                )}
 
-              {scoreResult && (
-                <Stack spacing={2}>
-                  {/* Score general */}
-                  <Card variant="soft" color={getScoreColor(scoreResult.overallScore)}>
-                    <CardContent>
-                      <Stack direction="row" alignItems="center" spacing={3}>
-                        <Box sx={{ position: "relative", display: "inline-flex" }}>
+                {scoreResult && (
+                  <div className="space-y-3">
+                    {/* Score general */}
+                    <div
+                      className={cn(
+                        "rounded-xl border p-5",
+                        TONE_SURFACE[getScoreTone(scoreResult.overallScore)],
+                      )}
+                    >
+                      <div className="flex items-center gap-5">
+                        <div className="relative inline-flex shrink-0">
+                          {/* [MUI conservado] CircularProgress: sin equivalente en el DS */}
                           <CircularProgress
                             determinate
                             value={scoreResult.overallScore}
@@ -886,270 +1144,270 @@ const CampaignAI: React.FC = () => {
                             sx={{ "--CircularProgress-size": "80px" }}
                             color={getScoreColor(scoreResult.overallScore)}
                           />
-                          <Box sx={{
-                            top: 0, left: 0, bottom: 0, right: 0, position: "absolute",
-                            display: "flex", alignItems: "center", justifyContent: "center"
-                          }}>
-                            <Typography level="title-lg" fontWeight="bold">{scoreResult.overallScore}</Typography>
-                          </Box>
-                        </Box>
-                        <Box>
-                          <Stack direction="row" spacing={1} mb={0.5}>
-                            <Chip size="lg" variant="solid" color={getScoreColor(scoreResult.overallScore)}>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-lg font-bold tabular-nums text-foreground">
+                              {scoreResult.overallScore}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="mb-1">
+                            <Badge
+                              variant={getScoreVariant(scoreResult.overallScore)}
+                              className="px-3 py-1 text-sm"
+                            >
                               Grado {scoreResult.grade}
-                            </Chip>
-                          </Stack>
-                          <Typography level="body-sm">{scoreResult.prediction}</Typography>
-                          <Typography level="body-xs" color="neutral" mt={0.5}>{scoreResult.tokensUsed} tokens usados</Typography>
-                        </Box>
-                      </Stack>
-                    </CardContent>
-                  </Card>
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-foreground">{scoreResult.prediction}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {scoreResult.tokensUsed} tokens usados
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-                  {/* Factores */}
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography level="title-sm" mb={2}>Desglose por factores</Typography>
-                      <Stack spacing={1.5}>
+                    {/* Factores */}
+                    <div className={CARD}>
+                      <h3 className="mb-4 text-sm font-semibold text-foreground">Desglose por factores</h3>
+                      <div className="space-y-4">
                         {Object.entries(scoreResult.factors).map(([key, factor]) => (
-                          <Box key={key}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5}>
-                              <Typography level="body-sm">{FACTOR_LABELS[key] || key}</Typography>
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <Chip size="sm" variant="soft" color={getScoreColor(factor.score)}>{factor.grade}</Chip>
-                                <Typography level="body-sm" fontWeight="bold">{factor.score}/100</Typography>
-                              </Stack>
-                            </Stack>
+                          <div key={key}>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <span className="text-sm text-foreground">{FACTOR_LABELS[key] || key}</span>
+                              <span className="flex items-center gap-2">
+                                <Badge variant={getScoreVariant(factor.score)}>{factor.grade}</Badge>
+                                <span className="text-sm font-semibold tabular-nums text-foreground">
+                                  {factor.score}/100
+                                </span>
+                              </span>
+                            </div>
+                            {/* [MUI conservado] LinearProgress: sin equivalente en el DS */}
                             <LinearProgress
                               determinate
                               value={factor.score}
                               color={getScoreColor(factor.score)}
                               size="sm"
                             />
-                            <Typography level="body-xs" color="neutral" mt={0.3}>{factor.feedback}</Typography>
-                          </Box>
+                            <p className="mt-1 text-xs text-muted-foreground">{factor.feedback}</p>
+                          </div>
                         ))}
-                      </Stack>
-                    </CardContent>
-                  </Card>
+                      </div>
+                    </div>
 
-                  {/* Fortalezas y problemas */}
-                  {scoreResult.topStrengths.length > 0 && (
-                    <Card variant="soft" color="success">
-                      <CardContent>
-                        <Typography level="title-sm" mb={1}>✅ Fortalezas</Typography>
-                        {scoreResult.topStrengths.map((s, i) => (
-                          <Typography key={i} level="body-sm" startDecorator="→" sx={{ display: "flex", gap: 0.5 }}>{s}</Typography>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
+                    {/* Fortalezas y problemas */}
+                    {scoreResult.topStrengths.length > 0 && (
+                      <div className={cn("rounded-xl border p-5", TONE_SURFACE.success)}>
+                        <h3 className="mb-1.5 text-sm font-semibold text-foreground">✅ Fortalezas</h3>
+                        <ArrowList items={scoreResult.topStrengths} className="text-sm text-success-text" />
+                      </div>
+                    )}
 
-                  {scoreResult.criticalIssues.length > 0 && (
-                    <Card variant="soft" color="danger">
-                      <CardContent>
-                        <Typography level="title-sm" mb={1}>❌ Problemas críticos</Typography>
-                        {scoreResult.criticalIssues.map((s, i) => (
-                          <Typography key={i} level="body-sm" startDecorator="→" sx={{ display: "flex", gap: 0.5 }}>{s}</Typography>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
+                    {scoreResult.criticalIssues.length > 0 && (
+                      <div className={cn("rounded-xl border p-5", TONE_SURFACE.destructive)}>
+                        <h3 className="mb-1.5 text-sm font-semibold text-foreground">❌ Problemas críticos</h3>
+                        <ArrowList items={scoreResult.criticalIssues} className="text-sm text-destructive-text" />
+                      </div>
+                    )}
 
-                  {scoreResult.quickWins.length > 0 && (
-                    <Card variant="soft" color="warning">
-                      <CardContent>
-                        <Typography level="title-sm" mb={1}>⚡ Quick wins</Typography>
-                        {scoreResult.quickWins.map((s, i) => (
-                          <Typography key={i} level="body-sm" startDecorator="→" sx={{ display: "flex", gap: 0.5 }}>{s}</Typography>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
+                    {scoreResult.quickWins.length > 0 && (
+                      <div className={cn("rounded-xl border p-5", TONE_SURFACE.warning)}>
+                        <h3 className="mb-1.5 text-sm font-semibold text-foreground">⚡ Quick wins</h3>
+                        <ArrowList items={scoreResult.quickWins} className="text-sm text-warning-text" />
+                      </div>
+                    )}
 
-                  {scoreResult.benchmarkComparison && (
-                    <Alert color="neutral">
-                      <Typography level="body-sm">{scoreResult.benchmarkComparison}</Typography>
-                    </Alert>
-                  )}
-                </Stack>
-              )}
-            </Box>
-          </Box>
-        </Box>
-      )}
+                    {scoreResult.benchmarkComparison && (
+                      <Callout tone="neutral">{scoreResult.benchmarkComparison}</Callout>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
 
-      {/* ══════════════════════════════════════════════════════ */}
-      {/* TAB 4: ANOMALÍAS */}
-      {/* ══════════════════════════════════════════════════════ */}
-      {activeTab === 3 && (
-        <Box>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2} flexWrap="wrap" gap={2}>
-            <Box>
-              <Typography level="title-lg">🚨 Detección de Anomalías</Typography>
-              <Typography level="body-sm" color="neutral">
-                Detecta comportamientos estadísticamente inusuales (Z-Score + IQR) en tus campañas.
-              </Typography>
-            </Box>
+          {/* ══════════════════════════════════════════════════════ */}
+          {/* TAB 4: ANOMALÍAS */}
+          {/* ══════════════════════════════════════════════════════ */}
+          <TabsContent value="3" className="mt-0 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">🚨 Detección de Anomalías</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Detecta comportamientos estadísticamente inusuales (Z-Score + IQR) en tus campañas.
+                </p>
+              </div>
 
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Select
-                size="sm"
-                value={anomalyPeriod}
-                onChange={(_, v) => setAnomalyPeriod(String(v))}
-                sx={{ minWidth: 160 }}
-              >
-                <Option value="last_7_days">Últimos 7 días</Option>
-                <Option value="last_14_days">Últimos 14 días</Option>
-                <Option value="last_30_days">Últimos 30 días</Option>
-              </Select>
-              <Button
-                onClick={detectAnomalies}
-                loading={anomalyLoading}
-                startDecorator={<RefreshIcon />}
-                variant="solid"
-              >
-                Detectar Anomalías
-              </Button>
-            </Stack>
-          </Stack>
+              <div className="flex items-center gap-2">
+                <Select value={anomalyPeriod} onValueChange={(v) => setAnomalyPeriod(v)}>
+                  <SelectTrigger className="min-w-[160px]" aria-label="Periodo de análisis">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="last_7_days">Últimos 7 días</SelectItem>
+                    <SelectItem value="last_14_days">Últimos 14 días</SelectItem>
+                    <SelectItem value="last_30_days">Últimos 30 días</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button size="sm" onClick={detectAnomalies} loading={anomalyLoading}>
+                  {!anomalyLoading && <ArrowClockwise className="size-4" aria-hidden />}
+                  Detectar Anomalías
+                </Button>
+              </div>
+            </div>
 
-          {anomalyError && <Alert color="danger" sx={{ mb: 2 }}>{anomalyError}</Alert>}
+            {anomalyError && (
+              <Callout tone="destructive" role="alert" icon={<XCircle weight="fill" aria-hidden />}>
+                {anomalyError}
+              </Callout>
+            )}
 
-          {!anomalyResult && !anomalyLoading && (
-            <Card variant="soft" color="neutral">
-              <CardContent sx={{ textAlign: "center", py: 4 }}>
-                <WarningIcon sx={{ fontSize: 48, color: "neutral.400", mb: 1 }} />
-                <Typography level="body-md" color="neutral">
+            {!anomalyResult && !anomalyLoading && (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 p-8 text-center">
+                <Warning className="size-12 text-muted-foreground/60" aria-hidden />
+                <p className="text-sm text-muted-foreground">
                   Haz clic en "Detectar Anomalías" para analizar tus campañas
-                </Typography>
-              </CardContent>
-            </Card>
-          )}
+                </p>
+              </div>
+            )}
 
-          {anomalyResult && (
-            <Box>
-              {/* Resumen */}
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 2, mb: 3 }}>
-                {[
-                  { label: "Campañas analizadas", value: anomalyResult.totalCampaigns, color: "primary" },
-                  { label: "Anomalías encontradas", value: anomalyResult.anomaliesFound, color: anomalyResult.anomaliesFound > 0 ? "warning" : "success" },
-                  { label: "Críticas", value: anomalyResult.critical, color: anomalyResult.critical > 0 ? "danger" : "success" },
-                  { label: "Advertencias", value: anomalyResult.warnings, color: anomalyResult.warnings > 0 ? "warning" : "success" }
-                ].map(stat => (
-                  <Card key={stat.label} variant="soft" color={stat.color as any}>
-                    <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                      <Typography level="h3" fontWeight="bold">{stat.value}</Typography>
-                      <Typography level="body-xs">{stat.label}</Typography>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Box>
-
-              <Alert color={anomalyResult.critical > 0 ? "danger" : anomalyResult.warnings > 0 ? "warning" : "success"} sx={{ mb: 3 }}>
-                {anomalyResult.summary}
-              </Alert>
-
-              {/* Lista de anomalías */}
-              {anomalyResult.anomalies.length === 0 ? (
-                <Card variant="soft" color="success">
-                  <CardContent sx={{ textAlign: "center", py: 3 }}>
-                    <CheckIcon sx={{ fontSize: 40, color: "success.500", mb: 1 }} />
-                    <Typography level="title-md">✅ Todas las campañas están dentro de rangos normales</Typography>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Stack spacing={2}>
-                  {anomalyResult.anomalies.map((anomaly, idx) => (
-                    <Card
-                      key={`${anomaly.campaignId}_${anomaly.metric}_${idx}`}
-                      variant="outlined"
-                      sx={{ cursor: "pointer", "&:hover": { boxShadow: "sm" } }}
-                      onClick={() => setSelectedAnomaly(anomaly)}
+            {anomalyResult && (
+              <div className="space-y-4">
+                {/* Resumen */}
+                <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
+                  {([
+                    { label: "Campañas analizadas", value: anomalyResult.totalCampaigns, tone: "primary" as Tone },
+                    { label: "Anomalías encontradas", value: anomalyResult.anomaliesFound, tone: (anomalyResult.anomaliesFound > 0 ? "warning" : "success") as Tone },
+                    { label: "Críticas", value: anomalyResult.critical, tone: (anomalyResult.critical > 0 ? "destructive" : "success") as Tone },
+                    { label: "Advertencias", value: anomalyResult.warnings, tone: (anomalyResult.warnings > 0 ? "warning" : "success") as Tone }
+                  ]).map(stat => (
+                    <div
+                      key={stat.label}
+                      className={cn("rounded-xl border p-4 text-center", TONE_SURFACE[stat.tone])}
                     >
-                      <CardContent>
-                        <Stack direction="row" alignItems="flex-start" spacing={2}>
-                          <Chip
-                            size="sm"
-                            variant="solid"
-                            color={getSeverityColor(anomaly.severity)}
-                          >
-                            {anomaly.severity === "critical" ? "CRÍTICO" : "AVISO"}
-                          </Chip>
-                          <Box flex={1}>
-                            <Typography level="body-sm" fontWeight="bold">{anomaly.description}</Typography>
-                            <Stack direction="row" spacing={2} mt={1} flexWrap="wrap">
-                              <Typography level="body-xs" color="neutral">
-                                Campaña: <strong>{anomaly.campaignName}</strong>
-                              </Typography>
-                              <Typography level="body-xs" color="neutral">
-                                Métrica: <strong>{anomaly.metricLabel}</strong>
-                              </Typography>
-                              <Typography level="body-xs" color={anomaly.deviation > 0 ? "danger" : "success"}>
-                                Desviación: <strong>{anomaly.deviation > 0 ? "+" : ""}{anomaly.deviation.toFixed(1)}%</strong>
-                              </Typography>
-                              <Chip size="sm" variant="outlined" color="neutral">{anomaly.algorithm}</Chip>
-                            </Stack>
-                          </Box>
-                          <TipsIcon sx={{ color: "warning.500", flexShrink: 0 }} />
-                        </Stack>
-                      </CardContent>
-                    </Card>
+                      <p className={cn("text-3xl font-semibold tabular-nums", TONE_TEXT[stat.tone])}>
+                        {stat.value}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{stat.label}</p>
+                    </div>
                   ))}
-                </Stack>
-              )}
-            </Box>
-          )}
+                </div>
 
-          {/* Modal de detalle de anomalía */}
-          <Modal open={!!selectedAnomaly} onClose={() => setSelectedAnomaly(null)}>
-            <ModalDialog sx={{ maxWidth: 560 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <DialogTitle>Detalle de Anomalía</DialogTitle>
-                <IconButton variant="soft" onClick={() => setSelectedAnomaly(null)}>
-                  <CloseIcon />
-                </IconButton>
-              </Stack>
-              <Divider />
-              <DialogContent>
+                <Callout
+                  tone={anomalyResult.critical > 0 ? "destructive" : anomalyResult.warnings > 0 ? "warning" : "success"}
+                >
+                  {anomalyResult.summary}
+                </Callout>
+
+                {/* Lista de anomalías */}
+                {anomalyResult.anomalies.length === 0 ? (
+                  <div className={cn("rounded-xl border p-6 text-center", TONE_SURFACE.success)}>
+                    <CheckCircle className="mx-auto mb-2 size-10 text-success-text" weight="fill" aria-hidden />
+                    <p className="font-medium text-foreground">
+                      ✅ Todas las campañas están dentro de rangos normales
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {anomalyResult.anomalies.map((anomaly, idx) => (
+                      <button
+                        key={`${anomaly.campaignId}_${anomaly.metric}_${idx}`}
+                        type="button"
+                        onClick={() => setSelectedAnomaly(anomaly)}
+                        className={cn(
+                          CARD,
+                          "block w-full cursor-pointer appearance-none text-left [font-family:inherit] transition-shadow",
+                          "outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <Badge variant={getSeverityVariant(anomaly.severity)}>
+                            {anomaly.severity === "critical" ? "CRÍTICO" : "AVISO"}
+                          </Badge>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-foreground">{anomaly.description}</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                              <span className="text-xs text-muted-foreground">
+                                Campaña: <strong className="text-foreground">{anomaly.campaignName}</strong>
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                Métrica: <strong className="text-foreground">{anomaly.metricLabel}</strong>
+                              </span>
+                              <span
+                                className={cn(
+                                  "text-xs",
+                                  anomaly.deviation > 0 ? "text-destructive-text" : "text-success-text",
+                                )}
+                              >
+                                Desviación:{" "}
+                                <strong>
+                                  {anomaly.deviation > 0 ? "+" : ""}{anomaly.deviation.toFixed(1)}%
+                                </strong>
+                              </span>
+                              <Badge variant="outline">{anomaly.algorithm}</Badge>
+                            </div>
+                          </div>
+                          <Lightbulb className="size-5 shrink-0 text-warning-text" weight="fill" aria-hidden />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Modal de detalle de anomalía */}
+            <Dialog
+              open={!!selectedAnomaly}
+              onOpenChange={(open) => { if (!open) setSelectedAnomaly(null); }}
+            >
+              <DialogContent className="max-w-[560px]" aria-describedby={undefined}>
+                <DialogHeader>
+                  <DialogTitle>Detalle de Anomalía</DialogTitle>
+                </DialogHeader>
+
                 {selectedAnomaly && (
-                  <Stack spacing={2}>
-                    <Chip variant="solid" color={getSeverityColor(selectedAnomaly.severity)}>
-                      {selectedAnomaly.severity.toUpperCase()}
-                    </Chip>
+                  <div className="space-y-4">
+                    <div>
+                      <Badge variant={getSeverityVariant(selectedAnomaly.severity)}>
+                        {selectedAnomaly.severity.toUpperCase()}
+                      </Badge>
+                    </div>
 
-                    <Typography level="body-md">{selectedAnomaly.description}</Typography>
+                    <p className="text-sm text-foreground">{selectedAnomaly.description}</p>
 
-                    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2 }}>
+                    <div className="grid grid-cols-3 gap-3">
                       {[
                         { label: "Valor actual", value: selectedAnomaly.currentValue.toFixed(2) },
                         { label: "Promedio histórico", value: selectedAnomaly.historicalAvg.toFixed(2) },
                         { label: "Desviación", value: `${selectedAnomaly.deviation > 0 ? "+" : ""}${selectedAnomaly.deviation.toFixed(1)}%` }
                       ].map(stat => (
-                        <Card key={stat.label} variant="soft" size="sm">
-                          <CardContent sx={{ textAlign: "center" }}>
-                            <Typography level="title-md" fontWeight="bold">{stat.value}</Typography>
-                            <Typography level="body-xs" color="neutral">{stat.label}</Typography>
-                          </CardContent>
-                        </Card>
+                        <div
+                          key={stat.label}
+                          className="rounded-lg border border-border bg-muted/50 p-3 text-center"
+                        >
+                          <p className="font-semibold tabular-nums text-foreground">{stat.value}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{stat.label}</p>
+                        </div>
                       ))}
-                    </Box>
+                    </div>
 
-                    <Alert color="warning" startDecorator={<TipsIcon />}>
-                      <Typography level="body-sm">{selectedAnomaly.suggestion}</Typography>
-                    </Alert>
+                    <Callout tone="warning" icon={<Lightbulb weight="fill" aria-hidden />}>
+                      {selectedAnomaly.suggestion}
+                    </Callout>
 
-                    <Typography level="body-xs" color="neutral">
-                      Algoritmo: {selectedAnomaly.algorithm} · Detectado: {new Date(selectedAnomaly.detectedAt).toLocaleString()}
-                    </Typography>
-                  </Stack>
+                    <p className="text-xs text-muted-foreground">
+                      Algoritmo: {selectedAnomaly.algorithm} · Detectado:{" "}
+                      {new Date(selectedAnomaly.detectedAt).toLocaleString()}
+                    </p>
+                  </div>
                 )}
               </DialogContent>
-            </ModalDialog>
-          </Modal>
-        </Box>
-      )}
-    </Box>
+            </Dialog>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
   );
 };
 

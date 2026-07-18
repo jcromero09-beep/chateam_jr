@@ -76,6 +76,20 @@ class AIAffiliateProgram extends Model<AIAffiliateProgram> {
   @Column(DataType.STRING(20))
   status: "active" | "inactive" | "pending_approval" | "suspended" | "rejected";
 
+  // --- Recompensa por afiliado (tokens IA o días extra de plan) ---
+
+  @Default("tokens")
+  @Column(DataType.STRING(20))
+  rewardType: "tokens" | "days";
+
+  @Default(0)
+  @Column(DataType.BIGINT)
+  rewardTokens: number;
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  rewardDays: number;
+
   // --- Columnas MLM nuevas ---
 
   @AllowNull(true)

@@ -1,50 +1,37 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
+// [Fase2·G] Se conserva LinearProgress de MUI Joy: no hay equivalente en @/components/ui.
+import { LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  IconButton as _IconButton,
-  Chip,
-  Input,
+  Buildings,
+  PencilSimple,
+  FloppyDisk,
+  UploadSimple,
+  Users,
+  MapPin,
+  EnvelopeSimple,
+  Phone,
+  Translate,
+  Clock,
+  Bell,
+  CreditCard,
+  CheckCircle,
+  Warning,
+  Info,
+} from '@phosphor-icons/react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
   Select,
-  Option,
-  FormControl,
-  FormLabel,
-  Textarea as _Textarea,
-  Divider,
-  LinearProgress,
-  Avatar,
-  Switch,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Alert,
-} from '@mui/joy'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
-import {
-  Business as BusinessIcon,
-  Edit as EditIcon,
-  Save as SaveIcon,
-  Upload as UploadIcon,
-  People as PeopleIcon,
-  LocationOn as LocationIcon,
-  Email as EmailIcon,
-  Phone as PhoneIcon,
-  Language as LanguageIcon,
-  Schedule as ScheduleIcon,
-  Notifications as NotificationsIcon,
-  Security as _SecurityIcon,
-  Payment as PaymentIcon,
-  CheckCircle as CheckIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-} from '@mui/icons-material'
 
 /**
  * Interface for Company data structure
@@ -101,6 +88,147 @@ interface Company {
   createdAt: string
   updatedAt: string
 }
+
+// Toggle accesible (role="switch") con tokens del design system.
+// No hay componente Switch en @/components/ui; se define local (mismo patrón que
+// IntegrationSmartTrack / AppointmentsReminders).
+function Toggle({
+  checked,
+  onChange,
+  id,
+  label,
+  disabled,
+}: {
+  checked: boolean
+  onChange?: (checked: boolean) => void
+  id?: string
+  label: string
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange?.(!checked)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'disabled:cursor-not-allowed disabled:opacity-55',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-card shadow-sm transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// Fila de toggle etiquetada (label + descripción a la izquierda, switch a la derecha).
+function ToggleRow({
+  id,
+  label,
+  description,
+  checked,
+  onChange,
+  disabled,
+}: {
+  id: string
+  label: string
+  description?: string
+  checked: boolean
+  onChange?: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <Label htmlFor={id}>{label}</Label>
+        {description && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+      <Toggle
+        id={id}
+        label={label}
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+      />
+    </div>
+  )
+}
+
+// Tarjeta de estadística con icono decorativo y badge de contexto.
+function StatCard({
+  label,
+  value,
+  badge,
+  badgeVariant = 'neutral',
+  icon,
+}: {
+  label: string
+  value: string
+  badge: string
+  badgeVariant?: 'neutral' | 'primary' | 'success' | 'warning'
+  icon: ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+            {value}
+          </p>
+          <Badge variant={badgeVariant} className="mt-2">
+            {badge}
+          </Badge>
+        </div>
+        <span className="shrink-0 text-muted-foreground/40" aria-hidden>
+          {icon}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// Estado de una integración (tarjeta con badge activa/inactiva).
+function IntegrationCard({
+  title,
+  description,
+  active,
+}: {
+  title: string
+  description: string
+  active: boolean
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Badge variant={active ? 'success' : 'neutral'}>
+          {active && <CheckCircle className="size-3.5" weight="fill" aria-hidden />}
+          {active ? 'Activa' : 'Inactiva'}
+        </Badge>
+      </div>
+    </div>
+  )
+}
+
+const SECTION_CARD =
+  'rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]'
 
 /**
  * Company Configuration Module
@@ -175,687 +303,595 @@ export default function Company() {
 
   if (loading) {
     return (
-      <Container maxWidth="xl">
-        <LinearProgress />
-      </Container>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] p-5 sm:p-6 lg:p-8">
+          <LinearProgress />
+        </div>
+      </div>
     )
   }
 
   if (!company) {
     return (
-      <Container maxWidth="xl">
-        <Card sx={{ p: 4, textAlign: 'center' }}>
-          <CardContent>
-            <BusinessIcon sx={{ fontSize: 64, color: 'text.tertiary', mb: 2 }} />
-            <Typography level="h4" sx={{ mb: 1 }}>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] p-5 sm:p-6 lg:p-8">
+          <div className="rounded-xl border border-border bg-card p-10 text-center shadow-sm shadow-black/[0.02]">
+            <Buildings
+              className="mx-auto size-16 text-muted-foreground/50"
+              aria-hidden
+            />
+            <h2 className="mt-4 text-lg font-semibold text-foreground">
               No se pudo cargar la información de la empresa
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 3 }}>
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               Verifica tu conexión e intenta nuevamente.
-            </Typography>
-            <Button color="primary" onClick={fetchCompanyData}>
+            </p>
+            <Button size="sm" className="mt-6" onClick={fetchCompanyData}>
               Reintentar
             </Button>
-          </CardContent>
-        </Card>
-      </Container>
+          </div>
+        </div>
+      </div>
     )
   }
 
+  const activeIntegrations = Object.values(company.settings.integrations).filter(Boolean).length
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Notification */}
         {notification && (
-          <Alert color={notification.type} variant="soft">
-            {notification.message}
-          </Alert>
+          <div
+            role="alert"
+            className={cn(
+              'flex items-center gap-2 rounded-lg border px-4 py-3 text-sm',
+              notification.type === 'success'
+                ? 'border-success/30 bg-success/10 text-success-text'
+                : 'border-destructive/30 bg-destructive/10 text-destructive-text',
+            )}
+          >
+            {notification.type === 'success' ? (
+              <CheckCircle className="size-[18px] shrink-0" aria-hidden />
+            ) : (
+              <Warning className="size-[18px] shrink-0" aria-hidden />
+            )}
+            <span>{notification.message}</span>
+          </div>
         )}
 
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <BusinessIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Empresa</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Buildings className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Empresa
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Configuración de empresa y equipo
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             {editMode ? (
               <>
-                <Button variant="outlined" color="neutral" onClick={handleCancel}>
+                <Button variant="outline" size="sm" onClick={handleCancel}>
                   Cancelar
                 </Button>
-                <Button
-                  startDecorator={<SaveIcon />}
-                  color="primary"
-                  onClick={handleSave}
-                  loading={saving}
-                >
+                <Button size="sm" onClick={handleSave} loading={saving}>
+                  <FloppyDisk className="size-4" aria-hidden />
                   Guardar Cambios
                 </Button>
               </>
             ) : (
-              <Button startDecorator={<EditIcon />} color="primary" onClick={() => setEditMode(true)}>
+              <Button size="sm" onClick={() => setEditMode(true)}>
+                <PencilSimple className="size-4" aria-hidden />
                 Editar
               </Button>
             )}
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Statistics Cards */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Usuarios
-                    </Typography>
-                    <Typography level="h2">{company.stats.users}</Typography>
-                    <Chip size="sm" color="success" variant="soft" sx={{ mt: 1 }}>
-                      {company.stats.activeUsers} activos
-                    </Chip>
-                  </Box>
-                  <PeopleIcon sx={{ fontSize: 48, color: 'primary.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Tickets
-                    </Typography>
-                    <Typography level="h2">{company.stats.tickets}</Typography>
-                    <Chip size="sm" color="primary" variant="soft" sx={{ mt: 1 }}>
-                      Este mes
-                    </Chip>
-                  </Box>
-                  <CheckIcon sx={{ fontSize: 48, color: 'success.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Campañas
-                    </Typography>
-                    <Typography level="h2">{company.stats.campaigns}</Typography>
-                    <Chip size="sm" color="warning" variant="soft" sx={{ mt: 1 }}>
-                      Activas
-                    </Chip>
-                  </Box>
-                  <NotificationsIcon sx={{ fontSize: 48, color: 'warning.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Integraciones
-                    </Typography>
-                    <Typography level="h2">
-                      {Object.values(company.settings.integrations).filter(Boolean).length}
-                    </Typography>
-                    <Chip size="sm" color="success" variant="soft" sx={{ mt: 1 }}>
-                      Activas
-                    </Chip>
-                  </Box>
-                  <CheckIcon sx={{ fontSize: 48, color: 'success.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Usuarios"
+            value={String(company.stats.users)}
+            badge={`${company.stats.activeUsers} activos`}
+            badgeVariant="success"
+            icon={<Users className="size-12" weight="fill" />}
+          />
+          <StatCard
+            label="Tickets"
+            value={String(company.stats.tickets)}
+            badge="Este mes"
+            badgeVariant="primary"
+            icon={<CheckCircle className="size-12" weight="fill" />}
+          />
+          <StatCard
+            label="Campañas"
+            value={String(company.stats.campaigns)}
+            badge="Activas"
+            badgeVariant="warning"
+            icon={<Bell className="size-12" weight="fill" />}
+          />
+          <StatCard
+            label="Integraciones"
+            value={String(activeIntegrations)}
+            badge="Activas"
+            badgeVariant="success"
+            icon={<CheckCircle className="size-12" weight="fill" />}
+          />
+        </div>
 
         {/* Tabs */}
-        <Card>
-          <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value as number)}>
-            <TabList>
-              <Tab>Información General</Tab>
-              <Tab>Configuración</Tab>
-              <Tab>Seguridad</Tab>
-              <Tab>Integraciones</Tab>
-            </TabList>
+        <Tabs
+          value={String(activeTab)}
+          onValueChange={(value) => setActiveTab(Number(value))}
+        >
+          <TabsList>
+            <TabsTrigger value="0">Información General</TabsTrigger>
+            <TabsTrigger value="1">Configuración</TabsTrigger>
+            <TabsTrigger value="2">Seguridad</TabsTrigger>
+            <TabsTrigger value="3">Integraciones</TabsTrigger>
+          </TabsList>
 
-            {/* Tab 1: General Information */}
-            <TabPanel value={0}>
-              <Stack spacing={3}>
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Perfil de Empresa
-                  </Typography>
+          {/* Tab 1: General Information */}
+          <TabsContent value="0" className="space-y-4">
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">
+                Perfil de Empresa
+              </h2>
 
-                  {/* Logo */}
-                  <Stack direction="row" spacing={3} alignItems="center" sx={{ mb: 3 }}>
-                    <Avatar src={company.logo} sx={{ width: 100, height: 100 }}>
-                      <BusinessIcon sx={{ fontSize: 48 }} />
-                    </Avatar>
-                    {editMode && (
-                      <Button
-                        variant="outlined"
-                        startDecorator={<UploadIcon />}
-                        onClick={handleLogoUpload}
-                      >
-                        Cambiar Logo
-                      </Button>
-                    )}
-                  </Stack>
+              {/* Logo */}
+              <div className="mt-4 flex flex-wrap items-center gap-4">
+                {company.logo ? (
+                  <img
+                    src={company.logo}
+                    alt={`Logo de ${company.name}`}
+                    width={100}
+                    height={100}
+                    className="size-[100px] shrink-0 rounded-full border border-border object-cover"
+                  />
+                ) : (
+                  <span className="flex size-[100px] shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <Buildings className="size-12" aria-hidden />
+                  </span>
+                )}
+                {editMode && (
+                  <Button variant="outline" size="sm" onClick={handleLogoUpload}>
+                    <UploadSimple className="size-4" aria-hidden />
+                    Cambiar Logo
+                  </Button>
+                )}
+              </div>
 
-                  <Grid container spacing={2}>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Nombre Comercial *</FormLabel>
-                        <Input
-                          value={formData.name || ''}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                          disabled={!editMode}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Razón Social *</FormLabel>
-                        <Input
-                          value={formData.legalName || ''}
-                          onChange={(e) => setFormData({ ...formData, legalName: e.target.value })}
-                          disabled={!editMode}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>NIF/CIF *</FormLabel>
-                        <Input
-                          value={formData.taxId || ''}
-                          onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
-                          disabled={!editMode}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Industria</FormLabel>
-                        <Select
-                          value={formData.industry}
-                          onChange={(_, value) => setFormData({ ...formData, industry: value as string })}
-                          disabled={!editMode}
-                        >
-                          <Option value="Technology">Tecnología</Option>
-                          <Option value="Retail">Retail</Option>
-                          <Option value="Healthcare">Salud</Option>
-                          <Option value="Finance">Finanzas</Option>
-                          <Option value="Education">Educación</Option>
-                          <Option value="Other">Otro</Option>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Tamaño de Empresa</FormLabel>
-                        <Select
-                          value={formData.size}
-                          onChange={(_, value) => setFormData({ ...formData, size: value as string })}
-                          disabled={!editMode}
-                        >
-                          <Option value="1-10">1-10 empleados</Option>
-                          <Option value="10-50">10-50 empleados</Option>
-                          <Option value="50-200">50-200 empleados</Option>
-                          <Option value="200+">200+ empleados</Option>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Sitio Web</FormLabel>
-                        <Input
-                          value={formData.website || ''}
-                          onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                          disabled={!editMode}
-                          placeholder="https://ejemplo.com"
-                        />
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Box>
+              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-name">Nombre Comercial *</Label>
+                  <Input
+                    id="company-name"
+                    value={formData.name || ''}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-legal-name">Razón Social *</Label>
+                  <Input
+                    id="company-legal-name"
+                    value={formData.legalName || ''}
+                    onChange={(e) => setFormData({ ...formData, legalName: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-tax-id">NIF/CIF *</Label>
+                  <Input
+                    id="company-tax-id"
+                    value={formData.taxId || ''}
+                    onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-industry">Industria</Label>
+                  <Select
+                    value={formData.industry || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, industry: value })}
+                    disabled={!editMode}
+                  >
+                    <SelectTrigger id="company-industry" className="h-11">
+                      <SelectValue placeholder="Seleccionar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Technology">Tecnología</SelectItem>
+                      <SelectItem value="Retail">Retail</SelectItem>
+                      <SelectItem value="Healthcare">Salud</SelectItem>
+                      <SelectItem value="Finance">Finanzas</SelectItem>
+                      <SelectItem value="Education">Educación</SelectItem>
+                      <SelectItem value="Other">Otro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-size">Tamaño de Empresa</Label>
+                  <Select
+                    value={formData.size || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, size: value })}
+                    disabled={!editMode}
+                  >
+                    <SelectTrigger id="company-size" className="h-11">
+                      <SelectValue placeholder="Seleccionar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1-10">1-10 empleados</SelectItem>
+                      <SelectItem value="10-50">10-50 empleados</SelectItem>
+                      <SelectItem value="50-200">50-200 empleados</SelectItem>
+                      <SelectItem value="200+">200+ empleados</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-website">Sitio Web</Label>
+                  <Input
+                    id="company-website"
+                    value={formData.website || ''}
+                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                    disabled={!editMode}
+                    placeholder="https://ejemplo.com"
+                  />
+                </div>
+              </div>
+            </div>
 
-                <Divider />
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">
+                Información de Contacto
+              </h2>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-email">Email *</Label>
+                  <Input
+                    id="company-email"
+                    type="email"
+                    value={formData.email || ''}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    disabled={!editMode}
+                    leftIcon={<EnvelopeSimple aria-hidden />}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-phone">Teléfono *</Label>
+                  <Input
+                    id="company-phone"
+                    value={formData.phone || ''}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    disabled={!editMode}
+                    leftIcon={<Phone aria-hidden />}
+                  />
+                </div>
+              </div>
+            </div>
 
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Información de Contacto
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Email *</FormLabel>
-                        <Input
-                          type="email"
-                          value={formData.email || ''}
-                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                          disabled={!editMode}
-                          startDecorator={<EmailIcon />}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Teléfono *</FormLabel>
-                        <Input
-                          value={formData.phone || ''}
-                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                          disabled={!editMode}
-                          startDecorator={<PhoneIcon />}
-                        />
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Box>
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">Ubicación</h2>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label htmlFor="company-address">Dirección</Label>
+                  <Input
+                    id="company-address"
+                    value={formData.address || ''}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    disabled={!editMode}
+                    leftIcon={<MapPin aria-hidden />}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-city">Ciudad</Label>
+                  <Input
+                    id="company-city"
+                    value={formData.city || ''}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-state">Provincia/Estado</Label>
+                  <Input
+                    id="company-state"
+                    value={formData.state || ''}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-country">País</Label>
+                  <Input
+                    id="company-country"
+                    value={formData.country || ''}
+                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-postal-code">Código Postal</Label>
+                  <Input
+                    id="company-postal-code"
+                    value={formData.postalCode || ''}
+                    onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                    disabled={!editMode}
+                  />
+                </div>
+              </div>
+            </div>
 
-                <Divider />
-
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Ubicación
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid xs={12}>
-                      <FormControl>
-                        <FormLabel>Dirección</FormLabel>
-                        <Input
-                          value={formData.address || ''}
-                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                          disabled={!editMode}
-                          startDecorator={<LocationIcon />}
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">
+                Preferencias Regionales
+              </h2>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-timezone">Zona Horaria</Label>
+                  <Select
+                    value={formData.timezone || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, timezone: value })}
+                    disabled={!editMode}
+                  >
+                    <SelectTrigger id="company-timezone" className="h-11">
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <Clock
+                          className="size-[18px] shrink-0 text-muted-foreground"
+                          aria-hidden
                         />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Ciudad</FormLabel>
-                        <Input
-                          value={formData.city || ''}
-                          onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                          disabled={!editMode}
+                        <SelectValue placeholder="Seleccionar" />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Europe/Madrid">Europa/Madrid (GMT+1)</SelectItem>
+                      <SelectItem value="America/New_York">América/Nueva York (GMT-5)</SelectItem>
+                      <SelectItem value="America/Mexico_City">América/Ciudad de México (GMT-6)</SelectItem>
+                      <SelectItem value="America/Sao_Paulo">América/São Paulo (GMT-3)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-language">Idioma</Label>
+                  <Select
+                    value={formData.language || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, language: value })}
+                    disabled={!editMode}
+                  >
+                    <SelectTrigger id="company-language" className="h-11">
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <Translate
+                          className="size-[18px] shrink-0 text-muted-foreground"
+                          aria-hidden
                         />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Provincia/Estado</FormLabel>
-                        <Input
-                          value={formData.state || ''}
-                          onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                          disabled={!editMode}
+                        <SelectValue placeholder="Seleccionar" />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="es">Español</SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="pt">Português</SelectItem>
+                      <SelectItem value="fr">Français</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-currency">Moneda</Label>
+                  <Select
+                    value={formData.currency || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, currency: value })}
+                    disabled={!editMode}
+                  >
+                    <SelectTrigger id="company-currency" className="h-11">
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <CreditCard
+                          className="size-[18px] shrink-0 text-muted-foreground"
+                          aria-hidden
                         />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>País</FormLabel>
-                        <Input
-                          value={formData.country || ''}
-                          onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                          disabled={!editMode}
-                        />
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Código Postal</FormLabel>
-                        <Input
-                          value={formData.postalCode || ''}
-                          onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
-                          disabled={!editMode}
-                        />
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Box>
+                        <SelectValue placeholder="Seleccionar" />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="EUR">EUR (€)</SelectItem>
+                      <SelectItem value="USD">USD ($)</SelectItem>
+                      <SelectItem value="GBP">GBP (£)</SelectItem>
+                      <SelectItem value="MXN">MXN ($)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
 
-                <Divider />
+          {/* Tab 2: Configuration */}
+          <TabsContent value="1" className="space-y-4">
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">Horario Laboral</h2>
 
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Preferencias Regionales
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid xs={12} md={4}>
-                      <FormControl>
-                        <FormLabel>Zona Horaria</FormLabel>
-                        <Select
-                          value={formData.timezone}
-                          onChange={(_, value) => setFormData({ ...formData, timezone: value as string })}
-                          disabled={!editMode}
-                          startDecorator={<ScheduleIcon />}
-                        >
-                          <Option value="Europe/Madrid">Europa/Madrid (GMT+1)</Option>
-                          <Option value="America/New_York">América/Nueva York (GMT-5)</Option>
-                          <Option value="America/Mexico_City">América/Ciudad de México (GMT-6)</Option>
-                          <Option value="America/Sao_Paulo">América/São Paulo (GMT-3)</Option>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={4}>
-                      <FormControl>
-                        <FormLabel>Idioma</FormLabel>
-                        <Select
-                          value={formData.language}
-                          onChange={(_, value) => setFormData({ ...formData, language: value as string })}
-                          disabled={!editMode}
-                          startDecorator={<LanguageIcon />}
-                        >
-                          <Option value="es">Español</Option>
-                          <Option value="en">English</Option>
-                          <Option value="pt">Português</Option>
-                          <Option value="fr">Français</Option>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12} md={4}>
-                      <FormControl>
-                        <FormLabel>Moneda</FormLabel>
-                        <Select
-                          value={formData.currency}
-                          onChange={(_, value) => setFormData({ ...formData, currency: value as string })}
-                          disabled={!editMode}
-                          startDecorator={<PaymentIcon />}
-                        >
-                          <Option value="EUR">EUR (€)</Option>
-                          <Option value="USD">USD ($)</Option>
-                          <Option value="GBP">GBP (£)</Option>
-                          <Option value="MXN">MXN ($)</Option>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Box>
-              </Stack>
-            </TabPanel>
+              <div
+                role="note"
+                className="mt-4 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-foreground"
+              >
+                <Info className="size-[18px] shrink-0 text-primary" aria-hidden />
+                <span>
+                  Configure el horario de atención de su empresa para gestionar tickets
+                  automáticamente.
+                </span>
+              </div>
 
-            {/* Tab 2: Configuration */}
-            <TabPanel value={1}>
-              <Stack spacing={3}>
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Horario Laboral
-                  </Typography>
-                  <Alert color="primary" startDecorator={<InfoIcon />} sx={{ mb: 2 }}>
-                    Configure el horario de atención de su empresa para gestionar tickets automáticamente.
-                  </Alert>
-                  <Stack spacing={2}>
-                    <FormControl>
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <FormLabel>Habilitar Horario Laboral</FormLabel>
-                        <Switch
-                          checked={formData.settings?.workingHours?.enabled || false}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              settings: {
-                                ...formData.settings!,
-                                workingHours: {
-                                  ...formData.settings!.workingHours,
-                                  enabled: e.target.checked,
-                                },
-                              },
-                            })
-                          }
-                          disabled={!editMode}
-                        />
-                      </Stack>
-                    </FormControl>
-                    <Grid container spacing={2}>
-                      <Grid xs={6}>
-                        <FormControl>
-                          <FormLabel>Hora de Inicio</FormLabel>
-                          <Input
-                            type="time"
-                            value={formData.settings?.workingHours?.start || ''}
-                            disabled={!editMode}
-                          />
-                        </FormControl>
-                      </Grid>
-                      <Grid xs={6}>
-                        <FormControl>
-                          <FormLabel>Hora de Fin</FormLabel>
-                          <Input
-                            type="time"
-                            value={formData.settings?.workingHours?.end || ''}
-                            disabled={!editMode}
-                          />
-                        </FormControl>
-                      </Grid>
-                    </Grid>
-                  </Stack>
-                </Box>
+              <div className="mt-4 space-y-4">
+                <ToggleRow
+                  id="working-hours-enabled"
+                  label="Habilitar Horario Laboral"
+                  checked={formData.settings?.workingHours?.enabled || false}
+                  disabled={!editMode}
+                  onChange={(checked) =>
+                    setFormData({
+                      ...formData,
+                      settings: {
+                        ...formData.settings!,
+                        workingHours: {
+                          ...formData.settings!.workingHours,
+                          enabled: checked,
+                        },
+                      },
+                    })
+                  }
+                />
 
-                <Divider />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="working-hours-start">Hora de Inicio</Label>
+                    <Input
+                      id="working-hours-start"
+                      type="time"
+                      value={formData.settings?.workingHours?.start || ''}
+                      disabled={!editMode}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="working-hours-end">Hora de Fin</Label>
+                    <Input
+                      id="working-hours-end"
+                      type="time"
+                      value={formData.settings?.workingHours?.end || ''}
+                      disabled={!editMode}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Notificaciones
-                  </Typography>
-                  <Stack spacing={2}>
-                    <FormControl>
-                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                        <Box>
-                          <FormLabel>Notificaciones por Email</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Recibir notificaciones importantes por correo electrónico
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={formData.settings?.notifications?.email || false}
-                          disabled={!editMode}
-                        />
-                      </Stack>
-                    </FormControl>
-                    <FormControl>
-                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                        <Box>
-                          <FormLabel>Notificaciones SMS</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Recibir alertas urgentes por mensaje de texto
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={formData.settings?.notifications?.sms || false}
-                          disabled={!editMode}
-                        />
-                      </Stack>
-                    </FormControl>
-                    <FormControl>
-                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                        <Box>
-                          <FormLabel>Notificaciones Push</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Recibir notificaciones en tiempo real en el navegador
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={formData.settings?.notifications?.push || false}
-                          disabled={!editMode}
-                        />
-                      </Stack>
-                    </FormControl>
-                  </Stack>
-                </Box>
-              </Stack>
-            </TabPanel>
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">Notificaciones</h2>
+              <div className="mt-4 space-y-4">
+                <ToggleRow
+                  id="notifications-email"
+                  label="Notificaciones por Email"
+                  description="Recibir notificaciones importantes por correo electrónico"
+                  checked={formData.settings?.notifications?.email || false}
+                  disabled={!editMode}
+                />
+                <ToggleRow
+                  id="notifications-sms"
+                  label="Notificaciones SMS"
+                  description="Recibir alertas urgentes por mensaje de texto"
+                  checked={formData.settings?.notifications?.sms || false}
+                  disabled={!editMode}
+                />
+                <ToggleRow
+                  id="notifications-push"
+                  label="Notificaciones Push"
+                  description="Recibir notificaciones en tiempo real en el navegador"
+                  checked={formData.settings?.notifications?.push || false}
+                  disabled={!editMode}
+                />
+              </div>
+            </div>
+          </TabsContent>
 
-            {/* Tab 3: Security */}
-            <TabPanel value={2}>
-              <Stack spacing={3}>
-                <Alert color="warning" startDecorator={<WarningIcon />}>
-                  La configuración de seguridad afecta a todos los usuarios de la empresa.
-                </Alert>
+          {/* Tab 3: Security */}
+          <TabsContent value="2" className="space-y-4">
+            <div
+              role="note"
+              className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-text"
+            >
+              <Warning className="size-[18px] shrink-0" aria-hidden />
+              <span>
+                La configuración de seguridad afecta a todos los usuarios de la empresa.
+              </span>
+            </div>
 
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
-                    Autenticación
-                  </Typography>
-                  <Stack spacing={2}>
-                    <FormControl>
-                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-                        <Box>
-                          <FormLabel>Autenticación de Dos Factores (2FA)</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Requerir verificación adicional al iniciar sesión
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={formData.settings?.security?.twoFactor || false}
-                          disabled={!editMode}
-                        />
-                      </Stack>
-                    </FormControl>
-                    <FormControl>
-                      <FormLabel>Tiempo de Expiración de Sesión (minutos)</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.settings?.security?.sessionTimeout || 30}
-                        disabled={!editMode}
-                        slotProps={{ input: { min: 5, max: 480 } }}
-                      />
-                    </FormControl>
-                    <FormControl>
-                      <FormLabel>Caducidad de Contraseña (días)</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.settings?.security?.passwordExpiry || 90}
-                        disabled={!editMode}
-                        slotProps={{ input: { min: 30, max: 365 } }}
-                      />
-                    </FormControl>
-                  </Stack>
-                </Box>
-              </Stack>
-            </TabPanel>
+            <div className={SECTION_CARD}>
+              <h2 className="text-lg font-semibold text-foreground">Autenticación</h2>
+              <div className="mt-4 space-y-4">
+                <ToggleRow
+                  id="security-two-factor"
+                  label="Autenticación de Dos Factores (2FA)"
+                  description="Requerir verificación adicional al iniciar sesión"
+                  checked={formData.settings?.security?.twoFactor || false}
+                  disabled={!editMode}
+                />
+                <div className="space-y-1.5">
+                  <Label htmlFor="security-session-timeout">
+                    Tiempo de Expiración de Sesión (minutos)
+                  </Label>
+                  <Input
+                    id="security-session-timeout"
+                    type="number"
+                    min={5}
+                    max={480}
+                    value={formData.settings?.security?.sessionTimeout || 30}
+                    disabled={!editMode}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="security-password-expiry">
+                    Caducidad de Contraseña (días)
+                  </Label>
+                  <Input
+                    id="security-password-expiry"
+                    type="number"
+                    min={30}
+                    max={365}
+                    value={formData.settings?.security?.passwordExpiry || 90}
+                    disabled={!editMode}
+                  />
+                </div>
+              </div>
+            </div>
+          </TabsContent>
 
-            {/* Tab 4: Integrations */}
-            <TabPanel value={3}>
-              <Stack spacing={3}>
-                <Alert color="success" startDecorator={<CheckIcon />}>
-                  {Object.values(company.settings.integrations).filter(Boolean).length} de 4 integraciones activas
-                </Alert>
+          {/* Tab 4: Integrations */}
+          <TabsContent value="3" className="space-y-4">
+            <div
+              role="note"
+              className="flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success-text"
+            >
+              <CheckCircle className="size-[18px] shrink-0" aria-hidden />
+              <span>{activeIntegrations} de 4 integraciones activas</span>
+            </div>
 
-                <Grid container spacing={2}>
-                  <Grid xs={12} md={6}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Box>
-                            <Typography level="title-md">WhatsApp Business</Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              API oficial de Meta
-                            </Typography>
-                          </Box>
-                          <Chip
-                            color={company.settings.integrations.whatsapp ? 'success' : 'neutral'}
-                            startDecorator={company.settings.integrations.whatsapp ? <CheckIcon /> : undefined}
-                          >
-                            {company.settings.integrations.whatsapp ? 'Activa' : 'Inactiva'}
-                          </Chip>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} md={6}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Box>
-                            <Typography level="title-md">Telegram</Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              Bot API de Telegram
-                            </Typography>
-                          </Box>
-                          <Chip
-                            color={company.settings.integrations.telegram ? 'success' : 'neutral'}
-                            startDecorator={company.settings.integrations.telegram ? <CheckIcon /> : undefined}
-                          >
-                            {company.settings.integrations.telegram ? 'Activa' : 'Inactiva'}
-                          </Chip>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} md={6}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Box>
-                            <Typography level="title-md">Email Marketing</Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              SendGrid / Amazon SES
-                            </Typography>
-                          </Box>
-                          <Chip
-                            color={company.settings.integrations.email ? 'success' : 'neutral'}
-                            startDecorator={company.settings.integrations.email ? <CheckIcon /> : undefined}
-                          >
-                            {company.settings.integrations.email ? 'Activa' : 'Inactiva'}
-                          </Chip>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid xs={12} md={6}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Box>
-                            <Typography level="title-md">Stripe Payments</Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              Procesamiento de pagos
-                            </Typography>
-                          </Box>
-                          <Chip
-                            color={company.settings.integrations.stripe ? 'success' : 'neutral'}
-                            startDecorator={company.settings.integrations.stripe ? <CheckIcon /> : undefined}
-                          >
-                            {company.settings.integrations.stripe ? 'Activa' : 'Inactiva'}
-                          </Chip>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-              </Stack>
-            </TabPanel>
-          </Tabs>
-        </Card>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <IntegrationCard
+                title="WhatsApp Business"
+                description="API oficial de Meta"
+                active={company.settings.integrations.whatsapp}
+              />
+              <IntegrationCard
+                title="Telegram"
+                description="Bot API de Telegram"
+                active={company.settings.integrations.telegram}
+              />
+              <IntegrationCard
+                title="Email Marketing"
+                description="SendGrid / Amazon SES"
+                active={company.settings.integrations.email}
+              />
+              <IntegrationCard
+                title="Stripe Payments"
+                description="Procesamiento de pagos"
+                active={company.settings.integrations.stripe}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
 
         {/* Footer Info */}
-        <Card variant="soft">
-          <CardContent>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Empresa creada el {new Date(company.createdAt).toLocaleDateString('es-ES')} • Última
-              actualización: {new Date(company.updatedAt).toLocaleDateString('es-ES')}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Stack>
-    </Container>
+        <div className="rounded-xl border border-border bg-muted/40 p-4">
+          <p className="text-sm text-muted-foreground">
+            Empresa creada el {new Date(company.createdAt).toLocaleDateString('es-ES')} • Última
+            actualización: {new Date(company.updatedAt).toLocaleDateString('es-ES')}
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }

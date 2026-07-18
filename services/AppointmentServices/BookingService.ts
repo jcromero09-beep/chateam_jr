@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Op } from 'sequelize';
 import Appointment from '../../models/Appointments/Appointment';
 import AppointmentService from '../../models/AppointmentService';
@@ -48,8 +52,10 @@ class BookingService {
       return;
     }
 
-    const delay = 60000;
-    const { add } = require('../../queues');
+    const delay = 0;
+    // Fix (2026-07-09): await import (no require CJS) — evita "No exports main defined"
+    // de whatsapp-rust-bridge (Baileys ESM) al re-resolver ../../queues bajo CJS.
+    const { add } = await import('../../queues');
 
     await add("AppointmentReminder", {
       appointmentId: appointment.id,
@@ -182,6 +188,29 @@ class BookingService {
         notes: data.notes
       });
 
+      // [Fase2·B1.1] Schedule -> Meta CAPI. Async y aislado: la cita ya esta
+      // creada; un fallo de CAPI no puede tumbar la reserva.
+      try {
+        const { dispatchAppointmentConversionAsync } = await import(
+          "../FacebookConversionService/AppointmentConversionService"
+        );
+        dispatchAppointmentConversionAsync(appointment.id);
+      } catch (capiErr: any) {
+        logWarn('Error dispatching appointment Meta conversion', {
+          appointmentId: appointment.id,
+          error: capiErr?.message || capiErr
+        });
+      }
+
+      try {
+        await ReminderService.sendAppointmentCreatedMessage(appointment);
+      } catch (createdMessageErr: any) {
+        logWarn('Error sending appointment created message after booking creation', {
+          appointmentId: appointment.id,
+          error: createdMessageErr?.message || createdMessageErr
+        });
+      }
+
       // Create default reminders
       await ReminderService.createDefaultReminders(appointment);
 
@@ -191,6 +220,20 @@ class BookingService {
         logWarn('Error enqueuing confirmation reminder after booking creation', {
           appointmentId: appointment.id,
           error: reminderQueueErr?.message || reminderQueueErr
+        });
+      }
+
+      // 🔔 Notificación in-app a usuario asignado y admins suscritos
+      // Falla silenciosamente — nunca aborta la creación de la cita.
+      try {
+        const NotifyAppointmentCreatedService = (
+          await import("../NotificationServices/NotifyAppointmentCreatedService")
+        ).default;
+        await NotifyAppointmentCreatedService(appointment);
+      } catch (notifyErr: any) {
+        logWarn('Error enviando notificación in-app de cita creada', {
+          appointmentId: appointment.id,
+          error: notifyErr?.message || notifyErr
         });
       }
 
@@ -488,26 +531,29 @@ class BookingService {
 
       logInfo(`✅ [CONFIRM] Estado actualizado a 'confirmed' para cita ID=${appointmentId}`);
 
-      // Schedule the reminder message based on timing
+      // Schedule the reminder message based on configured timing
       const reminderTemplate = (appointment as any).reminderTemplate;
       if (reminderTemplate && reminderTemplate.isActive) {
-        // const appointmentTime = new Date(appointment.startTime).getTime();
-        // const timingMs = (reminderTemplate.timing || 1) * 60 * 60 * 1000; // hours to ms
-        // const sendTime = appointmentTime - timingMs;
-        // const now = Date.now();
-        // const delay = Math.max(0, sendTime - now);
-
-        // CAMBIO SOLICITADO: Programar envio 1 min despues de confirmar
-        const delay = 60000; // 1 minuto fixed delay
+        const appointmentTime = new Date(appointment.startTime).getTime();
+        const timingHours = Number(reminderTemplate.timing);
+        const normalizedTimingHours = Number.isFinite(timingHours) && timingHours >= 0
+          ? timingHours
+          : 24;
+        const timingMs = normalizedTimingHours * 60 * 60 * 1000;
+        const sendTime = appointmentTime - timingMs;
+        const now = Date.now();
+        const delay = Math.max(0, sendTime - now);
 
         logInfo(`📅 [CONFIRM] Programando recordatorio para cita ID=${appointmentId}`);
-        // logInfo(`📅 [CONFIRM] - Hora de cita: ${new Date(appointmentTime).toISOString()}`);
-        // logInfo(`📅 [CONFIRM] - Timing: ${reminderTemplate.timing} horas antes`);
-        // logInfo(`📅 [CONFIRM] - Hora de envío: ${new Date(sendTime).toISOString()}`);
+        logInfo(`📅 [CONFIRM] - Hora de cita: ${new Date(appointmentTime).toISOString()}`);
+        logInfo(`📅 [CONFIRM] - Timing: ${normalizedTimingHours} horas antes`);
+        logInfo(`📅 [CONFIRM] - Hora de envío: ${new Date(sendTime).toISOString()}`);
         logInfo(`📅 [CONFIRM] - Delay: ${Math.round(delay / 60000)} minutos`);
 
         // Import add from queues to schedule the reminder
-        const { add } = require('../../queues');
+        // Fix (2026-07-09): await import (no require CJS) — evita "No exports main defined"
+        // de whatsapp-rust-bridge (Baileys ESM) al re-resolver ../../queues bajo CJS.
+        const { add } = await import('../../queues');
 
         await add("AppointmentReminder", {
           appointmentId: appointment.id,

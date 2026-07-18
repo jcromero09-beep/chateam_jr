@@ -1,10 +1,30 @@
 import { Request, Response } from "express";
+import { identifyWinners, graduateWinner } from "../services/MetaMarketingService/GraduateWinnerService"; // [Fase2·D3.1]
+import { generatePixelSnippet, validatePixelInstall } from "../services/FacebookConversionService/WebPixelService"; // [Fase2·B7.1]
+import { evaluateEdit } from "../services/MetaMarketingService/LearningPhaseGuardService"; // [Fase2·D4.1]
+import { runFatigueScan, analyzeCampaignSignals } from "../services/CampaignFatigueService"; // [Fase2·E5.1]
+import { uploadAdImage, listAdImages, generatePreview, buildCarouselStorySpec } from "../services/MetaMarketingService/CreativePortfolioService"; // [Fase2·D2.1]
+import { createCtwaCampaign, CTWA_BUDGET_PRESET_USD } from "../services/MetaMarketingService/CtwaCampaignService"; // [Fase2·D1.1]
 import MetaMarketingService from "../services/MetaMarketingService";
+import { getRoasByCampaign } from "../services/MetaMarketingService/RoasService"; // [Fase2·E4.1]
 import logger from "../utils/logger";
+
+// [Fase2·E4.1] ROAS + CPA REALES por campaña (reemplaza el mock Math.random).
+export const getRoas = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { since, until } = req.query as any;
+  try {
+    const data = await getRoasByCampaign({ companyId, since, until });
+    return res.json(data);
+  } catch (e: any) {
+    logger.error(`[Controller:getRoas] ${e.message}`);
+    return res.status(e?.statusCode || 500).json({ error: e.message });
+  }
+};
 
 // Test connection to Facebook Marketing API
 export const testConnection = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { whatsappId } = req.query;
 
   logger.info(`[Controller:testConnection] 🚀 REQUEST - companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}`);
@@ -25,7 +45,7 @@ export const testConnection = async (req: Request, res: Response): Promise<Respo
   } catch (error: any) {
     logger.error(`[Controller:testConnection] ❌ ERROR: ${error.message}`);
     logger.error(`[Controller:testConnection] ❌ Stack: ${error.stack}`);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error testing connection"
     });
@@ -35,7 +55,7 @@ export const testConnection = async (req: Request, res: Response): Promise<Respo
 // Get ad accounts available for the user
 export const getAdAccounts = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
 
     const accounts = await MetaMarketingService.getAdAccounts(companyId);
 
@@ -45,7 +65,7 @@ export const getAdAccounts = async (req: Request, res: Response): Promise<Respon
     });
   } catch (error: any) {
     console.error("Error in getAdAccounts:", error);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting ad accounts"
     });
@@ -54,7 +74,7 @@ export const getAdAccounts = async (req: Request, res: Response): Promise<Respon
 
 // Get campaigns with insights
 export const getCampaigns = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { period = '30days', status, whatsappId } = req.query;
 
   logger.info(`[Controller:getCampaigns] 🚀 REQUEST - companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}, period: ${period}`);
@@ -80,7 +100,7 @@ export const getCampaigns = async (req: Request, res: Response): Promise<Respons
     });
   } catch (error: any) {
     logger.error(`[Controller:getCampaigns] ❌ ERROR: ${error.message}`);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting campaigns"
     });
@@ -90,11 +110,16 @@ export const getCampaigns = async (req: Request, res: Response): Promise<Respons
 // Get single campaign details
 export const getCampaignById = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const { id } = req.params;
-    const { period = '30days' } = req.query;
+    const { period = '30days', whatsappId } = req.query;
 
-    const campaign = await MetaMarketingService.getCampaignById(companyId, id);
+    const campaign = await MetaMarketingService.getCampaignById(
+      companyId,
+      id,
+      undefined,
+      whatsappId ? Number(whatsappId) : undefined
+    );
 
     return res.status(200).json({
       success: true,
@@ -103,7 +128,7 @@ export const getCampaignById = async (req: Request, res: Response): Promise<Resp
     });
   } catch (error: any) {
     console.error("Error in getCampaignById:", error);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting campaign"
     });
@@ -112,7 +137,7 @@ export const getCampaignById = async (req: Request, res: Response): Promise<Resp
 
 // Get ads with insights
 export const getAds = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { period = '30days', campaignId, status, whatsappId } = req.query;
 
   logger.info(`[Controller:getAds] 🚀 REQUEST - companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}, period: ${period}`);
@@ -135,9 +160,41 @@ export const getAds = async (req: Request, res: Response): Promise<Response> => 
     });
   } catch (error: any) {
     logger.error(`[Controller:getAds] ❌ ERROR: ${error.message}`);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting ads"
+    });
+  }
+};
+
+// Get ad sets with insights
+export const getAdSets = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { period = '30days', campaignId, status, whatsappId } = req.query;
+
+  logger.info(`[Controller:getAdSets] 🚀 REQUEST - companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}, period: ${period}`);
+
+  try {
+    const adSets = await MetaMarketingService.getAdSets(
+      companyId,
+      {
+        campaignId: campaignId as string | undefined,
+        status: status ? (status as string).split(',') : undefined
+      },
+      whatsappId ? Number(whatsappId) : undefined
+    );
+
+    logger.info(`[Controller:getAdSets] ✅ Devolviendo ${adSets.length} conjuntos de anuncios`);
+    return res.status(200).json({
+      success: true,
+      adSets,
+      period
+    });
+  } catch (error: any) {
+    logger.error(`[Controller:getAdSets] ❌ ERROR: ${error.message}`);
+    return res.status(error?.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error getting ad sets"
     });
   }
 };
@@ -145,7 +202,7 @@ export const getAds = async (req: Request, res: Response): Promise<Response> => 
 // Get ads for a specific campaign
 export const getAdsByCampaign = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const { id } = req.params;
     const { period = '30days', whatsappId } = req.query;
 
@@ -163,7 +220,7 @@ export const getAdsByCampaign = async (req: Request, res: Response): Promise<Res
     });
   } catch (error: any) {
     console.error("Error in getAdsByCampaign:", error);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting campaign ads"
     });
@@ -172,7 +229,7 @@ export const getAdsByCampaign = async (req: Request, res: Response): Promise<Res
 
 // Get insights trends for charts
 export const getInsightsTrend = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { period = '30days', whatsappId } = req.query;
 
   logger.info(`[Controller:getInsightsTrend] 🚀 REQUEST - companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}, period: ${period}`);
@@ -192,7 +249,7 @@ export const getInsightsTrend = async (req: Request, res: Response): Promise<Res
     });
   } catch (error: any) {
     logger.error(`[Controller:getInsightsTrend] ❌ ERROR: ${error.message}`);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting insights trend"
     });
@@ -201,7 +258,7 @@ export const getInsightsTrend = async (req: Request, res: Response): Promise<Res
 
 // Get aggregated insights (totals)
 export const getAggregatedInsights = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { period = '30days', whatsappId } = req.query;
 
   logger.info(`[Controller:getAggregatedInsights] 🚀 REQUEST - companyId: ${companyId}, whatsappId: ${whatsappId || "N/A"}, period: ${period}`);
@@ -221,7 +278,7 @@ export const getAggregatedInsights = async (req: Request, res: Response): Promis
     });
   } catch (error: any) {
     logger.error(`[Controller:getAggregatedInsights] ❌ ERROR: ${error.message}`);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting aggregated insights"
     });
@@ -230,7 +287,7 @@ export const getAggregatedInsights = async (req: Request, res: Response): Promis
 
 // Combined endpoint for dashboard (campaigns + trends + totals)
 export const getDashboardData = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { period: periodParam, whatsappId, status, since, until } = req.query;
   const wpId = whatsappId ? Number(whatsappId) : undefined;
   const statusArray = status ? (status as string).split(',') : undefined;
@@ -251,32 +308,34 @@ export const getDashboardData = async (req: Request, res: Response): Promise<Res
   logger.info(`[Controller:getDashboardData] 📡 Iniciando carga de datos del dashboard...`);
 
   try {
-    logger.info(`[Controller:getDashboardData] 📡 Ejecutando 4 consultas en paralelo...`);
+    logger.info(`[Controller:getDashboardData] 📡 Ejecutando 5 consultas en paralelo...`);
     const startTime = Date.now();
 
-    const [campaigns, trends, totals, ads] = await Promise.all([
+    const [campaigns, trends, totals, adSets, ads] = await Promise.all([
       MetaMarketingService.getCampaigns(companyId, { includeInsights: true, status: statusArray, timeRange }, wpId),
       MetaMarketingService.getInsightsTrend(companyId, period, wpId),
       MetaMarketingService.getAggregatedInsights(companyId, period, wpId),
+      MetaMarketingService.getAdSets(companyId, { timeRange }, wpId),
       MetaMarketingService.getAds(companyId, { timeRange }, wpId)
     ]);
 
     const elapsedTime = Date.now() - startTime;
     logger.info(`[Controller:getDashboardData] ✅ COMPLETADO en ${elapsedTime}ms`);
-    logger.info(`[Controller:getDashboardData] 📊 Resultados: ${campaigns.length} campañas, ${ads.length} anuncios, ${trends.length} días de tendencias`);
+    logger.info(`[Controller:getDashboardData] 📊 Resultados: ${campaigns.length} campañas, ${adSets.length} conjuntos, ${ads.length} anuncios, ${trends.length} días de tendencias`);
 
     return res.status(200).json({
       success: true,
       campaigns,
       trends,
       totals,
+      adSets,
       ads,
       period
     });
   } catch (error: any) {
     logger.error(`[Controller:getDashboardData] ❌ ERROR: ${error.message}`);
     logger.error(`[Controller:getDashboardData] ❌ Stack: ${error.stack}`);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting dashboard data"
     });
@@ -286,7 +345,7 @@ export const getDashboardData = async (req: Request, res: Response): Promise<Res
 // Invalidate cache to force fresh data
 export const invalidateCache = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
 
     await MetaMarketingService.invalidateCache(companyId);
 
@@ -296,7 +355,7 @@ export const invalidateCache = async (req: Request, res: Response): Promise<Resp
     });
   } catch (error: any) {
     console.error("Error in invalidateCache:", error);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error invalidating cache"
     });
@@ -306,7 +365,7 @@ export const invalidateCache = async (req: Request, res: Response): Promise<Resp
 // Get API usage statistics (for audit)
 export const getUsageStats = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const { hours = 24 } = req.query;
 
     const stats = MetaMarketingService.getUsageStats(companyId, Number(hours));
@@ -318,7 +377,7 @@ export const getUsageStats = async (req: Request, res: Response): Promise<Respon
     });
   } catch (error: any) {
     console.error("Error in getUsageStats:", error);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting usage stats"
     });
@@ -328,7 +387,7 @@ export const getUsageStats = async (req: Request, res: Response): Promise<Respon
 // Get token status (for monitoring)
 export const getTokenStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
 
     const tokenStatus = await MetaMarketingService.getTokenStatus(companyId);
 
@@ -338,7 +397,7 @@ export const getTokenStatus = async (req: Request, res: Response): Promise<Respo
     });
   } catch (error: any) {
     console.error("Error in getTokenStatus:", error);
-    return res.status(500).json({
+    return res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Error getting token status"
     });
@@ -351,7 +410,7 @@ export const getTokenStatus = async (req: Request, res: Response): Promise<Respo
 
 // Create a new campaign
 export const createCampaign = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { whatsappId } = req.query;
   const { name, objective, status, special_ad_categories, daily_budget, lifetime_budget, start_time, stop_time, bid_strategy } = req.body;
 
@@ -405,7 +464,7 @@ export const createCampaign = async (req: Request, res: Response): Promise<Respo
 
 // Update an existing campaign
 export const updateCampaign = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
   const updates = req.body;
@@ -420,6 +479,27 @@ export const updateCampaign = async (req: Request, res: Response): Promise<Respo
     if (updates.daily_budget !== undefined && updates.daily_budget <= 0) {
       return res.status(400).json({ success: false, message: "El presupuesto diario debe ser mayor a 0" });
     }
+
+    // [Fase2·D4.1] Guarda de fase de aprendizaje: tocar presupuesto/publico durante
+    // el aprendizaje lo REINICIA y tira el gasto acumulado. Se exige doble
+    // confirmacion (confirm: true) en vez de dejar que pase en silencio.
+    const guard = await evaluateEdit({
+      companyId,
+      campaignId: id,
+      updates,
+      confirmed: updates.confirm === true,
+      whatsappId: whatsappId ? Number(whatsappId) : undefined
+    });
+    if (!guard.allowed) {
+      return res.status(409).json({
+        success: false,
+        requiresConfirmation: true,
+        message: guard.reason,
+        riskyFields: guard.riskyFields,
+        learning: guard.learning
+      });
+    }
+    delete updates.confirm;
 
     const campaign = await MetaMarketingService.updateCampaign(
       companyId,
@@ -441,7 +521,7 @@ export const updateCampaign = async (req: Request, res: Response): Promise<Respo
 
 // Delete a campaign
 export const deleteCampaign = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
 
@@ -471,7 +551,7 @@ export const deleteCampaign = async (req: Request, res: Response): Promise<Respo
 
 // Duplicate a campaign
 export const duplicateCampaign = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
   const { newName } = req.body;
@@ -504,7 +584,7 @@ export const duplicateCampaign = async (req: Request, res: Response): Promise<Re
 
 // Pause campaign and all its ads/adsets
 export const pauseAllInCampaign = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
 
@@ -534,7 +614,7 @@ export const pauseAllInCampaign = async (req: Request, res: Response): Promise<R
 
 // Activate campaign and all its ads/adsets
 export const activateAllInCampaign = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
 
@@ -568,7 +648,7 @@ export const activateAllInCampaign = async (req: Request, res: Response): Promis
 
 // Create a new ad set
 export const createAdSet = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { whatsappId } = req.query;
   const { campaignId, name, optimization_goal, billing_event, bid_amount, daily_budget, lifetime_budget, start_time, end_time, targeting, status } = req.body;
 
@@ -602,7 +682,7 @@ export const createAdSet = async (req: Request, res: Response): Promise<Response
 
 // Update an existing ad set
 export const updateAdSet = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
   const updates = req.body;
@@ -613,6 +693,26 @@ export const updateAdSet = async (req: Request, res: Response): Promise<Response
     if (!id) {
       return res.status(400).json({ success: false, message: "adsetId es requerido" });
     }
+
+    // [Fase2·D4.1] Misma guarda que en campaña, aqui a nivel de conjunto (donde de
+    // verdad ocurre el aprendizaje).
+    const guard = await evaluateEdit({
+      companyId,
+      adSetId: id,
+      updates,
+      confirmed: updates.confirm === true,
+      whatsappId: whatsappId ? Number(whatsappId) : undefined
+    });
+    if (!guard.allowed) {
+      return res.status(409).json({
+        success: false,
+        requiresConfirmation: true,
+        message: guard.reason,
+        riskyFields: guard.riskyFields,
+        learning: guard.learning
+      });
+    }
+    delete updates.confirm;
 
     const adset = await MetaMarketingService.updateAdSet(
       companyId,
@@ -638,7 +738,7 @@ export const updateAdSet = async (req: Request, res: Response): Promise<Response
 
 // Create a new ad
 export const createAd = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { whatsappId } = req.query;
   const { adsetId, name, creative, status } = req.body;
 
@@ -672,7 +772,7 @@ export const createAd = async (req: Request, res: Response): Promise<Response> =
 
 // Update an existing ad
 export const updateAd = async (req: Request, res: Response): Promise<Response> => {
-  const { companyId } = (req as any).user;
+  const { companyId } = req.user;
   const { id } = req.params;
   const { whatsappId } = req.query;
   const updates = req.body;
@@ -708,6 +808,7 @@ export default {
   getCampaigns,
   getCampaignById,
   getAds,
+  getAdSets,
   getAdsByCampaign,
   getInsightsTrend,
   getAggregatedInsights,
@@ -728,4 +829,190 @@ export default {
   // CRUD Ads
   createAd,
   updateAd
+};
+
+/**
+ * [Fase2·D1.1] POST /meta-marketing/ctwa-campaigns
+ * Crea una campana Click-to-WhatsApp completa (campana + adset broad + anuncio).
+ * Siempre nace en PAUSED: lanzar es una decision explicita del operador.
+ * `dryRun: true` devuelve los payloads sin tocar Meta.
+ */
+export const createCtwaCampaignHandler = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const {
+      name, dailyBudgetUsd, pageId, whatsappPhoneNumber, countries,
+      ageMin, ageMax, locales, startTime, creative, whatsappId, dryRun
+    } = req.body;
+
+    const result = await createCtwaCampaign({
+      companyId, name, dailyBudgetUsd, pageId, whatsappPhoneNumber, countries,
+      ageMin, ageMax, locales, startTime, creative, whatsappId,
+      dryRun: dryRun === true || String(dryRun) === "true"
+    });
+
+    return res.status(result.dryRun ? 200 : 201).json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("Error in createCtwaCampaign:", error);
+    return res.status(error?.statusCode || 500).json({
+      success: false,
+      message: error.message || "Error creando campana CTWA"
+    });
+  }
+};
+
+/** [Fase2·D1.1] Preset de presupuesto, para que el front no lo hardcodee. */
+export const getCtwaPresets = async (_req: Request, res: Response): Promise<Response> =>
+  res.status(200).json({ success: true, budgetUsd: CTWA_BUDGET_PRESET_USD });
+
+/** [Fase2·D2.1] POST /meta-marketing/creatives/images — sube imagen y devuelve image_hash. */
+export const uploadCreativeImage = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const file = (req as any).file;
+    if (!file?.path) {
+      return res.status(400).json({ success: false, message: "Adjunta una imagen en el campo 'file'" });
+    }
+    const image = await uploadAdImage(companyId, file.path, file.originalname);
+    return res.status(201).json({ success: true, image });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·D2.1] GET /meta-marketing/creatives/images — portafolio de la cuenta. */
+export const listCreativeImages = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const images = await listAdImages(companyId, Number(req.query.limit) || 50);
+    return res.status(200).json({ success: true, images, total: images.length });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·D2.1] POST /meta-marketing/creatives/preview — preview renderizado por Meta. */
+export const previewCreative = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const { objectStorySpec, adFormat } = req.body;
+    if (!objectStorySpec) {
+      return res.status(400).json({ success: false, message: "objectStorySpec requerido" });
+    }
+    const body = await generatePreview(companyId, { object_story_spec: objectStorySpec }, adFormat);
+    return res.status(200).json({ success: true, adFormat: adFormat || "MOBILE_FEED_STANDARD", body });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·D2.1] POST /meta-marketing/creatives/carousel — arma el story spec de carrusel. */
+export const buildCarousel = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { pageId, message, cards } = req.body;
+    const spec = buildCarouselStorySpec({ pageId, message, cards });
+    return res.status(200).json({ success: true, objectStorySpec: spec });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·D1.1] GET /meta-marketing/adsets/:id — detalle real del adset (incluye destination_type). */
+export const getAdSetById = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const adSet = await MetaMarketingService.getAdSetById(
+      companyId,
+      req.params.id,
+      req.query.whatsappId ? Number(req.query.whatsappId) : undefined
+    );
+    return res.status(200).json({ success: true, adSet });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * [Fase2·E5.1] GET /meta-marketing/campaign-signals
+ * Señales de deterioro por campaña (CTR cayendo + CPA subiendo) y fase de
+ * aprendizaje atascada. `?scan=true` ademas crea las alertas.
+ */
+export const getCampaignSignals = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const scan = req.query.scan === "true";
+
+    if (scan) {
+      const result = await runFatigueScan(companyId);
+      return res.status(200).json({ success: true, ...result });
+    }
+
+    const signals = await analyzeCampaignSignals(companyId);
+    return res.status(200).json({
+      success: true,
+      signals,
+      fatigadas: signals.filter(s => s.fatigue.detected).length,
+      enAprendizajeAtascado: signals.filter(s => s.learning.stuck).length
+    });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·B7.1] GET /meta-marketing/pixel/snippet — snippet fbq listo con dedup CAPI. */
+export const getPixelSnippet = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const result = await generatePixelSnippet(companyId);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·B7.1] POST /meta-marketing/pixel/validate — comprueba instalacion en una URL. */
+export const validatePixel = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ success: false, message: "url requerida" });
+    const result = await validatePixelInstall(companyId, url);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·D3.1] GET /meta-marketing/winners — candidatos a escalar (ranking por CPA). */
+export const getWinners = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const winners = await identifyWinners(companyId);
+    return res.status(200).json({
+      success: true,
+      winners,
+      elegibles: winners.filter(w => w.eligible).length
+    });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/** [Fase2·D3.1] POST /meta-marketing/graduate — clona un ganador a campaña de escalado (PAUSED). */
+export const graduateWinnerHandler = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { companyId } = req.user;
+    const { sourceCampaignId, scaleBudgetUsd, scaleMultiplier, whatsappId, dryRun } = req.body;
+    if (!sourceCampaignId) {
+      return res.status(400).json({ success: false, message: "sourceCampaignId requerido" });
+    }
+    const result = await graduateWinner({
+      companyId, sourceCampaignId, scaleBudgetUsd, scaleMultiplier,
+      whatsappId: whatsappId ? Number(whatsappId) : undefined,
+      dryRun: dryRun === true || String(dryRun) === "true"
+    });
+    return res.status(result.dryRun ? 200 : 201).json({ success: true, ...result });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, message: error.message });
+  }
 };

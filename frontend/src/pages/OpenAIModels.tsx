@@ -1,31 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
+import CircularProgress from '@mui/joy/CircularProgress'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Chip,
-  Button,
-  Table,
-  Sheet,
-  Alert,
-  CircularProgress,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-} from '@mui/joy'
-import {
-  Settings as SettingsIcon,
-  CheckCircle as ActiveIcon,
-  Cancel as InactiveIcon,
-  Speed as SpeedIcon,
-  AttachMoney as CostIcon,
-  Refresh as RefreshIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
-import IconButton from '@mui/joy/IconButton'
+  Gear,
+  CheckCircle,
+  XCircle,
+  CurrencyDollar,
+  ArrowClockwise,
+  X,
+  Warning,
+  Eye,
+  Function as FunctionIcon,
+  Lightning,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import api from '../services/api'
 
 interface ModelInfo {
@@ -90,6 +80,12 @@ const DEFAULT_MODELS: Record<string, ModelInfo[]> = {
   ],
 }
 
+// Umbral de costo -> variante de Badge del design system.
+const inputCostVariant = (cost: number): BadgeProps['variant'] =>
+  cost < 1 ? 'success' : cost < 5 ? 'warning' : 'destructive'
+const outputCostVariant = (cost: number): BadgeProps['variant'] =>
+  cost < 2 ? 'success' : cost < 10 ? 'warning' : 'destructive'
+
 export default function OpenAIModels() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -146,244 +142,234 @@ export default function OpenAIModels() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
-  const currentProvider = providerModels[selectedProvider]
-
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SettingsIcon sx={{ fontSize: 32 }} />
-            Modelos de IA Disponibles
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Catalogo de modelos por proveedor con costos y capacidades
-          </Typography>
-        </Box>
-        <Button variant="outlined" startDecorator={<RefreshIcon />} onClick={fetchModels}>
-          Actualizar
-        </Button>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Gear className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Modelos de IA Disponibles
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Catalogo de modelos por proveedor con costos y capacidades
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchModels}>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar
+          </Button>
+        </div>
 
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton variant="soft" color="danger" onClick={() => setError(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
+        {/* Error */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-destructive/15"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
+
+        {/* Resumen de Proveedores */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Proveedores" value={String(providerModels.length)} />
+          <StatTile
+            label="Proveedores Conectados"
+            value={String(providerModels.filter(p => p.isConnected).length)}
+            tone="success"
+          />
+          <StatTile
+            label="Total Modelos"
+            value={String(providerModels.reduce((sum, p) => sum + p.models.length, 0))}
+          />
+          <StatTile
+            label="Modelos con Vision"
+            value={String(
+              providerModels.reduce((sum, p) => sum + p.models.filter(m => m.supportsVision).length, 0),
+            )}
+          />
+        </div>
+
+        {/* Tabs por proveedor */}
+        <Tabs
+          value={String(selectedProvider)}
+          onValueChange={(val) => setSelectedProvider(Number(val))}
         >
-          {error}
-        </Alert>
-      )}
+          <div className="overflow-x-auto">
+            <TabsList>
+              {providerModels.map((provider, index) => (
+                <TabsTrigger key={provider.provider} value={String(index)}>
+                  {provider.isConnected ? (
+                    <CheckCircle className="size-4 text-success-text" weight="fill" aria-hidden />
+                  ) : (
+                    <XCircle className="size-4 text-muted-foreground" aria-hidden />
+                  )}
+                  {provider.providerName}
+                  <Badge variant="neutral">{provider.models.length}</Badge>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
-      {/* Resumen de Proveedores */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Proveedores
-              </Typography>
-              <Typography level="h3">{providerModels.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Proveedores Conectados
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>
-                {providerModels.filter(p => p.isConnected).length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Modelos
-              </Typography>
-              <Typography level="h3">
-                {providerModels.reduce((sum, p) => sum + p.models.length, 0)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Modelos con Vision
-              </Typography>
-              <Typography level="h3">
-                {providerModels.reduce((sum, p) => sum + p.models.filter(m => m.supportsVision).length, 0)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <Tabs value={selectedProvider} onChange={(_, val) => setSelectedProvider(val as number)}>
-        <TabList>
           {providerModels.map((provider, index) => (
-            <Tab key={provider.provider}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {provider.isConnected ? (
-                  <ActiveIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                ) : (
-                  <InactiveIcon sx={{ fontSize: 16, color: 'neutral.400' }} />
-                )}
-                {provider.providerName}
-                <Chip size="sm" variant="soft">{provider.models.length}</Chip>
-              </Box>
-            </Tab>
-          ))}
-        </TabList>
-
-        {providerModels.map((provider, index) => (
-          <TabPanel key={provider.provider} value={index}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Box>
-                    <Typography level="title-lg">
+            <TabsContent key={provider.provider} value={String(index)}>
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">
                       Modelos de {provider.providerName}
-                    </Typography>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
                       {provider.models.length} modelos disponibles
-                    </Typography>
-                  </Box>
-                  <Chip
-                    size="lg"
-                    color={provider.isConnected ? 'success' : 'neutral'}
-                    startDecorator={provider.isConnected ? <ActiveIcon /> : <InactiveIcon />}
-                  >
+                    </p>
+                  </div>
+                  <Badge variant={provider.isConnected ? 'success' : 'neutral'}>
+                    {provider.isConnected ? (
+                      <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                    ) : (
+                      <XCircle className="size-3.5" aria-hidden />
+                    )}
                     {provider.isConnected ? 'Conectado' : 'No Configurado'}
-                  </Chip>
-                </Box>
+                  </Badge>
+                </div>
 
                 {!provider.isConnected && (
-                  <Alert color="warning" sx={{ mb: 2 }}>
-                    Este proveedor no esta configurado. Ve a Configuracion de IA para agregar tu API key.
-                  </Alert>
+                  <div
+                    role="alert"
+                    className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/16 px-4 py-3 text-sm text-warning-text"
+                  >
+                    <Warning className="mt-0.5 size-4 shrink-0" weight="fill" aria-hidden />
+                    <span>
+                      Este proveedor no esta configurado. Ve a Configuracion de IA para agregar tu API key.
+                    </span>
+                  </div>
                 )}
 
-                <Sheet sx={{ overflow: 'auto' }}>
-                  <Table>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[720px] text-sm">
                     <thead>
-                      <tr>
-                        <th style={{ width: 200 }}>Modelo</th>
-                        <th>Descripcion</th>
-                        <th style={{ width: 120, textAlign: 'right' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
-                            <CostIcon sx={{ fontSize: 16 }} />
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        <th className="w-[200px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Modelo
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Descripcion
+                        </th>
+                        <th className="w-[120px] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <CurrencyDollar className="size-4" aria-hidden />
                             Input/1M
-                          </Box>
+                          </span>
                         </th>
-                        <th style={{ width: 120, textAlign: 'right' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
-                            <CostIcon sx={{ fontSize: 16 }} />
+                        <th className="w-[120px] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <CurrencyDollar className="size-4" aria-hidden />
                             Output/1M
-                          </Box>
+                          </span>
                         </th>
-                        <th style={{ width: 100, textAlign: 'center' }}>Contexto</th>
-                        <th style={{ width: 200, textAlign: 'center' }}>Capacidades</th>
+                        <th className="w-[100px] whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Contexto
+                        </th>
+                        <th className="w-[200px] whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Capacidades
+                        </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-border">
                       {provider.models.map((model) => (
-                        <tr key={model.id}>
-                          <td>
-                            <Typography level="title-sm">{model.name}</Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary', fontFamily: 'monospace' }}>
-                              {model.id}
-                            </Typography>
+                        <tr key={model.id} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-foreground">{model.name}</p>
+                            <p className="font-mono text-xs text-muted-foreground">{model.id}</p>
                           </td>
-                          <td>
-                            <Typography level="body-sm">{model.description}</Typography>
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <Chip
-                              size="sm"
-                              color={model.inputCost < 1 ? 'success' : model.inputCost < 5 ? 'warning' : 'danger'}
-                            >
+                          <td className="px-4 py-3 text-muted-foreground">{model.description}</td>
+                          <td className="px-4 py-3 text-right">
+                            <Badge variant={inputCostVariant(model.inputCost)}>
                               {formatCost(model.inputCost)}
-                            </Chip>
+                            </Badge>
                           </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <Chip
-                              size="sm"
-                              color={model.outputCost < 2 ? 'success' : model.outputCost < 10 ? 'warning' : 'danger'}
-                            >
+                          <td className="px-4 py-3 text-right">
+                            <Badge variant={outputCostVariant(model.outputCost)}>
                               {formatCost(model.outputCost)}
-                            </Chip>
+                            </Badge>
                           </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <Chip size="sm" variant="outlined">
-                              {formatContext(model.contextWindow)}
-                            </Chip>
+                          <td className="px-4 py-3 text-center">
+                            <Badge variant="outline">{formatContext(model.contextWindow)}</Badge>
                           </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap justify-center gap-1.5">
                               {model.supportsVision && (
-                                <Chip size="sm" color="primary" variant="soft">Vision</Chip>
+                                <Badge variant="primary">
+                                  <Eye className="size-3.5" aria-hidden />
+                                  Vision
+                                </Badge>
                               )}
                               {model.supportsFunctions && (
-                                <Chip size="sm" color="success" variant="soft">Functions</Chip>
+                                <Badge variant="success">
+                                  <FunctionIcon className="size-3.5" aria-hidden />
+                                  Functions
+                                </Badge>
                               )}
                               {model.supportsStreaming && (
-                                <Chip size="sm" color="neutral" variant="soft">Stream</Chip>
+                                <Badge variant="neutral">
+                                  <Lightning className="size-3.5" aria-hidden />
+                                  Stream
+                                </Badge>
                               )}
-                            </Box>
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                  </Table>
-                </Sheet>
-              </CardContent>
-            </Card>
-          </TabPanel>
-        ))}
-      </Tabs>
+                  </table>
+                </div>
+              </div>
+            </TabsContent>
+          ))}
+        </Tabs>
 
-      {/* Leyenda de Costos */}
-      <Card sx={{ mt: 3 }}>
-        <CardContent>
-          <Typography level="title-sm" sx={{ mb: 1 }}>
-            Informacion de Precios
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+        {/* Leyenda de Costos */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h3 className="mb-2 text-sm font-semibold text-foreground">Informacion de Precios</h3>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <p className="text-xs text-muted-foreground">
               Los precios son por 1 millon de tokens (Diciembre 2024)
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Chip size="sm" color="success">Bajo</Chip>
-              <Typography level="body-xs">{'< $1 input / < $2 output'}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Chip size="sm" color="warning">Medio</Chip>
-              <Typography level="body-xs">{'$1-$5 input / $2-$10 output'}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Chip size="sm" color="danger">Alto</Chip>
-              <Typography level="body-xs">{'>= $5 input / >= $10 output'}</Typography>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
-    </Box>
+            </p>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="success">Bajo</Badge>
+              <span className="text-xs text-muted-foreground">{'< $1 input / < $2 output'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="warning">Medio</Badge>
+              <span className="text-xs text-muted-foreground">{'$1-$5 input / $2-$10 output'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="destructive">Alto</Badge>
+              <span className="text-xs text-muted-foreground">{'>= $5 input / >= $10 output'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

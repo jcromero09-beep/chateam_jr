@@ -1,10 +1,11 @@
 import axios from "axios";
 import Ticket from "../../models/Ticket";
 import QueueIntegrations from "../../models/QueueIntegrations";
-import { WASocket, delay, proto } from "@whiskeysockets/baileys";
+import { WASocket, delay, proto } from "baileys";
 import { getBodyMessage } from "../WbotServices/wbotMessageListener";
 import logger from "../../utils/logger";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import moment from "moment";
 import formatBody from "../../helpers/Mustache";
@@ -42,7 +43,7 @@ const typebotListener = async ({
 
     const number = msg.key.remoteJid.replace(/\D/g, '');
 
-    let body = getBodyMessage(msg);
+    const body = getBodyMessage(msg);
 
     async function createSession(msg, typebot, number) {
         try {
@@ -86,7 +87,7 @@ const typebotListener = async ({
     let dataStart
     let status = false;
     try {
-        let Agora = new Date();
+        const Agora = new Date();
         Agora.setMinutes(Agora.getMinutes() - Number(typebotExpires));
 
         if (typebotExpires > 0 && Agora > ticket.typebotSessionTime) {
@@ -132,7 +133,7 @@ const typebotListener = async ({
                     "message": body
                 });
 
-                let config = {
+                const config = {
                     method: 'post',
                     maxBodyLength: Infinity,
                     url: `${url}/api/v1/sessions/${sessionId}/continueChat`,
@@ -252,10 +253,10 @@ const typebotListener = async ({
                         }
 
                         if (formattedText.startsWith("#")) {
-                            let gatilho = formattedText.replace("#", "");
+                            const gatilho = formattedText.replace("#", "");
 
                             try {
-                                let jsonGatilho = JSON.parse(gatilho);
+                                const jsonGatilho = JSON.parse(gatilho);
 
                                 if (jsonGatilho.stopBot && isNil(jsonGatilho.userId) && isNil(jsonGatilho.queueId)) {
                                     await ticket.update({
@@ -367,7 +368,6 @@ const typebotListener = async ({
                     }
                 }
              
-                //console.log(386, { messages, input, clientSideActions})
             }
         }
 

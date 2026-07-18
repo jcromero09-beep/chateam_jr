@@ -134,9 +134,14 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
   const [formData, setFormData] = useState({
     name: "",
     greetingMessage: "",
+    farewellMessage: "",
     complationMessage: "",
     outOfHoursMessage: "",
     ratingMessage: "",
+    callRejectMessage: "",
+    rejectAudioMessage: "",
+    npsEnabled: null as boolean | null,
+    acceptAudio: null as boolean | null,
     isDefault: false,
     maxUseBotQueues: 3,
     expiresTicket: 0,
@@ -259,9 +264,14 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
       setFormData({
         name: data.name || "",
         greetingMessage: data.greetingMessage || "",
+        farewellMessage: data.farewellMessage || "",
         complationMessage: data.complationMessage || "",
         outOfHoursMessage: data.outOfHoursMessage || "",
         ratingMessage: data.ratingMessage || "",
+        callRejectMessage: data.callRejectMessage || "",
+        rejectAudioMessage: data.rejectAudioMessage || "",
+        npsEnabled: data.npsEnabled === undefined ? null : data.npsEnabled,
+        acceptAudio: data.acceptAudio === undefined ? null : data.acceptAudio,
         isDefault: data.isDefault || false,
         maxUseBotQueues: data.maxUseBotQueues || 3,
         expiresTicket: data.expiresTicket || 0,
@@ -330,9 +340,14 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
     setFormData({
       name: "",
       greetingMessage: "",
+      farewellMessage: "",
       complationMessage: "",
       outOfHoursMessage: "",
       ratingMessage: "",
+      callRejectMessage: "",
+      rejectAudioMessage: "",
+      npsEnabled: null,
+      acceptAudio: null,
       isDefault: false,
       maxUseBotQueues: 3,
       expiresTicket: 0,
@@ -562,16 +577,18 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
         ) : (
           <Tabs value={tab} onChange={(_, v) => setTab(v as number)}>
             <TabList>
-              <Tab>Credenciales</Tab>
-              <Tab>General</Tab>
-              <Tab>Mensajes</Tab>
-              <Tab>Chatbot</Tab>
-              <Tab>Flujos</Tab>
-              <Tab>Horarios</Tab>
-              <Tab>Integraciones</Tab>
+              <Tab value={0}>Credenciales</Tab>
+              <Tab value={1}>Información</Tab>
+              <Tab value={2}>Horarios</Tab>
+              <Tab value={3}>Mensajes</Tab>
+              {/* Tab "Permisos" (value=4) ocultado a pedido. El TabPanel value={4}
+                  sigue existiendo pero queda inalcanzable desde la UI. */}
+              {/* <Tab value={4}>Permisos</Tab> */}
+              <Tab value={5}>IA / Bot</Tab>
+              <Tab value={6}>Avanzado</Tab>
             </TabList>
 
-            {/* TAB CREDENCIALES */}
+            {/* TAB 0 — CREDENCIALES */}
             <TabPanel value={0}>
               <CredentialsTab
                 connectionType={connectionType}
@@ -585,9 +602,17 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
               />
             </TabPanel>
 
-            {/* TAB GENERAL */}
+            {/* TAB 1 — INFORMACIÓN (datos básicos de la conexión) */}
             <TabPanel value={1}>
               <Stack spacing={2}>
+                <Box>
+                  <Typography level="title-md">Datos básicos</Typography>
+                  <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                    Identidad y comportamiento general de esta conexión.
+                  </Typography>
+                </Box>
+                <Divider />
+
                 <Grid container spacing={2}>
                   <Grid xs={12} md={6}>
                     <FormControl required>
@@ -601,7 +626,7 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                   </Grid>
                   <Grid xs={12} md={3}>
                     <FormControl>
-                      <FormLabel>Por Defecto</FormLabel>
+                      <FormLabel>Por defecto</FormLabel>
                       <Switch
                         checked={formData.isDefault}
                         onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
@@ -610,7 +635,7 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                   </Grid>
                   <Grid xs={12} md={3}>
                     <FormControl>
-                      <FormLabel>Permitir Grupos</FormLabel>
+                      <FormLabel>Permitir grupos</FormLabel>
                       <Switch
                         checked={formData.allowGroup}
                         onChange={(e) => setFormData({ ...formData, allowGroup: e.target.checked })}
@@ -620,7 +645,7 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                 </Grid>
 
                 <FormControl>
-                  <FormLabel>Grupos como Ticket</FormLabel>
+                  <FormLabel>Tratar grupos como ticket</FormLabel>
                   <Select
                     value={formData.groupAsTicket}
                     onChange={(_, v) => setFormData({ ...formData, groupAsTicket: v as string })}
@@ -628,128 +653,287 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                     <Option value="disabled">Deshabilitado</Option>
                     <Option value="enabled">Habilitado</Option>
                   </Select>
+                  <Typography level="body-xs" sx={{ color: "text.tertiary", mt: 0.5 }}>
+                    Si está habilitado, las conversaciones grupales generan tickets como un contacto individual.
+                  </Typography>
+                </FormControl>
+
+                <Divider />
+                <Typography level="title-md">Colas asignadas</Typography>
+                <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                  Colas que pueden recibir tickets desde esta conexión.
+                </Typography>
+
+                <FormControl>
+                  <FormLabel>Colas</FormLabel>
+                  <Select
+                    multiple
+                    value={selectedQueueIds}
+                    onChange={(_, v) => setSelectedQueueIds(v as number[])}
+                    placeholder="Seleccionar colas"
+                  >
+                    {queues.map((queue) => (
+                      <Option key={queue.id} value={queue.id}>
+                        {queue.name}
+                      </Option>
+                    ))}
+                  </Select>
                 </FormControl>
 
                 {/* Archivo adjunto - solo para WhatsApp y Meta */}
                 {(connectionType === "whatsapp" || connectionType === "meta") && (
-                  <FormControl>
-                    <FormLabel>Archivo de bienvenida (imagen/video)</FormLabel>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <input
-                        type="file"
-                        accept="video/*,image/*"
-                        ref={inputFileRef}
-                        style={{ display: "none" }}
-                        onChange={handleFileUpload}
-                      />
-                      <Button
-                        variant="outlined"
-                        onClick={() => inputFileRef.current?.click()}
-                      >
-                        Seleccionar archivo
-                      </Button>
-                      {attachmentName && (
-                        <Chip
-                          endDecorator={
-                            <IconButton size="sm" onClick={handleDeleteFile}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          }
+                  <>
+                    <Divider />
+                    <Typography level="title-md">Archivo de bienvenida</Typography>
+                    <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                      Imagen o video opcional que acompaña al mensaje de saludo.
+                    </Typography>
+                    <FormControl>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <input
+                          type="file"
+                          accept="video/*,image/*"
+                          ref={inputFileRef}
+                          style={{ display: "none" }}
+                          onChange={handleFileUpload}
+                        />
+                        <Button
+                          variant="outlined"
+                          onClick={() => inputFileRef.current?.click()}
                         >
-                          {attachmentName}
-                        </Chip>
-                      )}
-                    </Stack>
-                  </FormControl>
+                          Seleccionar archivo
+                        </Button>
+                        {attachmentName && (
+                          <Chip
+                            endDecorator={
+                              <IconButton size="sm" onClick={handleDeleteFile}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            }
+                          >
+                            {attachmentName}
+                          </Chip>
+                        )}
+                      </Stack>
+                    </FormControl>
+                  </>
                 )}
-
-                {/* Redirección de cola */}
-                <Divider />
-                <Typography level="title-md">Redirección de Cola</Typography>
-                <Typography level="body-sm">
-                  Envía automáticamente a una cola después de un tiempo de inactividad
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid xs={12} md={6}>
-                    <FormControl>
-                      <FormLabel>Cola destino</FormLabel>
-                      <Select
-                        value={formData.sendIdQueue}
-                        onChange={(_, v) => setFormData({ ...formData, sendIdQueue: v as number })}
-                      >
-                        <Option value={0}>Ninguna</Option>
-                        {queues.map((queue) => (
-                          <Option key={queue.id} value={queue.id}>
-                            {queue.name}
-                          </Option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} md={6}>
-                    <FormControl>
-                      <FormLabel>Tiempo (minutos)</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.timeSendQueue}
-                        onChange={(e) => setFormData({ ...formData, timeSendQueue: e.target.value })}
-                      />
-                    </FormControl>
-                  </Grid>
-                </Grid>
               </Stack>
             </TabPanel>
 
-            {/* TAB MENSAJES */}
+            {/* TAB 2 — HORARIOS */}
             <TabPanel value={2}>
               <Stack spacing={2}>
+                <Box>
+                  <Typography level="title-md">Horarios de atención</Typography>
+                  <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                    Define los turnos por día. Fuera de estos horarios se envía el "Mensaje fuera de horario" definido en la pestaña Mensajes.
+                  </Typography>
+                </Box>
+                <Divider />
+
+                {schedules.map((schedule, index) => (
+                  <Box key={schedule.weekdayEn} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: "sm" }}>
+                    <Typography level="title-sm" sx={{ mb: 1 }}>
+                      {schedule.weekday}
+                    </Typography>
+                    <Grid container spacing={1}>
+                      <Grid xs={3}>
+                        <FormControl size="sm">
+                          <FormLabel>Turno 1 — Inicio</FormLabel>
+                          <Input
+                            type="time"
+                            value={schedule.startTimeA}
+                            onChange={(e) => handleScheduleChange(index, "startTimeA", e.target.value)}
+                          />
+                        </FormControl>
+                      </Grid>
+                      <Grid xs={3}>
+                        <FormControl size="sm">
+                          <FormLabel>Turno 1 — Fin</FormLabel>
+                          <Input
+                            type="time"
+                            value={schedule.endTimeA}
+                            onChange={(e) => handleScheduleChange(index, "endTimeA", e.target.value)}
+                          />
+                        </FormControl>
+                      </Grid>
+                      <Grid xs={3}>
+                        <FormControl size="sm">
+                          <FormLabel>Turno 2 — Inicio</FormLabel>
+                          <Input
+                            type="time"
+                            value={schedule.startTimeB}
+                            onChange={(e) => handleScheduleChange(index, "startTimeB", e.target.value)}
+                          />
+                        </FormControl>
+                      </Grid>
+                      <Grid xs={3}>
+                        <FormControl size="sm">
+                          <FormLabel>Turno 2 — Fin</FormLabel>
+                          <Input
+                            type="time"
+                            value={schedule.endTimeB}
+                            onChange={(e) => handleScheduleChange(index, "endTimeB", e.target.value)}
+                          />
+                        </FormControl>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                ))}
+              </Stack>
+            </TabPanel>
+
+            {/* TAB 3 — MENSAJES (todos los textos automáticos por conexión) */}
+            <TabPanel value={3}>
+              <Stack spacing={2}>
+                <Box>
+                  <Typography level="title-md">Mensajes automáticos por conexión</Typography>
+                  <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                    Textos que esta conexión envía al cliente. Si un campo se deja vacío, no se envía nada en ese evento.
+                  </Typography>
+                </Box>
+                <Divider />
+
+                {/* Saludo y despedida */}
+                <Typography level="title-sm">Saludo y despedida</Typography>
+
                 <FormControl>
-                  <FormLabel>Mensaje de Bienvenida</FormLabel>
+                  <FormLabel>Mensaje de saludo</FormLabel>
                   <Textarea
                     minRows={3}
                     value={formData.greetingMessage}
                     onChange={(e) => setFormData({ ...formData, greetingMessage: e.target.value })}
-                    placeholder="Mensaje automático de bienvenida"
+                    placeholder="Texto de bienvenida cuando el cliente inicia conversación."
                   />
                 </FormControl>
 
                 <FormControl>
-                  <FormLabel>Mensaje de Conclusión</FormLabel>
+                  <FormLabel>Mensaje de despedida</FormLabel>
                   <Textarea
-                    minRows={3}
+                    minRows={2}
+                    value={formData.farewellMessage}
+                    onChange={(e) => setFormData({ ...formData, farewellMessage: e.target.value })}
+                    placeholder="Texto enviado cuando el agente se despide del cliente."
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Mensaje al cerrar ticket</FormLabel>
+                  <Textarea
+                    minRows={2}
                     value={formData.complationMessage}
                     onChange={(e) => setFormData({ ...formData, complationMessage: e.target.value })}
-                    placeholder="Mensaje al cerrar ticket"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Mensaje Fuera de Horario</FormLabel>
-                  <Textarea
-                    minRows={3}
-                    value={formData.outOfHoursMessage}
-                    onChange={(e) => setFormData({ ...formData, outOfHoursMessage: e.target.value })}
-                    placeholder="Mensaje cuando está fuera del horario de atención"
+                    placeholder="Texto enviado al cliente cuando el ticket se marca como resuelto."
                   />
                 </FormControl>
 
                 <Divider />
-                <Typography level="title-md">Vacaciones Colectivas</Typography>
+                {/* Horario y disponibilidad */}
+                <Typography level="title-sm">Horario y disponibilidad</Typography>
 
                 <FormControl>
-                  <FormLabel>Mensaje de Vacaciones</FormLabel>
+                  <FormLabel>Mensaje fuera de horario</FormLabel>
                   <Textarea
                     minRows={3}
+                    value={formData.outOfHoursMessage}
+                    onChange={(e) => setFormData({ ...formData, outOfHoursMessage: e.target.value })}
+                    placeholder="Texto enviado cuando llega un mensaje fuera del horario configurado."
+                  />
+                </FormControl>
+
+                <Divider />
+                {/* Reseña / NPS */}
+                <Typography level="title-sm">Encuesta / Evaluación NPS</Typography>
+                <Typography level="body-xs" sx={{ color: "text.tertiary" }}>
+                  Texto que se envía al cerrar un ticket cuando la encuesta NPS está activa (ver pestaña Permisos). Si lo dejas vacío, no se envía encuesta aunque el NPS esté habilitado.
+                </Typography>
+
+                <FormControl>
+                  <FormLabel>Mensaje de evaluación NPS</FormLabel>
+                  <Textarea
+                    minRows={3}
+                    value={formData.ratingMessage}
+                    onChange={(e) => setFormData({ ...formData, ratingMessage: e.target.value })}
+                    placeholder="Ej.: ¿Cómo calificarías nuestra atención del 1 al 5?"
+                  />
+                </FormControl>
+
+                <Divider />
+                {/* Llamadas y audios */}
+                <Typography level="title-sm">Llamadas y audios</Typography>
+
+                <FormControl>
+                  <FormLabel>Mensaje al rechazar llamada</FormLabel>
+                  <Textarea
+                    minRows={2}
+                    value={formData.callRejectMessage}
+                    onChange={(e) => setFormData({ ...formData, callRejectMessage: e.target.value })}
+                    placeholder="Texto que se envía al cliente cuando esta conexión NO acepta llamadas (según la configuración de la empresa). Si lo dejas vacío, no se envía ningún mensaje."
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Mensaje cuando NO se aceptan audios</FormLabel>
+                  <Textarea
+                    minRows={2}
+                    value={formData.rejectAudioMessage}
+                    onChange={(e) => setFormData({ ...formData, rejectAudioMessage: e.target.value })}
+                    placeholder="Texto enviado al cliente cuando esta conexión no recibe audios."
+                  />
+                </FormControl>
+
+                <Divider />
+                {/* Inactividad */}
+                <Typography level="title-sm">Inactividad</Typography>
+
+                <FormControl>
+                  <FormLabel>Mensaje de inactividad</FormLabel>
+                  <Textarea
+                    minRows={2}
+                    value={formData.inactiveMessage}
+                    onChange={(e) => setFormData({ ...formData, inactiveMessage: e.target.value })}
+                    placeholder="Recordatorio enviado al cliente cuando lleva un rato sin responder."
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Tiempo para enviar mensaje de inactividad (min)</FormLabel>
+                  <Input
+                    type="number"
+                    value={formData.timeInactiveMessage}
+                    onChange={(e) => setFormData({ ...formData, timeInactiveMessage: e.target.value })}
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Mensaje antes de cerrar por inactividad</FormLabel>
+                  <Textarea
+                    minRows={2}
+                    value={formData.expiresInactiveMessage}
+                    onChange={(e) => setFormData({ ...formData, expiresInactiveMessage: e.target.value })}
+                    placeholder="Aviso al cliente justo antes de cerrar el ticket por inactividad."
+                  />
+                </FormControl>
+
+                <Divider />
+                {/* Vacaciones colectivas */}
+                <Typography level="title-sm">Vacaciones colectivas</Typography>
+
+                <FormControl>
+                  <FormLabel>Mensaje de vacaciones</FormLabel>
+                  <Textarea
+                    minRows={2}
                     value={formData.collectiveVacationMessage}
                     onChange={(e) => setFormData({ ...formData, collectiveVacationMessage: e.target.value })}
-                    placeholder="Mensaje durante vacaciones colectivas"
+                    placeholder="Texto enviado durante el período de vacaciones colectivas."
                   />
                 </FormControl>
 
                 <Grid container spacing={2}>
                   <Grid xs={12} md={6}>
                     <FormControl>
-                      <FormLabel>Fecha Inicio</FormLabel>
+                      <FormLabel>Fecha inicio</FormLabel>
                       <Input
                         type="date"
                         value={formData.collectiveVacationStart}
@@ -759,7 +943,7 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                   </Grid>
                   <Grid xs={12} md={6}>
                     <FormControl>
-                      <FormLabel>Fecha Fin</FormLabel>
+                      <FormLabel>Fecha fin</FormLabel>
                       <Input
                         type="date"
                         value={formData.collectiveVacationEnd}
@@ -771,9 +955,207 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
               </Stack>
             </TabPanel>
 
-            {/* TAB CHATBOT */}
-            <TabPanel value={3}>
-              <Stack spacing={2}>
+            {/* TAB 4 — PERMISOS (políticas por conexión) */}
+            <TabPanel value={4}>
+              <Stack spacing={3}>
+                <Box>
+                  <Typography level="title-md">Permisos de mensajería</Typography>
+                  <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                    Cada permiso puede heredar la política global de la empresa (configurada en Ajustes) o forzar un valor solo para esta conexión.
+                  </Typography>
+                </Box>
+                <Divider />
+
+                {/* NPS por conexión */}
+                <FormControl>
+                  <FormLabel>Encuesta NPS al cerrar ticket</FormLabel>
+                  <Typography level="body-xs" sx={{ color: "text.tertiary", mb: 1 }}>
+                    Solicita al cliente que califique la atención recibida cuando se cierra un ticket. El texto se configura en la pestaña Mensajes.
+                  </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <Chip
+                      variant={formData.npsEnabled === null ? "solid" : "soft"}
+                      color={formData.npsEnabled === null ? "primary" : "neutral"}
+                      onClick={() => setFormData({ ...formData, npsEnabled: null })}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      🔗 Heredar global
+                    </Chip>
+                    <Chip
+                      variant={formData.npsEnabled === true ? "solid" : "soft"}
+                      color={formData.npsEnabled === true ? "success" : "neutral"}
+                      onClick={() => setFormData({ ...formData, npsEnabled: true })}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      ✓ Activar siempre
+                    </Chip>
+                    <Chip
+                      variant={formData.npsEnabled === false ? "solid" : "soft"}
+                      color={formData.npsEnabled === false ? "danger" : "neutral"}
+                      onClick={() => setFormData({ ...formData, npsEnabled: false })}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      ✗ Desactivar
+                    </Chip>
+                  </Stack>
+                  {formData.npsEnabled === false && (
+                    <Typography level="body-xs" sx={{ color: "warning.500", mt: 1 }}>
+                      Esta conexión no enviará encuestas NPS aunque el switch global esté activo.
+                    </Typography>
+                  )}
+                  {formData.npsEnabled !== false && !formData.ratingMessage && (
+                    <Typography level="body-xs" sx={{ color: "warning.500", mt: 1 }}>
+                      ⚠ El mensaje de evaluación está vacío. Defínelo en la pestaña Mensajes para que se envíe la encuesta.
+                    </Typography>
+                  )}
+                </FormControl>
+
+                <Divider />
+
+                {/* Aceptar audio por conexión */}
+                <FormControl>
+                  <FormLabel>Aceptar audios entrantes</FormLabel>
+                  <Typography level="body-xs" sx={{ color: "text.tertiary", mb: 1 }}>
+                    Permite que los clientes envíen mensajes de voz a través de esta conexión. Si rechazas audios, el cliente recibe el "Mensaje cuando NO se aceptan audios" definido en Mensajes.
+                  </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <Chip
+                      variant={formData.acceptAudio === null ? "solid" : "soft"}
+                      color={formData.acceptAudio === null ? "primary" : "neutral"}
+                      onClick={() => setFormData({ ...formData, acceptAudio: null })}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      🔗 Heredar global
+                    </Chip>
+                    <Chip
+                      variant={formData.acceptAudio === true ? "solid" : "soft"}
+                      color={formData.acceptAudio === true ? "success" : "neutral"}
+                      onClick={() => setFormData({ ...formData, acceptAudio: true })}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      ✓ Aceptar audios
+                    </Chip>
+                    <Chip
+                      variant={formData.acceptAudio === false ? "solid" : "soft"}
+                      color={formData.acceptAudio === false ? "danger" : "neutral"}
+                      onClick={() => setFormData({ ...formData, acceptAudio: false })}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      ✗ Rechazar audios
+                    </Chip>
+                  </Stack>
+                </FormControl>
+              </Stack>
+            </TabPanel>
+
+            {/* TAB 5 — IA / BOT */}
+            <TabPanel value={5}>
+              <Stack spacing={3}>
+                <Box>
+                  <Typography level="title-md">Automatización de respuesta</Typography>
+                  <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                    Define qué respuesta automática usa esta conexión. Solo se puede activar una opción a la vez (Orquestador IA o Flujo).
+                  </Typography>
+                </Box>
+                <Divider />
+
+                <FormControl orientation="horizontal" sx={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <Box>
+                    <FormLabel>Orquestador IA</FormLabel>
+                    <Typography level="body-xs" sx={{ color: "text.tertiary" }}>
+                      Las respuestas las genera el orquestador IA en lugar de un flujo predefinido.
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={formData.useAIOrchestrator}
+                    onChange={(e) => {
+                      const isActive = e.target.checked;
+                      setFormData({
+                        ...formData,
+                        useAIOrchestrator: isActive,
+                        // Mutuamente excluyente: si activa orquestador → limpiar flujo
+                        integrationId: isActive ? null : formData.integrationId,
+                        promptId: null
+                      });
+                    }}
+                    color={formData.useAIOrchestrator ? "primary" : "neutral"}
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Flujo (FlowBuilder)</FormLabel>
+                  <Select
+                    value={formData.integrationId ? String(formData.integrationId) : ""}
+                    onChange={(_, v) => {
+                      const newValue = v ? Number(v) : null;
+                      setFormData({
+                        ...formData,
+                        integrationId: newValue,
+                        // Mutuamente excluyente: al elegir un flujo se APAGA el Orquestador IA.
+                        // (Solo puede funcionar uno a la vez: Orquestador O Flujo, nunca los dos.)
+                        useAIOrchestrator: newValue ? false : formData.useAIOrchestrator,
+                        // Limpiar agente IA cuando se selecciona flujo
+                        promptId: newValue ? null : formData.promptId
+                      });
+                    }}
+                    placeholder="Seleccionar flujo"
+                  >
+                    <Option value="">Deshabilitado</Option>
+                    {flows.map((flow) => (
+                      <Option key={flow.id} value={String(flow.id)}>
+                        {flow.name}
+                      </Option>
+                    ))}
+                  </Select>
+                  <Typography level="body-xs" sx={{ color: "text.tertiary", mt: 0.5 }}>
+                    Selecciona un flujo de FlowBuilder para responder automáticamente.
+                  </Typography>
+                </FormControl>
+
+                <Divider />
+                <Typography level="title-sm">Flujos específicos</Typography>
+
+                <FormControl>
+                  <FormLabel>Flujo de bienvenida</FormLabel>
+                  <Select
+                    value={flowIdWelcome ? String(flowIdWelcome) : ""}
+                    onChange={(_, v) => setFlowIdWelcome(v ? Number(v) : null)}
+                    placeholder="Seleccionar flujo"
+                  >
+                    <Option value="">Deshabilitado</Option>
+                    {flows.map((flow) => (
+                      <Option key={flow.id} value={String(flow.id)}>
+                        {flow.name}
+                      </Option>
+                    ))}
+                  </Select>
+                  <Typography level="body-xs" sx={{ color: "text.tertiary", mt: 0.5 }}>
+                    Solo se ejecuta para contactos nuevos (no guardados).
+                  </Typography>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Flujo de respuesta estándar</FormLabel>
+                  <Select
+                    value={flowIdNotPhrase ? String(flowIdNotPhrase) : ""}
+                    onChange={(_, v) => setFlowIdNotPhrase(v ? Number(v) : null)}
+                    placeholder="Seleccionar flujo"
+                  >
+                    <Option value="">Deshabilitado</Option>
+                    {flows.map((flow) => (
+                      <Option key={flow.id} value={String(flow.id)}>
+                        {flow.name}
+                      </Option>
+                    ))}
+                  </Select>
+                  <Typography level="body-xs" sx={{ color: "text.tertiary", mt: 0.5 }}>
+                    Se activa cuando el mensaje no coincide con ninguna palabra clave o el ticket ya está cerrado.
+                  </Typography>
+                </FormControl>
+
+                <Divider />
+                <Typography level="title-sm">Comportamiento del chatbot</Typography>
+
                 <Grid container spacing={2}>
                   <Grid xs={12} md={4}>
                     <FormControl>
@@ -806,6 +1188,22 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                     </FormControl>
                   </Grid>
                 </Grid>
+              </Stack>
+            </TabPanel>
+
+            {/* TAB 6 — AVANZADO (técnico, expiraciones, redirección, NPS técnico) */}
+            <TabPanel value={6}>
+              <Stack spacing={3}>
+                <Box>
+                  <Typography level="title-md">Configuraciones avanzadas</Typography>
+                  <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+                    Parámetros técnicos y expiraciones específicas. Solo modifica si sabes lo que haces.
+                  </Typography>
+                </Box>
+                <Divider />
+
+                {/* Cierre por inactividad */}
+                <Typography level="title-sm">Cierre automático de tickets</Typography>
 
                 <Grid container spacing={2}>
                   <Grid xs={12} md={6}>
@@ -816,6 +1214,9 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                         value={formData.expiresTicket}
                         onChange={(e) => setFormData({ ...formData, expiresTicket: parseInt(e.target.value) || 0 })}
                       />
+                      <Typography level="body-xs" sx={{ color: "text.tertiary", mt: 0.5 }}>
+                        0 = no cerrar automáticamente.
+                      </Typography>
                     </FormControl>
                   </Grid>
                   <Grid xs={12} md={6}>
@@ -833,222 +1234,47 @@ const UnifiedConnectionModal: React.FC<UnifiedConnectionModalProps> = ({
                 </Grid>
 
                 <Divider />
-                <Typography level="title-md">Mensaje por Inactividad</Typography>
-
-                <FormControl>
-                  <FormLabel>Mensaje antes de cerrar</FormLabel>
-                  <Textarea
-                    minRows={3}
-                    value={formData.expiresInactiveMessage}
-                    onChange={(e) => setFormData({ ...formData, expiresInactiveMessage: e.target.value })}
-                    placeholder="Mensaje que se envía antes de cerrar por inactividad"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Tiempo para mensaje de inactividad (min)</FormLabel>
-                  <Input
-                    type="number"
-                    value={formData.timeInactiveMessage}
-                    onChange={(e) => setFormData({ ...formData, timeInactiveMessage: e.target.value })}
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Mensaje de inactividad</FormLabel>
-                  <Textarea
-                    minRows={3}
-                    value={formData.inactiveMessage}
-                    onChange={(e) => setFormData({ ...formData, inactiveMessage: e.target.value })}
-                    placeholder="Mensaje de recordatorio por inactividad"
-                  />
-                </FormControl>
-              </Stack>
-            </TabPanel>
-
-            {/* TAB FLUJOS */}
-            <TabPanel value={4}>
-              <Stack spacing={3}>
-                <Box>
-                  <Typography level="title-md">Flujo de Bienvenida</Typography>
-                  <Typography level="body-sm" sx={{ mb: 1 }}>
-                    Este flujo sólo se envía a los nuevos contactos, personas que no tienes
-                    en tu lista de contactos y que te han enviado un mensaje.
-                  </Typography>
-                  <FormControl>
-                    <Select
-                      value={flowIdWelcome ? String(flowIdWelcome) : ""}
-                      onChange={(_, v) => setFlowIdWelcome(v ? Number(v) : null)}
-                      placeholder="Seleccionar flujo"
-                    >
-                      <Option value="">Deshabilitado</Option>
-                      {flows.map((flow) => (
-                        <Option key={flow.id} value={String(flow.id)}>
-                          {flow.name}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-
-                <Box>
-                  <Typography level="title-md">Flujo de Respuesta Estándar</Typography>
-                  <Typography level="body-sm" sx={{ mb: 1 }}>
-                    La respuesta estándar se envía con cualquier carácter que no sea una
-                    palabra clave. Se activará si la llamada ya se ha cerrado.
-                  </Typography>
-                  <FormControl>
-                    <Select
-                      value={flowIdNotPhrase ? String(flowIdNotPhrase) : ""}
-                      onChange={(_, v) => setFlowIdNotPhrase(v ? Number(v) : null)}
-                      placeholder="Seleccionar flujo"
-                    >
-                      <Option value="">Deshabilitado</Option>
-                      {flows.map((flow) => (
-                        <Option key={flow.id} value={String(flow.id)}>
-                          {flow.name}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-              </Stack>
-            </TabPanel>
-
-            {/* TAB HORARIOS */}
-            <TabPanel value={5}>
-              <Stack spacing={2}>
-                <Typography level="title-md">Horarios de Atención</Typography>
-                <Typography level="body-sm">
-                  Configure los horarios de atención para cada día de la semana.
-                  Fuera de estos horarios se enviará el mensaje de "Fuera de Horario".
+                {/* Redirección de cola */}
+                <Typography level="title-sm">Redirección automática a cola</Typography>
+                <Typography level="body-xs" sx={{ color: "text.tertiary" }}>
+                  Después de cierto tiempo de inactividad, redirige el ticket a otra cola.
                 </Typography>
 
-                {schedules.map((schedule, index) => (
-                  <Box key={schedule.weekdayEn} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: "sm" }}>
-                    <Typography level="title-sm" sx={{ mb: 1 }}>
-                      {schedule.weekday}
-                    </Typography>
-                    <Grid container spacing={1}>
-                      <Grid xs={3}>
-                        <FormControl size="sm">
-                          <FormLabel>Turno 1 - Inicio</FormLabel>
-                          <Input
-                            type="time"
-                            value={schedule.startTimeA}
-                            onChange={(e) => handleScheduleChange(index, "startTimeA", e.target.value)}
-                          />
-                        </FormControl>
-                      </Grid>
-                      <Grid xs={3}>
-                        <FormControl size="sm">
-                          <FormLabel>Turno 1 - Fin</FormLabel>
-                          <Input
-                            type="time"
-                            value={schedule.endTimeA}
-                            onChange={(e) => handleScheduleChange(index, "endTimeA", e.target.value)}
-                          />
-                        </FormControl>
-                      </Grid>
-                      <Grid xs={3}>
-                        <FormControl size="sm">
-                          <FormLabel>Turno 2 - Inicio</FormLabel>
-                          <Input
-                            type="time"
-                            value={schedule.startTimeB}
-                            onChange={(e) => handleScheduleChange(index, "startTimeB", e.target.value)}
-                          />
-                        </FormControl>
-                      </Grid>
-                      <Grid xs={3}>
-                        <FormControl size="sm">
-                          <FormLabel>Turno 2 - Fin</FormLabel>
-                          <Input
-                            type="time"
-                            value={schedule.endTimeB}
-                            onChange={(e) => handleScheduleChange(index, "endTimeB", e.target.value)}
-                          />
-                        </FormControl>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                ))}
-              </Stack>
-            </TabPanel>
-
-            {/* TAB INTEGRACIONES */}
-            <TabPanel value={6}>
-              <Stack spacing={2}>
-                <FormControl>
-                  <FormLabel>Colas Asignadas</FormLabel>
-                  <Select
-                    multiple
-                    value={selectedQueueIds}
-                    onChange={(_, v) => setSelectedQueueIds(v as number[])}
-                    placeholder="Seleccionar colas"
-                  >
-                    {queues.map((queue) => (
-                      <Option key={queue.id} value={queue.id}>
-                        {queue.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Flujo (FlowBuilder)</FormLabel>
-                  <Select
-                    value={formData.integrationId ? String(formData.integrationId) : ""}
-                    onChange={(_, v) => {
-                      const newValue = v ? Number(v) : null;
-                      setFormData({
-                        ...formData,
-                        integrationId: newValue,
-                        // Limpiar agente IA cuando se selecciona flujo
-                        promptId: newValue ? null : formData.promptId
-                      });
-                    }}
-                    placeholder="Seleccionar flujo"
-                  >
-                    <Option value="">Deshabilitado</Option>
-                    {flows.map((flow) => (
-                      <Option key={flow.id} value={String(flow.id)}>
-                        {flow.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <FormControl orientation="horizontal" sx={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <FormLabel>Orquestador IA</FormLabel>
-                  <Switch
-                    checked={formData.useAIOrchestrator}
-                    onChange={(e) => {
-                      const isActive = e.target.checked;
-                      setFormData({
-                        ...formData,
-                        useAIOrchestrator: isActive,
-                        // Mutuamente excluyente: si activa orquestador → limpiar flujo
-                        integrationId: isActive ? null : formData.integrationId,
-                        promptId: null
-                      });
-                    }}
-                    color={formData.useAIOrchestrator ? "primary" : "neutral"}
-                  />
-                </FormControl>
+                <Grid container spacing={2}>
+                  <Grid xs={12} md={6}>
+                    <FormControl>
+                      <FormLabel>Cola destino</FormLabel>
+                      <Select
+                        value={formData.sendIdQueue}
+                        onChange={(_, v) => setFormData({ ...formData, sendIdQueue: v as number })}
+                      >
+                        <Option value={0}>Ninguna</Option>
+                        {queues.map((queue) => (
+                          <Option key={queue.id} value={queue.id}>
+                            {queue.name}
+                          </Option>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid xs={12} md={6}>
+                    <FormControl>
+                      <FormLabel>Tiempo (minutos)</FormLabel>
+                      <Input
+                        type="number"
+                        value={formData.timeSendQueue}
+                        onChange={(e) => setFormData({ ...formData, timeSendQueue: e.target.value })}
+                      />
+                    </FormControl>
+                  </Grid>
+                </Grid>
 
                 <Divider />
-                <Typography level="title-md">Evaluación NPS</Typography>
-
-                <FormControl>
-                  <FormLabel>Mensaje de Evaluación</FormLabel>
-                  <Textarea
-                    minRows={3}
-                    value={formData.ratingMessage}
-                    onChange={(e) => setFormData({ ...formData, ratingMessage: e.target.value })}
-                    placeholder="Mensaje para solicitar evaluación"
-                  />
-                </FormControl>
+                {/* NPS técnico */}
+                <Typography level="title-sm">Configuración técnica de NPS</Typography>
+                <Typography level="body-xs" sx={{ color: "text.tertiary" }}>
+                  Parámetros de envío y expiración de la encuesta NPS. El texto se configura en Mensajes y la activación en Permisos.
+                </Typography>
 
                 <Grid container spacing={2}>
                   <Grid xs={12} md={6}>

@@ -1,4 +1,43 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from "../../utils/logger";
+import {
+  chargeCampaignAnalysis,
+  chargeMessage
+} from "../AICreditServices/AIUsagePricingService";
+
+/**
+ * Helper de cobro fail-closed para Campaign Wizard.
+ * Si no hay creditos lanza AppError 402 al caller (controller).
+ */
+async function billCampaignWizard(
+  companyId: number,
+  step: string,
+  units: number,
+  description: string,
+  metadata?: Record<string, unknown>,
+  useMessage: boolean = false
+): Promise<void> {
+  if (useMessage) {
+    await chargeMessage({
+      companyId,
+      units,
+      source: `campaign_wizard:${step}`,
+      description,
+      metadata
+    });
+  } else {
+    await chargeCampaignAnalysis({
+      companyId,
+      units,
+      source: `campaign_wizard:${step}`,
+      description,
+      metadata
+    });
+  }
+}
 
 export interface WizardStep {
   step: number;
@@ -33,6 +72,17 @@ const suggestMessages = async (
   channel: string,
   language: string = 'es'
 ): Promise<string[]> => {
+  // 💳 COBRO UNIFICADO (fail-closed): generar 5 sugerencias = 1 unidad message.
+  // Si la company no tiene creditos, lanza AppError 402 (lo recibe el controller).
+  await billCampaignWizard(
+    companyId,
+    "suggest_messages",
+    1,
+    `Wizard: 5 sugerencias campania (${channel}, ${language})`,
+    { channel, language },
+    /*useMessage*/ true
+  );
+
   try {
     const AIClientService = require("../AIClientService").default;
     const maxLength = channel === 'sms' ? '160 caracteres' : channel === 'whatsapp' ? '500 caracteres' : '200 palabras';
@@ -53,9 +103,10 @@ Reglas:
 - Numerados del 1 al 5
 
 Genera los 5 mensajes:`,
-      modelKey: 'gpt-4.1-mini',
+      modelKey: 'gpt-5.5',
       maxTokens: 1024,
-      temperature: 0.8
+      temperature: 0.8,
+      companyId
     });
 
     const messages = response.text
@@ -80,6 +131,16 @@ const generateVariants = async (
   channel: string,
   count: number = 3
 ): Promise<Array<{ id: string; content: string; tone: string }>> => {
+  // 💳 COBRO UNIFICADO (fail-closed): A/B variants = 'message' por cada variante.
+  await billCampaignWizard(
+    companyId,
+    "generate_variants",
+    Math.max(1, count),
+    `Wizard: ${count} variantes A/B (${channel})`,
+    { channel, count },
+    /*useMessage*/ true
+  );
+
   try {
     const AIClientService = require("../AIClientService").default;
     const tones = ['profesional', 'amigable', 'urgente', 'emotivo'];
@@ -94,10 +155,11 @@ TONOS: ${tones.slice(0, count).join(', ')}
 
 Responde en JSON:
 [{"id": "A", "content": "variante", "tone": "tono"}]`,
-      modelKey: 'gpt-4.1-mini',
+      modelKey: 'gpt-5.5',
       maxTokens: 1024,
       temperature: 0.7,
-      responseFormat: 'json'
+      responseFormat: 'json',
+      companyId
     });
 
     const variants = JSON.parse(response.text);
@@ -117,6 +179,15 @@ const suggestImagePrompt = async (
   message: string,
   objective: string
 ): Promise<string> => {
+  // 💳 COBRO UNIFICADO (fail-closed): sugerencia de prompt visual = campaign_analysis.
+  await billCampaignWizard(
+    companyId,
+    "suggest_image_prompt",
+    1,
+    `Wizard: image prompt`,
+    { objectiveLen: objective.length }
+  );
+
   try {
     const AIClientService = require("../AIClientService").default;
 
@@ -133,9 +204,10 @@ Requirements:
 - Suitable for social media / WhatsApp
 
 Return ONLY the image prompt (1-2 sentences):`,
-      modelKey: 'gpt-4.1-mini',
+      modelKey: 'gpt-5.5',
       maxTokens: 200,
-      temperature: 0.7
+      temperature: 0.7,
+      companyId
     });
 
     return response.text.trim();
@@ -164,6 +236,18 @@ const analyzeResults = async (
   recommendations: string[];
   nextSteps: string[];
 }> => {
+  // 💳 COBRO UNIFICADO (fail-closed): analisis de resultados = campaign_analysis.
+  await billCampaignWizard(
+    companyId,
+    "analyze_results",
+    1,
+    `Wizard: analisis resultados campana`,
+    {
+      sentCount: campaignData.sentCount,
+      variantCount: campaignData.variants?.length || 0
+    }
+  );
+
   try {
     const AIClientService = require("../AIClientService").default;
 
@@ -187,10 +271,11 @@ Respond in JSON:
   "recommendations": ["list of improvements"],
   "nextSteps": ["actionable next steps"]
 }`,
-      modelKey: 'gpt-4.1-mini',
+      modelKey: 'gpt-5.5',
       maxTokens: 512,
       temperature: 0.3,
-      responseFormat: 'json'
+      responseFormat: 'json',
+      companyId
     });
 
     return JSON.parse(response.text);

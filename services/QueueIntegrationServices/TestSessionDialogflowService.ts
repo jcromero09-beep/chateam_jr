@@ -38,7 +38,7 @@ const TestDialogflowSession = async ({
     throw new AppError("ERR_TEST_SESSION_DIALOG", 400);
   }
 
-  let dialogFlowReply = await queryDialogFlow(
+  const dialogFlowReply = await queryDialogFlow(
     session,
     projectName,
     "TestSession",
@@ -54,7 +54,7 @@ const TestDialogflowSession = async ({
   }
 
   const messages = [];
-  for (let message of dialogFlowReply.responses) {
+  for (const message of dialogFlowReply.responses) {
     messages.push(message.text.text[0]);
   }
 

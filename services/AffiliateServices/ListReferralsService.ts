@@ -1,11 +1,16 @@
 /**
- * ListReferralsService — Módulo Afiliados Independiente
- * Listar referidos por company o por programa, paginación, filtro status.
+ * ListReferralsService — Listar referidos para vista de COMPANY (afiliadora).
+ *
+ * Filtra por affiliateCompanyId = companyId (la company que invitó).
+ * Devuelve referidos con: company referida (nombre, email, plan), programa,
+ * recompensa entregada, fechas.
  */
 
-import { Op } from "sequelize";
+import { Op, literal } from "sequelize";
 import AIAffiliateReferral from "../../models/AIAffiliateReferral";
 import AIAffiliateProgram from "../../models/AIAffiliateProgram";
+import Company from "../../models/Company";
+import Plan from "../../models/Plan";
 
 interface ListParams {
   companyId: number;
@@ -22,36 +27,15 @@ const ListReferralsService = async ({
   limit = 20,
   status
 }: ListParams): Promise<{ rows: AIAffiliateReferral[]; count: number; hasMore: boolean }> => {
-  // Obtener IDs de programas de esta company
-  let affiliateIds: number[] = [];
-
-  if (programId) {
-    // Verificar que el programa pertenece a la company
-    const program = await AIAffiliateProgram.findOne({
-      where: { id: programId, companyId },
-      attributes: ["id"]
-    });
-    if (program) {
-      affiliateIds = [program.id];
-    }
-  } else {
-    const programs = await AIAffiliateProgram.findAll({
-      where: { companyId },
-      attributes: ["id"]
-    });
-    affiliateIds = programs.map(p => p.id);
-  }
-
-  if (affiliateIds.length === 0) {
-    return { rows: [], count: 0, hasMore: false };
-  }
-
   const where: Record<string, unknown> = {
-    affiliateId: { [Op.in]: affiliateIds }
+    affiliateCompanyId: companyId
   };
 
   if (status) {
     where.status = status;
+  }
+  if (programId) {
+    where.affiliateId = programId;
   }
 
   const offset = (page - 1) * limit;
@@ -62,13 +46,30 @@ const ListReferralsService = async ({
       {
         model: AIAffiliateProgram,
         as: "affiliate",
-        attributes: ["id", "name", "referralCode"],
+        attributes: ["id", "name", "referralCode", "rewardType", "rewardTokens", "rewardDays"],
         required: false
+      },
+      {
+        model: Company,
+        as: "referredCompany",
+        attributes: ["id", "name", "email", "planId", "dueDate"],
+        required: false,
+        include: [{ model: Plan, as: "plan", attributes: ["id", "name"] }]
       }
     ],
-    order: [["createdAt", "DESC"]],
+    order: [
+      // Claimable arriba, luego claimed, luego pending
+      [
+        literal(
+          `CASE "AIAffiliateReferral"."rewardStatus" WHEN 'claimable' THEN 0 WHEN 'claimed' THEN 1 ELSE 2 END`
+        ),
+        "ASC"
+      ],
+      ["createdAt", "DESC"]
+    ],
     limit,
-    offset
+    offset,
+    distinct: true
   });
 
   return { rows, count, hasMore: offset + rows.length < count };

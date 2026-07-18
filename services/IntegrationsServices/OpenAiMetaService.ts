@@ -513,7 +513,7 @@ ${previousResponsesSummary || ""}
     // Construir array de mensajes para OpenAI
     const maxTotalTokens = 8000;
     let tokenCount = estimateTokens(promptSystem);
-    let messagesOpenAi: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
+    const messagesOpenAi: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
     // System prompt va PRIMERO
     messagesOpenAi.push({ role: "system", content: promptSystem });

@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from "../../utils/logger";
 import DeductCreditsService from "../AICreditServices/DeductCreditsService";
 import CalculateCreditCostService from "../AICreditServices/CalculateCreditCostService";
@@ -49,13 +53,14 @@ const generate = async (
 
   try {
     const AIClientService = require("../AIClientService").default;
-    const modelKey = type === 'blog_article' ? 'gpt-4.1' : 'gpt-4.1-mini';
+    const modelKey = 'gpt-5.5';
 
     const response = await AIClientService.generateText({
       prompt,
       modelKey,
       maxTokens: Math.min(maxLength * 2, 4096),
-      temperature: 0.7
+      temperature: 0.7,
+      companyId
     });
 
     const content = response.text;
@@ -159,9 +164,10 @@ Texto mejorado:`;
     const AIClientService = require("../AIClientService").default;
     const response = await AIClientService.generateText({
       prompt,
-      modelKey: 'gpt-4.1-mini',
+      modelKey: 'gpt-5.5',
       maxTokens: Math.max(text.length * 2, 512),
-      temperature: 0.5
+      temperature: 0.5,
+      companyId
     });
 
     // Calcular y deducir créditos
@@ -189,7 +195,7 @@ Texto mejorado:`;
         input: response.usage?.promptTokens || Math.ceil(prompt.length / 4),
         output: response.usage?.completionTokens || Math.ceil(response.text.length / 4)
       },
-      modelUsed: 'gpt-4.1-mini',
+      modelUsed: 'gpt-5.5',
       latencyMs: Date.now() - startTime
     };
   } catch (error: any) {

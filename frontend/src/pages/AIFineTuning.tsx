@@ -1,39 +1,35 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Table,
-  Sheet,
-  CircularProgress,
-  Alert,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Input,
-  Select,
-  Option,
-  IconButton,
-  LinearProgress,
-} from '@mui/joy'
-import {
-  BrainCircuit,
+  Brain,
   Plus,
-  RefreshCw,
+  ArrowClockwise,
   X,
   Database,
-  CheckCircle2,
+  CheckCircle,
   Clock,
-  AlertCircle,
-  Loader2,
-  FlaskConical,
-} from 'lucide-react'
+  WarningCircle,
+  CircleNotch,
+  Flask,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -75,12 +71,24 @@ const formatDate = (dateStr: string) => {
   }
 }
 
+// Color Joy para LinearProgress (conservado como MUI, ver regla 3)
 const getStatusColor = (status: FineTuningJob['status']) => {
   const map: Record<FineTuningJob['status'], 'warning' | 'primary' | 'success' | 'danger'> = {
     pending: 'warning',
     running: 'primary',
     completed: 'success',
     failed: 'danger',
+  }
+  return map[status]
+}
+
+// Variant del Badge del design system
+const getStatusBadgeVariant = (status: FineTuningJob['status']): BadgeProps['variant'] => {
+  const map: Record<FineTuningJob['status'], BadgeProps['variant']> = {
+    pending: 'warning',
+    running: 'primary',
+    completed: 'success',
+    failed: 'destructive',
   }
   return map[status]
 }
@@ -96,11 +104,11 @@ const getStatusLabel = (status: FineTuningJob['status']) => {
 }
 
 const getStatusIcon = (status: FineTuningJob['status']) => {
-  const size = 14
-  if (status === 'pending') return <Clock size={size} />
-  if (status === 'running') return <Loader2 size={size} />
-  if (status === 'completed') return <CheckCircle2 size={size} />
-  return <AlertCircle size={size} />
+  const cls = 'size-3.5'
+  if (status === 'pending') return <Clock className={cls} aria-hidden />
+  if (status === 'running') return <CircleNotch className={`${cls} animate-spin`} aria-hidden />
+  if (status === 'completed') return <CheckCircle className={cls} aria-hidden />
+  return <WarningCircle className={cls} aria-hidden />
 }
 
 // --- Modal de creacion ---
@@ -145,57 +153,82 @@ function CreateJobModal({ open, onClose, onSuccess, dataSources }: CreateJobModa
   }
 
   return (
-    <Modal open={open} onClose={handleClose}>
-      <ModalDialog sx={{ minWidth: 480 }}>
-        <ModalClose />
-        <Typography level="h4" sx={{ mb: 2 }}>Crear Job de Fine-Tuning</Typography>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Crear Job de Fine-Tuning</DialogTitle>
+        </DialogHeader>
+
         {error && (
-          <Alert color="danger" sx={{ mb: 2 }} endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-          }>{error}</Alert>
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text">
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text/80 transition-colors hover:bg-destructive/15 hover:text-destructive-text"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
         )}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <FormControl required>
-            <FormLabel>Nombre del Job</FormLabel>
-            <Input
+
+        <div className="flex flex-col gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="job-name">Nombre del Job</Label>
+            <input
+              id="job-name"
               placeholder="ej. fine-tune-soporte-v1"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             />
-          </FormControl>
-          <FormControl required>
-            <FormLabel>Modelo Base</FormLabel>
-            <Select
-              value={baseModel}
-              onChange={(_, val) => { if (val) setBaseModel(val) }}
-            >
-              <Option value="gpt-4o-mini">gpt-4o-mini</Option>
-              <Option value="gpt-3.5-turbo">gpt-3.5-turbo</Option>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="job-base-model">Modelo Base</Label>
+            <Select value={baseModel} onValueChange={(val) => setBaseModel(val)}>
+              <SelectTrigger id="job-base-model">
+                <SelectValue placeholder="Selecciona un modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
+                <SelectItem value="gpt-3.5-turbo">gpt-3.5-turbo</SelectItem>
+              </SelectContent>
             </Select>
-          </FormControl>
-          <FormControl required>
-            <FormLabel>Fuente de Datos</FormLabel>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="job-data-source">Fuente de Datos</Label>
             <Select
-              value={dataSourceId}
-              onChange={(_, val) => setDataSourceId(val as number)}
-              placeholder="Selecciona una fuente"
+              value={dataSourceId != null ? String(dataSourceId) : undefined}
+              onValueChange={(val) => setDataSourceId(Number(val))}
             >
-              {dataSources.map((ds) => (
-                <Option key={ds.id} value={ds.id}>
-                  {ds.name} ({ds.recordCount?.toLocaleString('es-ES') ?? 0} registros)
-                </Option>
-              ))}
+              <SelectTrigger id="job-data-source">
+                <SelectValue placeholder="Selecciona una fuente" />
+              </SelectTrigger>
+              <SelectContent>
+                {dataSources.map((ds) => (
+                  <SelectItem key={ds.id} value={String(ds.id)}>
+                    {ds.name} ({ds.recordCount?.toLocaleString('es-ES') ?? 0} registros)
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1 }}>
-            <Button variant="outlined" onClick={handleClose} disabled={saving}>Cancelar</Button>
-            <Button onClick={handleSubmit} loading={saving} startDecorator={<FlaskConical size={16} />}>
-              Crear Job
-            </Button>
-          </Box>
-        </Box>
-      </ModalDialog>
-    </Modal>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={handleSubmit} loading={saving}>
+            <Flask className="size-4" aria-hidden />
+            Crear Job
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -252,189 +285,165 @@ export default function AIFineTuning() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <BrainCircuit size={28} />
-            Fine-Tuning de Modelos
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Gestiona y monitorea los jobs de fine-tuning de tus modelos de IA
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshCw size={16} />} onClick={fetchData}>
-            Actualizar
-          </Button>
-          <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
-            Crear Job
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Brain className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Fine-Tuning de Modelos
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestiona y monitorea los jobs de fine-tuning de tus modelos de IA
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
+            </Button>
+            <Button size="sm" onClick={() => setModalOpen(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Crear Job
+            </Button>
+          </div>
+        </div>
 
-      {/* Error */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }} endDecorator={
-          <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-        }>
-          {error}
-        </Alert>
-      )}
+        {/* Error */}
+        {error && (
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text">
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text/80 transition-colors hover:bg-destructive/15 hover:text-destructive-text"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>Total Jobs</Typography>
-              <Typography level="h3">{totalJobs}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>En Progreso</Typography>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>{enProgreso}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>Completados</Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>{completados}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>Data Sources</Typography>
-              <Typography level="h3" sx={{ color: 'warning.500' }}>{dataSources.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Jobs" value={String(totalJobs)} />
+          <StatTile label="En Progreso" value={String(enProgreso)} tone="primary" />
+          <StatTile label="Completados" value={String(completados)} tone="success" />
+          <StatTile label="Data Sources" value={String(dataSources.length)} tone="warning" />
+        </div>
 
-      {/* Tabla de Jobs */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <FlaskConical size={20} />
+        {/* Tabla de Jobs */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
+            <Flask className="size-5 text-muted-foreground" aria-hidden />
             Jobs de Fine-Tuning
-          </Typography>
+          </h2>
           {jobs.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <BrainCircuit size={48} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
+            <div className="py-12 text-center">
+              <Brain className="mx-auto mb-2 size-12 text-muted-foreground/40" aria-hidden />
+              <p className="mb-4 text-sm text-muted-foreground">
                 No hay jobs de fine-tuning registrados aun
-              </Typography>
-              <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
+              </p>
+              <Button size="sm" onClick={() => setModalOpen(true)}>
+                <Plus className="size-4" weight="bold" aria-hidden />
                 Crear primer Job
               </Button>
-            </Box>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ minWidth: 160 }}>Nombre</th>
-                    <th style={{ minWidth: 140 }}>Modelo Base</th>
-                    <th style={{ minWidth: 120 }}>Estado</th>
-                    <th style={{ minWidth: 160 }}>Progreso</th>
-                    <th style={{ minWidth: 160 }}>Creado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((job) => (
-                    <tr key={job.id}>
-                      <td>
-                        <Typography level="body-sm" fontWeight="lg">{job.name}</Typography>
-                      </td>
-                      <td>
-                        <Chip size="sm" variant="outlined">{job.baseModel}</Chip>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(job.status)}
-                          startDecorator={getStatusIcon(job.status)}
-                        >
-                          {getStatusLabel(job.status)}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 130 }}>
-                          <LinearProgress
-                            determinate
-                            value={job.progress ?? 0}
-                            color={getStatusColor(job.status)}
-                            sx={{ flex: 1 }}
-                          />
-                          <Typography level="body-xs" sx={{ minWidth: 35 }}>
-                            {job.progress ?? 0}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">{formatDate(job.createdAt)}</Typography>
-                      </td>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[740px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="min-w-[160px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nombre</th>
+                      <th className="min-w-[140px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modelo Base</th>
+                      <th className="min-w-[120px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                      <th className="min-w-[160px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Progreso</th>
+                      <th className="min-w-[160px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Creado</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {jobs.map((job) => (
+                      <tr key={job.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 font-medium text-foreground">{job.name}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline">{job.baseModel}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusBadgeVariant(job.status)}>
+                            {getStatusIcon(job.status)}
+                            {getStatusLabel(job.status)}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex min-w-[130px] items-center gap-2">
+                            <LinearProgress
+                              determinate
+                              value={job.progress ?? 0}
+                              color={getStatusColor(job.status)}
+                              sx={{ flex: 1 }}
+                            />
+                            <span className="min-w-[35px] text-xs tabular-nums text-muted-foreground">
+                              {job.progress ?? 0}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {formatDate(job.createdAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Data Sources */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Database size={20} />
+        {/* Data Sources */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
+            <Database className="size-5 text-muted-foreground" aria-hidden />
             Fuentes de Datos Disponibles
-          </Typography>
+          </h2>
           {dataSources.length === 0 ? (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">
                 No hay fuentes de datos disponibles
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ) : (
-            <Grid container spacing={2}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {dataSources.map((ds) => (
-                <Grid key={ds.id} xs={12} sm={6} md={4}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <Database size={16} />
-                        <Typography level="body-sm" fontWeight="lg">{ds.name}</Typography>
-                      </Box>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {ds.recordCount?.toLocaleString('es-ES') ?? 0} registros
-                      </Typography>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Creado: {formatDate(ds.createdAt)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                <div key={ds.id} className="rounded-lg border border-border bg-card p-4">
+                  <div className="mb-1 flex items-center gap-2">
+                    <Database className="size-4 text-muted-foreground" aria-hidden />
+                    <span className="text-sm font-medium text-foreground">{ds.name}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {ds.recordCount?.toLocaleString('es-ES') ?? 0} registros
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Creado: {formatDate(ds.createdAt)}
+                  </p>
+                </div>
               ))}
-            </Grid>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Modal */}
       <CreateJobModal
@@ -443,6 +452,6 @@ export default function AIFineTuning() {
         onSuccess={fetchData}
         dataSources={dataSources}
       />
-    </Box>
+    </div>
   )
 }

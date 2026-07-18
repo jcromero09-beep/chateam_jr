@@ -1,138 +1,147 @@
 import React, { useState, useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 
-import { makeStyles } from "@material-ui/core/styles";
-import Button from "@material-ui/core/Button";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import Typography from "@material-ui/core/Typography";
-import IconButton from "@material-ui/core/IconButton";
-import Slider from "@material-ui/core/Slider";
-import CloseIcon from "@material-ui/icons/Close";
-import ShuffleOutlinedIcon from "@material-ui/icons/ShuffleOutlined";
-import { Stack } from "@mui/material";
+import { styled } from "@mui/material/styles";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import Slider from "@mui/material/Slider";
+import CloseIcon from "@mui/icons-material/Close";
+import ShuffleOutlinedIcon from "@mui/icons-material/ShuffleOutlined";
 
-const useStyles = makeStyles(theme => ({
-  dialog: {
-    "& .MuiDialog-paper": {
-      borderRadius: 16,
-      overflow: "hidden",
-      maxWidth: 520,
-    },
+const StyledDialog = styled(Dialog)({
+  "& .MuiDialog-paper": {
+    borderRadius: 16,
+    overflow: "hidden",
+    maxWidth: 520,
   },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 24px 12px",
-  },
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    "& svg": { fontSize: 22 },
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#fff" : "#1a1a2e",
-    lineHeight: 1.3,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#aaa" : "#888",
-    marginTop: 2,
-  },
-  closeBtn: {
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
-    padding: 8,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
-    },
-  },
-  content: {
-    padding: "20px 24px 24px",
-  },
-  sliderContainer: {
-    display: "flex",
-    alignItems: "center",
-    gap: 20,
-    padding: "16px 0",
-  },
-  percentText: {
-    fontSize: 20,
-    fontWeight: 700,
-    color: theme.palette.type === "dark" ? "#f6d365" : "#e8a020",
-    minWidth: 50,
-    textAlign: "center",
-  },
-  slider: {
-    color: "#fda085",
-    "& .MuiSlider-thumb": {
-      width: 20,
-      height: 20,
-      background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
-      boxShadow: "0 2px 8px rgba(253,160,133,0.4)",
-    },
-    "& .MuiSlider-track": {
-      background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
-      border: "none",
-    },
-    "& .MuiSlider-rail": {
-      background: theme.palette.type === "dark" ? "#444" : "#e0e0e0",
-    },
-    "& .MuiSlider-mark": {
-      background: theme.palette.type === "dark" ? "#555" : "#ccc",
-    },
-  },
-  actions: {
-    padding: "12px 24px 20px",
-    display: "flex",
-    gap: 10,
-    justifyContent: "flex-end",
-    borderTop: "none",
-  },
-  cancelBtn: {
-    borderRadius: 10,
-    padding: "8px 20px",
-    textTransform: "none",
-    fontWeight: 500,
-    fontSize: 14,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#d0d5dd"}`,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
-    },
-  },
-  saveBtn: {
-    borderRadius: 10,
-    padding: "8px 24px",
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: 14,
-    background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(253,160,133,0.3)",
-    "&:hover": {
-      background: "linear-gradient(135deg, #e8c358 0%, #e89078 100%)",
-      boxShadow: "0 4px 12px rgba(253,160,133,0.4)",
-    },
+});
+
+const Header = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "20px 24px 12px",
+});
+
+const HeaderLeft = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+});
+
+const HeaderIcon = styled("div")({
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#fff",
+  "& svg": { fontSize: 22 },
+});
+
+const HeaderTitle = styled(Typography)(({ theme }) => ({
+  fontSize: 18,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#fff" : "#1a1a2e",
+  lineHeight: 1.3,
+}));
+
+const HeaderSubtitle = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#888",
+  marginTop: 2,
+}));
+
+const CloseBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
+  padding: 8,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
   },
 }));
 
+const Content = styled(DialogContent)({
+  padding: "20px 24px 24px",
+});
+
+const SliderContainer = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 20,
+  padding: "16px 0",
+});
+
+const PercentText = styled(Typography)(({ theme }) => ({
+  fontSize: 20,
+  fontWeight: 700,
+  color: theme.palette.mode === "dark" ? "#f6d365" : "#e8a020",
+  minWidth: 50,
+  textAlign: "center",
+}));
+
+const StyledSlider = styled(Slider)(({ theme }) => ({
+  color: "#fda085",
+  "& .MuiSlider-thumb": {
+    width: 20,
+    height: 20,
+    background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
+    boxShadow: "0 2px 8px rgba(253,160,133,0.4)",
+  },
+  "& .MuiSlider-track": {
+    background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
+    border: "none",
+  },
+  "& .MuiSlider-rail": {
+    background: theme.palette.mode === "dark" ? "#444" : "#e0e0e0",
+  },
+  "& .MuiSlider-mark": {
+    background: theme.palette.mode === "dark" ? "#555" : "#ccc",
+  },
+}));
+
+const Actions = styled(DialogActions)({
+  padding: "12px 24px 20px",
+  display: "flex",
+  gap: 10,
+  justifyContent: "flex-end",
+  borderTop: "none",
+});
+
+const CancelBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 20px",
+  textTransform: "none",
+  fontWeight: 500,
+  fontSize: 14,
+  color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+  border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#d0d5dd"}`,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
+  },
+}));
+
+const SaveBtn = styled(Button)({
+  borderRadius: 10,
+  padding: "8px 24px",
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: 14,
+  background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
+  color: "#fff",
+  boxShadow: "0 2px 8px rgba(253,160,133,0.3)",
+  "&:hover": {
+    background: "linear-gradient(135deg, #e8c358 0%, #e89078 100%)",
+    boxShadow: "0 4px 12px rgba(253,160,133,0.4)",
+  },
+});
+
 const FlowBuilderRandomizerModal = ({ open, onSave, data, onUpdate, close }) => {
-  const classes = useStyles();
   const isMounted = useRef(true);
 
   const [percent, setPercent] = useState(0);
@@ -174,37 +183,35 @@ const FlowBuilderRandomizerModal = ({ open, onSave, data, onUpdate, close }) => 
   };
 
   return (
-    <Dialog
+    <StyledDialog
       open={activeModal}
       onClose={handleClose}
-      className={classes.dialog}
       fullWidth
       maxWidth="sm"
     >
       {/* Header */}
-      <div className={classes.header}>
-        <div className={classes.headerLeft}>
-          <div className={classes.headerIcon}>
+      <Header>
+        <HeaderLeft>
+          <HeaderIcon>
             <ShuffleOutlinedIcon />
-          </div>
+          </HeaderIcon>
           <div>
-            <Typography className={classes.headerTitle}>
+            <HeaderTitle>
               {open === "create" ? "Añadir aleatorizador" : "Editar aleatorizador"}
-            </Typography>
-            <Typography className={classes.headerSubtitle}>Configura el porcentaje de distribución</Typography>
+            </HeaderTitle>
+            <HeaderSubtitle>Configura el porcentaje de distribución</HeaderSubtitle>
           </div>
-        </div>
-        <IconButton className={classes.closeBtn} onClick={handleClose} size="small">
+        </HeaderLeft>
+        <CloseBtn onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
-        </IconButton>
-      </div>
+        </CloseBtn>
+      </Header>
 
       {/* Content */}
-      <DialogContent className={classes.content}>
-        <div className={classes.sliderContainer}>
-          <Typography className={classes.percentText}>{percent}%</Typography>
-          <Slider
-            className={classes.slider}
+      <Content>
+        <SliderContainer>
+          <PercentText>{percent}%</PercentText>
+          <StyledSlider
             defaultValue={percent}
             valueLabelDisplay="auto"
             onChange={handleValue}
@@ -213,20 +220,20 @@ const FlowBuilderRandomizerModal = ({ open, onSave, data, onUpdate, close }) => 
             min={0}
             max={100}
           />
-          <Typography className={classes.percentText}>{100 - percent}%</Typography>
-        </div>
-      </DialogContent>
+          <PercentText>{100 - percent}%</PercentText>
+        </SliderContainer>
+      </Content>
 
       {/* Actions */}
-      <DialogActions className={classes.actions}>
-        <Button className={classes.cancelBtn} onClick={handleClose}>
+      <Actions>
+        <CancelBtn onClick={handleClose}>
           Cancelar
-        </Button>
-        <Button className={classes.saveBtn} onClick={handleSaveContact}>
+        </CancelBtn>
+        <SaveBtn onClick={handleSaveContact}>
           {open === "create" ? "Añadir" : "Guardar"}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </SaveBtn>
+      </Actions>
+    </StyledDialog>
   );
 };
 

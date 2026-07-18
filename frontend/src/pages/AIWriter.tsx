@@ -4,39 +4,33 @@
  */
 
 import { useState, useEffect, useCallback, useContext } from 'react'
+// [migración] CircularProgress se CONSERVA como MUI Joy (no hay equivalente en el DS).
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  IconButton,
-  Button,
-  Textarea,
-  Select,
-  Option,
-  FormControl,
-  FormLabel,
-  Divider,
-  Chip,
-} from '@mui/joy'
-import {
-  PenLine,
-  Wand2,
+  PencilLine,
+  MagicWand,
   Copy,
   Check,
   X,
   Coins,
   FileText,
-  RefreshCw,
-  Sparkles,
+  ArrowClockwise,
+  Sparkle,
   Clock,
   Hash,
-  Type,
-} from 'lucide-react'
+  TextT,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { AuthContext } from '../context/Auth/AuthContext'
 
@@ -105,6 +99,8 @@ export default function AIWriter() {
   const [error, setError] = useState<string | null>(null)
 
   const [credits, setCredits] = useState<number | null>(null)
+  const [creditsTotal, setCreditsTotal] = useState<number | null>(null)
+  const [creditsUsed, setCreditsUsed] = useState<number | null>(null)
 
   // Formulario
   const [prompt, setPrompt] = useState('')
@@ -132,12 +128,27 @@ export default function AIWriter() {
       setLoading(true)
       setError(null)
 
-      // Usar endpoint de token-info que devuelve el balance general de tokens de la compañía
-      const response = await api.get('/ai/subplan-purchase/token-info')
-      const raw = response.data as Record<string, unknown>
-      // El endpoint devuelve: { tokenBalance, activeSubplan, activeSubplanId }
-      const tokenBalance = typeof raw.tokenBalance === 'number' ? raw.tokenBalance : 0
-      setCredits(tokenBalance)
+      // Endpoint UNIFICADO: balance real del sistema AICreditBalance.
+      // AIWriter cobra como "message" (configurable). Se filtra solo ese tipo.
+      const response = await api.get('/ai/credits/summary?keys=message')
+      const raw = response.data as {
+        byKey?: Record<string, { totalCredits?: number; usedCredits?: number; remaining?: number }>
+        totalCredits?: number
+        totalUsed?: number
+        totalRemaining?: number
+      }
+
+      const messageBalance = raw?.byKey?.message
+      if (messageBalance) {
+        setCredits(Number(messageBalance.remaining ?? 0))
+        setCreditsTotal(Number(messageBalance.totalCredits ?? 0))
+        setCreditsUsed(Number(messageBalance.usedCredits ?? 0))
+      } else {
+        // Fallback: si la company no tiene balance "message" inicializado.
+        setCredits(0)
+        setCreditsTotal(0)
+        setCreditsUsed(0)
+      }
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
         ?? 'Error al cargar los créditos disponibles'
@@ -236,318 +247,315 @@ export default function AIWriter() {
   const noCredits = !isSuperAdmin && credits !== null && credits <= 0
   const formatCredits = (n: number) => new Intl.NumberFormat('es-ES').format(n)
 
+  const selectedContentLabel = CONTENT_TYPE_OPTIONS.find((t) => t.value === contentType)?.label
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <PenLine size={32} color="var(--joy-palette-primary-500)" />
-          <Box>
-            <Typography level="h2">Escritor IA</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Genera texto profesional asistido por modelos de IA avanzados
-            </Typography>
-          </Box>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <PencilLine className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Escritor IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Genera texto profesional asistido por modelos de IA avanzados
+              </p>
+            </div>
+          </div>
 
-        {/* Créditos disponibles */}
-        <Card
-          variant="soft"
-          color={noCredits ? 'danger' : 'success'}
-          sx={{ minWidth: 180 }}
-        >
-          <CardContent sx={{ py: 1, px: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Coins size={18} />
-              <Box>
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                  Créditos disponibles
-                </Typography>
+          {/* Créditos disponibles — balance REAL del sistema unificado (tipo message) */}
+          <div
+            className={cn(
+              'min-w-[220px] rounded-lg border p-3',
+              noCredits
+                ? 'border-destructive/30 bg-destructive/10'
+                : 'border-success/30 bg-success/10',
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Coins
+                className={cn(
+                  'size-[18px] shrink-0',
+                  noCredits ? 'text-destructive-text' : 'text-success-text',
+                )}
+                aria-hidden
+              />
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Créditos disponibles (mensajes IA)
+                </p>
                 {loading ? (
                   <CircularProgress size="sm" />
                 ) : (
-                  <Typography level="title-md">
-                    {isSuperAdmin ? '∞ Ilimitado' : credits !== null ? formatCredits(credits) : '—'}
-                  </Typography>
+                  <div>
+                    <p className="text-base font-semibold text-foreground">
+                      {isSuperAdmin
+                        ? '∞ Ilimitado'
+                        : credits !== null
+                          ? formatCredits(credits)
+                          : '—'}
+                      {!isSuperAdmin && creditsTotal !== null && creditsTotal > 0 && (
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">
+                          / {formatCredits(creditsTotal)}
+                        </span>
+                      )}
+                    </p>
+                    {!isSuperAdmin && creditsUsed !== null && creditsUsed > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Usados: {formatCredits(creditsUsed)}
+                      </p>
+                    )}
+                  </div>
                 )}
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      {/* Error global */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
-
-      {/* Sin créditos */}
-      {!loading && noCredits && (
-        <Alert color="warning" sx={{ mb: 2 }}>
-          No tienes créditos disponibles para generación de texto. Contacta al administrador para recargar tu saldo.
-        </Alert>
-      )}
-
-      <Grid container spacing={3}>
-        {/* Panel izquierdo: Formulario */}
-        <Grid xs={12} md={6}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Wand2 size={20} />
-                Configurar generación
-              </Typography>
-
-              {/* Tipo de contenido */}
-              <FormControl sx={{ mb: 2 }}>
-                <FormLabel>Tipo de contenido</FormLabel>
-                <Select
-                  value={contentType}
-                  onChange={(_, val) => val && setContentType(val as ContentType)}
-                  disabled={generating}
-                  startDecorator={<Type size={14} />}
-                >
-                  {CONTENT_TYPE_OPTIONS.map((opt) => (
-                    <Option key={opt.value} value={opt.value}>
-                      <Box>
-                        <Typography level="body-sm" fontWeight="md">
-                          {opt.label}
-                        </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {opt.description}
-                        </Typography>
-                      </Box>
-                    </Option>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {/* Prompt / Tema */}
-              <FormControl sx={{ mb: 2 }}>
-                <FormLabel>Tema o instrucción</FormLabel>
-                <Textarea
-                  placeholder="Describe sobre qué quieres generar el contenido..."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  minRows={4}
-                  maxRows={10}
-                  disabled={generating}
-                  sx={{ fontSize: 'sm' }}
-                />
-              </FormControl>
-
-              {/* Sugerencias rápidas */}
-              <Box sx={{ mb: 2 }}>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  Ejemplos rápidos:
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {PROMPT_EXAMPLES.map((example) => (
-                    <Chip
-                      key={example.text}
-                      size="sm"
-                      variant="outlined"
-                      color="neutral"
-                      onClick={() => {
-                        setPrompt(example.text)
-                        setContentType(example.type)
-                      }}
-                      sx={{ cursor: 'pointer', fontSize: '11px' }}
-                    >
-                      {example.text.length > 40 ? `${example.text.substring(0, 40)}...` : example.text}
-                    </Chip>
-                  ))}
-                </Box>
-              </Box>
-
-              <Divider sx={{ mb: 2 }} />
-
-              {/* Tono */}
-              <FormControl sx={{ mb: 2 }}>
-                <FormLabel>Tono</FormLabel>
-                <Select
-                  value={tone}
-                  onChange={(_, val) => val && setTone(val as ToneOption)}
-                  disabled={generating}
-                >
-                  {TONE_OPTIONS.map((opt) => (
-                    <Option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </Option>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {/* Errores de generación */}
-              {generationError && (
-                <Alert
-                  color="danger"
-                  sx={{ mb: 2 }}
-                  endDecorator={
-                    <IconButton size="sm" variant="plain" color="danger" onClick={() => setGenerationError(null)}>
-                      <X size={16} />
-                    </IconButton>
-                  }
-                >
-                  {generationError}
-                </Alert>
-              )}
-
-              {/* Acciones */}
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  fullWidth
-                  startDecorator={generating ? undefined : <Sparkles size={16} />}
-                  loading={generating}
-                  disabled={!prompt.trim() || noCredits || loading}
-                  onClick={handleGenerate}
-                >
-                  {generating ? 'Generando...' : 'Generar texto'}
-                </Button>
-                {(prompt || result) && (
-                  <IconButton variant="outlined" onClick={handleClear} title="Limpiar">
-                    <RefreshCw size={16} />
-                  </IconButton>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Panel derecho: Resultado */}
-        <Grid xs={12} md={6}>
-          <Card
-            variant="outlined"
-            sx={{ height: '100%', minHeight: 400 }}
+        {/* Error global */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
           >
-            <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography level="title-lg" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <FileText size={20} />
-                  Resultado
-                </Typography>
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/15"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-                {result && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Button
-                      size="sm"
-                      variant="outlined"
-                      color={copied ? 'success' : 'neutral'}
-                      startDecorator={copied ? <Check size={14} /> : <Copy size={14} />}
-                      onClick={handleCopy}
-                    >
-                      {copied ? 'Copiado' : 'Copiar'}
-                    </Button>
-                  </Box>
-                )}
-              </Box>
+        {/* Sin créditos */}
+        {!loading && noCredits && (
+          <div
+            role="alert"
+            className="rounded-lg border border-warning/30 bg-warning/16 px-4 py-3 text-sm text-warning-text"
+          >
+            No tienes créditos disponibles para generación de texto. Contacta al administrador para recargar tu saldo.
+          </div>
+        )}
 
-              {generating ? (
-                <Box
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 2,
-                    py: 4,
-                  }}
-                >
-                  <CircularProgress size="md" />
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Generando {CONTENT_TYPE_OPTIONS.find((t) => t.value === contentType)?.label.toLowerCase()}...
-                  </Typography>
-                </Box>
-              ) : result ? (
-                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  {/* Metadatos del resultado */}
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                    {lastWordCount !== null && (
-                      <Chip size="sm" color="primary" variant="soft" startDecorator={<Hash size={10} />}>
-                        {lastWordCount} palabras
-                      </Chip>
-                    )}
-                    {lastTokensUsed !== null && (
-                      <Chip size="sm" color="neutral" variant="soft">
-                        {new Intl.NumberFormat('es-ES').format(lastTokensUsed)} tokens
-                      </Chip>
-                    )}
-                    {lastLatency !== null && (
-                      <Chip size="sm" color="neutral" variant="soft" startDecorator={<Clock size={10} />}>
-                        {(lastLatency / 1000).toFixed(1)}s
-                      </Chip>
-                    )}
-                    {lastModel && (
-                      <Chip size="sm" color="neutral" variant="outlined">
-                        {lastModel}
-                      </Chip>
-                    )}
-                  </Box>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* Panel izquierdo: Formulario */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+              <MagicWand className="size-5" aria-hidden />
+              Configurar generación
+            </h2>
 
-                  {/* Contenido */}
-                  <Box
-                    sx={{
-                      flex: 1,
-                      p: 2,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'sm',
-                      overflow: 'auto',
-                      whiteSpace: 'pre-wrap',
-                      lineHeight: 1.7,
+            {/* Tipo de contenido */}
+            <div className="mb-4 space-y-1.5">
+              <Label htmlFor="content-type">Tipo de contenido</Label>
+              <Select
+                value={contentType}
+                onValueChange={(val) => setContentType(val as ContentType)}
+                disabled={generating}
+              >
+                <SelectTrigger id="content-type" aria-label="Tipo de contenido">
+                  <span className="flex items-center gap-2 truncate">
+                    <TextT className="size-3.5 shrink-0 opacity-60" aria-hidden />
+                    <span className="truncate">{selectedContentLabel}</span>
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {CONTENT_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <span className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">{opt.label}</span>
+                        <span className="text-xs text-muted-foreground">{opt.description}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Prompt / Tema */}
+            <div className="mb-4 space-y-1.5">
+              <Label htmlFor="prompt">Tema o instrucción</Label>
+              <textarea
+                id="prompt"
+                placeholder="Describe sobre qué quieres generar el contenido..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                disabled={generating}
+                className="min-h-[104px] w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-55"
+              />
+            </div>
+
+            {/* Sugerencias rápidas */}
+            <div className="mb-4">
+              <p className="mb-1.5 text-xs text-muted-foreground">Ejemplos rápidos:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {PROMPT_EXAMPLES.map((example) => (
+                  <button
+                    key={example.text}
+                    type="button"
+                    onClick={() => {
+                      setPrompt(example.text)
+                      setContentType(example.type)
                     }}
+                    className="inline-flex items-center rounded-full border border-border bg-transparent px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-accent hover:bg-accent hover:text-accent-foreground"
                   >
-                    <Typography level="body-sm">{result}</Typography>
-                  </Box>
-                </Box>
-              ) : (
-                <Box
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 1.5,
-                    py: 4,
-                    color: 'text.tertiary',
-                  }}
+                    {example.text.length > 40 ? `${example.text.substring(0, 40)}...` : example.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="my-4 border-t border-border" />
+
+            {/* Tono */}
+            <div className="mb-4 space-y-1.5">
+              <Label htmlFor="tone">Tono</Label>
+              <Select
+                value={tone}
+                onValueChange={(val) => setTone(val as ToneOption)}
+                disabled={generating}
+              >
+                <SelectTrigger id="tone" aria-label="Tono">
+                  <span className="truncate">
+                    {TONE_OPTIONS.find((t) => t.value === tone)?.label}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {TONE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Errores de generación */}
+            {generationError && (
+              <div
+                role="alert"
+                className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+              >
+                <span>{generationError}</span>
+                <button
+                  type="button"
+                  aria-label="Cerrar aviso"
+                  onClick={() => setGenerationError(null)}
+                  className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/15"
                 >
-                  <Sparkles size={40} color="var(--joy-palette-neutral-300)" />
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
-                    Elige un tipo de contenido, escribe un tema
-                    <br />
-                    y presiona "Generar texto" para ver el resultado
-                  </Typography>
-                </Box>
+                  <X className="size-4" aria-hidden />
+                </button>
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                loading={generating}
+                disabled={!prompt.trim() || noCredits || loading}
+                onClick={handleGenerate}
+              >
+                {!generating && <Sparkle className="size-4" aria-hidden />}
+                {generating ? 'Generando...' : 'Generar texto'}
+              </Button>
+              {(prompt || result) && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Limpiar"
+                  title="Limpiar"
+                  onClick={handleClear}
+                >
+                  <ArrowClockwise className="size-4" aria-hidden />
+                </Button>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
+            </div>
+          </div>
+
+          {/* Panel derecho: Resultado */}
+          <div className="flex min-h-[400px] flex-col rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                <FileText className="size-5" aria-hidden />
+                Resultado
+              </h2>
+
+              {result && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopy}
+                  className={cn(copied && 'border-success/40 text-success-text')}
+                >
+                  {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+                  {copied ? 'Copiado' : 'Copiar'}
+                </Button>
+              )}
+            </div>
+
+            {generating ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 py-8">
+                <CircularProgress size="md" />
+                <p className="text-sm text-muted-foreground">
+                  Generando {selectedContentLabel?.toLowerCase()}...
+                </p>
+              </div>
+            ) : result ? (
+              <div className="flex flex-1 flex-col gap-3">
+                {/* Metadatos del resultado */}
+                <div className="flex flex-wrap gap-1.5">
+                  {lastWordCount !== null && (
+                    <Badge variant="primary">
+                      <Hash className="size-2.5" aria-hidden />
+                      {lastWordCount} palabras
+                    </Badge>
+                  )}
+                  {lastTokensUsed !== null && (
+                    <Badge variant="neutral">
+                      {new Intl.NumberFormat('es-ES').format(lastTokensUsed)} tokens
+                    </Badge>
+                  )}
+                  {lastLatency !== null && (
+                    <Badge variant="neutral">
+                      <Clock className="size-2.5" aria-hidden />
+                      {(lastLatency / 1000).toFixed(1)}s
+                    </Badge>
+                  )}
+                  {lastModel && <Badge variant="outline">{lastModel}</Badge>}
+                </div>
+
+                {/* Contenido */}
+                <div className="flex-1 overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 p-4 text-sm leading-7 text-foreground">
+                  {result}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
+                <Sparkle className="size-10 text-muted-foreground/50" aria-hidden />
+                <p className="text-sm text-muted-foreground">
+                  Elige un tipo de contenido, escribe un tema
+                  <br />
+                  y presiona &quot;Generar texto&quot; para ver el resultado
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

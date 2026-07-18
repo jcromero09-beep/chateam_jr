@@ -10,7 +10,12 @@ import DeleteService from "../services/QuickMessageService/DeleteService";
 import FindService from "../services/QuickMessageService/FindService";
 
 import QuickMessage from "../models/QuickMessage";
-import { head } from "lodash";
+import QuickReplyIntentSuggestionService from "../services/AIAgentServices/QuickReplyIntentSuggestionService";
+import QuickReplyRedraftService from "../services/AIAgentServices/QuickReplyRedraftService";
+import QuickReplySemanticService from "../services/AIAgentServices/QuickReplySemanticService";
+import logger from "../utils/logger";
+import lodash from "lodash";
+const { head } = lodash;
 import fs from "fs";
 import path from "path";
 
@@ -31,11 +36,22 @@ type StoreData = {
   geral: boolean;
   isMedia: boolean;
   visao: boolean;
+  intent?: string;
+  intentKey?: string;
+  isAiEnabled?: boolean;
 };
 
 type FindParams = {
   companyId: string;
   userId: string;
+};
+
+type SuggestIntentData = {
+  shortcode?: string;
+  message?: string;
+  mediaName?: string;
+  mediaUrl?: string;
+  mediaDataUrl?: string;
 };
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
@@ -85,10 +101,45 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   return res.status(200).json(record);
 };
 
+export const suggestAiIntent = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { companyId } = req.user;
+  const data = req.body as SuggestIntentData;
+
+  const suggestion = await QuickReplyIntentSuggestionService.suggest({
+    companyId,
+    shortcode: data.shortcode,
+    message: data.message,
+    mediaName: data.mediaName,
+    mediaUrl: data.mediaUrl,
+    mediaDataUrl: data.mediaDataUrl
+  });
+
+  return res.status(200).json(suggestion);
+};
+
+export const redraftMessage = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { companyId } = req.user;
+  const { shortcode, message } = req.body as { shortcode?: string; message?: string };
+
+  const result = await QuickReplyRedraftService.redraft({
+    companyId,
+    shortcode,
+    message
+  });
+
+  return res.status(200).json(result);
+};
+
 export const show = async (req: Request, res: Response): Promise<Response> => {
   const { id } = req.params;
 
-  const record = await ShowService(id);
+  const record = await ShowService(id, req.user.companyId);
 
   return res.status(200).json(record);
 };
@@ -117,6 +168,7 @@ export const update = async (
     ...data,
     userId: req.user.id,
     id,
+    companyId,
   });
 
   const io = getIO();
@@ -152,7 +204,10 @@ export const findList = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
-  const params = req.query as FindParams;
+  // [Fase A] companyId y userId deben venir del usuario autenticado, no del query
+  // (si falta userId, el FindService genera SQL inválido -> 500).
+  const { companyId, id: userId } = req.user;
+  const params = { ...(req.query as any), companyId: String(companyId), userId: String(userId) } as FindParams;
   const records: QuickMessage[] = await FindService(params);
 
   return res.status(200).json(records);
@@ -189,6 +244,14 @@ export const mediaUpload = async (
       mediaName: file.originalname
     });
 
+    if (quickmessage.isAiEnabled && quickmessage.intent) {
+      try {
+        await QuickReplySemanticService.syncEmbedding(quickmessage.id);
+      } catch (embedErr: any) {
+        logger.warn(`[QuickMessage/mediaUpload] Error sincronizando embedding: ${embedErr.message}`);
+      }
+    }
+
     return res.send({ mensagem: "Archivo adjunto" });
     } catch (err: any) {
       throw new AppError(err.message);
@@ -215,6 +278,14 @@ export const deleteMedia = async (
       mediaPath: null,
       mediaName: null
     });
+
+    if (quickmessage.isAiEnabled && quickmessage.intent) {
+      try {
+        await QuickReplySemanticService.syncEmbedding(quickmessage.id);
+      } catch (embedErr: any) {
+        logger.warn(`[QuickMessage/deleteMedia] Error sincronizando embedding: ${embedErr.message}`);
+      }
+    }
 
     return res.send({ mensagem: "Archivo eliminado" });
     } catch (err: any) {

@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Job: UGCOptimization
  * Procesa ciclo de optimizacion para una campana UGC.

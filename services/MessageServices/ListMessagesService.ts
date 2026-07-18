@@ -3,7 +3,8 @@ import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import ShowTicketService from "../TicketServices/ShowTicketService";
 import { Op } from "sequelize";
-import { intersection } from "lodash";
+import lodash from "lodash";
+const { intersection } = lodash;
 import User from "../../models/User";
 import isQueueIdHistoryBlocked from "../UserServices/isQueueIdHistoryBlocked";
 import Contact from "../../models/Contact";
@@ -50,6 +51,14 @@ const ListMessagesService = async ({
       companyId
     }
   });
+
+  if (!ticket) {
+    throw new AppError("ERR_NO_TICKET_FOUND", 404);
+  }
+
+  if (user?.profile === "user" && user.whatsappId && ticket.whatsappId && ticket.whatsappId !== user.whatsappId) {
+    throw new AppError("ERR_NO_PERMISSION_TO_VIEW_TICKET_CONNECTION", 403);
+  }
 
   const ticketsFilter: any[] | null = [];
 

@@ -93,7 +93,7 @@ export const remove = async (
   const { integrationId } = req.params;
   const { companyId } = req.user;
 
-  await DeleteQueueIntegrationService(integrationId);
+  await DeleteQueueIntegrationService(integrationId, companyId);
 
   const io = getIO();
   io.of(String(companyId))

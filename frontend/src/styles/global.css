@@ -129,6 +129,19 @@ body {
   50% { opacity: 0.5; }
 }
 
+/* [Fase C a11y] Respeta la preferencia del sistema de movimiento reducido (WCAG 2.3.3).
+   Anula animaciones/transiciones para usuarios sensibles al movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    UTILIDADES PARA RECHARTS (Lotru pattern)
    ═══════════════════════════════════════════════════════════════════════ */

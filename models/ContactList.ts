@@ -25,10 +25,19 @@ class ContactList extends Model<ContactList> {
   @Column(DataType.STRING)
   name: string;
 
-  // Acelle Mail fields
+  // Email Marketing fields
   @Column({ type: DataType.BOOLEAN, defaultValue: false })
   isEmailList: boolean;
 
+  // Provider activo: 'acelle' | 'listmonk' (puede ser null si no es lista de email)
+  @Column(DataType.STRING)
+  provider: string;
+
+  // ID externo en el provider activo (numerico para Listmonk, UUID para Acelle)
+  @Column(DataType.STRING)
+  providerListId: string;
+
+  // LEGACY: campo Acelle original. Se mantiene por compatibilidad y backfill.
   @Column(DataType.STRING)
   acelleListUid: string;
 

@@ -1,28 +1,22 @@
 import { useState } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Grid,
-  Select,
-  Option,
-  Textarea,
-  Alert,
-  Chip,
-} from '@mui/joy'
-import {
-  Send as SendIcon,
-  Science as ScienceIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
+  PaperPlaneTilt,
+  Flask,
+  CheckCircle,
+  XCircle,
   Image as ImageIcon,
-  Description as DocumentIcon,
-} from '@mui/icons-material'
+  FileText,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 
 interface TestResult {
   id: number
@@ -32,6 +26,12 @@ interface TestResult {
   response: string
   duration: number
 }
+
+const inputClass =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+const textareaClass =
+  'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
 
 export default function WhatsAppTester() {
   const [phoneNumber, setPhoneNumber] = useState('+1555')
@@ -77,232 +77,249 @@ export default function WhatsAppTester() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ScienceIcon sx={{ fontSize: 32 }} />
-          Herramienta de Testing WhatsApp
-        </Typography>
-        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-          Prueba el envío de mensajes y templates de WhatsApp Business API
-        </Typography>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <Flask className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Herramienta de Testing WhatsApp
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Prueba el envío de mensajes y templates de WhatsApp Business API
+            </p>
+          </div>
+        </div>
 
-      <Grid container spacing={3}>
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Configurar Mensaje de Prueba
-              </Typography>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* Configurar mensaje */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">
+              Configurar Mensaje de Prueba
+            </h2>
 
-              <FormControl sx={{ mb: 2 }}>
-                <FormLabel>Número de Teléfono Destino</FormLabel>
-                <Input
+            <div className="mb-4 space-y-1.5">
+              <Label htmlFor="wa-phone">Número de Teléfono Destino</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  +52
+                </span>
+                <input
+                  id="wa-phone"
+                  className={`${inputClass} pl-11`}
                   placeholder="+1 555-0000"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
-                  startDecorator="+52"
                 />
-                <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                  Incluye el código de país (ej: +52 para México)
-                </Typography>
-              </FormControl>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Incluye el código de país (ej: +52 para México)
+              </p>
+            </div>
 
-              <FormControl sx={{ mb: 2 }}>
-                <FormLabel>Tipo de Mensaje</FormLabel>
-                <Select value={messageType} onChange={(_, val) => setMessageType(val as string)}>
-                  <Option value="text">Texto Simple</Option>
-                  <Option value="template">Template Aprobado</Option>
-                  <Option value="image">Imagen</Option>
-                  <Option value="document">Documento</Option>
-                  <Option value="location">Ubicación</Option>
-                </Select>
-              </FormControl>
+            <div className="mb-4 space-y-1.5">
+              <Label htmlFor="wa-type">Tipo de Mensaje</Label>
+              <Select value={messageType} onValueChange={(val) => setMessageType(val)}>
+                <SelectTrigger id="wa-type" className="h-11">
+                  <SelectValue placeholder="Selecciona un tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="text">Texto Simple</SelectItem>
+                  <SelectItem value="template">Template Aprobado</SelectItem>
+                  <SelectItem value="image">Imagen</SelectItem>
+                  <SelectItem value="document">Documento</SelectItem>
+                  <SelectItem value="location">Ubicación</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-              {messageType === 'text' && (
-                <FormControl sx={{ mb: 2 }}>
-                  <FormLabel>Contenido del Mensaje</FormLabel>
-                  <Textarea
-                    minRows={3}
-                    placeholder="Escribe tu mensaje de prueba aquí..."
-                    value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
+            {messageType === 'text' && (
+              <div className="mb-4 space-y-1.5">
+                <Label htmlFor="wa-content">Contenido del Mensaje</Label>
+                <textarea
+                  id="wa-content"
+                  rows={3}
+                  className={textareaClass}
+                  placeholder="Escribe tu mensaje de prueba aquí..."
+                  value={messageContent}
+                  onChange={(e) => setMessageContent(e.target.value)}
+                />
+              </div>
+            )}
+
+            {messageType === 'template' && (
+              <>
+                <div className="mb-4 space-y-1.5">
+                  <Label htmlFor="wa-template">Seleccionar Template</Label>
+                  <Select value={templateName} onValueChange={(val) => setTemplateName(val)}>
+                    <SelectTrigger id="wa-template" className="h-11">
+                      <SelectValue placeholder="Selecciona un template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bienvenida_cliente">bienvenida_cliente</SelectItem>
+                      <SelectItem value="confirmacion_pedido">confirmacion_pedido</SelectItem>
+                      <SelectItem value="codigo_verificacion">codigo_verificacion</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="mb-4 space-y-1.5">
+                  <Label htmlFor="wa-vars">Variables (JSON)</Label>
+                  <textarea
+                    id="wa-vars"
+                    rows={2}
+                    className={textareaClass}
+                    placeholder='{"1": "Juan", "2": "JR Chateam"}'
+                    defaultValue='{"1": "Cliente", "2": "JR Chateam"}'
                   />
-                </FormControl>
-              )}
+                </div>
+              </>
+            )}
 
-              {messageType === 'template' && (
-                <>
-                  <FormControl sx={{ mb: 2 }}>
-                    <FormLabel>Seleccionar Template</FormLabel>
-                    <Select value={templateName} onChange={(_, val) => setTemplateName(val as string)}>
-                      <Option value="bienvenida_cliente">bienvenida_cliente</Option>
-                      <Option value="confirmacion_pedido">confirmacion_pedido</Option>
-                      <Option value="codigo_verificacion">codigo_verificacion</Option>
-                    </Select>
-                  </FormControl>
-
-                  <FormControl sx={{ mb: 2 }}>
-                    <FormLabel>Variables (JSON)</FormLabel>
-                    <Textarea
-                      minRows={2}
-                      placeholder='{"1": "Juan", "2": "JR Chateam"}'
-                      defaultValue='{"1": "Cliente", "2": "JR Chateam"}'
-                    />
-                  </FormControl>
-                </>
-              )}
-
-              {messageType === 'image' && (
-                <FormControl sx={{ mb: 2 }}>
-                  <FormLabel>URL de la Imagen</FormLabel>
-                  <Input
+            {messageType === 'image' && (
+              <div className="mb-4 space-y-1.5">
+                <Label htmlFor="wa-image">URL de la Imagen</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <ImageIcon className="size-[18px]" aria-hidden />
+                  </span>
+                  <input
+                    id="wa-image"
+                    className={`${inputClass} pl-11`}
                     placeholder="https://example.com/image.jpg"
-                    startDecorator={<ImageIcon />}
                   />
-                </FormControl>
-              )}
+                </div>
+              </div>
+            )}
 
-              {messageType === 'document' && (
-                <FormControl sx={{ mb: 2 }}>
-                  <FormLabel>URL del Documento</FormLabel>
-                  <Input
+            {messageType === 'document' && (
+              <div className="mb-4 space-y-1.5">
+                <Label htmlFor="wa-doc">URL del Documento</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <FileText className="size-[18px]" aria-hidden />
+                  </span>
+                  <input
+                    id="wa-doc"
+                    className={`${inputClass} pl-11`}
                     placeholder="https://example.com/document.pdf"
-                    startDecorator={<DocumentIcon />}
                   />
-                </FormControl>
-              )}
+                </div>
+              </div>
+            )}
 
-              {messageType === 'location' && (
-                <Grid container spacing={2} sx={{ mb: 2 }}>
-                  <Grid xs={6}>
-                    <FormControl>
-                      <FormLabel>Latitud</FormLabel>
-                      <Input placeholder="19.432608" />
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={6}>
-                    <FormControl>
-                      <FormLabel>Longitud</FormLabel>
-                      <Input placeholder="-99.133209" />
-                    </FormControl>
-                  </Grid>
-                </Grid>
-              )}
+            {messageType === 'location' && (
+              <div className="mb-4 grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wa-lat">Latitud</Label>
+                  <input id="wa-lat" className={inputClass} placeholder="19.432608" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wa-lng">Longitud</Label>
+                  <input id="wa-lng" className={inputClass} placeholder="-99.133209" />
+                </div>
+              </div>
+            )}
 
-              <Alert color="warning" sx={{ mb: 2 }}>
-                <Typography level="body-sm">
-                  El mensaje de prueba se enviará utilizando la API de WhatsApp Cloud API v20+
-                </Typography>
-              </Alert>
+            <div
+              role="alert"
+              className="mb-4 rounded-md border border-warning/40 bg-warning/16 px-3.5 py-3 text-sm text-warning-text"
+            >
+              El mensaje de prueba se enviará utilizando la API de WhatsApp Cloud API v20+
+            </div>
 
-              <Button
-                fullWidth
-                size="lg"
-                startDecorator={<SendIcon />}
-                loading={loading}
-                onClick={handleSendTest}
-                disabled={!phoneNumber || (messageType === 'text' && !messageContent)}
-              >
-                Enviar Mensaje de Prueba
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
+            <Button
+              size="lg"
+              className="w-full"
+              loading={loading}
+              onClick={handleSendTest}
+              disabled={!phoneNumber || (messageType === 'text' && !messageContent)}
+            >
+              <PaperPlaneTilt className="size-5" weight="fill" aria-hidden />
+              Enviar Mensaje de Prueba
+            </Button>
+          </div>
 
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
+          {/* Resultados */}
+          <div className="space-y-6">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+              <h2 className="mb-4 text-lg font-semibold text-foreground">
                 Resultados de Pruebas
-              </Typography>
+              </h2>
 
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div className="flex flex-col gap-4">
                 {testResults.length === 0 ? (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
                       No hay resultados de pruebas aún. Envía un mensaje para comenzar.
-                    </Typography>
-                  </Box>
+                    </p>
+                  </div>
                 ) : (
                   testResults.map((result) => (
-                    <Card key={result.id} variant="outlined">
-                      <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            <Chip
-                              size="sm"
-                              color={result.status === 'success' ? 'success' : 'danger'}
-                              startDecorator={
-                                result.status === 'success' ? <CheckCircleIcon /> : <ErrorIcon />
-                              }
-                            >
-                              {result.status}
-                            </Chip>
-                            <Chip size="sm" variant="outlined">
-                              {result.type}
-                            </Chip>
-                          </Box>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {result.duration}ms
-                          </Typography>
-                        </Box>
+                    <div
+                      key={result.id}
+                      className="rounded-lg border border-border bg-card p-4"
+                    >
+                      <div className="mb-1 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={result.status === 'success' ? 'success' : 'destructive'}
+                          >
+                            {result.status === 'success' ? (
+                              <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                            ) : (
+                              <XCircle className="size-3.5" weight="fill" aria-hidden />
+                            )}
+                            {result.status}
+                          </Badge>
+                          <Badge variant="outline">{result.type}</Badge>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {result.duration}ms
+                        </span>
+                      </div>
 
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-                          {result.timestamp}
-                        </Typography>
+                      <p className="mb-3 text-xs text-muted-foreground">{result.timestamp}</p>
 
-                        <Box sx={{ mt: 2 }}>
-                          <Typography level="body-sm" fontWeight="lg" sx={{ mb: 0.5 }}>
-                            Respuesta de la API:
-                          </Typography>
-                          <Box sx={{
-                            display: 'block',
-                            p: 1,
-                            fontSize: '0.75rem',
-                            overflow: 'auto',
-                            bgcolor: 'background.level1',
-                            borderRadius: 'sm',
-                            fontFamily: 'monospace',
-                            border: '1px solid',
-                            borderColor: 'divider'
-                          }}>
-                            <pre style={{ margin: 0 }}>{result.response}</pre>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
+                      <div>
+                        <p className="mb-1 text-sm font-semibold text-foreground">
+                          Respuesta de la API:
+                        </p>
+                        <div className="overflow-auto rounded-sm border border-border bg-muted p-2 font-mono text-xs text-foreground">
+                          <pre className="m-0">{result.response}</pre>
+                        </div>
+                      </div>
+                    </div>
                   ))
                 )}
-              </Box>
-            </CardContent>
-          </Card>
+              </div>
+            </div>
 
-          <Card sx={{ mt: 2 }}>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>
-                Pruebas Rápidas
-              </Typography>
+            {/* Pruebas rápidas */}
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+              <h2 className="mb-4 text-base font-semibold text-foreground">Pruebas Rápidas</h2>
 
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Button variant="outlined" size="sm" fullWidth>
+              <div className="flex flex-col gap-2">
+                <Button variant="outline" size="sm" className="w-full">
                   Probar Template de Bienvenida
                 </Button>
-                <Button variant="outlined" size="sm" fullWidth>
+                <Button variant="outline" size="sm" className="w-full">
                   Probar Mensaje con Imagen
                 </Button>
-                <Button variant="outlined" size="sm" fullWidth>
+                <Button variant="outline" size="sm" className="w-full">
                   Probar Mensaje con Botones
                 </Button>
-                <Button variant="outlined" size="sm" fullWidth>
+                <Button variant="outline" size="sm" className="w-full">
                   Probar Ubicación
                 </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

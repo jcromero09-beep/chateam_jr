@@ -8,7 +8,7 @@ import Tag from "../../models/Tag";
 
 interface ScheduleData {
   data_mensagem_programada: Date;
-  id_conexao: String;
+  id_conexao: string;
   intervalo: string;
   valor_intervalo: string;
   mensagem: string;
@@ -58,7 +58,7 @@ const UpdateUserService = async ({
     enviar_quantas_vezes,
   } = scheduleData;
 
-  let data = {
+  const data = {
     data_mensagem_programada,
     id_conexao,
     intervalo,

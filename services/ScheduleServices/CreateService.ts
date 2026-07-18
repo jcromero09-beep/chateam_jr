@@ -60,6 +60,10 @@ const CreateService = async ({
     throw new AppError(err.message);
   }
 
+  if (parsedSendAt.getTime() <= Date.now()) {
+    throw new AppError("La fecha debe ser futura");
+  }
+
   const buildSchedulePayload = (resolvedTicketId?: number) => ({
     body,
     sendAt: parsedSendAt,

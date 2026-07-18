@@ -301,7 +301,7 @@ export class ImprovedChunkSearch {
     });
 
     // 7. PASO 4: Filtrar por similitud mínima
-    let filtered = hybridResults.filter(r => {
+    const filtered = hybridResults.filter(r => {
       // Si tiene keyword match, ser más permisivo
       if (r.matchType === 'keyword' || r.matchType === 'hybrid') {
         return r.score > 0.3;

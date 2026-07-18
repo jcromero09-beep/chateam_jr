@@ -434,10 +434,10 @@ export function buildFacebookDesignTokens(primaryLight = '#5BC2D2', primaryDark 
       borderRadius: '18px',
       tailSize: 0,
       outgoing: {
-        background: primaryDark,
-        backgroundLight: primaryLight,
+        background: '#2F8F9D',
+        backgroundLight: '#C5EDF3',
         color: '#FFFFFF',
-        colorLight: '#FFFFFF',
+        colorLight: '#12343B',
       },
       incoming: {
         background: fixedColors.dark.hover,

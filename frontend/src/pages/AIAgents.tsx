@@ -4,82 +4,71 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+// [Fase2·G] Se conserva CircularProgress de Joy (no hay equivalente en el DS).
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  IconButton,
-  Button,
-  Chip,
-  Divider,
-  Badge,
-  Input,
-  Tabs,
-  TabList,
-  Tab,
-  Sheet,
-  Dropdown,
-  MenuButton,
-  Menu,
-  MenuItem,
-} from '@mui/joy';
-import {
-  Bot,
+  Robot,
   UserCheck,
   UserMinus,
   UserPlus,
   X,
-  RefreshCw,
-  Activity,
-  Clock,
-  AlertTriangle as AlertTriangleIcon,
+  ArrowClockwise,
+  Pulse,
+  Warning,
   ToggleLeft,
   ToggleRight,
   Thermometer,
   Cpu,
-  Search,
+  MagnifyingGlass,
   Headphones,
-  TrendingUp,
+  TrendUp,
   Megaphone,
   BookOpen,
-  Zap,
-  BarChart3,
+  Lightning,
+  ChartBar,
   Image,
   Shield,
   Brain,
   Globe,
   Star,
   FileText,
-  Mic,
-  Video,
+  Microphone,
+  VideoCamera,
   Eye,
   Layout,
   Lock,
-  Mail,
+  EnvelopeSimple,
   Calendar,
-  PenLine,
+  PencilLine,
   Target,
-  DollarSign,
+  CurrencyDollar,
   GitBranch,
   Timer,
   Plug,
-  Heart,
+  Heartbeat,
   Calculator,
-  Sparkles,
-  FileBarChart,
+  Sparkle,
+  ChartLineUp,
   ShieldCheck,
-  ShieldAlert,
-  FileScan,
-  Library,
-  Workflow,
-  MoreHorizontal,
-  ClipboardList,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+  ShieldWarning,
+  FileMagnifyingGlass,
+  Books,
+  FlowArrow,
+  DotsThree,
+  ClipboardText,
+} from '@phosphor-icons/react';
+import type { Icon } from '@phosphor-icons/react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import api from '../services/api';
 
 // Helpers de logging para desarrollo
@@ -99,7 +88,8 @@ type AgentDepartment = 'customer_service' | 'sales_crm' | 'marketing' | 'knowled
 
 type AgentTier = 'nano' | 'mini' | 'full' | 'premium';
 
-type JoyColor = 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
+/** Tonos del design system (coinciden 1:1 con las variantes de <Badge />). */
+type Tone = 'primary' | 'success' | 'warning' | 'destructive' | 'neutral';
 
 interface AgentConfig {
   id: number;
@@ -145,6 +135,28 @@ interface AssignmentsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Tokens de presentacion (clases estaticas: Tailwind no admite clases dinamicas)
+// ---------------------------------------------------------------------------
+
+/** Superficie tintada + texto accesible (*-text) para iconos/avatares por tono. */
+const TONE_TINT: Record<Tone, string> = {
+  primary: 'bg-primary/12 text-primary border-primary/25',
+  success: 'bg-success/14 text-success-text border-success/30',
+  warning: 'bg-warning/16 text-warning-text border-warning/30',
+  destructive: 'bg-destructive/12 text-destructive-text border-destructive/30',
+  neutral: 'bg-muted text-muted-foreground border-border',
+};
+
+/** Borde en hover de las tarjetas del catalogo, por departamento. */
+const TONE_HOVER_BORDER: Record<Tone, string> = {
+  primary: 'hover:border-primary/40',
+  success: 'hover:border-success/40',
+  warning: 'hover:border-warning/40',
+  destructive: 'hover:border-destructive/40',
+  neutral: 'hover:border-muted-foreground/40',
+};
+
+// ---------------------------------------------------------------------------
 // Constantes
 // ---------------------------------------------------------------------------
 
@@ -163,38 +175,38 @@ const AGENT_TYPE_LABELS: Record<string, string> = {
   research: 'Investigacion',
 };
 
-const AGENT_TYPE_COLORS: Record<string, JoyColor> = {
+const AGENT_TYPE_COLORS: Record<string, Tone> = {
   router: 'primary',
   rag: 'success',
   support: 'warning',
   sales: 'neutral',
-  escalation: 'danger',
+  escalation: 'destructive',
   supervisor: 'primary',
   content: 'success',
   analytics: 'warning',
   multimedia: 'neutral',
-  security: 'danger',
+  security: 'destructive',
   automation: 'primary',
   research: 'success',
 };
 
 interface DepartmentInfo {
   label: string;
-  icon: LucideIcon;
-  color: JoyColor;
+  icon: Icon;
+  color: Tone;
   description: string;
 }
 
 const DEPARTMENTS: Record<AgentDepartment, DepartmentInfo> = {
   customer_service: { label: 'Atencion al Cliente', icon: Headphones, color: 'primary', description: 'Soporte, FAQ, escalacion y satisfaccion' },
-  sales_crm:        { label: 'Ventas y CRM',       icon: TrendingUp, color: 'success', description: 'Pipeline, leads, cotizaciones y seguimiento' },
+  sales_crm:        { label: 'Ventas y CRM',       icon: TrendUp,    color: 'success', description: 'Pipeline, leads, cotizaciones y seguimiento' },
   marketing:        { label: 'Marketing',           icon: Megaphone,  color: 'warning', description: 'Redaccion, SEO, redes sociales y campanas' },
   knowledge_rag:    { label: 'Conocimiento & RAG',  icon: BookOpen,   color: 'neutral', description: 'Documentos, investigacion y base de conocimiento' },
-  automation:       { label: 'Automatizacion',      icon: Zap,        color: 'primary', description: 'Routing, flujos, tareas e integraciones' },
-  analytics_bi:     { label: 'Analisis & BI',       icon: BarChart3,  color: 'success', description: 'Datos, reportes, KPIs y sentimiento' },
+  automation:       { label: 'Automatizacion',      icon: Lightning,  color: 'primary', description: 'Routing, flujos, tareas e integraciones' },
+  analytics_bi:     { label: 'Analisis & BI',       icon: ChartBar,   color: 'success', description: 'Datos, reportes, KPIs y sentimiento' },
   multimedia:       { label: 'Multimedia',           icon: Image,      color: 'warning', description: 'Imagenes, audio, video y presentaciones' },
-  security:         { label: 'Seguridad',            icon: Shield,     color: 'danger',  description: 'Moderacion, spam, privacidad y amenazas' },
-  product_management: { label: 'Producto',           icon: ClipboardList, color: 'primary', description: 'PRD, user stories, roadmap y feedback' },
+  security:         { label: 'Seguridad',            icon: Shield,     color: 'destructive',  description: 'Moderacion, spam, privacidad y amenazas' },
+  product_management: { label: 'Producto',           icon: ClipboardText, color: 'primary', description: 'PRD, user stories, roadmap y feedback' },
 };
 
 const DEPARTMENT_ORDER: AgentDepartment[] = [
@@ -202,15 +214,15 @@ const DEPARTMENT_ORDER: AgentDepartment[] = [
   'automation', 'analytics_bi', 'multimedia', 'security', 'product_management',
 ];
 
-interface CapabilityInfo { label: string; color: JoyColor }
+interface CapabilityInfo { label: string; color: Tone }
 
 const CAPABILITIES: Record<string, CapabilityInfo> = {
   memory:              { label: 'Memoria',        color: 'primary' },
   rag:                 { label: 'RAG',             color: 'success' },
   web_search:          { label: 'Web',             color: 'warning' },
   knowledge_base:      { label: 'Base Conocim.',   color: 'success' },
-  escalation:          { label: 'Escalacion',      color: 'danger' },
-  sentiment_analysis:  { label: 'Sentimiento',     color: 'danger' },
+  escalation:          { label: 'Escalacion',      color: 'destructive' },
+  sentiment_analysis:  { label: 'Sentimiento',     color: 'destructive' },
   multi_language:      { label: 'Multiidioma',     color: 'primary' },
   lead_scoring:        { label: 'Lead Scoring',    color: 'success' },
   pipeline_management: { label: 'Pipeline',        color: 'neutral' },
@@ -229,12 +241,12 @@ const CAPABILITIES: Record<string, CapabilityInfo> = {
   visualization:       { label: 'Visualizacion',   color: 'warning' },
   report_generation:   { label: 'Reportes',        color: 'neutral' },
   image_generation:    { label: 'Imagenes',        color: 'warning' },
-  video_generation:    { label: 'Videos',          color: 'danger' },
+  video_generation:    { label: 'Videos',          color: 'destructive' },
   vision:              { label: 'Vision IA',       color: 'primary' },
   ocr:                 { label: 'OCR',             color: 'neutral' },
-  content_moderation:  { label: 'Moderacion',      color: 'danger' },
-  spam_detection:      { label: 'Anti-Spam',       color: 'danger' },
-  pii_detection:       { label: 'PII',             color: 'danger' },
+  content_moderation:  { label: 'Moderacion',      color: 'destructive' },
+  spam_detection:      { label: 'Anti-Spam',       color: 'destructive' },
+  pii_detection:       { label: 'PII',             color: 'destructive' },
   source_citation:     { label: 'Fuentes',         color: 'success' },
   ticket_context:      { label: 'Tickets',         color: 'primary' },
   surveys:             { label: 'Encuestas',       color: 'warning' },
@@ -246,7 +258,7 @@ const CAPABILITIES: Record<string, CapabilityInfo> = {
   email_templates:     { label: 'Plantillas',      color: 'neutral' },
   personalization:     { label: 'Personalizacion', color: 'primary' },
   ab_testing:          { label: 'A/B Testing',     color: 'warning' },
-  persuasion:          { label: 'Persuasion',      color: 'danger' },
+  persuasion:          { label: 'Persuasion',      color: 'destructive' },
   chunking:            { label: 'Chunking',        color: 'neutral' },
   embeddings:          { label: 'Embeddings',      color: 'success' },
   indexing:            { label: 'Indexacion',       color: 'neutral' },
@@ -257,7 +269,7 @@ const CAPABILITIES: Record<string, CapabilityInfo> = {
   delegation:          { label: 'Delegacion',      color: 'primary' },
   workflow_automation: { label: 'Workflows',       color: 'warning' },
   conditional_logic:   { label: 'Logica',          color: 'neutral' },
-  triggers:            { label: 'Triggers',        color: 'danger' },
+  triggers:            { label: 'Triggers',        color: 'destructive' },
   cron:                { label: 'Cron',            color: 'neutral' },
   task_management:     { label: 'Tareas',          color: 'primary' },
   webhooks:            { label: 'Webhooks',        color: 'neutral' },
@@ -265,11 +277,11 @@ const CAPABILITIES: Record<string, CapabilityInfo> = {
   sql:                 { label: 'SQL',             color: 'success' },
   export:              { label: 'Exportar',        color: 'neutral' },
   observability:       { label: 'Observabilidad',  color: 'primary' },
-  alerts:              { label: 'Alertas',         color: 'danger' },
+  alerts:              { label: 'Alertas',         color: 'destructive' },
   metrics:             { label: 'Metricas',        color: 'success' },
   dashboards:          { label: 'Dashboards',      color: 'warning' },
   nlp:                 { label: 'NLP',             color: 'primary' },
-  emotion_detection:   { label: 'Emociones',       color: 'danger' },
+  emotion_detection:   { label: 'Emociones',       color: 'destructive' },
   cost_optimization:   { label: 'Costos',          color: 'warning' },
   usage_analytics:     { label: 'Uso',             color: 'neutral' },
   recommendations:     { label: 'Recomendaciones', color: 'success' },
@@ -277,20 +289,20 @@ const CAPABILITIES: Record<string, CapabilityInfo> = {
   style_transfer:      { label: 'Estilo',          color: 'neutral' },
   tts:                 { label: 'TTS',             color: 'primary' },
   voice_cloning:       { label: 'Voz',             color: 'warning' },
-  heygen:              { label: 'HeyGen',          color: 'danger' },
+  heygen:              { label: 'HeyGen',          color: 'destructive' },
   avatars:             { label: 'Avatares',        color: 'neutral' },
   image_analysis:      { label: 'Analisis Img',    color: 'primary' },
   templates:           { label: 'Plantillas',      color: 'neutral' },
   formatting:          { label: 'Formato',         color: 'warning' },
   document_generation: { label: 'Documentos',      color: 'neutral' },
-  toxicity_detection:  { label: 'Toxicidad',       color: 'danger' },
+  toxicity_detection:  { label: 'Toxicidad',       color: 'destructive' },
   compliance:          { label: 'Compliance',      color: 'warning' },
   filtering:           { label: 'Filtrado',        color: 'neutral' },
-  gdpr:                { label: 'GDPR',            color: 'danger' },
+  gdpr:                { label: 'GDPR',            color: 'destructive' },
   data_anonymization:  { label: 'Anonimizacion',   color: 'warning' },
-  threat_detection:    { label: 'Amenazas',        color: 'danger' },
+  threat_detection:    { label: 'Amenazas',        color: 'destructive' },
   anomaly_detection:   { label: 'Anomalias',       color: 'warning' },
-  priority_routing:    { label: 'Prioridad',       color: 'danger' },
+  priority_routing:    { label: 'Prioridad',       color: 'destructive' },
   analytics:           { label: 'Analitica',       color: 'success' },
   product_catalog:     { label: 'Catalogo',        color: 'neutral' },
   calculations:        { label: 'Calculos',        color: 'warning' },
@@ -300,67 +312,67 @@ const CAPABILITIES: Record<string, CapabilityInfo> = {
   content_calendar:    { label: 'Calendario',      color: 'neutral' },
   keyword_research:    { label: 'Keywords',        color: 'success' },
   video_ads:           { label: 'Video Ads',       color: 'warning' },
-  pattern_interrupt:   { label: 'Pattern Int.',    color: 'danger' },
+  pattern_interrupt:   { label: 'Pattern Int.',    color: 'destructive' },
   creative_hooks:      { label: 'Hooks',           color: 'success' },
   google_workspace:    { label: 'Google WS',       color: 'success' },
 };
 
-const TIER_CONFIG: Record<AgentTier, { label: string; color: JoyColor }> = {
+const TIER_CONFIG: Record<AgentTier, { label: string; color: Tone }> = {
   nano:    { label: 'Basico',   color: 'neutral' },
   mini:    { label: 'Estandar', color: 'primary' },
   full:    { label: 'Avanzado', color: 'warning' },
-  premium: { label: 'Premium',  color: 'danger' },
+  premium: { label: 'Premium',  color: 'destructive' },
 };
 
-// Mapa de iconos string -> componente lucide
-const ICON_MAP: Record<string, LucideIcon> = {
+// Mapa de iconos string -> componente phosphor
+const ICON_MAP: Record<string, Icon> = {
   'headphones': Headphones,
-  'trending-up': TrendingUp,
+  'trending-up': TrendUp,
   'megaphone': Megaphone,
   'book-open': BookOpen,
-  'zap': Zap,
-  'bar-chart-3': BarChart3,
+  'zap': Lightning,
+  'bar-chart-3': ChartBar,
   'image': Image,
   'shield': Shield,
-  'bot': Bot,
+  'bot': Robot,
   'brain': Brain,
-  'search': Search,
+  'search': MagnifyingGlass,
   'globe': Globe,
   'star': Star,
   'file-text': FileText,
-  'mic': Mic,
-  'video': Video,
+  'mic': Microphone,
+  'video': VideoCamera,
   'eye': Eye,
   'layout': Layout,
   'lock': Lock,
-  'mail': Mail,
+  'mail': EnvelopeSimple,
   'calendar': Calendar,
-  'pen-line': PenLine,
+  'pen-line': PencilLine,
   'target': Target,
-  'dollar-sign': DollarSign,
+  'dollar-sign': CurrencyDollar,
   'git-branch': GitBranch,
   'timer': Timer,
   'plug': Plug,
-  'heart-pulse': Heart,
+  'heart-pulse': Heartbeat,
   'calculator': Calculator,
-  'sparkles': Sparkles,
-  'file-bar-chart': FileBarChart,
+  'sparkles': Sparkle,
+  'file-bar-chart': ChartLineUp,
   'shield-check': ShieldCheck,
-  'shield-alert': ShieldAlert,
-  'file-scan': FileScan,
-  'library': Library,
-  'activity': Activity,
-  'alert-triangle': AlertTriangleIcon,
-  'workflow': Workflow,
+  'shield-alert': ShieldWarning,
+  'file-scan': FileMagnifyingGlass,
+  'library': Books,
+  'activity': Pulse,
+  'alert-triangle': Warning,
+  'workflow': FlowArrow,
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function AgentIcon({ name, size = 20 }: { name?: string; size?: number }) {
-  const IconComp = ICON_MAP[name ?? 'bot'] ?? Bot;
-  return <IconComp size={size} />;
+function AgentIcon({ name, className = 'size-5' }: { name?: string; className?: string }) {
+  const IconComp = ICON_MAP[name ?? 'bot'] ?? Robot;
+  return <IconComp className={className} aria-hidden />;
 }
 
 /** Normaliza campos del backend a la interfaz frontend */
@@ -563,571 +575,510 @@ export default function AIAgents() {
   }, [agents]);
 
   // ---------------------------------------------------------------------------
+  // Catalogo (se reutiliza dentro del TabsContent activo)
+  // ---------------------------------------------------------------------------
+
+  const catalog = filteredAgents.length === 0 ? (
+    <div className="rounded-xl border border-border bg-card p-8 text-center shadow-sm shadow-black/[0.02]">
+      <span className="text-sm text-muted-foreground">
+        {searchQuery
+          ? `No se encontraron agentes para "${searchQuery}"`
+          : 'No hay agentes configurados en este departamento.'}
+      </span>
+    </div>
+  ) : (
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+      {filteredAgents.map((agent) => {
+        const obs = getObsStats(agent.id);
+        const assigned = isAssigned(agent.id);
+        const tier = agent.tier ?? 'mini';
+        const tierInfo = TIER_CONFIG[tier];
+        const caps = (agent.capabilities ?? []).slice(0, 3);
+        const deptInfo = agent.department ? DEPARTMENTS[agent.department] : null;
+        const deptColor: Tone = deptInfo?.color ?? 'primary';
+        const assignmentId = getAssignmentId(agent.id);
+
+        return (
+          <div
+            key={agent.id}
+            className={cn(
+              'relative flex h-full flex-col items-center rounded-xl border border-border bg-card px-4 pb-4 pt-8 text-center shadow-sm shadow-black/[0.02] transition-[border-color,box-shadow] duration-200 hover:shadow-md',
+              TONE_HOVER_BORDER[deptColor],
+            )}
+          >
+            {/* Menu 3 puntos — top right */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Acciones para ${agent.name}`}
+                  className="absolute right-2 top-2 size-8"
+                >
+                  <DotsThree className="size-[18px]" weight="bold" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setSelectedAgent(agent)}>
+                  <Eye className="size-4" aria-hidden />
+                  Ver Detalle
+                </DropdownMenuItem>
+                {assigned ? (
+                  <DropdownMenuItem
+                    disabled={unassigningId === assignmentId}
+                    onSelect={() => { if (assignmentId) handleUnassign(assignmentId); }}
+                    className="text-destructive-text focus:bg-destructive/10 focus:text-destructive-text"
+                  >
+                    <UserMinus className="size-4" aria-hidden />
+                    Desasignar
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    disabled={assignments.length >= maxAgents || assigningId === agent.id}
+                    onSelect={() => handleAssign(agent.id)}
+                  >
+                    <UserPlus className="size-4" aria-hidden />
+                    Asignar Agente
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Avatar circular grande */}
+            <span
+              className={cn(
+                'mb-3 flex size-20 shrink-0 items-center justify-center rounded-full border-[3px]',
+                TONE_TINT[deptColor],
+              )}
+            >
+              <AgentIcon name={agent.icon} className="size-9" />
+            </span>
+
+            {/* Status */}
+            <span className="mb-2 flex flex-wrap items-center justify-center gap-1.5">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    'size-2 rounded-full',
+                    agent.isActive ? 'bg-success' : 'bg-muted-foreground/40',
+                  )}
+                  aria-hidden
+                />
+                <span className={cn('text-xs', agent.isActive ? 'text-success-text' : 'text-muted-foreground')}>
+                  {agent.isActive ? 'Activo' : 'Inactivo'}
+                </span>
+              </span>
+              {assigned && <Badge variant="success">Asignado</Badge>}
+            </span>
+
+            {/* Nombre */}
+            <span className="block text-base font-semibold text-foreground">{agent.name}</span>
+
+            {/* Tier */}
+            <span className="mb-3 block text-xs text-muted-foreground">
+              {tierInfo?.label ?? tier}
+            </span>
+
+            {/* Capability badges centrados */}
+            {caps.length > 0 && (
+              <span className="mb-3 flex flex-wrap justify-center gap-1">
+                {caps.map((cap) => {
+                  const capInfo = CAPABILITIES[cap];
+                  return (
+                    <Badge key={cap} variant={capInfo?.color ?? 'neutral'}>
+                      {capInfo?.label ?? cap}
+                    </Badge>
+                  );
+                })}
+                {(agent.capabilities?.length ?? 0) > 3 && (
+                  <Badge variant="outline">+{(agent.capabilities?.length ?? 0) - 3}</Badge>
+                )}
+              </span>
+            )}
+
+            {/* Divisor + Stats (2 columnas) */}
+            <span className="mt-auto block h-px w-full bg-border" aria-hidden />
+            <span className="flex w-full justify-around pt-3">
+              <span className="block">
+                <span className="block text-xs text-muted-foreground">Llamadas</span>
+                <span className="block text-sm font-bold tabular-nums text-foreground">
+                  {obs ? formatCalls(obs.totalCalls) : '—'}
+                </span>
+              </span>
+              <span className="block">
+                <span className="block text-xs text-muted-foreground">Latencia</span>
+                <span className="block text-sm font-bold tabular-nums text-foreground">
+                  {obs ? formatLatency(obs.avgLatency) : '—'}
+                </span>
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Bot size={32} color="var(--joy-palette-primary-500)" />
-          <Box>
-            <Typography level="h2">Agentes de IA</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Catalogo de agentes inteligentes organizados por departamento
-            </Typography>
-          </Box>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Robot className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Agentes de IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Catalogo de agentes inteligentes organizados por departamento
+              </p>
+            </div>
+          </div>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Badge
-            badgeContent={`${assignments.length}/${maxAgents}`}
-            color={assignments.length >= maxAgents ? 'danger' : 'success'}
-          >
-            <Chip variant="soft" color="neutral" startDecorator={<UserCheck size={14} />}>
-              Contratados
-            </Chip>
-          </Badge>
-          <IconButton variant="outlined" onClick={loadData} disabled={loading} title="Recargar">
-            <RefreshCw size={18} />
-          </IconButton>
-        </Box>
-      </Box>
-
-      {/* Alertas */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
-      {successMsg && (
-        <Alert
-          color="success"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="success" onClick={() => setSuccessMsg(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {successMsg}
-        </Alert>
-      )}
-
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size="lg" />
-        </Box>
-      ) : (
-        <Grid container spacing={3}>
-          {/* Columna principal */}
-          <Grid xs={12} md={selectedAgent ? 8 : 12}>
-
-            {/* ----------------------------------------------------------------
-                Seccion 1: Agentes contratados
-            ---------------------------------------------------------------- */}
-            {assignments.length > 0 && (
-              <Box sx={{ mb: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                  <UserCheck size={20} color="var(--joy-palette-success-500)" />
-                  <Typography level="title-lg">Mis Agentes Contratados</Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                  {assignments.map((assignment) => {
-                    const agent = agents.find((a) => a.id === assignment.agentConfigId)
-                      ?? (assignment.agentConfig ? normalizeAgent(assignment.agentConfig as unknown as Record<string, unknown>) : null);
-                    if (!agent) return null;
-                    return (
-                      <Sheet
-                        key={assignment.id}
-                        variant="outlined"
-                        sx={{
-                          p: 1.5,
-                          borderRadius: 'md',
-                          borderColor: 'success.300',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1.5,
-                          minWidth: 200,
-                        }}
-                      >
-                        <Box sx={{
-                          width: 36, height: 36, borderRadius: '50%',
-                          bgcolor: 'success.100', display: 'flex',
-                          alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <AgentIcon name={agent.icon} size={18} />
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography level="body-sm" noWrap fontWeight="lg">{agent.name}</Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {agent.department ? DEPARTMENTS[agent.department]?.label : AGENT_TYPE_LABELS[agent.agentType] ?? agent.agentType}
-                          </Typography>
-                        </Box>
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="danger"
-                          loading={unassigningId === assignment.id}
-                          onClick={() => handleUnassign(assignment.id)}
-                          title="Desasignar"
-                        >
-                          <UserMinus size={14} />
-                        </IconButton>
-                      </Sheet>
-                    );
-                  })}
-                </Box>
-                <Divider sx={{ mt: 3 }} />
-              </Box>
-            )}
-
-            {/* ----------------------------------------------------------------
-                Busqueda
-            ---------------------------------------------------------------- */}
-            <Box sx={{ mb: 2 }}>
-              <Input
-                placeholder="Buscar agente por nombre, descripcion o capacidad..."
-                startDecorator={<Search size={16} />}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                sx={{ maxWidth: 500 }}
-              />
-            </Box>
-
-            {/* ----------------------------------------------------------------
-                Tabs de departamento
-            ---------------------------------------------------------------- */}
-            <Tabs
-              value={activeDepartment}
-              onChange={(_e, val) => setActiveDepartment(val as AgentDepartment | 'all')}
-              sx={{ mb: 3, overflowX: 'auto' }}
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={assignments.length >= maxAgents ? 'destructive' : 'success'}
+              className="gap-1.5 px-2.5 py-1"
             >
-              <TabList
-                variant="soft"
-                sx={{
-                  gap: 0.5,
-                  flexWrap: 'nowrap',
-                  overflow: 'auto',
-                  scrollbarWidth: 'none',
-                  '&::-webkit-scrollbar': { display: 'none' },
-                  '& .MuiTab-root': { whiteSpace: 'nowrap', minHeight: 36, flexShrink: 0 },
-                }}
+              <UserCheck className="size-3.5" aria-hidden />
+              Contratados
+              <span className="font-semibold tabular-nums">
+                {assignments.length}/{maxAgents}
+              </span>
+            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Recargar agentes"
+              className="text-muted-foreground"
+              onClick={loadData}
+              disabled={loading}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+          </div>
+        </div>
+
+        {/* Alertas */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span className="flex-1">{error}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Cerrar alerta de error"
+              onClick={() => setError(null)}
+              className="-my-1 size-7 shrink-0 text-destructive-text hover:bg-destructive/15 hover:text-destructive-text"
+            >
+              <X className="size-4" aria-hidden />
+            </Button>
+          </div>
+        )}
+        {successMsg && (
+          <div
+            role="status"
+            className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success-text"
+          >
+            <span className="flex-1">{successMsg}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Cerrar mensaje de exito"
+              onClick={() => setSuccessMsg(null)}
+              className="-my-1 size-7 shrink-0 text-success-text hover:bg-success/15 hover:text-success-text"
+            >
+              <X className="size-4" aria-hidden />
+            </Button>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <CircularProgress size="lg" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            {/* Columna principal */}
+            <div className={cn('space-y-6', selectedAgent ? 'lg:col-span-8' : 'lg:col-span-12')}>
+
+              {/* ----------------------------------------------------------------
+                  Seccion 1: Agentes contratados
+              ---------------------------------------------------------------- */}
+              {assignments.length > 0 && (
+                <div className="space-y-4 border-b border-border pb-6">
+                  <div className="flex items-center gap-2.5">
+                    <UserCheck className="size-5 text-success-text" aria-hidden />
+                    <h2 className="text-lg font-semibold text-foreground">Mis Agentes Contratados</h2>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    {assignments.map((assignment) => {
+                      const agent = agents.find((a) => a.id === assignment.agentConfigId)
+                        ?? (assignment.agentConfig ? normalizeAgent(assignment.agentConfig as unknown as Record<string, unknown>) : null);
+                      if (!agent) return null;
+                      const busy = unassigningId === assignment.id;
+                      return (
+                        <div
+                          key={assignment.id}
+                          className="flex min-w-[200px] items-center gap-3 rounded-lg border border-success/40 bg-card p-3 shadow-sm shadow-black/[0.02]"
+                        >
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success/14 text-success-text">
+                            <AgentIcon name={agent.icon} className="size-[18px]" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-foreground">
+                              {agent.name}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {agent.department
+                                ? DEPARTMENTS[agent.department]?.label
+                                : AGENT_TYPE_LABELS[agent.agentType] ?? agent.agentType}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Desasignar ${agent.name}`}
+                            loading={busy}
+                            onClick={() => handleUnassign(assignment.id)}
+                            className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            {!busy && <UserMinus className="size-3.5" aria-hidden />}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ----------------------------------------------------------------
+                  Busqueda
+              ---------------------------------------------------------------- */}
+              <div className="max-w-md">
+                <Input
+                  placeholder="Buscar agente por nombre, descripcion o capacidad..."
+                  aria-label="Buscar agentes"
+                  leftIcon={<MagnifyingGlass aria-hidden />}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+
+              {/* ----------------------------------------------------------------
+                  Tabs de departamento + catalogo
+              ---------------------------------------------------------------- */}
+              <Tabs
+                value={activeDepartment}
+                onValueChange={(val) => setActiveDepartment(val as AgentDepartment | 'all')}
               >
-                <Tab value="all">
-                  Todos ({departmentCounts.all ?? 0})
-                </Tab>
-                {DEPARTMENT_ORDER.map((dept) => {
-                  const info = DEPARTMENTS[dept];
-                  const count = departmentCounts[dept] ?? 0;
-                  if (count === 0) return null;
-                  const DeptIcon = info.icon;
-                  return (
-                    <Tab key={dept} value={dept} color={info.color}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <DeptIcon size={14} />
-                        {info.label} ({count})
-                      </Box>
-                    </Tab>
-                  );
-                })}
-              </TabList>
-            </Tabs>
+                <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsList className="flex-nowrap">
+                    <TabsTrigger value="all">Todos ({departmentCounts.all ?? 0})</TabsTrigger>
+                    {DEPARTMENT_ORDER.map((dept) => {
+                      const info = DEPARTMENTS[dept];
+                      const count = departmentCounts[dept] ?? 0;
+                      if (count === 0) return null;
+                      const DeptIcon = info.icon;
+                      return (
+                        <TabsTrigger key={dept} value={dept}>
+                          <DeptIcon className="size-3.5" aria-hidden />
+                          {info.label} ({count})
+                        </TabsTrigger>
+                      );
+                    })}
+                  </TabsList>
+                </div>
+
+                {/* Un unico panel cuyo value sigue a la pestana activa. */}
+                <TabsContent value={activeDepartment} className="mt-5">
+                  {catalog}
+                </TabsContent>
+              </Tabs>
+            </div>
 
             {/* ----------------------------------------------------------------
-                Seccion 2: Catalogo de agentes
+                Seccion 3: Panel de detalle del agente seleccionado
             ---------------------------------------------------------------- */}
-            {filteredAgents.length === 0 ? (
-              <Card variant="soft" color="neutral">
-                <CardContent>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center', py: 2 }}>
-                    {searchQuery
-                      ? `No se encontraron agentes para "${searchQuery}"`
-                      : 'No hay agentes configurados en este departamento.'}
-                  </Typography>
-                </CardContent>
-              </Card>
-            ) : (
-              <Grid container spacing={2.5}>
-                {filteredAgents.map((agent) => {
-                  const obs = getObsStats(agent.id);
-                  const assigned = isAssigned(agent.id);
-                  const tier = agent.tier ?? 'mini';
-                  const tierInfo = TIER_CONFIG[tier];
-                  const caps = (agent.capabilities ?? []).slice(0, 3);
-                  const deptInfo = agent.department ? DEPARTMENTS[agent.department] : null;
-                  const deptColor = deptInfo?.color ?? 'primary';
-                  const assignmentId = getAssignmentId(agent.id);
+            {selectedAgent && (
+              <aside className="lg:col-span-4">
+                <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] lg:sticky lg:top-4">
+                  <div className="mb-4 flex items-start justify-between gap-2">
+                    <h2 className="text-lg font-semibold text-foreground">Detalle del Agente</h2>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Cerrar detalle"
+                      onClick={() => setSelectedAgent(null)}
+                      className="size-8 shrink-0"
+                    >
+                      <X className="size-4" aria-hidden />
+                    </Button>
+                  </div>
 
-                  return (
-                    <Grid key={agent.id} xs={12} sm={6} md={4}>
-                      <Card
-                        variant="outlined"
-                        sx={{
-                          height: '100%',
-                          textAlign: 'center',
-                          transition: 'all 0.2s ease',
-                          position: 'relative',
-                          '&:hover': {
-                            borderColor: `${deptColor}.300`,
-                            boxShadow: 'md',
-                          },
-                        }}
-                      >
-                        <CardContent sx={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          pt: 4,
-                          pb: 2,
-                        }}>
-
-                          {/* Menu 3 puntos — top right */}
-                          <Dropdown>
-                            <MenuButton
-                              slots={{ root: IconButton }}
-                              slotProps={{
-                                root: {
-                                  variant: 'plain',
-                                  size: 'sm',
-                                  color: 'neutral',
-                                  sx: { position: 'absolute', top: 8, right: 8 },
-                                },
-                              }}
-                            >
-                              <MoreHorizontal size={18} />
-                            </MenuButton>
-                            <Menu placement="bottom-end" size="sm">
-                              <MenuItem onClick={() => setSelectedAgent(agent)}>
-                                <Eye size={14} style={{ marginRight: 8 }} />
-                                Ver Detalle
-                              </MenuItem>
-                              {assigned ? (
-                                <MenuItem
-                                  color="danger"
-                                  disabled={unassigningId === assignmentId}
-                                  onClick={() => { if (assignmentId) handleUnassign(assignmentId); }}
-                                >
-                                  <UserMinus size={14} style={{ marginRight: 8 }} />
-                                  Desasignar
-                                </MenuItem>
-                              ) : (
-                                <MenuItem
-                                  color="primary"
-                                  disabled={assignments.length >= maxAgents || assigningId === agent.id}
-                                  onClick={() => handleAssign(agent.id)}
-                                >
-                                  <UserPlus size={14} style={{ marginRight: 8 }} />
-                                  Asignar Agente
-                                </MenuItem>
-                              )}
-                            </Menu>
-                          </Dropdown>
-
-                          {/* Avatar circular grande */}
-                          <Box sx={{
-                            width: 80,
-                            height: 80,
-                            borderRadius: '50%',
-                            bgcolor: `${deptColor}.100`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            mb: 1.5,
-                            border: '3px solid',
-                            borderColor: `${deptColor}.200`,
-                          }}>
-                            <AgentIcon name={agent.icon} size={36} />
-                          </Box>
-
-                          {/* Status badge */}
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-                            <Box sx={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: '50%',
-                              bgcolor: agent.isActive ? 'success.500' : 'neutral.300',
-                            }} />
-                            <Typography
-                              level="body-xs"
-                              sx={{ color: agent.isActive ? 'success.600' : 'text.tertiary' }}
-                            >
-                              {agent.isActive ? 'Activo' : 'Inactivo'}
-                            </Typography>
-                            {assigned && (
-                              <Chip size="sm" color="success" variant="soft" sx={{ ml: 0.5, fontSize: '0.65rem' }}>
-                                Asignado
-                              </Chip>
-                            )}
-                          </Box>
-
-                          {/* Nombre */}
-                          <Typography level="title-md" sx={{ fontWeight: 600, mb: 0.25 }}>
-                            {agent.name}
-                          </Typography>
-
-                          {/* Tier */}
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1.5 }}>
-                            {tierInfo?.label ?? tier}
-                          </Typography>
-
-                          {/* Capability chips centrados */}
-                          {caps.length > 0 && (
-                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap', mb: 1.5 }}>
-                              {caps.map((cap) => {
-                                const capInfo = CAPABILITIES[cap];
-                                return (
-                                  <Chip
-                                    key={cap}
-                                    size="sm"
-                                    variant="soft"
-                                    color={capInfo?.color ?? 'neutral'}
-                                    sx={{ fontSize: '0.65rem' }}
-                                  >
-                                    {capInfo?.label ?? cap}
-                                  </Chip>
-                                );
-                              })}
-                              {(agent.capabilities?.length ?? 0) > 3 && (
-                                <Chip size="sm" variant="plain" sx={{ fontSize: '0.65rem', color: 'text.tertiary' }}>
-                                  +{(agent.capabilities?.length ?? 0) - 3}
-                                </Chip>
-                              )}
-                            </Box>
-                          )}
-
-                          {/* Divider + Stats (2 columnas) */}
-                          <Divider sx={{ width: '100%', my: 1 }} />
-                          <Box sx={{ display: 'flex', justifyContent: 'space-around', width: '100%', pt: 1 }}>
-                            <Box>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Llamadas
-                              </Typography>
-                              <Typography level="title-sm" sx={{ fontWeight: 700 }}>
-                                {obs ? formatCalls(obs.totalCalls) : '—'}
-                              </Typography>
-                            </Box>
-                            <Box>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Latencia
-                              </Typography>
-                              <Typography level="title-sm" sx={{ fontWeight: 700 }}>
-                                {obs ? formatLatency(obs.avgLatency) : '—'}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  );
-                })}
-              </Grid>
-            )}
-          </Grid>
-
-          {/* ----------------------------------------------------------------
-              Seccion 3: Panel de detalle del agente seleccionado
-          ---------------------------------------------------------------- */}
-          {selectedAgent && (
-            <Grid xs={12} md={4}>
-              <Card variant="outlined" sx={{ position: { md: 'sticky' }, top: { md: 16 } }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Typography level="title-lg">Detalle del Agente</Typography>
-                    <IconButton size="sm" variant="plain" onClick={() => setSelectedAgent(null)}>
-                      <X size={16} />
-                    </IconButton>
-                  </Box>
-
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  <div className="flex flex-col gap-4">
                     {/* Icono + Nombre */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Box sx={{
-                        width: 48, height: 48, borderRadius: 'md',
-                        bgcolor: selectedAgent.department
-                          ? `${DEPARTMENTS[selectedAgent.department]?.color ?? 'primary'}.100`
-                          : 'primary.100',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <AgentIcon name={selectedAgent.icon} size={24} />
-                      </Box>
-                      <Box>
-                        <Typography level="title-md">{selectedAgent.name}</Typography>
-                        {selectedAgent.version && (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>v{selectedAgent.version}</Typography>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          'flex size-12 shrink-0 items-center justify-center rounded-lg border',
+                          TONE_TINT[selectedAgent.department
+                            ? DEPARTMENTS[selectedAgent.department]?.color ?? 'primary'
+                            : 'primary'],
                         )}
-                      </Box>
-                    </Box>
+                      >
+                        <AgentIcon name={selectedAgent.icon} className="size-6" />
+                      </span>
+                      <div className="min-w-0">
+                        <span className="block truncate text-base font-semibold text-foreground">
+                          {selectedAgent.name}
+                        </span>
+                        {selectedAgent.version && (
+                          <span className="block text-xs text-muted-foreground">v{selectedAgent.version}</span>
+                        )}
+                      </div>
+                    </div>
 
                     {/* Departamento */}
                     {selectedAgent.department && DEPARTMENTS[selectedAgent.department] && (
-                      <Box>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                          Departamento
-                        </Typography>
-                        <Chip
-                          size="sm"
-                          color={DEPARTMENTS[selectedAgent.department].color}
-                          variant="soft"
-                          startDecorator={(() => {
+                      <div>
+                        <span className="mb-1.5 block text-xs text-muted-foreground">Departamento</span>
+                        <Badge variant={DEPARTMENTS[selectedAgent.department].color}>
+                          {(() => {
                             const DIcon = DEPARTMENTS[selectedAgent.department!].icon;
-                            return <DIcon size={12} />;
+                            return <DIcon className="size-3" aria-hidden />;
                           })()}
-                        >
                           {DEPARTMENTS[selectedAgent.department].label}
-                        </Chip>
-                      </Box>
+                        </Badge>
+                      </div>
                     )}
 
                     {/* Tipo + Tier */}
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Box>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>Tipo</Typography>
-                        <Chip size="sm" color={AGENT_TYPE_COLORS[selectedAgent.agentType] ?? 'neutral'} variant="soft">
+                    <div className="flex gap-6">
+                      <div>
+                        <span className="mb-1.5 block text-xs text-muted-foreground">Tipo</span>
+                        <Badge variant={AGENT_TYPE_COLORS[selectedAgent.agentType] ?? 'neutral'}>
                           {AGENT_TYPE_LABELS[selectedAgent.agentType] ?? selectedAgent.agentType}
-                        </Chip>
-                      </Box>
-                      <Box>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>Tier</Typography>
-                        <Chip size="sm" color={TIER_CONFIG[selectedAgent.tier ?? 'mini']?.color ?? 'neutral'} variant="soft">
+                        </Badge>
+                      </div>
+                      <div>
+                        <span className="mb-1.5 block text-xs text-muted-foreground">Tier</span>
+                        <Badge variant={TIER_CONFIG[selectedAgent.tier ?? 'mini']?.color ?? 'neutral'}>
                           {TIER_CONFIG[selectedAgent.tier ?? 'mini']?.label ?? selectedAgent.tier}
-                        </Chip>
-                      </Box>
-                    </Box>
+                        </Badge>
+                      </div>
+                    </div>
 
                     {/* Modelo + Temperatura */}
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Box>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>Modelo</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Cpu size={14} color="var(--joy-palette-neutral-500)" />
-                          <Typography level="body-sm">{selectedAgent.modelKey}</Typography>
-                        </Box>
-                      </Box>
-                      <Box>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>Temperatura</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Thermometer size={14} color="var(--joy-palette-warning-500)" />
-                          <Typography level="body-sm">{selectedAgent.temperature}</Typography>
-                        </Box>
-                      </Box>
-                    </Box>
+                    <div className="flex gap-6">
+                      <div>
+                        <span className="mb-1.5 block text-xs text-muted-foreground">Modelo</span>
+                        <span className="flex items-center gap-1.5">
+                          <Cpu className="size-3.5 text-muted-foreground" aria-hidden />
+                          <span className="text-sm text-foreground">{selectedAgent.modelKey}</span>
+                        </span>
+                      </div>
+                      <div>
+                        <span className="mb-1.5 block text-xs text-muted-foreground">Temperatura</span>
+                        <span className="flex items-center gap-1.5">
+                          <Thermometer className="size-3.5 text-warning-text" aria-hidden />
+                          <span className="text-sm tabular-nums text-foreground">{selectedAgent.temperature}</span>
+                        </span>
+                      </div>
+                    </div>
 
                     {/* Estado */}
-                    <Box>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>Estado</Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {selectedAgent.isActive
-                          ? <ToggleRight size={18} color="var(--joy-palette-success-500)" />
-                          : <ToggleLeft size={18} color="var(--joy-palette-neutral-400)" />
-                        }
-                        <Typography
-                          level="body-sm"
-                          sx={{ color: selectedAgent.isActive ? 'success.600' : 'text.tertiary' }}
-                        >
+                    <div>
+                      <span className="mb-1.5 block text-xs text-muted-foreground">Estado</span>
+                      <span className="flex items-center gap-1.5">
+                        {selectedAgent.isActive ? (
+                          <ToggleRight className="size-[18px] text-success-text" weight="fill" aria-hidden />
+                        ) : (
+                          <ToggleLeft className="size-[18px] text-muted-foreground" aria-hidden />
+                        )}
+                        <span className={cn('text-sm', selectedAgent.isActive ? 'text-success-text' : 'text-muted-foreground')}>
                           {selectedAgent.isActive ? 'Habilitado' : 'Deshabilitado'}
-                        </Typography>
-                      </Box>
-                    </Box>
+                        </span>
+                      </span>
+                    </div>
 
                     {/* Capabilities completas */}
                     {selectedAgent.capabilities && selectedAgent.capabilities.length > 0 && (
                       <>
-                        <Divider />
-                        <Box>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
+                        <div className="h-px bg-border" aria-hidden />
+                        <div>
+                          <span className="mb-1.5 block text-xs text-muted-foreground">
                             Capacidades ({selectedAgent.capabilities.length})
-                          </Typography>
-                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          </span>
+                          <div className="flex flex-wrap gap-1">
                             {selectedAgent.capabilities.map((cap) => {
                               const capInfo = CAPABILITIES[cap];
                               return (
-                                <Chip
-                                  key={cap}
-                                  size="sm"
-                                  variant="soft"
-                                  color={capInfo?.color ?? 'neutral'}
-                                  sx={{ fontSize: '0.7rem' }}
-                                >
+                                <Badge key={cap} variant={capInfo?.color ?? 'neutral'}>
                                   {capInfo?.label ?? cap}
-                                </Chip>
+                                </Badge>
                               );
                             })}
-                          </Box>
-                        </Box>
+                          </div>
+                        </div>
                       </>
                     )}
 
                     {/* Descripcion */}
                     {selectedAgent.description && (
                       <>
-                        <Divider />
-                        <Box>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                            Descripcion
-                          </Typography>
-                          <Typography level="body-sm">{selectedAgent.description}</Typography>
-                        </Box>
+                        <div className="h-px bg-border" aria-hidden />
+                        <div>
+                          <span className="mb-1.5 block text-xs text-muted-foreground">Descripcion</span>
+                          <span className="block text-sm text-foreground">{selectedAgent.description}</span>
+                        </div>
                       </>
                     )}
 
                     {/* Boton de accion */}
-                    <Divider />
+                    <div className="h-px bg-border" aria-hidden />
                     {isAssigned(selectedAgent.id) ? (
                       <Button
                         size="sm"
-                        fullWidth
-                        variant="soft"
-                        color="danger"
-                        startDecorator={<UserMinus size={14} />}
+                        variant="outline"
+                        className="w-full border-destructive/30 bg-destructive/10 text-destructive-text hover:border-destructive/40 hover:bg-destructive/15 hover:text-destructive-text"
                         loading={unassigningId === getAssignmentId(selectedAgent.id)}
                         onClick={() => {
                           const aId = getAssignmentId(selectedAgent.id);
                           if (aId) handleUnassign(aId);
                         }}
                       >
+                        <UserMinus className="size-3.5" aria-hidden />
                         Desasignar Agente
                       </Button>
                     ) : (
                       <Button
                         size="sm"
-                        fullWidth
-                        variant="solid"
-                        color="primary"
-                        startDecorator={<UserPlus size={14} />}
+                        className="w-full"
                         loading={assigningId === selectedAgent.id}
                         disabled={assignments.length >= maxAgents}
                         onClick={() => handleAssign(selectedAgent.id)}
                       >
+                        <UserPlus className="size-3.5" aria-hidden />
                         Asignar Agente
                       </Button>
                     )}
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          )}
-        </Grid>
-      )}
-    </Box>
+                  </div>
+                </div>
+              </aside>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

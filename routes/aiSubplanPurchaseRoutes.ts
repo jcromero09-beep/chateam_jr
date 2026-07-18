@@ -2,10 +2,11 @@ import express from "express";
 import isAuth from "../middleware/isAuth";
 import multer from "multer";
 import * as AISubplanPurchaseController from "../controllers/AISubplanPurchaseController";
+import uploadConfig from "../config/upload";
 
 const routes = express.Router();
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer(uploadConfig);
 
 /**
  * Rutas para compra de subplans de tokens IA
@@ -23,6 +24,9 @@ routes.post("/checkout", isAuth, AISubplanPurchaseController.createSubplanChecko
 
 // Crear orden de PayPal para comprar subplan
 routes.post("/paypal", isAuth, AISubplanPurchaseController.createSubplanPaypalOrder);
+
+// Capturar orden de PayPal y acreditar tokens
+routes.post("/paypal/capture", isAuth, AISubplanPurchaseController.captureSubplanPaypalOrder);
 
 // Procesar pago por comprobante (upload de archivo)
 routes.post("/comprobante", isAuth, upload.single('file'), AISubplanPurchaseController.processSubplanComprobante);

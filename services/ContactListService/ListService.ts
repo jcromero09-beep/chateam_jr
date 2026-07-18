@@ -1,7 +1,8 @@
 import { Op, fn, col, where } from "sequelize";
 import ContactList from "../../models/ContactList";
 import ContactListItem from "../../models/ContactListItem";
-import { isEmpty } from "lodash";
+import lodash from "lodash";
+const { isEmpty } = lodash;
 import removeAccents from "remove-accents"
 interface Request {
   companyId: number | string;

@@ -1,61 +1,112 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  IconButton,
-  Chip,
-  List,
-  ListItem,
-  ListItemContent,
-  ListItemDecorator,
-  Avatar,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Badge,
-  Switch,
-  FormControl,
-  FormLabel,
+  Bell,
+  BellRinging,
+  CheckCircle,
+  Info,
+  Warning,
+  Envelope,
+  EnvelopeOpen,
+  Megaphone,
+  User,
+  Gear,
+  Trash,
+  Funnel,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
   Select,
-  Option,
-  Divider,
-} from '@mui/joy'
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+import { useAuth } from '../hooks/useAuth'
+import socketService from '../services/socket'
 import {
-  Notifications as NotificationsIcon,
-  CheckCircle as CheckIcon,
-  Info as InfoIcon,
-  Warning as WarningIcon,
-  Mail as MailIcon,
-  Campaign as CampaignIcon,
-  Person as PersonIcon,
-  Settings as SettingsIcon,
-  Delete as DeleteIcon,
-  MarkEmailRead as MarkReadIcon,
-  FilterList as FilterIcon,
-  Circle as CircleIcon,
-} from '@mui/icons-material'
+  listNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteNotification as apiDeleteNotification,
+  NotificationDTO,
+} from '../services/notificationService'
 
 /**
- * Interface for Notification data structure
+ * Tipo local — extiende DTO del backend para permitir icono opcional en UI.
+ * El backend devuelve `NotificationDTO` con la misma forma.
  */
-interface Notification {
-  id: number
-  type: 'info' | 'success' | 'warning' | 'error'
-  category: 'system' | 'campaign' | 'ticket' | 'user' | 'message'
-  title: string
-  message: string
-  isRead: boolean
-  createdAt: string
-  actionUrl?: string
-  icon?: React.ReactNode
+type Notification = NotificationDTO & { icon?: React.ReactNode }
+
+// Toggle accesible (role="switch") con tokens del design system.
+// No hay componente Switch en @/components/ui; se define local (mismo patrón que IntegrationBillie).
+function Toggle({
+  checked,
+  onChange,
+  id,
+  label,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  id?: string
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer appearance-none items-center rounded-full border-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-card shadow-sm transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
 }
+
+// Botón de acción de fila (icono) con reset de estilos (tailwind.css va sin preflight).
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+const separator = <div className="h-px w-full bg-border" aria-hidden />
 
 /**
  * Notifications Center Module
@@ -70,13 +121,14 @@ interface Notification {
  * - Action buttons
  */
 export default function Notifications() {
+  const { user } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState(0)
   const [filterType, setFilterType] = useState<string>('all')
   const [filterCategory, setFilterCategory] = useState<string>('all')
 
-  // Notification preferences
+  // Notification preferences (UI-only, persistencia futura)
   const [preferences, setPreferences] = useState({
     emailNotifications: true,
     pushNotifications: true,
@@ -85,107 +137,39 @@ export default function Notifications() {
     systemAlerts: true,
   })
 
-  useEffect(() => {
-    fetchNotifications()
-  }, [])
-
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     setLoading(true)
     try {
-      // In production, replace with actual API call
-      // const response = await api.get('/notifications')
-      // setNotifications(response.data)
-
-      // Mock data
-      const mockNotifications: Notification[] = [
-        {
-          id: 1,
-          type: 'success',
-          category: 'campaign',
-          title: 'Campaña enviada exitosamente',
-          message: 'Tu campaña "Promoción Verano 2025" fue enviada a 1,500 contactos',
-          isRead: false,
-          createdAt: '2025-01-13T10:30:00Z',
-          actionUrl: '/marketing/campaigns/123',
-        },
-        {
-          id: 2,
-          type: 'info',
-          category: 'ticket',
-          title: 'Nuevo ticket asignado',
-          message: 'Se te ha asignado el ticket #4521 del cliente TechCorp',
-          isRead: false,
-          createdAt: '2025-01-13T09:15:00Z',
-          actionUrl: '/tickets/4521',
-        },
-        {
-          id: 3,
-          type: 'warning',
-          category: 'system',
-          title: 'Límite de mensajes alcanzado',
-          message: 'Has usado el 90% de tu límite mensual de mensajes (9,000/10,000)',
-          isRead: false,
-          createdAt: '2025-01-13T08:45:00Z',
-          actionUrl: '/billing',
-        },
-        {
-          id: 4,
-          type: 'success',
-          category: 'user',
-          title: 'Nuevo usuario registrado',
-          message: 'María García se ha unido a tu equipo como Agente',
-          isRead: true,
-          createdAt: '2025-01-12T16:20:00Z',
-          actionUrl: '/settings/users',
-        },
-        {
-          id: 5,
-          type: 'info',
-          category: 'message',
-          title: 'Mensaje recibido',
-          message: 'Tienes 3 mensajes nuevos sin leer de clientes',
-          isRead: true,
-          createdAt: '2025-01-12T14:30:00Z',
-          actionUrl: '/tickets',
-        },
-        {
-          id: 6,
-          type: 'error',
-          category: 'campaign',
-          title: 'Error en campaña',
-          message: 'La campaña "Email Newsletter" falló por credenciales inválidas',
-          isRead: true,
-          createdAt: '2025-01-12T11:00:00Z',
-          actionUrl: '/marketing/campaigns/124',
-        },
-        {
-          id: 7,
-          type: 'info',
-          category: 'system',
-          title: 'Actualización disponible',
-          message: 'Nueva versión del sistema disponible (v6.1.0)',
-          isRead: true,
-          createdAt: '2025-01-11T09:00:00Z',
-        },
-        {
-          id: 8,
-          type: 'success',
-          category: 'campaign',
-          title: 'Campaña completada',
-          message: 'Campaña "Black Friday" finalizada - Tasa de apertura: 45.2%',
-          isRead: true,
-          createdAt: '2025-01-10T18:00:00Z',
-          actionUrl: '/marketing/insights',
-        },
-      ]
-
-      setNotifications(mockNotifications)
+      const { data } = await listNotifications({ filter: 'all', pageNumber: 1 })
+      setNotifications(data.records as Notification[])
     } catch (error) {
       console.error('Error fetching notifications:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    fetchNotifications()
+  }, [fetchNotifications])
+
+  // Socket.IO: notificaciones en tiempo real
+  useEffect(() => {
+    if (!user?.companyId || !user?.id) return
+    const socket = socketService.getSocket() ?? socketService.connect(user.companyId, user.id)
+
+    const channel = `user-${user.id}-notification`
+    const handler = (payload: { action: string; notification: NotificationDTO }) => {
+      if (payload.action === 'create' && payload.notification) {
+        setNotifications((prev) => [payload.notification as Notification, ...prev])
+      }
+    }
+
+    socket.on(channel, handler)
+    return () => {
+      socket.off(channel, handler)
+    }
+  }, [user?.companyId, user?.id])
 
   // Calculate statistics
   const stats = {
@@ -200,32 +184,47 @@ export default function Notifications() {
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'campaign':
-        return <CampaignIcon />
+        return <Megaphone className="size-5" aria-hidden />
       case 'ticket':
-        return <InfoIcon />
+        return <Info className="size-5" aria-hidden />
       case 'user':
-        return <PersonIcon />
+        return <User className="size-5" aria-hidden />
       case 'message':
-        return <MailIcon />
+        return <Envelope className="size-5" aria-hidden />
       case 'system':
-        return <SettingsIcon />
+        return <Gear className="size-5" aria-hidden />
       default:
-        return <NotificationsIcon />
+        return <Bell className="size-5" aria-hidden />
     }
   }
 
-  // Get color based on type
-  const getTypeColor = (type: string) => {
+  // Variante de Badge según el tipo (tokens *-text para el texto de estado)
+  const getTypeBadgeVariant = (type: string): BadgeProps['variant'] => {
     switch (type) {
       case 'success':
         return 'success'
       case 'warning':
         return 'warning'
       case 'error':
-        return 'danger'
+        return 'destructive'
       case 'info':
       default:
         return 'primary'
+    }
+  }
+
+  // Tinte del avatar de categoría según el tipo
+  const getTypeAvatarClass = (type: string) => {
+    switch (type) {
+      case 'success':
+        return 'bg-success/14 text-success-text'
+      case 'warning':
+        return 'bg-warning/16 text-warning-text'
+      case 'error':
+        return 'bg-destructive/12 text-destructive-text'
+      case 'info':
+      default:
+        return 'bg-primary/12 text-primary'
     }
   }
 
@@ -242,9 +241,9 @@ export default function Notifications() {
   // Mark notification as read
   const markAsRead = async (notificationId: number) => {
     try {
-      // await api.patch(`/notifications/${notificationId}/read`)
-      setNotifications(
-        notifications.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
+      await markNotificationAsRead(notificationId)
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
       )
     } catch (error) {
       console.error('Error marking notification as read:', error)
@@ -254,8 +253,8 @@ export default function Notifications() {
   // Mark all as read
   const markAllAsRead = async () => {
     try {
-      // await api.post('/notifications/mark-all-read')
-      setNotifications(notifications.map((n) => ({ ...n, isRead: true })))
+      await markAllNotificationsAsRead()
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
     } catch (error) {
       console.error('Error marking all as read:', error)
     }
@@ -264,8 +263,8 @@ export default function Notifications() {
   // Delete notification
   const deleteNotification = async (notificationId: number) => {
     try {
-      // await api.delete(`/notifications/${notificationId}`)
-      setNotifications(notifications.filter((n) => n.id !== notificationId))
+      await apiDeleteNotification(notificationId)
+      setNotifications((prev) => prev.filter((n) => n.id !== notificationId))
     } catch (error) {
       console.error('Error deleting notification:', error)
     }
@@ -279,466 +278,395 @@ export default function Notifications() {
     markAsRead(notification.id)
   }
 
+  const preferenceRows: {
+    id: string
+    label: string
+    hint: string
+    key: keyof typeof preferences
+  }[] = [
+    {
+      id: 'pref-email',
+      label: 'Notificaciones por Email',
+      hint: 'Recibir notificaciones importantes por correo',
+      key: 'emailNotifications',
+    },
+    {
+      id: 'pref-push',
+      label: 'Notificaciones Push',
+      hint: 'Notificaciones en tiempo real en el navegador',
+      key: 'pushNotifications',
+    },
+    {
+      id: 'pref-campaigns',
+      label: 'Alertas de Campañas',
+      hint: 'Notificar sobre el estado de campañas de marketing',
+      key: 'campaignAlerts',
+    },
+    {
+      id: 'pref-tickets',
+      label: 'Alertas de Tickets',
+      hint: 'Notificar sobre nuevos tickets y asignaciones',
+      key: 'ticketAlerts',
+    },
+    {
+      id: 'pref-system',
+      label: 'Alertas del Sistema',
+      hint: 'Notificaciones sobre actualizaciones y mantenimiento',
+      key: 'systemAlerts',
+    },
+  ]
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Badge badgeContent={stats.unread} color="danger">
-              <NotificationsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            </Badge>
-            <Box>
-              <Typography level="h2">Notificaciones</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="relative flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <BellRinging className="size-6" weight="fill" aria-hidden />
+              {stats.unread > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[11px] font-semibold leading-none text-destructive-foreground tabular-nums">
+                  {stats.unread}
+                </span>
+              )}
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Notificaciones
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Centro de notificaciones y alertas
-              </Typography>
-            </Box>
-          </Stack>
+              </p>
+            </div>
+          </div>
           {stats.unread > 0 && (
-            <Button variant="outlined" onClick={markAllAsRead} startDecorator={<MarkReadIcon />}>
+            <Button variant="outline" size="sm" onClick={markAllAsRead}>
+              <EnvelopeOpen className="size-4" aria-hidden />
               Marcar todas como leídas
             </Button>
           )}
-        </Stack>
+        </div>
 
         {/* Statistics */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Total
-                    </Typography>
-                    <Typography level="h2">{stats.total}</Typography>
-                    <Chip size="sm" color="neutral" variant="soft" sx={{ mt: 1 }}>
-                      Todas
-                    </Chip>
-                  </Box>
-                  <NotificationsIcon sx={{ fontSize: 48, color: 'primary.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Total</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {stats.total}
+                </p>
+                <Badge variant="neutral" className="mt-2">
+                  Todas
+                </Badge>
+              </div>
+              <Bell className="size-12 shrink-0 text-primary/30" aria-hidden />
+            </div>
+          </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      No Leídas
-                    </Typography>
-                    <Typography level="h2">{stats.unread}</Typography>
-                    <Chip size="sm" color="danger" variant="soft" sx={{ mt: 1 }}>
-                      Pendientes
-                    </Chip>
-                  </Box>
-                  <MailIcon sx={{ fontSize: 48, color: 'danger.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">No Leídas</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {stats.unread}
+                </p>
+                <Badge variant="destructive" className="mt-2">
+                  Pendientes
+                </Badge>
+              </div>
+              <Envelope className="size-12 shrink-0 text-destructive/30" aria-hidden />
+            </div>
+          </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Exitosas
-                    </Typography>
-                    <Typography level="h2">{stats.success}</Typography>
-                    <Chip size="sm" color="success" variant="soft" sx={{ mt: 1 }}>
-                      Completadas
-                    </Chip>
-                  </Box>
-                  <CheckIcon sx={{ fontSize: 48, color: 'success.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Exitosas</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+                  {stats.success}
+                </p>
+                <Badge variant="success" className="mt-2">
+                  Completadas
+                </Badge>
+              </div>
+              <CheckCircle className="size-12 shrink-0 text-success/30" aria-hidden />
+            </div>
+          </div>
 
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                      Alertas
-                    </Typography>
-                    <Typography level="h2">{stats.warnings + stats.errors}</Typography>
-                    <Chip size="sm" color="warning" variant="soft" sx={{ mt: 1 }}>
-                      {stats.errors} críticas
-                    </Chip>
-                  </Box>
-                  <WarningIcon sx={{ fontSize: 48, color: 'warning.main', opacity: 0.3 }} />
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Alertas</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-warning-text">
+                  {stats.warnings + stats.errors}
+                </p>
+                <Badge variant="warning" className="mt-2">
+                  {stats.errors} críticas
+                </Badge>
+              </div>
+              <Warning className="size-12 shrink-0 text-warning/30" aria-hidden />
+            </div>
+          </div>
+        </div>
 
         {/* Filters */}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-              <FilterIcon />
-              <Select
-                value={filterType}
-                onChange={(_, value) => setFilterType(value as string)}
-                sx={{ minWidth: 180 }}
-                size="sm"
-              >
-                <Option value="all">Todos los tipos</Option>
-                <Option value="info">Información</Option>
-                <Option value="success">Exitosas</Option>
-                <Option value="warning">Advertencias</Option>
-                <Option value="error">Errores</Option>
-              </Select>
-              <Select
-                value={filterCategory}
-                onChange={(_, value) => setFilterCategory(value as string)}
-                sx={{ minWidth: 180 }}
-                size="sm"
-              >
-                <Option value="all">Todas las categorías</Option>
-                <Option value="system">Sistema</Option>
-                <Option value="campaign">Campañas</Option>
-                <Option value="ticket">Tickets</Option>
-                <Option value="user">Usuarios</Option>
-                <Option value="message">Mensajes</Option>
-              </Select>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Funnel className="size-[18px]" aria-hidden />
+              Filtros
+            </span>
+            <Select value={filterType} onValueChange={(value) => setFilterType(value)}>
+              <SelectTrigger className="md:w-[180px]" aria-label="Filtrar por tipo">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los tipos</SelectItem>
+                <SelectItem value="info">Información</SelectItem>
+                <SelectItem value="success">Exitosas</SelectItem>
+                <SelectItem value="warning">Advertencias</SelectItem>
+                <SelectItem value="error">Errores</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterCategory} onValueChange={(value) => setFilterCategory(value)}>
+              <SelectTrigger className="md:w-[180px]" aria-label="Filtrar por categoría">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las categorías</SelectItem>
+                <SelectItem value="system">Sistema</SelectItem>
+                <SelectItem value="campaign">Campañas</SelectItem>
+                <SelectItem value="ticket">Tickets</SelectItem>
+                <SelectItem value="user">Usuarios</SelectItem>
+                <SelectItem value="message">Mensajes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         {/* Tabs */}
-        <Card>
-          <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value as number)}>
-            <TabList>
-              <Tab>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <Tabs
+            value={String(activeTab)}
+            onValueChange={(value) => setActiveTab(Number(value))}
+          >
+            <TabsList className="flex-wrap">
+              <TabsTrigger value="0">
                 Todas
-                <Chip size="sm" sx={{ ml: 1 }}>
-                  {stats.total}
-                </Chip>
-              </Tab>
-              <Tab>
+                <Badge variant="neutral">{stats.total}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="1">
                 No Leídas
-                <Chip size="sm" color="danger" sx={{ ml: 1 }}>
-                  {stats.unread}
-                </Chip>
-              </Tab>
-              <Tab>Leídas</Tab>
-              <Tab>Configuración</Tab>
-            </TabList>
+                <Badge variant="destructive">{stats.unread}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="2">Leídas</TabsTrigger>
+              <TabsTrigger value="3">Configuración</TabsTrigger>
+            </TabsList>
 
             {/* Tab 1: All Notifications */}
-            <TabPanel value={0}>
-              <List>
+            <TabsContent value="0">
+              <ul className="space-y-2">
                 {filteredNotifications.length === 0 ? (
-                  <ListItem>
-                    <ListItemContent>
-                      <Typography level="body-md" sx={{ textAlign: 'center', py: 4 }}>
-                        No hay notificaciones
-                      </Typography>
-                    </ListItemContent>
-                  </ListItem>
+                  <li className="py-10 text-center text-sm text-muted-foreground">
+                    No hay notificaciones
+                  </li>
                 ) : (
                   filteredNotifications.map((notification) => (
-                    <ListItem
+                    <li
                       key={notification.id}
-                      sx={{
-                        bgcolor: notification.isRead ? 'transparent' : 'background.level1',
-                        borderRadius: 'sm',
-                        mb: 1,
-                        p: 2,
-                      }}
+                      className={cn(
+                        'flex items-start gap-3 rounded-lg p-4 transition-colors',
+                        notification.isRead ? 'bg-transparent' : 'bg-muted/50',
+                      )}
                     >
-                      <ListItemDecorator>
-                        <Avatar color={getTypeColor(notification.type)}>
-                          {getCategoryIcon(notification.category)}
-                        </Avatar>
-                      </ListItemDecorator>
-                      <ListItemContent>
-                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                          <Typography level="title-md">{notification.title}</Typography>
+                      <span
+                        className={cn(
+                          'flex size-10 shrink-0 items-center justify-center rounded-full',
+                          getTypeAvatarClass(notification.type),
+                        )}
+                      >
+                        {getCategoryIcon(notification.category)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">
+                            {notification.title}
+                          </span>
                           {!notification.isRead && (
-                            <CircleIcon sx={{ fontSize: 8, color: 'primary.main' }} />
+                            <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
                           )}
-                          <Chip size="sm" color={getTypeColor(notification.type)} variant="soft">
+                          <Badge variant={getTypeBadgeVariant(notification.type)}>
                             {notification.type}
-                          </Chip>
-                          <Chip size="sm" variant="outlined">
-                            {notification.category}
-                          </Chip>
-                        </Stack>
-                        <Typography level="body-sm" sx={{ mb: 1 }}>
-                          {notification.message}
-                        </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                          </Badge>
+                          <Badge variant="outline">{notification.category}</Badge>
+                        </div>
+                        <p className="mb-1 text-sm text-foreground">{notification.message}</p>
+                        <p className="text-xs text-muted-foreground">
                           {new Date(notification.createdAt).toLocaleString('es-ES')}
-                        </Typography>
-                      </ListItemContent>
-                      <Stack direction="row" spacing={0.5}>
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
                         {notification.actionUrl && (
                           <Button
                             size="sm"
-                            variant="soft"
+                            variant="outline"
                             onClick={() => handleAction(notification)}
                           >
                             Ver
                           </Button>
                         )}
                         {!notification.isRead && (
-                          <IconButton
-                            size="sm"
-                            variant="plain"
+                          <ActionBtn
+                            label="Marcar como leída"
                             onClick={() => markAsRead(notification.id)}
                           >
-                            <MarkReadIcon />
-                          </IconButton>
+                            <EnvelopeOpen className="size-[18px]" aria-hidden />
+                          </ActionBtn>
                         )}
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="danger"
+                        <ActionBtn
+                          label="Eliminar"
                           onClick={() => deleteNotification(notification.id)}
+                          className="hover:bg-destructive/10 hover:text-destructive-text"
                         >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Stack>
-                    </ListItem>
+                          <Trash className="size-[18px]" aria-hidden />
+                        </ActionBtn>
+                      </div>
+                    </li>
                   ))
                 )}
-              </List>
-            </TabPanel>
+              </ul>
+            </TabsContent>
 
             {/* Tab 2: Unread Notifications */}
-            <TabPanel value={1}>
-              <List>
+            <TabsContent value="1">
+              <ul className="space-y-2">
                 {filteredNotifications.length === 0 ? (
-                  <ListItem>
-                    <ListItemContent>
-                      <Typography level="body-md" sx={{ textAlign: 'center', py: 4 }}>
-                        No hay notificaciones sin leer
-                      </Typography>
-                    </ListItemContent>
-                  </ListItem>
+                  <li className="py-10 text-center text-sm text-muted-foreground">
+                    No hay notificaciones sin leer
+                  </li>
                 ) : (
                   filteredNotifications.map((notification) => (
-                    <ListItem
+                    <li
                       key={notification.id}
-                      sx={{
-                        bgcolor: 'background.level1',
-                        borderRadius: 'sm',
-                        mb: 1,
-                        p: 2,
-                      }}
+                      className="flex items-start gap-3 rounded-lg bg-muted/50 p-4"
                     >
-                      <ListItemDecorator>
-                        <Avatar color={getTypeColor(notification.type)}>
-                          {getCategoryIcon(notification.category)}
-                        </Avatar>
-                      </ListItemDecorator>
-                      <ListItemContent>
-                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                          <Typography level="title-md">{notification.title}</Typography>
-                          <CircleIcon sx={{ fontSize: 8, color: 'primary.main' }} />
-                        </Stack>
-                        <Typography level="body-sm">{notification.message}</Typography>
-                      </ListItemContent>
-                      <Stack direction="row" spacing={0.5}>
+                      <span
+                        className={cn(
+                          'flex size-10 shrink-0 items-center justify-center rounded-full',
+                          getTypeAvatarClass(notification.type),
+                        )}
+                      >
+                        {getCategoryIcon(notification.category)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">
+                            {notification.title}
+                          </span>
+                          <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
+                        </div>
+                        <p className="text-sm text-foreground">{notification.message}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
                         {notification.actionUrl && (
                           <Button
                             size="sm"
-                            variant="soft"
+                            variant="outline"
                             onClick={() => handleAction(notification)}
                           >
                             Ver
                           </Button>
                         )}
-                        <IconButton
-                          size="sm"
-                          variant="plain"
+                        <ActionBtn
+                          label="Marcar como leída"
                           onClick={() => markAsRead(notification.id)}
                         >
-                          <MarkReadIcon />
-                        </IconButton>
-                      </Stack>
-                    </ListItem>
+                          <EnvelopeOpen className="size-[18px]" aria-hidden />
+                        </ActionBtn>
+                      </div>
+                    </li>
                   ))
                 )}
-              </List>
-            </TabPanel>
+              </ul>
+            </TabsContent>
 
             {/* Tab 3: Read Notifications */}
-            <TabPanel value={2}>
-              <List>
+            <TabsContent value="2">
+              <ul className="space-y-2">
                 {filteredNotifications.length === 0 ? (
-                  <ListItem>
-                    <ListItemContent>
-                      <Typography level="body-md" sx={{ textAlign: 'center', py: 4 }}>
-                        No hay notificaciones leídas
-                      </Typography>
-                    </ListItemContent>
-                  </ListItem>
+                  <li className="py-10 text-center text-sm text-muted-foreground">
+                    No hay notificaciones leídas
+                  </li>
                 ) : (
                   filteredNotifications.map((notification) => (
-                    <ListItem key={notification.id} sx={{ mb: 1, p: 2 }}>
-                      <ListItemDecorator>
-                        <Avatar color={getTypeColor(notification.type)} variant="soft">
-                          {getCategoryIcon(notification.category)}
-                        </Avatar>
-                      </ListItemDecorator>
-                      <ListItemContent>
-                        <Typography level="title-sm">{notification.title}</Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          {notification.message}
-                        </Typography>
-                      </ListItemContent>
-                      <IconButton
-                        size="sm"
-                        variant="plain"
-                        color="danger"
-                        onClick={() => deleteNotification(notification.id)}
+                    <li
+                      key={notification.id}
+                      className="flex items-start gap-3 rounded-lg p-4 transition-colors hover:bg-accent/40"
+                    >
+                      <span
+                        className={cn(
+                          'flex size-10 shrink-0 items-center justify-center rounded-full',
+                          getTypeAvatarClass(notification.type),
+                        )}
                       >
-                        <DeleteIcon />
-                      </IconButton>
-                    </ListItem>
+                        {getCategoryIcon(notification.category)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          {notification.title}
+                        </p>
+                        <p className="text-sm text-muted-foreground">{notification.message}</p>
+                      </div>
+                      <ActionBtn
+                        label="Eliminar"
+                        onClick={() => deleteNotification(notification.id)}
+                        className="hover:bg-destructive/10 hover:text-destructive-text"
+                      >
+                        <Trash className="size-[18px]" aria-hidden />
+                      </ActionBtn>
+                    </li>
                   ))
                 )}
-              </List>
-            </TabPanel>
+              </ul>
+            </TabsContent>
 
             {/* Tab 4: Settings */}
-            <TabPanel value={3}>
-              <Stack spacing={3}>
-                <Box>
-                  <Typography level="h4" sx={{ mb: 2 }}>
+            <TabsContent value="3">
+              <div className="space-y-6 p-2">
+                <div>
+                  <h2 className="mb-4 text-lg font-semibold text-foreground">
                     Preferencias de Notificaciones
-                  </Typography>
-                  <Stack spacing={2}>
-                    <FormControl>
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <FormLabel>Notificaciones por Email</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Recibir notificaciones importantes por correo
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={preferences.emailNotifications}
-                          onChange={(e) =>
-                            setPreferences({ ...preferences, emailNotifications: e.target.checked })
-                          }
-                        />
-                      </Stack>
-                    </FormControl>
-                    <Divider />
-                    <FormControl>
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <FormLabel>Notificaciones Push</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Notificaciones en tiempo real en el navegador
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={preferences.pushNotifications}
-                          onChange={(e) =>
-                            setPreferences({ ...preferences, pushNotifications: e.target.checked })
-                          }
-                        />
-                      </Stack>
-                    </FormControl>
-                    <Divider />
-                    <FormControl>
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <FormLabel>Alertas de Campañas</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Notificar sobre el estado de campañas de marketing
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={preferences.campaignAlerts}
-                          onChange={(e) =>
-                            setPreferences({ ...preferences, campaignAlerts: e.target.checked })
-                          }
-                        />
-                      </Stack>
-                    </FormControl>
-                    <Divider />
-                    <FormControl>
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <FormLabel>Alertas de Tickets</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Notificar sobre nuevos tickets y asignaciones
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={preferences.ticketAlerts}
-                          onChange={(e) =>
-                            setPreferences({ ...preferences, ticketAlerts: e.target.checked })
-                          }
-                        />
-                      </Stack>
-                    </FormControl>
-                    <Divider />
-                    <FormControl>
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <FormLabel>Alertas del Sistema</FormLabel>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            Notificaciones sobre actualizaciones y mantenimiento
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={preferences.systemAlerts}
-                          onChange={(e) =>
-                            setPreferences({ ...preferences, systemAlerts: e.target.checked })
-                          }
-                        />
-                      </Stack>
-                    </FormControl>
-                  </Stack>
-                </Box>
-                <Divider />
-                <Button color="primary">Guardar Preferencias</Button>
-              </Stack>
-            </TabPanel>
+                  </h2>
+                  <div className="space-y-4">
+                    {preferenceRows.map((row, index) => (
+                      <div key={row.id} className="space-y-4">
+                        {index > 0 && separator}
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <Label htmlFor={row.id}>{row.label}</Label>
+                            <p className="mt-1 text-sm text-muted-foreground">{row.hint}</p>
+                          </div>
+                          <Toggle
+                            id={row.id}
+                            label={row.label}
+                            checked={preferences[row.key]}
+                            onChange={(checked) =>
+                              setPreferences({ ...preferences, [row.key]: checked })
+                            }
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {separator}
+                <Button size="sm">Guardar Preferencias</Button>
+              </div>
+            </TabsContent>
           </Tabs>
-        </Card>
-      </Stack>
-    </Container>
+        </div>
+      </div>
+    </div>
   )
 }

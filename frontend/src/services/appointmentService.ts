@@ -34,6 +34,8 @@ export interface Appointment {
   internalNotes?: string
   rescheduledFrom?: number
   rescheduledTo?: number
+  googleCalendarEventId?: string
+  outlookCalendarEventId?: string
   createdAt: string
   updatedAt: string
   service?: {

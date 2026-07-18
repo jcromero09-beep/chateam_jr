@@ -1,27 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  Chip,
-  Avatar,
-  Button,
-  CircularProgress,
-  Sheet,
-  Divider,
-} from '@mui/joy'
-import {
-  Add,
-  AutoAwesome,
-  Person,
-  Campaign,
-  Videocam,
-  TrendingUp,
-  Refresh,
-  ChevronRight,
+  Plus,
+  Sparkle,
+  User,
+  Megaphone,
+  VideoCamera,
+  Image as ImageIcon,
+  TrendUp,
+  ArrowClockwise,
+  CaretRight,
   Circle,
-} from '@mui/icons-material'
+} from '@phosphor-icons/react'
+import { Avatar } from '@/components/ui/avatar'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -43,7 +38,7 @@ interface IdentitySummary {
 interface CampaignSummary {
   id: number
   name: string
-  status: 'active' | 'paused' | 'completed' | 'draft'
+  status: 'active' | 'paused' | 'completed' | 'draft' | 'producing' | 'review' | 'publishing' | 'optimizing' | 'archived'
   videosCount: number
   identitiesCount: number
   startDate: string
@@ -51,23 +46,35 @@ interface CampaignSummary {
 
 interface UGCStats {
   totalIdentities: number
-  activeCampaigns: number
+  totalCampaigns: number
+  activeCampaigns?: number
   videosGenerated: number
+  generatedImages: number
   totalInteractions: number
 }
 
-const STATUS_COLOR_MAP: Record<CampaignSummary['status'], 'success' | 'warning' | 'neutral' | 'primary'> = {
+const STATUS_COLOR_MAP: Record<CampaignSummary['status'], BadgeProps['variant']> = {
   active:    'success',
+  producing: 'warning',
+  review:    'primary',
+  publishing:'warning',
+  optimizing:'primary',
   paused:    'warning',
   completed: 'neutral',
   draft:     'primary',
+  archived:  'neutral',
 }
 
 const STATUS_LABEL_MAP: Record<CampaignSummary['status'], string> = {
   active:    'Activa',
+  producing: 'Produciendo',
+  review:    'Revision',
+  publishing:'Publicando',
+  optimizing:'Optimizando',
   paused:    'Pausada',
   completed: 'Completada',
   draft:     'Borrador',
+  archived:  'Archivada',
 }
 
 function formatNumber(n: number): string {
@@ -78,29 +85,40 @@ function formatNumber(n: number): string {
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
+type StatTone = 'primary' | 'success' | 'warning' | 'neutral'
+
 interface StatCardProps {
   label: string
   value: string | number
   icon: React.ReactNode
-  color?: 'primary' | 'success' | 'warning' | 'neutral'
+  tone?: StatTone
   loading?: boolean
 }
 
-function StatCard({ label, value, icon, color = 'primary', loading }: StatCardProps) {
+const valueTone: Record<StatTone, string> = {
+  primary: 'text-foreground',
+  success: 'text-success-text',
+  warning: 'text-warning-text',
+  neutral: 'text-foreground',
+}
+
+function StatCard({ label, value, icon, tone = 'primary', loading }: StatCardProps) {
   return (
-    <Card variant="soft" color={color} sx={{ flex: 1, minWidth: 0 }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <Box>
-          <Typography level="body-xs" sx={{ mb: 0.5, opacity: 0.8 }}>{label}</Typography>
+    <div className="min-w-[160px] flex-1 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="mb-1 text-sm text-muted-foreground">{label}</p>
           {loading ? (
             <CircularProgress size="sm" />
           ) : (
-            <Typography level="h3" fontWeight={700}>{value}</Typography>
+            <p className={cn('text-3xl font-semibold tracking-tight tabular-nums', valueTone[tone])}>
+              {value}
+            </p>
           )}
-        </Box>
-        <Box sx={{ opacity: 0.7 }}>{icon}</Box>
-      </Box>
-    </Card>
+        </div>
+        <span className="shrink-0 text-muted-foreground/70">{icon}</span>
+      </div>
+    </div>
   )
 }
 
@@ -123,45 +141,41 @@ export default function UGCDashboard() {
     setLoadingCampaigns(true)
     setError(null)
 
-    // Identidades recientes (usadas también para stats)
-    api.get('/ugc/identities?limit=5')
+    api.get('/ugc/dashboard')
       .then(({ data }) => {
-        const list: IdentitySummary[] = data.data ?? data ?? []
-        setIdentities(list)
-        // Derive stats from available data if no dedicated stats endpoint
-        setStats(prev => ({
-          totalIdentities: data.total ?? list.length,
-          activeCampaigns: prev?.activeCampaigns ?? 0,
-          videosGenerated: prev?.videosGenerated ?? 0,
-          totalInteractions: list.reduce((acc, i) => acc + (i.interactionsToday ?? 0), 0),
+        const payload = data.data ?? data
+        const identityList = (payload.identities ?? []).map((identity: any) => ({
+          id: identity.id,
+          name: identity.name,
+          handle: identity.usernameSuggestion || identity.handle || '',
+          platform: Array.isArray(identity.platformFocus) ? identity.platformFocus[0] || 'ugc' : 'ugc',
+          niche: identity.niche || '',
+          avatarUrl: identity.avatarUrl,
+          isOnline: identity.status === 'active',
+          interactionsToday: 0,
         }))
+        const campaignList = (payload.campaigns ?? []).map((campaign: any) => ({
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          videosCount: campaign.totalVideosGenerated || campaign.generationConfig?.videoCount || 0,
+          identitiesCount: campaign.generationConfig?.identitiesCount || 0,
+          startDate: campaign.startedAt || campaign.createdAt,
+        }))
+
+        setStats(payload.stats)
+        setIdentities(identityList)
+        setCampaigns(campaignList)
       })
       .catch(err => {
-        devError('[UGCDashboard] identities error:', err)
+        devError('[UGCDashboard] dashboard error:', err)
         setError('Error al cargar los datos del dashboard.')
       })
       .finally(() => {
         setLoadingStats(false)
         setLoadingIdentities(false)
+        setLoadingCampaigns(false)
       })
-
-    // Campañas recientes
-    api.get('/ugc/campaigns?limit=5')
-      .then(({ data }) => {
-        const list: CampaignSummary[] = data.data ?? data ?? []
-        setCampaigns(list)
-        setStats(prev => ({
-          totalIdentities: prev?.totalIdentities ?? 0,
-          activeCampaigns: list.filter(c => c.status === 'active').length,
-          videosGenerated: prev?.videosGenerated ?? 0,
-          totalInteractions: prev?.totalInteractions ?? 0,
-        }))
-      })
-      .catch(() => {
-        // Campañas puede no existir aún — no es error crítico
-        setCampaigns([])
-      })
-      .finally(() => setLoadingCampaigns(false))
   }, [])
 
   useEffect(() => {
@@ -169,229 +183,215 @@ export default function UGCDashboard() {
   }, [fetchData])
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: 'auto' }}>
-      {/* ── Page header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-        <Box>
-          <Typography level="h2">UGC Pipeline</Typography>
-          <Typography level="body-sm" color="neutral">
-            Dashboard de contenido generado por usuario con identidades IA
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            color="neutral"
-            startDecorator={<Refresh />}
-            size="sm"
-            onClick={fetchData}
-          >
-            Actualizar
-          </Button>
-          <Button
-            startDecorator={<Add />}
-            size="sm"
-            onClick={() => navigate('/ugc/identities')}
-          >
-            Nueva Campaña
-          </Button>
-        </Box>
-      </Box>
-
-      {error && (
-        <Sheet variant="soft" color="danger" sx={{ p: 2, borderRadius: 'md', mb: 3 }}>
-          <Typography level="body-sm" color="danger">{error}</Typography>
-        </Sheet>
-      )}
-
-      {/* ── Stat cards ── */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <StatCard
-          label="Total Identidades"
-          value={stats ? formatNumber(stats.totalIdentities) : '—'}
-          icon={<Person sx={{ fontSize: 28 }} />}
-          color="primary"
-          loading={loadingStats}
-        />
-        <StatCard
-          label="Campañas Activas"
-          value={stats ? formatNumber(stats.activeCampaigns) : '—'}
-          icon={<Campaign sx={{ fontSize: 28 }} />}
-          color="success"
-          loading={loadingStats}
-        />
-        <StatCard
-          label="Videos Generados"
-          value={stats ? formatNumber(stats.videosGenerated) : '—'}
-          icon={<Videocam sx={{ fontSize: 28 }} />}
-          color="warning"
-          loading={loadingStats}
-        />
-        <StatCard
-          label="Total Interacciones"
-          value={stats ? formatNumber(stats.totalInteractions) : '—'}
-          icon={<TrendingUp sx={{ fontSize: 28 }} />}
-          color="neutral"
-          loading={loadingStats}
-        />
-      </Box>
-
-      {/* ── Two-column grid ── */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
-        {/* Recent identities */}
-        <Card variant="outlined">
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <AutoAwesome sx={{ fontSize: 18, color: 'primary.500' }} />
-              <Typography level="title-md">Identidades Recientes</Typography>
-            </Box>
-            <Button
-              variant="plain"
-              size="sm"
-              endDecorator={<ChevronRight />}
-              onClick={() => navigate('/ugc/identities')}
-            >
-              Ver todas
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1200px] space-y-6 p-4 md:p-6">
+        {/* ── Page header ── */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">UGC Pipeline</h1>
+            <p className="text-sm text-muted-foreground">
+              Dashboard de contenido generado por usuario con identidades IA
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
             </Button>
-          </Box>
+            <Button size="sm" onClick={() => navigate('/ugc/campaigns')}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva Campaña
+            </Button>
+          </div>
+        </div>
 
-          <Divider sx={{ mb: 1.5 }} />
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/12 p-3 text-sm text-destructive-text">
+            {error}
+          </div>
+        )}
 
-          {loadingIdentities ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-              <CircularProgress size="sm" />
-            </Box>
-          ) : identities.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 3 }}>
-              <Person sx={{ fontSize: 36, color: 'text.tertiary', mb: 1 }} />
-              <Typography level="body-sm" color="neutral">Sin identidades aún</Typography>
-              <Button
-                size="sm"
-                variant="plain"
-                startDecorator={<Add />}
-                onClick={() => navigate('/ugc/identities')}
-                sx={{ mt: 1 }}
-              >
-                Crear identidad
+        {/* ── Stat cards ── */}
+        <div className="flex flex-wrap gap-4">
+          <StatCard
+            label="Total Identidades"
+            value={stats ? formatNumber(stats.totalIdentities) : '—'}
+            icon={<User className="size-7" aria-hidden />}
+            tone="primary"
+            loading={loadingStats}
+          />
+          <StatCard
+            label="Campañas UGC"
+            value={stats ? formatNumber(stats.totalCampaigns) : '—'}
+            icon={<Megaphone className="size-7" aria-hidden />}
+            tone="success"
+            loading={loadingStats}
+          />
+          <StatCard
+            label="Videos Generados"
+            value={stats ? formatNumber(stats.videosGenerated) : '—'}
+            icon={<VideoCamera className="size-7" aria-hidden />}
+            tone="warning"
+            loading={loadingStats}
+          />
+          <StatCard
+            label="Imágenes Generadas"
+            value={stats ? formatNumber(stats.generatedImages) : '—'}
+            icon={<ImageIcon className="size-7" aria-hidden />}
+            tone="primary"
+            loading={loadingStats}
+          />
+          <StatCard
+            label="Total Interacciones"
+            value={stats ? formatNumber(stats.totalInteractions) : '—'}
+            icon={<TrendUp className="size-7" aria-hidden />}
+            tone="neutral"
+            loading={loadingStats}
+          />
+        </div>
+
+        {/* ── Two-column grid ── */}
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* Recent identities */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkle className="size-[18px] text-primary" weight="fill" aria-hidden />
+                <h2 className="text-base font-semibold text-foreground">Identidades Recientes</h2>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/ugc/identities')}>
+                Ver todas
+                <CaretRight className="size-4" aria-hidden />
               </Button>
-            </Box>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {identities.map(identity => (
-                <Box
-                  key={identity.id}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1.5,
-                    p: 1,
-                    borderRadius: 'sm',
-                    cursor: 'pointer',
-                    '&:hover': { bgcolor: 'neutral.softBg' },
-                    transition: 'background-color 0.15s',
-                  }}
+            </div>
+
+            <div className="mb-3 border-t border-border" />
+
+            {loadingIdentities ? (
+              <div className="flex justify-center py-6">
+                <CircularProgress size="sm" />
+              </div>
+            ) : identities.length === 0 ? (
+              <div className="py-6 text-center">
+                <User className="mx-auto mb-2 size-9 text-muted-foreground/60" aria-hidden />
+                <p className="text-sm text-muted-foreground">Sin identidades aún</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1"
                   onClick={() => navigate('/ugc/identities')}
                 >
-                  <Box sx={{ position: 'relative', flexShrink: 0 }}>
-                    <Avatar src={identity.avatarUrl} sx={{ width: 32, height: 32, fontSize: 12 }}>
-                      {identity.name.charAt(0)}
-                    </Avatar>
-                    <Circle
-                      sx={{
-                        position: 'absolute',
-                        bottom: -1,
-                        right: -1,
-                        fontSize: 8,
-                        color: identity.isOnline ? 'success.500' : 'neutral.400',
-                      }}
-                    />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography level="body-sm" fontWeight="md" noWrap>{identity.name}</Typography>
-                    <Typography level="body-xs" color="neutral" noWrap>@{identity.handle} · {identity.niche}</Typography>
-                  </Box>
-                  <Typography level="body-xs" color="neutral">
-                    {formatNumber(identity.interactionsToday)} hoy
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Card>
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                  Crear identidad
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {identities.map(identity => (
+                  <button
+                    key={identity.id}
+                    type="button"
+                    onClick={() => navigate('/ugc/identities')}
+                    className="flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors hover:bg-accent/50"
+                  >
+                    <span className="relative shrink-0">
+                      {identity.avatarUrl ? (
+                        <img
+                          src={identity.avatarUrl}
+                          alt=""
+                          width={32}
+                          height={32}
+                          className="size-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        <Avatar name={identity.name} size="sm" />
+                      )}
+                      <Circle
+                        weight="fill"
+                        aria-hidden
+                        className={cn(
+                          'absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full',
+                          identity.isOnline ? 'text-success' : 'text-muted-foreground/40',
+                        )}
+                      />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {identity.name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        @{identity.handle} · {identity.niche}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatNumber(identity.interactionsToday)} hoy
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Recent campaigns */}
-        <Card variant="outlined">
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Campaign sx={{ fontSize: 18, color: 'success.500' }} />
-              <Typography level="title-md">Campañas Recientes</Typography>
-            </Box>
-            <Button
-              variant="plain"
-              size="sm"
-              endDecorator={<ChevronRight />}
-              onClick={() => navigate('/ugc/campaigns')}
-            >
-              Ver todas
-            </Button>
-          </Box>
-
-          <Divider sx={{ mb: 1.5 }} />
-
-          {loadingCampaigns ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-              <CircularProgress size="sm" />
-            </Box>
-          ) : campaigns.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 3 }}>
-              <Campaign sx={{ fontSize: 36, color: 'text.tertiary', mb: 1 }} />
-              <Typography level="body-sm" color="neutral">Sin campañas aún</Typography>
-              <Button
-                size="sm"
-                variant="plain"
-                startDecorator={<Add />}
-                onClick={() => navigate('/ugc/campaigns')}
-                sx={{ mt: 1 }}
-              >
-                Crear campaña
+          {/* Recent campaigns */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Megaphone className="size-[18px] text-success-text" weight="fill" aria-hidden />
+                <h2 className="text-base font-semibold text-foreground">Campañas Recientes</h2>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/ugc/campaigns')}>
+                Ver todas
+                <CaretRight className="size-4" aria-hidden />
               </Button>
-            </Box>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {campaigns.map(campaign => (
-                <Box
-                  key={campaign.id}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1.5,
-                    p: 1,
-                    borderRadius: 'sm',
-                    cursor: 'pointer',
-                    '&:hover': { bgcolor: 'neutral.softBg' },
-                    transition: 'background-color 0.15s',
-                  }}
+            </div>
+
+            <div className="mb-3 border-t border-border" />
+
+            {loadingCampaigns ? (
+              <div className="flex justify-center py-6">
+                <CircularProgress size="sm" />
+              </div>
+            ) : campaigns.length === 0 ? (
+              <div className="py-6 text-center">
+                <Megaphone className="mx-auto mb-2 size-9 text-muted-foreground/60" aria-hidden />
+                <p className="text-sm text-muted-foreground">Sin campañas aún</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1"
                   onClick={() => navigate('/ugc/campaigns')}
                 >
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography level="body-sm" fontWeight="md" noWrap>{campaign.name}</Typography>
-                    <Typography level="body-xs" color="neutral" noWrap>
-                      {campaign.videosCount} videos · {campaign.identitiesCount} identidades
-                    </Typography>
-                  </Box>
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={STATUS_COLOR_MAP[campaign.status]}
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                  Crear campaña
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {campaigns.map(campaign => (
+                  <button
+                    key={campaign.id}
+                    type="button"
+                    onClick={() => navigate('/ugc/campaigns')}
+                    className="flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors hover:bg-accent/50"
                   >
-                    {STATUS_LABEL_MAP[campaign.status]}
-                  </Chip>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Card>
-      </Box>
-    </Box>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {campaign.name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {campaign.videosCount} videos · {campaign.identitiesCount} identidades
+                      </span>
+                    </span>
+                    <Badge variant={STATUS_COLOR_MAP[campaign.status]}>
+                      {STATUS_LABEL_MAP[campaign.status]}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

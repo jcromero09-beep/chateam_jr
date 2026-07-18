@@ -30,6 +30,14 @@ campaignMessageRoutes.get(
   CampaignMessageController.index
 );
 
+// Conteos TOTALES por estado (all/sent/pending/pending_no_value) para los filtros.
+// IMPORTANTE: declarar ANTES de "/campaign-messages/:id" para que "counts" no se tome como id.
+campaignMessageRoutes.get(
+  "/campaign-messages/counts",
+  isAuth,
+  CampaignMessageController.counts
+);
+
 // Obtener mensajes de campaña por ticketId
 campaignMessageRoutes.get(
   "/campaign-messages/ticket/:ticketId",

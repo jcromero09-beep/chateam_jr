@@ -1,33 +1,18 @@
 import { useState, useEffect } from 'react'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Button,
-  IconButton,
-  Sheet,
-  Table,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Input,
-  FormControl,
-  FormLabel,
-  Textarea,
-} from '@mui/joy'
-import {
-  Chat as ChatIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  ContentCopy as CopyIcon,
-  Refresh as RefreshIcon,
-  AccountTree as FlowIcon,
-} from '@mui/icons-material'
+  Chats,
+  ArrowClockwise,
+  Plus,
+  PencilSimple,
+  Trash,
+  Copy,
+  TreeStructure,
+  X,
+} from '@phosphor-icons/react'
 import { useNavigate } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { toast } from 'react-toastify'
 
@@ -39,6 +24,34 @@ interface Flow {
   connections: any
   createdAt: string
   updatedAt: string
+}
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
 }
 
 export default function FlowbuilderConversation() {
@@ -160,169 +173,193 @@ export default function FlowbuilderConversation() {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ChatIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Flujos de Conversación</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Chats className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Flujos de Conversación
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Gestiona y crea flujos de conversaciones automatizadas
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={fetchFlows}>
-              <RefreshIcon />
-            </IconButton>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <Button
-              startDecorator={<AddIcon />}
-              onClick={() => handleOpenModal()}
-              disabled={loading}
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={fetchFlows}
             >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={() => handleOpenModal()} disabled={loading}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nuevo Flujo
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Flows Table */}
-        <Card>
-          <CardContent>
-            {loading ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography level="body-md">Cargando flujos...</Typography>
-              </Box>
-            ) : flows.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <ChatIcon sx={{ fontSize: 64, color: 'text.tertiary', mb: 2 }} />
-                <Typography level="h4" sx={{ mb: 1 }}>
-                  No hay flujos creados
-                </Typography>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 3 }}>
-                  Crea tu primer flujo de conversación para automatizar respuestas
-                </Typography>
-                <Button startDecorator={<AddIcon />} onClick={() => handleOpenModal()}>
-                  Crear Primer Flujo
-                </Button>
-              </Box>
-            ) : (
-              <Sheet sx={{ overflow: 'auto' }}>
-                <Table>
-                  <thead>
-                    <tr>
-                      <th style={{ width: '40%' }}>Nombre</th>
-                      <th style={{ width: '30%' }}>Descripción</th>
-                      <th style={{ width: '15%' }}>Fecha Creación</th>
-                      <th style={{ width: '15%', textAlign: 'right' }}>Acciones</th>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {loading ? (
+            <div className="px-4 py-10 text-center text-muted-foreground">
+              Cargando flujos...
+            </div>
+          ) : flows.length === 0 ? (
+            <div className="flex flex-col items-center px-4 py-14 text-center">
+              <span className="mb-4 flex size-16 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <Chats className="size-8" aria-hidden />
+              </span>
+              <h4 className="mb-1 text-lg font-semibold text-foreground">
+                No hay flujos creados
+              </h4>
+              <p className="mb-5 text-sm text-muted-foreground">
+                Crea tu primer flujo de conversación para automatizar respuestas
+              </p>
+              <Button size="sm" onClick={() => handleOpenModal()}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Crear Primer Flujo
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="w-2/5 whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Nombre
+                    </th>
+                    <th className="w-[30%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Descripción
+                    </th>
+                    <th className="w-[15%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Fecha Creación
+                    </th>
+                    <th className="w-[15%] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {flows.map((flow) => (
+                    <tr key={flow.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {flow.name}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {flow.description || 'Sin descripción'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {formatDate(flow.createdAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <ActionBtn
+                            label="Diseñar Flujo"
+                            onClick={() => navigate(`/flowbuilder/editor/${flow.id}`)}
+                            className="text-success-text hover:bg-success/10 hover:text-success-text"
+                          >
+                            <TreeStructure className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Editar Info"
+                            onClick={() => handleOpenModal(flow)}
+                            className="hover:bg-primary/10 hover:text-primary"
+                          >
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Duplicar"
+                            onClick={() => handleDuplicate(flow.id)}
+                          >
+                            <Copy className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                          <ActionBtn
+                            label="Eliminar"
+                            onClick={() => handleDelete(flow.id)}
+                            className="hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            <Trash className="size-[18px]" aria-hidden />
+                          </ActionBtn>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {flows.map((flow) => (
-                      <tr key={flow.id}>
-                        <td>
-                          <Typography level="body-md" fontWeight="md">
-                            {flow.name}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                            {flow.description || 'Sin descripción'}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {formatDate(flow.createdAt)}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                            <IconButton
-                              size="sm"
-                              variant="soft"
-                              color="success"
-                              onClick={() => navigate(`/flowbuilder/editor/${flow.id}`)}
-                              title="Diseñar Flujo"
-                            >
-                              <FlowIcon />
-                            </IconButton>
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="primary"
-                              onClick={() => handleOpenModal(flow)}
-                              title="Editar Info"
-                            >
-                              <EditIcon />
-                            </IconButton>
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="neutral"
-                              onClick={() => handleDuplicate(flow.id)}
-                              title="Duplicar"
-                            >
-                              <CopyIcon />
-                            </IconButton>
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="danger"
-                              onClick={() => handleDelete(flow.id)}
-                              title="Eliminar"
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Stack>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </Sheet>
-            )}
-          </CardContent>
-        </Card>
-      </Stack>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Modal para Crear/Editar Flujo */}
-      <Modal open={openModal} onClose={handleCloseModal}>
-        <ModalDialog>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {editingFlow ? 'Editar Flujo' : 'Nuevo Flujo'}
-          </Typography>
-          <Stack spacing={2}>
-            <FormControl>
-              <FormLabel>Nombre *</FormLabel>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Ej: Flujo de Bienvenida"
-                autoFocus
-              />
-            </FormControl>
-            <FormControl>
-              <FormLabel>Descripción</FormLabel>
-              <Textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe el propósito de este flujo..."
-                minRows={3}
-              />
-            </FormControl>
-            <Stack direction="row" spacing={1} justifyContent="flex-end">
-              <Button variant="plain" color="neutral" onClick={handleCloseModal}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSubmit}>
-                {editingFlow ? 'Actualizar' : 'Crear'}
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseModal}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                {editingFlow ? 'Editar Flujo' : 'Nuevo Flujo'}
+              </h2>
+              <ActionBtn label="Cerrar" onClick={handleCloseModal}>
+                <X className="size-[18px]" aria-hidden />
+              </ActionBtn>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="flow-name">Nombre *</Label>
+                <input
+                  id="flow-name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Ej: Flujo de Bienvenida"
+                  autoFocus
+                  className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="flow-description">Descripción</Label>
+                <textarea
+                  id="flow-description"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  placeholder="Describe el propósito de este flujo..."
+                  rows={3}
+                  className="w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={handleCloseModal}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={handleSubmit}>
+                  {editingFlow ? 'Actualizar' : 'Crear'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

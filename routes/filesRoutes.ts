@@ -18,4 +18,3 @@ filesRoutes.delete("/files/:fileId", isAuth, FilesController.remove);
 filesRoutes.delete("/files", isAuth, FilesController.removeAll);
 filesRoutes.post("/files/uploadList/:fileListId", isAuth, upload.array("files"), FilesController.uploadMedias);
 export default filesRoutes;
-// console.log("📄 FILES-ROUTES.TS LOADED\!");

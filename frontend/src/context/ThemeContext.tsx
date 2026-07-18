@@ -10,8 +10,9 @@ export interface ThemeColors {
 }
 
 const DEFAULTS: ThemeColors = {
-  primaryLight: '#3b82f6',
-  primaryDark: '#3b82f6',
+  // [Fase B] Primario canónico teal (#14B8A6). Antes #3b82f6 (azul) chocaba con los fondos teal-navy.
+  primaryLight: '#14B8A6',
+  primaryDark: '#14B8A6',
   secondaryLight: '#52b788',
   secondaryDark: '#52b788',
 }

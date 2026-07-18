@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import Queue from "../../models/Queue";
@@ -26,6 +30,23 @@ export interface SaveAgentMessageOptions {
 export interface SaveAgentMessageResult {
   message: Message | null;
   agentLogId?: number;
+}
+
+export interface ClassifyTicketStageOptions {
+  afterMessageSent?: boolean;
+  triggerLeadConversion?: boolean;
+  conversionSource?: string;
+  movedBy?: "ai" | "user" | "system";
+  userId?: number;
+}
+
+export interface ClassifyTicketStageResult {
+  success: boolean;
+  stage?: string;
+  moved?: boolean;
+  alreadyInStage?: boolean;
+  skippedReason?: string;
+  fallbackRecommended?: boolean;
 }
 
 /**
@@ -111,7 +132,7 @@ class SupervisorActionsService {
             ticketId: options.ticketId,
             contactId: options.contactId || null,
             agentType: options.agentUsed,
-            modelUsed: "gpt-4.1-mini",
+            modelUsed: "gpt-5.5",
             inputTokens,
             outputTokens,
             costUsd: 0,
@@ -270,67 +291,97 @@ class SupervisorActionsService {
     ticketId: number,
     companyId: number,
     intent: string,
-    agentUsed: string
-  ): Promise<{ success: boolean; stage?: string }> {
+    agentUsed: string,
+    options: ClassifyTicketStageOptions = {}
+  ): Promise<ClassifyTicketStageResult> {
     try {
       // Mapeo de intenciones a etapas del Kanban (usa keys kanban reales)
+      // Las 9 keys estándar son: attraction, interest, consideration, hot-lead,
+      // post-sale, dormant, referrer, retargeting, support
       const intentToStage: Record<string, string> = {
-        // Attraction - Primer contacto
+        // Attraction - Primer contacto / cliente nuevo evaluando
         greeting: "attraction",
-        "initial_contact": "attraction",
+        initial_contact: "attraction",
+        lead_qualification: "attraction",  // ─── PRIMERA OLA ───
 
-        // Interest - Cliente curioso / solicita información
+        // Interest - Solicita información / pregunta sobre producto
         information_request: "interest",
-        "request_info": "interest",
-        "pregunta_informacion": "interest",
+        request_info: "interest",
+        pregunta_informacion: "interest",
+        product_info: "interest",          // ─── PRIMERA OLA ───
+        rag_query: "interest",             // ─── PRIMERA OLA ───
 
         // Consideration - Evalúa opciones / interesado en comprar
         interest: "consideration",
-        "comprar": "consideration",
-        "interesado": "consideration",
-        "quiero_comprar": "consideration",
-        "presupuesto": "consideration",
+        comprar: "consideration",
+        interesado: "consideration",
+        quiero_comprar: "consideration",
+        presupuesto: "consideration",
+        sales_inquiry: "consideration",    // ─── PRIMERA OLA ───
+        billing_inquiry: "consideration",  // ─── PRIMERA OLA ───
 
         // Hot-lead - Envío de propuesta / listo para comprar
         proposal: "hot-lead",
-        "enviar_propuesta": "hot-lead",
-        "cotizacion": "hot-lead",
+        enviar_propuesta: "hot-lead",
+        cotizacion: "hot-lead",
 
-        // Post-sale / Negotiation - Negociando precio
+        // Post-sale / Negotiation - Negociando, post venta, fidelización
         negotiation: "post-sale",
-        "negociar": "post-sale",
-        "descuento": "post-sale",
-        "oferta": "post-sale",
+        negociar: "post-sale",
+        descuento: "post-sale",
+        oferta: "post-sale",
+        feedback: "post-sale",             // ─── PRIMERA OLA ───
+        nps_response: "post-sale",         // ─── PRIMERA OLA ───
+
+        // Support - Quejas, problemas técnicos, devoluciones
+        complaint: "support",              // ─── PRIMERA OLA ───
+        support_request: "support",        // ─── PRIMERA OLA ───
+        order_status: "support",           // ─── PRIMERA OLA ───
+        refund_request: "support",         // ─── PRIMERA OLA ───
+
+        // Retargeting - Riesgo de churn, hay que recuperar al cliente
+        churn_risk: "retargeting",         // ─── PRIMERA OLA ───
 
         // Referrer / Closed - Cerrado
         farewell: "referrer",
-        "gracias": "referrer",
-        "cancel": "referrer",
-        "no_interesado": "referrer",
+        gracias: "referrer",
+        cancel: "referrer",
+        no_interesado: "referrer",
 
         // 🆕 Appointments / Citas
-        // Solicitud de agendamiento → cliente considerando (consideration)
         appointment_request: "consideration",
-        "agendar": "consideration",
-        "cita": "consideration",
+        agendar: "consideration",
+        cita: "consideration",
+        appointment_reschedule: "consideration",   // ─── PRIMERA OLA ───
+        appointment_cancel: "referrer",            // ─── PRIMERA OLA ───
 
         // Cita confirmada → lead caliente (hot-lead)
         appointment_confirmed: "hot-lead",
-        "confirmar_cita": "hot-lead",
+        confirmar_cita: "hot-lead",
 
         // Cita completada → post-sale (seguimiento)
         appointment_completed: "post-sale",
 
         // Cita cancelada → referrer (cerrado)
-        appointment_cancelled: "referrer"
+        appointment_cancelled: "referrer",
+
+        // follow_up_response: el cliente respondió a un seguimiento.
+        // No movemos la etapa — mantenemos la etapa actual y dejamos que la
+        // conversación continúe en la fase donde está.
+        // (no se incluye en el mapeo intencionalmente)
       };
 
-      // Si es un agente de soporte, no clasificamos etapa
+      // Si el orquestador usó agente de soporte, delegamos la etapa al
+      // fallback LLM porque el intent suele ser demasiado ambiguo para ventas.
       if (agentUsed === "support" || agentUsed === "support (fallback)") {
         logger.info(
-          `[SupervisorActions] Agente de soporte, no se clasifica etapa: ticket=${ticketId}`
+          `[SupervisorActions] Agente de soporte, se recomienda fallback Kanban LLM: ticket=${ticketId}`
         );
-        return { success: true };
+        return {
+          success: true,
+          skippedReason: "support_agent_requires_llm_fallback",
+          fallbackRecommended: true
+        };
       }
 
       // Determinar la etapa
@@ -344,25 +395,78 @@ class SupervisorActionsService {
         });
 
         if (tag) {
-          // Agregar el tag al ticket
-          const TicketTag = require("../../models/TicketTag").default;
-          await TicketTag.findOrCreate({
-            where: { ticketId, tagId: tag.id }
+          // ─── Sprint Kanban (2026-05-20): delegar al helper único ───
+          // El helper se encarga de: detectar etapa actual, limpiar otras
+          // Kanban, crear TicketTag, registrar KanbanMovementLog, programar
+          // followups SOLO en primera entrada y disparar conversion CAPI según opt-in.
+          // Cuando el ticket YA está en la etapa, el helper NO re-dispara
+          // followups pero SÍ encola CAPI (con dedupe interno) si lo pedimos.
+          const KanbanStageTransitionService = require(
+            "../KanbanServices/KanbanStageTransitionService"
+          ).default;
+
+          const reason = options.afterMessageSent
+            ? `Orquestador clasifico tras enviar respuesta: intent=${intent}, agent=${agentUsed}`
+            : `Orquestador clasifico etapa: intent=${intent}, agent=${agentUsed}`;
+
+          const result = await KanbanStageTransitionService.move({
+            companyId,
+            ticketId,
+            toTagId: tag.id,
+            movedBy: options.movedBy || "ai",
+            userId: options.userId,
+            source: options.conversionSource || "orchestrator_stage_classifier",
+            reason,
+            triggerFollowups: true,
+            triggerLeadConversion: false,
+            conversionSource: options.conversionSource || "orchestrator_reply_sent"
           });
 
-          logger.info(
-            `[SupervisorActions] Etapa clasificada: ticket=${ticketId}, ` +
-            `etapa=${stage}, tagId=${tag.id}`
-          );
+          if (result.skippedReason) {
+            logger.warn(
+              `[SupervisorActions] Kanban transition skipped: ` +
+              `ticket=${ticketId} tag=${tag.id} reason=${result.skippedReason}`
+            );
+            return {
+              success: true,
+              stage,
+              skippedReason: result.skippedReason,
+              fallbackRecommended: result.skippedReason === "already_in_stage" ? false : true
+            };
+          } else if (result.alreadyInStage) {
+            logger.info(
+              `[SupervisorActions] Ticket ${ticketId} ya estaba en ${stage} ` +
+              `(tag=${tag.id}); conversion_queued=${result.leadConversionQueued}`
+            );
+            return { success: true, stage, alreadyInStage: true, moved: false };
+          } else {
+            logger.info(
+              `[SupervisorActions] ✅ Etapa clasificada via helper: ` +
+              `ticket=${ticketId}, etapa=${stage}, tagId=${tag.id}, ` +
+              `followups=${result.followupsTriggered}, lead=${result.leadConversionQueued}`
+            );
+            return { success: true, stage, moved: true };
+          }
         } else {
           logger.info(
             `[SupervisorActions] No se encontró tag para etapa ${stage}: ticket=${ticketId}`
           );
+          return {
+            success: true,
+            stage,
+            skippedReason: "stage_tag_not_found",
+            fallbackRecommended: true
+          };
         }
       } else {
         logger.info(
           `[SupervisorActions] Intención no mapeada a etapa: intent=${intent}, ticket=${ticketId}`
         );
+        return {
+          success: true,
+          skippedReason: "intent_not_mapped",
+          fallbackRecommended: true
+        };
       }
 
       return { success: true, stage };
@@ -373,6 +477,22 @@ class SupervisorActionsService {
       );
       return { success: false };
     }
+  }
+
+  static async classifyTicketStageAfterReplySent(
+    ticketId: number,
+    companyId: number,
+    intent: string,
+    agentUsed: string,
+    options: Omit<ClassifyTicketStageOptions, "afterMessageSent" | "triggerLeadConversion"> = {}
+  ): Promise<ClassifyTicketStageResult> {
+    return this.classifyTicketStage(ticketId, companyId, intent, agentUsed, {
+      ...options,
+      afterMessageSent: true,
+      triggerLeadConversion: false,
+      conversionSource: options.conversionSource || "orchestrator_reply_sent",
+      movedBy: options.movedBy || "ai"
+    });
   }
 }
 

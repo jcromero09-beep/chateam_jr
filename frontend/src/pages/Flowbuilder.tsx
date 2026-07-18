@@ -1,36 +1,56 @@
-import { Typography, Stack, Container, Card, CardContent, Box, Grid, Button } from '@mui/joy'
-import { AccountTree as FlowbuilderIcon, Add as AddIcon } from '@mui/icons-material'
+import { TreeStructure, Plus } from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Button } from '@/components/ui/button'
 
 export default function Flowbuilder() {
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <FlowbuilderIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Flowbuilder</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Constructor visual de flujos automatizados</Typography>
-            </Box>
-          </Stack>
-          <Button startDecorator={<AddIcon />} color="primary">Nuevo Flujo</Button>
-        </Stack>
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Flujos Activos</Typography><Typography level="h2">12</Typography></CardContent></Card></Grid>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Ejecuciones Hoy</Typography><Typography level="h2">1,245</Typography></CardContent></Card></Grid>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Tasa de Éxito</Typography><Typography level="h2" sx={{ color: 'success.main' }}>94.2%</Typography></CardContent></Card></Grid>
-          <Grid xs={12} sm={6} md={3}><Card><CardContent><Typography level="body-sm" sx={{ mb: 1 }}>Total Flujos</Typography><Typography level="h2">28</Typography></CardContent></Card></Grid>
-        </Grid>
-        <Card sx={{ height: 500 }}>
-          <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <Box sx={{ textAlign: 'center' }}>
-              <FlowbuilderIcon sx={{ fontSize: 64, color: 'text.tertiary', mb: 2 }} />
-              <Typography level="h4" sx={{ mb: 1 }}>Constructor de Flujos</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Editor visual drag-and-drop para flujos</Typography>
-            </Box>
-          </CardContent>
-        </Card>
-      </Stack>
-    </Container>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <TreeStructure className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Flowbuilder
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Constructor visual de flujos automatizados
+              </p>
+            </div>
+          </div>
+          <Button size="sm">
+            <Plus className="size-4" weight="bold" aria-hidden />
+            Nuevo Flujo
+          </Button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Flujos Activos" value="12" />
+          <StatTile label="Ejecuciones Hoy" value="1,245" />
+          <StatTile label="Tasa de Éxito" value="94.2%" tone="success" />
+          <StatTile label="Total Flujos" value="28" />
+        </div>
+
+        {/* Canvas placeholder */}
+        <div className="flex h-[500px] items-center justify-center rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="text-center">
+            <TreeStructure
+              className="mx-auto mb-4 size-16 text-muted-foreground"
+              aria-hidden
+            />
+            <h2 className="mb-1 text-xl font-semibold text-foreground">
+              Constructor de Flujos
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Editor visual drag-and-drop para flujos
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

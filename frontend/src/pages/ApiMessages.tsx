@@ -1,48 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
+// [Fase2·G] CircularProgress se conserva en MUI Joy: no hay equivalente en el design system.
+import CircularProgress from '@mui/joy/CircularProgress'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Chip,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Select,
-  Option,
-  CircularProgress,
-  Divider,
-  Sheet,
-  Table,
-  SheetProps,
-  IconButton,
-  Tooltip as JoyTooltip,
-  Modal,
-  ModalDialog,
-  DialogTitle,
-  DialogContent,
-  Alert
-} from '@mui/joy'
-import {
-  Api as ApiIcon,
-  Code as CodeIcon,
-  Send as SendIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  TrendingUp as TrendingUpIcon,
-  Dashboard as DashboardIcon,
-  Description as DescriptionIcon,
-  Refresh as RefreshIcon,
-  Delete as DeleteIcon,
-  Visibility as VisibilityIcon,
-  Warning as WarningIcon
-} from '@mui/icons-material'
+  Plugs,
+  PaperPlaneTilt,
+  CheckCircle,
+  XCircle,
+  TrendUp,
+  SquaresFour,
+  FileText,
+  ArrowClockwise,
+  Trash,
+  Eye,
+  Warning,
+} from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import {
   BarChart,
@@ -57,14 +29,161 @@ import {
   Pie,
   Cell
 } from 'recharts'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
-// Colores para gráficos
+// Colores para gráficos — atados a los tokens del design system (no hardcodeados).
 const COLORS = {
-  success: '#4caf50',
-  failed: '#f44336',
-  sent: '#2196f3',
-  primary: '#1976d2'
+  success: 'var(--success)',
+  failed: 'var(--destructive)',
+  sent: 'var(--primary)'
+}
+
+// Estilos de tooltip/ejes de recharts atados a los tokens del design system.
+const chartTooltipStyle = {
+  backgroundColor: 'var(--popover)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius)',
+  color: 'var(--popover-foreground)',
+  fontSize: 12,
+}
+const AXIS_COLOR = 'var(--muted-foreground)'
+const GRID_COLOR = 'var(--border)'
+
+const failedColumns = [
+  'Número',
+  'Mensaje',
+  'Error',
+  'Endpoint',
+  'Estado',
+  'Reintentos',
+  'Fecha',
+  'Acciones',
+]
+
+type Tone = 'primary' | 'success' | 'destructive'
+
+const toneBorder: Record<Tone, string> = {
+  primary: 'border-l-primary',
+  success: 'border-l-success',
+  destructive: 'border-l-destructive',
+}
+// [a11y] Texto de estado con los tokens *-text; los tokens de superficie no llegan a 4.5:1.
+const toneText: Record<Tone, string> = {
+  primary: 'text-primary',
+  success: 'text-success-text',
+  destructive: 'text-destructive-text',
+}
+const toneBg: Record<Tone, string> = {
+  primary: 'bg-primary/12',
+  success: 'bg-success/14',
+  destructive: 'bg-destructive/12',
+}
+
+/** Tarjeta de métrica con ícono y acento lateral (variante local de StatTile). */
+function StatCard({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string
+  value: string
+  icon: ReactNode
+  tone: Tone
+}) {
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-l-4 border-border bg-card p-5 shadow-sm shadow-black/[0.02]',
+        toneBorder[tone],
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p
+            className={cn(
+              'mt-1.5 text-3xl font-semibold tracking-tight tabular-nums',
+              toneText[tone],
+            )}
+          >
+            {value}
+          </p>
+        </div>
+        <span
+          className={cn(
+            'flex size-12 shrink-0 items-center justify-center rounded-full',
+            toneBg[tone],
+            toneText[tone],
+          )}
+        >
+          {icon}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Botón de acción de fila (mismo look que RowAction del design system, con onClick). */
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Campo del modal de detalles. */
+function DetailField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <div className="mt-0.5">{children}</div>
+    </div>
+  )
 }
 
 interface DashboardStats {
@@ -116,6 +235,13 @@ interface FailedMessage {
   updatedAt: string
 }
 
+interface FailedMessagesPagination {
+  total: number
+  page: number
+  limit: number
+  pages: number
+}
+
 export default function ApiMessages() {
   const [searchParams] = useSearchParams()
   const initialTab = parseInt(searchParams.get("tab") || "0", 10)
@@ -132,6 +258,10 @@ export default function ApiMessages() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [selectedFailed, setSelectedFailed] = useState<FailedMessage | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [failedStatus, setFailedStatus] = useState<string>('all')
+  const [failedEndpoint, setFailedEndpoint] = useState<string>('all')
+  const [failedPage, setFailedPage] = useState(1)
+  const [failedPagination, setFailedPagination] = useState<FailedMessagesPagination | null>(null)
 
   useEffect(() => {
     fetchStats()
@@ -156,8 +286,16 @@ export default function ApiMessages() {
   const fetchFailedMessages = async () => {
     setFailedLoading(true)
     try {
-      const res = await api.get('/api/messages/failed-messages')
+      const params = new URLSearchParams({
+        page: String(failedPage),
+        limit: '20'
+      })
+      if (failedStatus !== 'all') params.set('status', failedStatus)
+      if (failedEndpoint !== 'all') params.set('endpoint', failedEndpoint)
+
+      const res = await api.get(`/api/messages/failed-messages?${params.toString()}`)
       setFailedMessages(res.data.messages || [])
+      setFailedPagination(res.data.pagination || null)
     } catch (err) {
       console.error('Error fetching failed messages:', err)
       toast.error('Error al cargar mensajes fallidos')
@@ -211,11 +349,11 @@ export default function ApiMessages() {
     })
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'pending': return 'warning'
       case 'retried': return 'success'
-      case 'failed': return 'danger'
+      case 'failed': return 'destructive'
       default: return 'neutral'
     }
   }
@@ -225,7 +363,7 @@ export default function ApiMessages() {
     if (tabIndex === 2) {
       fetchFailedMessages()
     }
-  }, [tabIndex])
+  }, [tabIndex, failedStatus, failedEndpoint, failedPage])
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
@@ -277,275 +415,244 @@ export default function ApiMessages() {
     return `${import.meta.env.VITE_API_URL || ''}/api/messages/send`
   }
 
-  // Dashboard Tab Content
-  const DashboardContent = () => (
-    <Stack spacing={3}>
-      {/* Filtro de período */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Select
-          value={period}
-          onChange={(_, value) => value && setPeriod(value)}
-          size="sm"
-          sx={{ minWidth: 150 }}
-        >
-          <Option value="day">Hoy</Option>
-          <Option value="week">Ultima Semana</Option>
-          <Option value="month">Ultimo Mes</Option>
-        </Select>
-      </Box>
+  const messages = Array.isArray(failedMessages) ? failedMessages : []
 
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          {/* Card Total - Grande arriba */}
-          <Card
-            sx={{
-              background: 'linear-gradient(135deg, #1976d2 0%, #0d47a1 100%)',
-              color: 'white'
-            }}
+  return (
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Plugs className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  API de Mensajes
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Integracion API para envio de mensajes
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <Tabs
+            value={String(tabIndex)}
+            onValueChange={(value) => setTabIndex(Number(value))}
           >
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'rgba(255,255,255,0.7)', mb: 1 }}>
-                    Total de Envios (Historico)
-                  </Typography>
-                  <Typography level="h1" sx={{ fontWeight: 700, color: 'white' }}>
-                    {formatNumber(dashboardStats?.totalAllTime || 0)}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    bgcolor: 'rgba(255,255,255,0.2)',
-                    borderRadius: '50%',
-                    p: 2,
-                    display: 'flex'
-                  }}
-                >
-                  <TrendingUpIcon sx={{ fontSize: 40, color: 'white' }} />
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
+            <TabsList className="flex-wrap">
+              <TabsTrigger value="0">
+                <SquaresFour className="size-4" aria-hidden />
+                Dashboard
+              </TabsTrigger>
+              <TabsTrigger value="1">
+                <FileText className="size-4" aria-hidden />
+                Documentacion API
+              </TabsTrigger>
+              <TabsTrigger value="2">
+                <XCircle className="size-4" aria-hidden />
+                Mensajes Fallidos
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Cards de estadísticas del período - 3 columnas */}
-          <Grid container spacing={2}>
-            <Grid xs={12} md={4}>
-              <Card>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 500 }}>
-                        Enviados ({getPeriodLabel()})
-                      </Typography>
-                      <Typography level="h2" sx={{ color: COLORS.sent, fontWeight: 700 }}>
-                        {formatNumber(currentStats.sent)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ bgcolor: 'primary.softBg', borderRadius: '50%', p: 1.5 }}>
-                      <SendIcon sx={{ color: COLORS.sent, fontSize: 30 }} />
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+            {/* ------------------------------ Dashboard ------------------------------ */}
+            <TabsContent value="0" className="mt-4 space-y-6">
+              {/* Filtro de período */}
+              <div className="flex justify-end">
+                <Select value={period} onValueChange={(value) => value && setPeriod(value)}>
+                  <SelectTrigger className="w-[180px]" aria-label="Período">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">Hoy</SelectItem>
+                    <SelectItem value="week">Ultima Semana</SelectItem>
+                    <SelectItem value="month">Ultimo Mes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <Grid xs={12} md={4}>
-              <Card sx={{ borderLeft: `4px solid ${COLORS.success}` }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 500 }}>
-                        Exitosos ({getPeriodLabel()})
-                      </Typography>
-                      <Typography level="h2" sx={{ color: COLORS.success, fontWeight: 700 }}>
-                        {formatNumber(currentStats.success)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ bgcolor: 'success.softBg', borderRadius: '50%', p: 1.5 }}>
-                      <CheckCircleIcon sx={{ color: COLORS.success, fontSize: 30 }} />
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+              {loading ? (
+                <div className="flex justify-center py-16">
+                  <CircularProgress />
+                </div>
+              ) : (
+                <>
+                  {/* Card Total — grande arriba */}
+                  <div className="rounded-xl bg-gradient-to-br from-primary to-primary-hover p-6 text-primary-foreground shadow-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm text-primary-foreground/70">
+                          Total de Envios (Historico)
+                        </p>
+                        <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums">
+                          {formatNumber(dashboardStats?.totalAllTime || 0)}
+                        </p>
+                      </div>
+                      <span className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-foreground/20">
+                        <TrendUp className="size-9" weight="bold" aria-hidden />
+                      </span>
+                    </div>
+                  </div>
 
-            <Grid xs={12} md={4}>
-              <Card sx={{ borderLeft: `4px solid ${COLORS.failed}` }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography level="body-sm" sx={{ color: 'text.tertiary', textTransform: 'uppercase', fontWeight: 500 }}>
-                        Fallidos ({getPeriodLabel()})
-                      </Typography>
-                      <Typography level="h2" sx={{ color: COLORS.failed, fontWeight: 700 }}>
-                        {formatNumber(currentStats.failed)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ bgcolor: 'danger.softBg', borderRadius: '50%', p: 1.5 }}>
-                      <ErrorIcon sx={{ color: COLORS.failed, fontSize: 30 }} />
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+                  {/* Cards de estadísticas del período */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <StatCard
+                      label={`Enviados (${getPeriodLabel()})`}
+                      value={formatNumber(currentStats.sent)}
+                      tone="primary"
+                      icon={<PaperPlaneTilt className="size-6" weight="fill" aria-hidden />}
+                    />
+                    <StatCard
+                      label={`Exitosos (${getPeriodLabel()})`}
+                      value={formatNumber(currentStats.success)}
+                      tone="success"
+                      icon={<CheckCircle className="size-6" weight="fill" aria-hidden />}
+                    />
+                    <StatCard
+                      label={`Fallidos (${getPeriodLabel()})`}
+                      value={formatNumber(currentStats.failed)}
+                      tone="destructive"
+                      icon={<XCircle className="size-6" weight="fill" aria-hidden />}
+                    />
+                  </div>
 
-          {/* Gráficos */}
-          <Grid container spacing={2}>
-            {/* Gráfico de barras */}
-            <Grid xs={12} md={8}>
-              <Card>
-                <CardContent>
-                  <Typography level="title-lg" sx={{ mb: 2, fontWeight: 600 }}>
-                    Envios Diarios ({getPeriodLabel()})
-                  </Typography>
-                  <Box sx={{ height: 350 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis />
-                        <RechartsTooltip />
-                        <Legend />
-                        <Bar dataKey="Exitosos" fill={COLORS.success} />
-                        <Bar dataKey="Fallidos" fill={COLORS.failed} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+                  {/* Gráficos */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {/* Gráfico de barras */}
+                    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] md:col-span-2">
+                      <h2 className="mb-4 text-base font-semibold text-foreground">
+                        Envios Diarios ({getPeriodLabel()})
+                      </h2>
+                      <div className="h-[350px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
+                            <XAxis dataKey="date" stroke={AXIS_COLOR} fontSize={12} />
+                            <YAxis stroke={AXIS_COLOR} fontSize={12} />
+                            <RechartsTooltip contentStyle={chartTooltipStyle} />
+                            <Legend />
+                            <Bar dataKey="Exitosos" fill={COLORS.success} radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="Fallidos" fill={COLORS.failed} radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
 
-            {/* Gráfico de torta */}
-            <Grid xs={12} md={4}>
-              <Card>
-                <CardContent>
-                  <Typography level="title-lg" sx={{ mb: 2, fontWeight: 600 }}>
-                    Distribucion ({getPeriodLabel()})
-                  </Typography>
-                  <Box sx={{ height: 350 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={(props: any) => `${props.name}: ${((props.percent || 0) * 100).toFixed(0)}%`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {pieData.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={index === 0 ? COLORS.success : COLORS.failed} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+                    {/* Gráfico de torta */}
+                    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                      <h2 className="mb-4 text-base font-semibold text-foreground">
+                        Distribucion ({getPeriodLabel()})
+                      </h2>
+                      <div className="h-[350px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false}
+                              label={(props: any) => `${props.name}: ${((props.percent || 0) * 100).toFixed(0)}%`}
+                              outerRadius={80}
+                              fill={COLORS.sent}
+                              dataKey="value"
+                            >
+                              {pieData.map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={index === 0 ? COLORS.success : COLORS.failed} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip contentStyle={chartTooltipStyle} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
 
-          {/* Desglose por tipo de contenido */}
-          {detailedStats && (
-            <Card>
-              <CardContent>
-                <Typography level="title-lg" sx={{ mb: 2, fontWeight: 600 }}>
-                  Desglose por Tipo de Contenido ({getPeriodLabel()})
-                </Typography>
-                <Grid container spacing={2}>
-                  {[
-                    { label: 'Texto', value: detailedStats.totals?.text || 0 },
-                    { label: 'Imagenes', value: detailedStats.totals?.image || 0 },
-                    { label: 'PDF', value: detailedStats.totals?.pdf || 0 },
-                    { label: 'Videos', value: detailedStats.totals?.video || 0 },
-                    { label: 'Otros', value: detailedStats.totals?.other || 0 },
-                    { label: 'Verificaciones', value: detailedStats.totals?.checkNumber || 0 }
-                  ].map((item, index) => (
-                    <Grid xs={6} sm={4} md={2} key={index}>
-                      <Sheet
-                        variant="soft"
-                        sx={{ p: 2, borderRadius: 'md', textAlign: 'center' }}
-                      >
-                        <Typography level="h3" sx={{ color: 'primary.main' }}>
-                          {item.value}
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          {item.label}
-                        </Typography>
-                      </Sheet>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          )}
-        </>
-      )}
-    </Stack>
-  )
+                  {/* Desglose por tipo de contenido */}
+                  {detailedStats && (
+                    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                      <h2 className="mb-4 text-base font-semibold text-foreground">
+                        Desglose por Tipo de Contenido ({getPeriodLabel()})
+                      </h2>
+                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-6">
+                        {[
+                          { label: 'Texto', value: detailedStats.totals?.text || 0 },
+                          { label: 'Imagenes', value: detailedStats.totals?.image || 0 },
+                          { label: 'PDF', value: detailedStats.totals?.pdf || 0 },
+                          { label: 'Videos', value: detailedStats.totals?.video || 0 },
+                          { label: 'Otros', value: detailedStats.totals?.other || 0 },
+                          { label: 'Verificaciones', value: detailedStats.totals?.checkNumber || 0 }
+                        ].map((item, index) => (
+                          <div key={index} className="rounded-lg bg-muted p-4 text-center">
+                            <p className="text-2xl font-semibold tabular-nums text-foreground">
+                              {item.value}
+                            </p>
+                            <p className="text-sm text-muted-foreground">{item.label}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </TabsContent>
 
-  // Documentation Tab Content
-  const DocumentationContent = () => (
-    <Stack spacing={3}>
-      <Card>
-        <CardContent>
-          <Typography level="h4" sx={{ mb: 2 }}>Documentacion de la API</Typography>
+            {/* --------------------------- Documentación --------------------------- */}
+            <TabsContent value="1" className="mt-4">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+                <h2 className="mb-4 text-xl font-semibold text-foreground">
+                  Documentacion de la API
+                </h2>
 
-          <Typography level="title-md" sx={{ color: 'primary.main', mb: 1 }}>
-            Metodos disponibles
-          </Typography>
-          <Box component="ol" sx={{ pl: 3 }}>
-            <li>Envio de mensajes de texto</li>
-            <li>Envio de mensajes con medios (imagenes, PDF, video)</li>
-          </Box>
+                <h3 className="mb-1 text-base font-semibold text-primary">
+                  Metodos disponibles
+                </h3>
+                <ol className="list-decimal space-y-1 pl-6 text-sm text-foreground">
+                  <li>Envio de mensajes de texto</li>
+                  <li>Envio de mensajes con medios (imagenes, PDF, video)</li>
+                </ol>
 
-          <Divider sx={{ my: 2 }} />
+                <hr className="my-5 border-0 border-t border-border" />
 
-          <Typography level="title-md" sx={{ color: 'primary.main', mb: 1 }}>
-            Instrucciones
-          </Typography>
-          <Typography level="body-sm" sx={{ fontWeight: 600, mb: 1 }}>
-            Observaciones importantes:
-          </Typography>
-          <Box component="ul" sx={{ pl: 3 }}>
-            <li>El numero debe incluir el codigo de pais</li>
-            <li>
-              Formato del numero:
-              <ul>
-                <li>Codigo de pais (ej: 591 para Bolivia)</li>
-                <li>Codigo de area</li>
-                <li>Numero</li>
-              </ul>
-            </li>
-          </Box>
+                <h3 className="mb-1 text-base font-semibold text-primary">
+                  Instrucciones
+                </h3>
+                <p className="mb-1 text-sm font-semibold text-foreground">
+                  Observaciones importantes:
+                </p>
+                <ul className="list-disc space-y-1 pl-6 text-sm text-foreground">
+                  <li>El numero debe incluir el codigo de pais</li>
+                  <li>
+                    Formato del numero:
+                    <ul className="list-disc space-y-1 pl-6">
+                      <li>Codigo de pais (ej: 591 para Bolivia)</li>
+                      <li>Codigo de area</li>
+                      <li>Numero</li>
+                    </ul>
+                  </li>
+                </ul>
 
-          <Divider sx={{ my: 2 }} />
+                <hr className="my-5 border-0 border-t border-border" />
 
-          <Typography level="title-md" sx={{ color: 'primary.main', mb: 1 }}>
-            Mensaje de Texto
-          </Typography>
-          <Sheet variant="soft" sx={{ p: 2, borderRadius: 'md', mb: 2 }}>
-            <Typography level="body-sm" sx={{ mb: 1 }}>
-              <strong>Endpoint:</strong> {getEndpoint()}
-            </Typography>
-            <Typography level="body-sm" sx={{ mb: 1 }}>
-              <strong>Metodo:</strong> POST
-            </Typography>
-            <Typography level="body-sm" sx={{ mb: 1 }}>
-              <strong>Headers:</strong> Authorization: Bearer (token) y Content-Type: application/json
-            </Typography>
-            <Typography level="body-sm" component="div">
-              <strong>Body:</strong>
-              <Box component="pre" sx={{ bgcolor: 'background.level1', p: 1, borderRadius: 'sm', mt: 1, fontSize: '0.85rem' }}>
+                <h3 className="mb-1 text-base font-semibold text-primary">
+                  Mensaje de Texto
+                </h3>
+                <div className="mb-4 rounded-lg bg-muted p-4">
+                  <p className="mb-1 text-sm text-foreground">
+                    <strong>Endpoint:</strong> {getEndpoint()}
+                  </p>
+                  <p className="mb-1 text-sm text-foreground">
+                    <strong>Metodo:</strong> POST
+                  </p>
+                  <p className="mb-1 text-sm text-foreground">
+                    <strong>Headers:</strong> Authorization: Bearer (token) y Content-Type: application/json
+                  </p>
+                  <div className="text-sm text-foreground">
+                    <strong>Body:</strong>
+                    <pre className="m-0 mt-1 overflow-x-auto rounded-md bg-background p-3 text-xs text-foreground">
 {`{
   "number": "591999999999",
   "body": "Mensaje",
@@ -554,417 +661,360 @@ export default function ApiMessages() {
   "sendSignature": true/false,
   "closeTicket": true/false
 }`}
-              </Box>
-            </Typography>
-          </Sheet>
+                    </pre>
+                  </div>
+                </div>
 
-          <Divider sx={{ my: 2 }} />
+                <hr className="my-5 border-0 border-t border-border" />
 
-          <Typography level="title-md" sx={{ color: 'primary.main', mb: 1 }}>
-            Mensaje con Media
-          </Typography>
-          <Sheet variant="soft" sx={{ p: 2, borderRadius: 'md' }}>
-            <Typography level="body-sm" sx={{ mb: 1 }}>
-              <strong>Endpoint:</strong> {getEndpoint()}
-            </Typography>
-            <Typography level="body-sm" sx={{ mb: 1 }}>
-              <strong>Metodo:</strong> POST
-            </Typography>
-            <Typography level="body-sm" sx={{ mb: 1 }}>
-              <strong>Headers:</strong> Authorization: Bearer (token) y Content-Type: multipart/form-data
-            </Typography>
-            <Typography level="body-sm" component="div">
-              <strong>FormData:</strong>
-              <Box component="ul" sx={{ pl: 3, mt: 1 }}>
-                <li><strong>number:</strong> 591999999999</li>
-                <li><strong>body:</strong> Mensaje (opcional si hay media)</li>
-                <li><strong>userId:</strong> ID de usuario (opcional)</li>
-                <li><strong>queueId:</strong> ID de cola (opcional)</li>
-                <li><strong>medias:</strong> Archivo</li>
-                <li><strong>sendSignature:</strong> true/false</li>
-                <li><strong>closeTicket:</strong> true/false</li>
-              </Box>
-            </Typography>
-          </Sheet>
-        </CardContent>
-      </Card>
-    </Stack>
-  )
+                <h3 className="mb-1 text-base font-semibold text-primary">
+                  Mensaje con Media
+                </h3>
+                <div className="rounded-lg bg-muted p-4">
+                  <p className="mb-1 text-sm text-foreground">
+                    <strong>Endpoint:</strong> {getEndpoint()}
+                  </p>
+                  <p className="mb-1 text-sm text-foreground">
+                    <strong>Metodo:</strong> POST
+                  </p>
+                  <p className="mb-1 text-sm text-foreground">
+                    <strong>Headers:</strong> Authorization: Bearer (token) y Content-Type: multipart/form-data
+                  </p>
+                  <div className="text-sm text-foreground">
+                    <strong>FormData:</strong>
+                    <ul className="mt-1 list-disc space-y-1 pl-6">
+                      <li><strong>number:</strong> 591999999999</li>
+                      <li><strong>body:</strong> Mensaje (opcional si hay media)</li>
+                      <li><strong>userId:</strong> ID de usuario (opcional)</li>
+                      <li><strong>queueId:</strong> ID de cola (opcional)</li>
+                      <li><strong>medias:</strong> Archivo</li>
+                      <li><strong>sendSignature:</strong> true/false</li>
+                      <li><strong>closeTicket:</strong> true/false</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
 
-  // Failed Messages Tab Content
-  const FailedMessagesContent = () => {
-  // Ensure failedMessages is always an array
-  const messages = Array.isArray(failedMessages) ? failedMessages : []
+            {/* ------------------------- Mensajes Fallidos ------------------------- */}
+            <TabsContent value="2" className="mt-4 space-y-6">
+              {/* Header con botón de actualizar */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold text-foreground">
+                  Mensajes Fallidos
+                </h2>
+                <Button size="sm" variant="outline" onClick={fetchFailedMessages}>
+                  <ArrowClockwise className="size-4" aria-hidden />
+                  Actualizar
+                </Button>
+              </div>
 
-  return (
-    <Stack spacing={3}>
-      {/* Header con botón de actualizar */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography level="h4">
-          Mensajes Fallidos
-        </Typography>
-        <Button
-          size="sm"
-          variant="outlined"
-          onClick={fetchFailedMessages}
-          startDecorator={<RefreshIcon />}
-        >
-          Actualizar
-        </Button>
-      </Box>
+              {/* Filtros */}
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Select
+                  value={failedStatus}
+                  onValueChange={(value) => {
+                    if (!value) return
+                    setFailedStatus(value)
+                    setFailedPage(1)
+                  }}
+                >
+                  <SelectTrigger className="sm:w-[200px]" aria-label="Filtrar por estado">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los estados</SelectItem>
+                    <SelectItem value="pending">Pendientes</SelectItem>
+                    <SelectItem value="failed">Fallidos</SelectItem>
+                    <SelectItem value="retried">Reenviados</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={failedEndpoint}
+                  onValueChange={(value) => {
+                    if (!value) return
+                    setFailedEndpoint(value)
+                    setFailedPage(1)
+                  }}
+                >
+                  <SelectTrigger className="sm:w-[200px]" aria-label="Filtrar por endpoint">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los endpoints</SelectItem>
+                    <SelectItem value="send-template">Templates</SelectItem>
+                    <SelectItem value="send">Texto</SelectItem>
+                    <SelectItem value="send/linkImage">Imagen</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-      {failedLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : messages.length === 0 ? (
-        <Alert color="success" variant="soft" startDecorator={<CheckCircleIcon />}>
-          No hay mensajes fallidos. ¡Todos los envíos fueron exitosos!
-        </Alert>
-      ) : (
-        <>
-          {/* Resumen de estados */}
-          <Grid container spacing={2}>
-            <Grid xs={12} sm={4}>
-              <Card sx={{ borderLeft: '4px solid #f59e0b' }}>
-                <CardContent>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Pendientes
-                  </Typography>
-                  <Typography level="h3" sx={{ color: '#f59e0b' }}>
-                    {messages.filter(m => m.status === 'pending').length}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid xs={12} sm={4}>
-              <Card sx={{ borderLeft: '4px solid #4caf50' }}>
-                <CardContent>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Reenviados
-                  </Typography>
-                  <Typography level="h3" sx={{ color: '#4caf50' }}>
-                    {messages.filter(m => m.status === 'retried').length}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid xs={12} sm={4}>
-              <Card sx={{ borderLeft: '4px solid #f44336' }}>
-                <CardContent>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Fallidos Definitivos
-                  </Typography>
-                  <Typography level="h3" sx={{ color: '#f44336' }}>
-                    {messages.filter(m => m.status === 'failed').length}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+              {failedLoading ? (
+                <div className="flex justify-center py-16">
+                  <CircularProgress />
+                </div>
+              ) : messages.length === 0 ? (
+                <div
+                  role="status"
+                  className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/14 px-4 py-3 text-sm text-success-text"
+                >
+                  <CheckCircle className="size-5 shrink-0" weight="fill" aria-hidden />
+                  No hay mensajes fallidos. ¡Todos los envíos fueron exitosos!
+                </div>
+              ) : (
+                <>
+                  {/* Resumen de estados */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <StatCard
+                      label="Pendientes"
+                      value={String(messages.filter(m => m.status === 'pending').length)}
+                      tone="primary"
+                      icon={<ArrowClockwise className="size-6" aria-hidden />}
+                    />
+                    <StatCard
+                      label="Reenviados"
+                      value={String(messages.filter(m => m.status === 'retried').length)}
+                      tone="success"
+                      icon={<CheckCircle className="size-6" weight="fill" aria-hidden />}
+                    />
+                    <StatCard
+                      label="Fallidos Definitivos"
+                      value={String(messages.filter(m => m.status === 'failed').length)}
+                      tone="destructive"
+                      icon={<XCircle className="size-6" weight="fill" aria-hidden />}
+                    />
+                  </div>
 
-          {/* Tabla de mensajes fallidos */}
-          <Sheet variant="outlined" sx={{ overflowX: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th>Número</th>
-                  <th>Mensaje</th>
-                  <th>Error</th>
-                  <th>Endpoint</th>
-                  <th>Estado</th>
-                  <th>Reintentos</th>
-                  <th>Fecha</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {messages.map((msg) => (
-                  <tr key={msg.id}>
-                    <td>
-                      <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                        {msg.number || 'N/A'}
-                      </Typography>
-                    </td>
-                    <td style={{ maxWidth: 200 }}>
-                      <JoyTooltip title={msg.message || ''}>
-                        <Typography level="body-sm" sx={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {msg.message?.substring(0, 50) || '(Sin mensaje)'}
-                          {msg.message && msg.message.length > 50 ? '...' : ''}
-                        </Typography>
-                      </JoyTooltip>
-                    </td>
-                    <td style={{ maxWidth: 200 }}>
-                      <JoyTooltip title={msg.error || ''}>
-                        <Typography level="body-sm" sx={{
-                          color: 'danger.main',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {msg.error?.substring(0, 40) || 'Error desconocido'}
-                          {msg.error && msg.error.length > 40 ? '...' : ''}
-                        </Typography>
-                      </JoyTooltip>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="soft">
-                        {msg.endpoint}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={getStatusColor(msg.status) as any}
-                      >
-                        {msg.status === 'pending' ? 'Pendiente' :
-                         msg.status === 'retried' ? 'Reenviado' : 'Fallido'}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {msg.retryCount}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm" sx={{ fontSize: '0.75rem' }}>
-                        {formatDate(msg.createdAt)}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <JoyTooltip title="Ver detalles">
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="primary"
-                            onClick={() => openDetails(msg)}
-                          >
-                            <VisibilityIcon fontSize="small" />
-                          </IconButton>
-                        </JoyTooltip>
-                        {msg.status === 'pending' && (
-                          <JoyTooltip title="Reintentar">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="success"
-                              onClick={() => handleRetry(msg.id)}
-                              disabled={retryingId === msg.id}
-                            >
-                              {retryingId === msg.id ? (
-                                <CircularProgress size="sm" />
-                              ) : (
-                                <RefreshIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </JoyTooltip>
-                        )}
-                        <JoyTooltip title="Eliminar">
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="danger"
-                            onClick={() => handleDelete(msg.id)}
-                            disabled={deletingId === msg.id}
-                          >
-                            {deletingId === msg.id ? (
-                              <CircularProgress size="sm" />
-                            ) : (
-                              <DeleteIcon fontSize="small" />
-                            )}
-                          </IconButton>
-                        </JoyTooltip>
-                      </Box>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
-        </>
-      )}
+                  {/* Tabla de mensajes fallidos */}
+                  <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[900px] text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/40 text-left">
+                            {failedColumns.map((c, i) => (
+                              <th
+                                key={i}
+                                className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                              >
+                                {c}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {messages.map((msg) => (
+                            <tr key={msg.id} className="transition-colors hover:bg-accent/40">
+                              <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-foreground">
+                                {msg.number || 'N/A'}
+                              </td>
+                              <td className="max-w-[200px] px-4 py-3">
+                                <Tooltip title={msg.message || ''}>
+                                  <span
+                                    tabIndex={msg.message ? 0 : undefined}
+                                    className="block truncate text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {msg.message?.substring(0, 50) || '(Sin mensaje)'}
+                                    {msg.message && msg.message.length > 50 ? '...' : ''}
+                                  </span>
+                                </Tooltip>
+                              </td>
+                              <td className="max-w-[200px] px-4 py-3">
+                                <Tooltip title={msg.error || ''}>
+                                  <span
+                                    tabIndex={msg.error ? 0 : undefined}
+                                    className="block truncate text-destructive-text outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {msg.error?.substring(0, 40) || 'Error desconocido'}
+                                    {msg.error && msg.error.length > 40 ? '...' : ''}
+                                  </span>
+                                </Tooltip>
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge variant="neutral">{msg.endpoint}</Badge>
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge variant={getStatusVariant(msg.status)} dot>
+                                  {msg.status === 'pending' ? 'Pendiente' :
+                                   msg.status === 'retried' ? 'Reenviado' : 'Fallido'}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                                {msg.retryCount}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                                {formatDate(msg.createdAt)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-end gap-0.5">
+                                  <ActionBtn
+                                    label="Ver detalles"
+                                    onClick={() => openDetails(msg)}
+                                    className="hover:bg-primary/10 hover:text-primary"
+                                  >
+                                    <Eye className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                  {(msg.status === 'pending' || msg.status === 'failed') && (
+                                    <ActionBtn
+                                      label="Reintentar"
+                                      onClick={() => handleRetry(msg.id)}
+                                      disabled={retryingId === msg.id}
+                                      className="hover:bg-success/10 hover:text-success-text"
+                                    >
+                                      {retryingId === msg.id ? (
+                                        <CircularProgress size="sm" />
+                                      ) : (
+                                        <ArrowClockwise className="size-[18px]" aria-hidden />
+                                      )}
+                                    </ActionBtn>
+                                  )}
+                                  <ActionBtn
+                                    label="Eliminar"
+                                    onClick={() => handleDelete(msg.id)}
+                                    disabled={deletingId === msg.id}
+                                    className="hover:bg-destructive/10 hover:text-destructive-text"
+                                  >
+                                    {deletingId === msg.id ? (
+                                      <CircularProgress size="sm" />
+                                    ) : (
+                                      <Trash className="size-[18px]" aria-hidden />
+                                    )}
+                                  </ActionBtn>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
 
-      {/* Modal de detalles */}
-      <Modal open={detailsOpen} onClose={() => setDetailsOpen(false)}>
-        <ModalDialog>
-          <DialogTitle>
-            <WarningIcon sx={{ color: 'warning.main', mr: 1 }} />
-            Detalles del Mensaje Fallido
-          </DialogTitle>
-          <DialogContent>
+                  {failedPagination && failedPagination.pages > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-muted-foreground">
+                        Página {failedPagination.page} de {failedPagination.pages} · {failedPagination.total} registros
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={failedPage <= 1 || failedLoading}
+                          onClick={() => setFailedPage(page => Math.max(1, page - 1))}
+                        >
+                          Anterior
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={failedPagination.page >= failedPagination.pages || failedLoading}
+                          onClick={() => setFailedPage(page => page + 1)}
+                        >
+                          Siguiente
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Modal de detalles */}
+        <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Warning className="size-5 text-warning-text" weight="fill" aria-hidden />
+                Detalles del Mensaje Fallido
+              </DialogTitle>
+              <DialogDescription>
+                Información completa del error devuelto por el proveedor.
+              </DialogDescription>
+            </DialogHeader>
+
             {selectedFailed && (
-              <Stack spacing={2} sx={{ mt: 1 }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Número
-                  </Typography>
-                  <Typography level="body-md">
+              <div className="space-y-4">
+                <DetailField label="Número">
+                  <p className="text-sm tabular-nums text-foreground">
                     {selectedFailed.number || 'N/A'}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Mensaje
-                  </Typography>
-                  <Sheet variant="soft" sx={{ p: 1, borderRadius: 'sm', maxHeight: 100, overflow: 'auto' }}>
-                    <Typography level="body-sm">
+                  </p>
+                </DetailField>
+
+                <DetailField label="Mensaje">
+                  <div className="max-h-[100px] overflow-auto rounded-md bg-muted p-2">
+                    <p className="text-sm text-foreground">
                       {selectedFailed.message || '(Sin mensaje)'}
-                    </Typography>
-                  </Sheet>
-                </Box>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Error
-                  </Typography>
-                  <Sheet variant="soft" color="danger" sx={{ p: 1, borderRadius: 'sm', maxHeight: 100, overflow: 'auto' }}>
-                    <Typography level="body-sm" sx={{ color: 'danger.main' }}>
+                    </p>
+                  </div>
+                </DetailField>
+
+                <DetailField label="Error">
+                  <div className="max-h-[100px] overflow-auto rounded-md bg-destructive/12 p-2">
+                    <p className="text-sm text-destructive-text">
                       {selectedFailed.error || 'Error desconocido'}
-                    </Typography>
-                  </Sheet>
-                </Box>
-                <Grid container spacing={2}>
-                  <Grid xs={6}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Código de Error
-                    </Typography>
-                    <Typography level="body-md">
+                    </p>
+                  </div>
+                </DetailField>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <DetailField label="Código de Error">
+                    <p className="text-sm text-foreground">
                       {selectedFailed.errorCode || 'N/A'}
-                    </Typography>
-                  </Grid>
-                  <Grid xs={6}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Subcódigo
-                    </Typography>
-                    <Typography level="body-md">
+                    </p>
+                  </DetailField>
+                  <DetailField label="Subcódigo">
+                    <p className="text-sm text-foreground">
                       {selectedFailed.errorSubcode || 'N/A'}
-                    </Typography>
-                  </Grid>
-                </Grid>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    FBTrace ID
-                  </Typography>
-                  <Typography level="body-sm" sx={{ fontFamily: 'monospace' }}>
+                    </p>
+                  </DetailField>
+                </div>
+
+                <DetailField label="FBTrace ID">
+                  <p className="break-all font-mono text-sm text-foreground">
                     {selectedFailed.fbtraceId || 'N/A'}
-                  </Typography>
-                </Box>
-                <Grid container spacing={2}>
-                  <Grid xs={6}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Endpoint
-                    </Typography>
-                    <Chip size="sm">
-                      {selectedFailed.endpoint}
-                    </Chip>
-                  </Grid>
-                  <Grid xs={6}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Estado
-                    </Typography>
-                    <Chip
-                      size="sm"
-                      color={getStatusColor(selectedFailed.status) as any}
-                    >
+                  </p>
+                </DetailField>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <DetailField label="Endpoint">
+                    <Badge variant="neutral">{selectedFailed.endpoint}</Badge>
+                  </DetailField>
+                  <DetailField label="Estado">
+                    <Badge variant={getStatusVariant(selectedFailed.status)} dot>
                       {selectedFailed.status}
-                    </Chip>
-                  </Grid>
-                </Grid>
-                <Grid container spacing={2}>
-                  <Grid xs={6}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Reintentos
-                    </Typography>
-                    <Typography level="body-md">
+                    </Badge>
+                  </DetailField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <DetailField label="Reintentos">
+                    <p className="text-sm tabular-nums text-foreground">
                       {selectedFailed.retryCount}
-                    </Typography>
-                  </Grid>
-                  <Grid xs={6}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Ticket ID
-                    </Typography>
-                    <Typography level="body-md">
+                    </p>
+                  </DetailField>
+                  <DetailField label="Ticket ID">
+                    <p className="text-sm tabular-nums text-foreground">
                       {selectedFailed.ticketId || 'N/A'}
-                    </Typography>
-                  </Grid>
-                </Grid>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Metadata
-                  </Typography>
-                  <Sheet variant="soft" sx={{ p: 1, borderRadius: 'sm', maxHeight: 150, overflow: 'auto' }}>
-                    <Typography level="body-sm" component="pre" sx={{ fontSize: '0.75rem', m: 0 }}>
-                      {JSON.stringify(selectedFailed.metadata, null, 2) || 'N/A'}
-                    </Typography>
-                  </Sheet>
-                </Box>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Fecha de Creación
-                  </Typography>
-                  <Typography level="body-md">
+                    </p>
+                  </DetailField>
+                </div>
+
+                <DetailField label="Metadata">
+                  <pre className="m-0 max-h-[150px] overflow-auto rounded-md bg-muted p-2 text-xs text-foreground">
+                    {JSON.stringify(selectedFailed.metadata, null, 2) || 'N/A'}
+                  </pre>
+                </DetailField>
+
+                <DetailField label="Fecha de Creación">
+                  <p className="text-sm text-foreground">
                     {formatDate(selectedFailed.createdAt)}
-                  </Typography>
-                </Box>
-              </Stack>
+                  </p>
+                </DetailField>
+              </div>
             )}
           </DialogContent>
-        </ModalDialog>
-      </Modal>
-    </Stack>
-  )
-  }
-
-  return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <ApiIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">API de Mensajes</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Integracion API para envio de mensajes
-              </Typography>
-            </Box>
-          </Stack>
-        </Stack>
-
-        {/* Tabs */}
-        <Tabs value={tabIndex} onChange={(_, value) => setTabIndex(value as number)}>
-          <TabList>
-            <Tab>
-              <DashboardIcon sx={{ mr: 1 }} />
-              Dashboard
-            </Tab>
-            <Tab>
-              <DescriptionIcon sx={{ mr: 1 }} />
-              Documentacion API
-            </Tab>
-            <Tab>
-              <ErrorIcon sx={{ mr: 1 }} />
-              Mensajes Fallidos
-            </Tab>
-          </TabList>
-
-          <TabPanel value={0} sx={{ p: 0, pt: 2 }}>
-            <DashboardContent />
-          </TabPanel>
-
-          <TabPanel value={1} sx={{ p: 0, pt: 2 }}>
-            <DocumentationContent />
-          </TabPanel>
-
-          <TabPanel value={2} sx={{ p: 0, pt: 2 }}>
-            <FailedMessagesContent />
-          </TabPanel>
-        </Tabs>
-      </Stack>
-    </Container>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   )
 }

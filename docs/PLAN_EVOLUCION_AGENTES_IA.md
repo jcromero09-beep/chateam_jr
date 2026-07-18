@@ -1,7 +1,7 @@
 # Plan de Evolución: Agentes IA y RAG Avanzado para ChatEAM JR
 
-**Versión:** 1.1
-**Fecha:** 28 de febrero de 2026
+**Versión:** 1.2
+**Fecha:** 19 de mayo de 2026
 **Autor:** Arquitectura & Estrategia — ChatEAM JR
 **Estado:** Propuesta Estratégica
 
@@ -135,7 +135,7 @@ Transformar ChatEAM JR de una plataforma CRM con IA básica (chatbot reactivo co
 | **Multi-proveedor** (OpenAI, Anthropic, Google, Azure, Cohere, Mistral, DeepSeek) | 🔨 Arquitectura lista | 🟡 Parcial |
 | **Sistema de Prompts** | ✅ Producción | 🟢 Maduro |
 | **Templates de Prompts** | ✅ Implementado | 🟢 Maduro |
-| **RAG/Embeddings** | ⚠️ JSON files, búsqueda lineal | 🟡 Limitado |
+| **RAG/Embeddings** | ✅ AIChunks/pgvector + búsqueda híbrida en servicios IA | 🟢 Implementado |
 | **Sistema de Créditos + Stripe** | ✅ Producción | 🟢 Maduro |
 | **Generación de Imágenes** (DALL-E 3) | ✅ Producción | 🟢 Maduro |
 | **Generación de Videos** (Sora 2) | ✅ Producción | 🟢 Maduro |
@@ -143,11 +143,11 @@ Transformar ChatEAM JR de una plataforma CRM con IA básica (chatbot reactivo co
 | **Text-to-Speech** | ✅ Implementado | 🟢 Listo |
 | **Vision/Image Analysis** | ✅ Disponible | 🟢 Listo |
 | **Clasificación de Queue** | ✅ Producción | 🟢 Maduro |
-| **Memoria de Conversación** | ✅ Producción | 🟢 Maduro |
+| **Memoria de Conversación** | ✅ Ticket actual + QA histórica cross-ticket | 🟢 Maduro |
 | **Observabilidad IA** | ⚠️ Token tracking básico | 🟡 Parcial |
 | **Fallback de Proveedores** | ❌ No implementado | 🔴 Crítico |
-| **Cache Semántico** | ❌ No implementado | 🔴 Importante |
-| **Agentes Autónomos** | ❌ No existe | 🔴 Oportunidad |
+| **Cache Semántico** | ✅ Tabla/servicio disponible; uso parcial por flujo | 🟡 Parcial |
+| **Agentes Autónomos** | ✅ Supervisor + agentes especializados + tools | 🟢 Implementado |
 
 ### 3.2 Modelos OpenAI Actualmente Utilizados
 
@@ -161,52 +161,59 @@ Transformar ChatEAM JR de una plataforma CRM con IA básica (chatbot reactivo co
 | sora-2 | Generación de videos | 40-120 créditos | — |
 | whisper-1 | Transcripción de audio | $0.006/min | — |
 
-### 3.3 Arquitectura RAG Actual
+### 3.3 Arquitectura de Búsqueda Actual
 
 ```
-📁 Archivo (PDF/TXT/XLSX)
-    ↓
-📦 Chunking (400 palabras/chunk)
-    ↓
-🧬 Embeddings (text-embedding-3-small, 1536 dims)
-    ↓
-💾 Almacenamiento en JSON (/public/company{id}/ia/Embeddings/)
-    ↓
-🔍 ImprovedChunkSearch (5 pasos):
-    1. Keyword Matching
-    2. Semantic Search (cosine similarity)
-    3. Re-ranking Híbrido (70% semántica + 30% keywords)
-    4. Diversidad (evita redundancia >80%)
-    5. Formateo para Prompt
-    ↓
-🤖 LLM genera respuesta con contexto
+Mensaje del cliente
+  ↓
+QueryEnrichmentAgent
+  ├─ intent / targetAgent
+  ├─ enrichedQuery
+  ├─ hydeQuery
+  └─ keywords / alternativeQueries
+  ↓
+ResponsePlannerService
+  ├─ CurrentTicketMemoryService: hechos ya respondidos en el ticket actual
+  ├─ HistoricalQARetrieverService: AIHistoricalQA cross-ticket
+  │   ├─ pgvector: similitud semántica
+  │   ├─ pg_trgm: similitud textual
+  │   └─ filtros: companyId, idioma, canal, producto, intent, freshness
+  └─ MemoryJudgeAgent: decide si reutilizar o despachar
+  ↓
+Si no hay reuso confiable:
+  ├─ RAGAgentService: KB documental / AIChunks / búsqueda multi-query
+  ├─ SalesAgentService / SupportAgentService: tools + contexto
+  └─ AppointmentAgentService: citas
+  ↓
+ResponseGatekeeperService
+  ↓
+CurrentTicketMemory + AIHistoricalQA se actualizan después del gatekeeper
 ```
 
-**Limitaciones críticas:**
-- ❌ Embeddings en archivos JSON → Búsqueda lineal O(n)
-- ❌ RAG solo funciona si hay archivo adjunto al prompt
-- ❌ Sin Knowledge Base global por empresa
-- ❌ Sin cache de respuestas similares
-- ❌ Context window limitado (se trunca en conversaciones largas)
-- ❌ Sin fallback si API falla
+**Punto clave para búsqueda de mensajes/tickets:** ya existe una memoria histórica reutilizable (`AIHistoricalQA`) alimentada por `QAExtractorService`. Es mejor usar esta capa que programar una búsqueda nueva sobre `Messages`, porque ya trae embeddings, trigrama, filtros multi-tenant y un juez de relevancia antes de responder al cliente.
+
+**Limitaciones actuales a vigilar:**
+- `AIHistoricalQA` debe existir vía migración (`20260519000001-create-ai-historical-qa.ts`) o SQL equivalente.
+- Las Q&A automáticas nacen con `verified=false`; el planner ahora permite usarlas solo si son recientes y tienen score alto. Las verificadas siguen teniendo prioridad.
+- La calidad depende de que `ticketHistory`, `contactInfo.plan`, `channel` y `companyId` lleguen completos al `SupervisorService`.
+- Falta cerrar mejor el loop de feedback positivo para marcar `AIHistoricalQA.verified=true` de forma automática.
 
 ### 3.4 Pipeline de Conversación IA Actual
 
 ```
 1. Mensaje entra → WhatsApp/Chat
    ↓
-2. OpenAiService procesa:
-   ├── Obtiene prompt de la queue
-   ├── Historial de conversación (últimos N mensajes)
-   ├── Si tiene archivo: Búsqueda RAG
-   ├── Genera contexto mejorado
-   └── Llamada a OpenAI via AIClientService
+2. Listener crea/actualiza Ticket y llama SupervisorService
    ↓
-3. Procesa respuesta:
-   ├── Analiza emociones/stage del cliente
-   ├── Enqueue StageClassifier job
-   ├── Tracking de tokens
-   └── Guarda response en DB
+3. SupervisorService:
+   ├── Preprocessing + sentimiento
+   ├── QueryEnrichmentAgent clasifica y enriquece búsqueda
+   ├── ResponsePlanner busca en ticket actual y AIHistoricalQA
+   ├── Si hay match confiable: responde por memory_reuse
+   ├── Si no: despacha a RAG/Sales/Support/Appointment
+   ├── ResponseGatekeeper valida/rewrite/escalate/ignore
+   ├── Stage classifier y token tracking
+   └── Escribe CurrentTicketMemory + AIHistoricalQA
    ↓
 4. Envía respuesta a WhatsApp/Chat
 ```
@@ -216,8 +223,15 @@ Transformar ChatEAM JR de una plataforma CRM con IA básica (chatbot reactivo co
 | Servicio | Archivo | Función |
 |----------|---------|---------|
 | `AIClientService` | `/services/AIClientService.ts` | Interface unificada multi-proveedor |
-| `OpenAiService` | `/services/IntegrationsServices/OpenAiService.ts` | Pipeline principal de chat IA |
-| `ImprovedChunkSearch` | `/services/IntegrationsServices/ImprovedContextRetrieval.ts` | Búsqueda híbrida RAG |
+| `SupervisorService` | `/services/AIAgentServices/SupervisorService.ts` | Orquestador principal de respuestas a clientes |
+| `QueryEnrichmentAgent` | `/services/AIAgentServices/QueryEnrichmentAgent.ts` | Clasificación + query enriquecida/HyDE/keywords |
+| `ResponsePlannerService` | `/services/AIAgentServices/ResponsePlannerService.ts` | Decide reuso de memoria antes de llamar agentes |
+| `HistoricalQARetrieverService` | `/services/AIAgentServices/HistoricalQARetrieverService.ts` | Búsqueda híbrida pgvector + pg_trgm en AIHistoricalQA |
+| `QAExtractorService` | `/services/AIAgentServices/QAExtractorService.ts` | Promueve turnos buenos a memoria histórica |
+| `MemoryJudgeAgent` | `/services/AIAgentServices/MemoryJudgeAgent.ts` | Juez de relevancia para reusar respuestas |
+| `CurrentTicketMemoryService` | `/services/AIAgentServices/CurrentTicketMemoryService.ts` | Memoria estructurada del ticket actual |
+| `RAGAgentService` | `/services/AIAgentServices/RAGAgentService.ts` | KB documental y búsqueda multi-query |
+| `ResponseGatekeeperService` | `/services/AIAgentServices/ResponseGatekeeperService.ts` | Valida o reescribe antes de enviar |
 | `ConversationAnalyzer` | `/services/IntegrationsServices/ConversationMemoryService.ts` | Análisis de historial |
 | `procesarArchivoYEmbeddings` | `/services/IntegrationsServices/procesarArchivoYEmbeddings.ts` | Procesamiento de archivos |
 | `AIProviderService` | `/services/AIProviderService.ts` | Selección de proveedor |
@@ -2146,6 +2160,6 @@ Semana:  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
 
 ---
 
-*Documento generado el 28 de febrero de 2026 — ChatEAM JR v1.1.0*
-*Versión 1.1: Enriquecido con mejoras importadas de MagicAI v10.20*
-*Próxima revisión: Tras aprobación de Fase 1*
+*Documento actualizado el 19 de mayo de 2026 — ChatEAM JR v1.2*
+*Versión 1.2: Estado real del flujo Supervisor/Planner/AIHistoricalQA para respuestas a clientes*
+*Próxima revisión: cerrar loop de feedback positivo para verificar memoria histórica automáticamente*

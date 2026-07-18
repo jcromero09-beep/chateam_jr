@@ -14,7 +14,8 @@ import { logWarn } from "../utils/logger";
 import { enqueueScheduledMessageOccurrence, removeScheduledMessageJobs } from "../queues";
 import path from "path";
 import fs from "fs";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 
 type IndexQuery = {
   searchParam?: string;

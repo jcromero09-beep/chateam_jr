@@ -1,55 +1,45 @@
 import { useState, useEffect, useCallback } from 'react'
+// [Reskin] CircularProgress se CONSERVA como MUI a propósito (no hay equivalente en el DS).
+import { CircularProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  Select,
-  Option,
-  FormControl,
-  FormLabel,
-  Switch,
-  Textarea,
-  Chip,
-  Divider,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Slider,
-  IconButton,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  CircularProgress,
-  Alert,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemContent,
-  ListItemDecorator,
-} from '@mui/joy'
-import {
-  Settings as SettingsIcon,
-  Palette as PaletteIcon,
-  Message as MessageIcon,
-  Code as CodeIcon,
-  Save as SaveIcon,
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  ContentCopy as CopyIcon,
-  Widgets as WidgetIcon,
-  WhatsApp as WhatsAppIcon,
-  Telegram as TelegramIcon,
-  Facebook as FacebookIcon,
-  Instagram as InstagramIcon,
-} from '@mui/icons-material'
+  Gear,
+  Palette,
+  ChatCircleText,
+  Code,
+  FloppyDisk,
+  Plus,
+  Trash,
+  Copy,
+  SquaresFour,
+  WhatsappLogo,
+  TelegramLogo,
+  FacebookLogo,
+  InstagramLogo,
+  Lightbulb,
+  Info,
+  X,
+} from '@phosphor-icons/react'
 import { toast } from 'react-toastify'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 interface Widget {
@@ -160,6 +150,77 @@ const defaultSettings: WidgetSettings = {
   queueId: null,
   customCSS: '',
   status: true,
+}
+
+// Sentinela: Radix Select no admite items con value="" (colisiona con "sin selección").
+const NO_QUEUE = 'none'
+
+// Estilo compartido para inputs/textareas (mismo look que el Input del design system)
+const inputClass =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-55'
+
+const textareaClass =
+  'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+const hintClass = 'text-xs text-muted-foreground'
+
+const cardClass =
+  'rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]'
+
+// Toggle accesible (role=switch) con tokens del DS — no hay wrapper Switch en @/components/ui.
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  onChange: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-0 p-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// Fila "título + descripción + toggle" reutilizada en General/Comportamiento.
+function SettingRow({
+  title,
+  description,
+  checked,
+  onChange,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onChange: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      <Toggle checked={checked} onChange={onChange} label={title} />
+    </div>
+  )
 }
 
 export default function WebChatSettings() {
@@ -353,7 +414,8 @@ export default function WebChatSettings() {
   // Generar código embed
   const generateEmbedCode = () => {
     const apiKey = selectedWidget?.apiKey || 'YOUR_API_KEY'
-    const backendUrl = window.location.origin.replace(':3000', ':8080') // Ajustar para producción
+    const widgetUrl = window.location.origin
+    const backendUrl = (import.meta.env.VITE_API_URL || 'https://appro.chateam.ws').replace(/\/$/, '')
 
     return `<!-- Widget de WebChat de JR Chateam -->
 <script>
@@ -361,9 +423,10 @@ export default function WebChatSettings() {
     w['ChatWidget']=o;w[o]=w[o]||function(){(w[o].q=w[o].q||[]).push(arguments)};
     js=d.createElement(s),fjs=d.getElementsByTagName(s)[0];
     js.id=o;js.src=f;js.async=1;fjs.parentNode.insertBefore(js,fjs);
-  }(window,document,'script','cw','${backendUrl}/webchat-widget.js'));
+  }(window,document,'script','cw','${widgetUrl}/webchat-widget.js'));
   cw('init', {
-    apiKey: '${apiKey}'
+    apiKey: '${apiKey}',
+    backendUrl: '${backendUrl}'
   });
 </script>`
   }
@@ -378,15 +441,15 @@ export default function WebChatSettings() {
   const getChannelIcon = (channel: string) => {
     switch (channel) {
       case 'whatsapp':
-        return <WhatsAppIcon sx={{ color: '#25D366' }} />
+        return <WhatsappLogo className="size-5 shrink-0 text-wa" weight="fill" aria-hidden />
       case 'telegram':
-        return <TelegramIcon sx={{ color: '#0088cc' }} />
+        return <TelegramLogo className="size-5 shrink-0 text-[#0088cc]" weight="fill" aria-hidden />
       case 'facebook':
-        return <FacebookIcon sx={{ color: '#1877F2' }} />
+        return <FacebookLogo className="size-5 shrink-0 text-[#1877f2]" weight="fill" aria-hidden />
       case 'instagram':
-        return <InstagramIcon sx={{ color: '#E4405F' }} />
+        return <InstagramLogo className="size-5 shrink-0 text-[#e4405f]" weight="fill" aria-hidden />
       default:
-        return <WhatsAppIcon />
+        return <WhatsappLogo className="size-5 shrink-0 text-wa" weight="fill" aria-hidden />
     }
   }
 
@@ -411,744 +474,709 @@ export default function WebChatSettings() {
 
   if (loading) {
     return (
-      <Container maxWidth="xl">
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-          <CircularProgress />
-        </Box>
-      </Container>
+      <div className="flex h-[50vh] items-center justify-center">
+        <CircularProgress />
+      </div>
     )
   }
 
+  // Estilos de la simulación del widget: dependen de datos del usuario
+  // (color/posición/tamaño elegidos), por eso van inline y no como tokens.
+  const [posY, posX] = settings.position.split('-')
+  const previewWidgetStyle = {
+    [posY]: 16,
+    [posX]: 16,
+    width: settings.size === 'small' ? 280 : settings.size === 'large' ? 380 : 320,
+    height: settings.size === 'small' ? 360 : settings.size === 'large' ? 500 : 420,
+    borderRadius: `${settings.borderRadius}px`,
+  } as React.CSSProperties
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <SettingsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Configuración del WebChat</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Gear className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Configuración del WebChat
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Crea y personaliza widgets embebibles para tu sitio web
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              color="neutral"
-              startDecorator={<AddIcon />}
-              onClick={handleCreateNew}
-            >
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleCreateNew}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nuevo Widget
             </Button>
             {selectedWidget && (
               <Button
-                variant="outlined"
-                color="danger"
-                startDecorator={<DeleteIcon />}
+                variant="outline"
+                size="sm"
+                className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
                 onClick={() => setDeleteModalOpen(true)}
               >
+                <Trash className="size-4" aria-hidden />
                 Eliminar
               </Button>
             )}
-            <Button
-              variant="solid"
-              color="primary"
-              startDecorator={saving ? <CircularProgress size="sm" /> : <SaveIcon />}
-              onClick={handleSave}
-              disabled={saving}
-            >
+            <Button size="sm" onClick={handleSave} loading={saving}>
+              {!saving && <FloppyDisk className="size-4" weight="fill" aria-hidden />}
               {saving ? 'Guardando...' : 'Guardar'}
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
-        <Grid container spacing={3}>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-12">
           {/* Lista de Widgets */}
-          <Grid xs={12} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="title-md" sx={{ mb: 2 }}>
-                  Mis Widgets ({widgets.length})
-                </Typography>
-                <List>
-                  {widgets.map((widget) => (
-                    <ListItem key={widget.id}>
-                      <ListItemButton
-                        selected={selectedWidget?.id === widget.id}
+          <div className="md:col-span-3">
+            <div className={cardClass}>
+              <h2 className="mb-3 text-sm font-semibold text-foreground">
+                Mis Widgets ({widgets.length})
+              </h2>
+              <ul className="m-0 list-none space-y-1 p-0">
+                {widgets.map((widget) => {
+                  const isSelected = selectedWidget?.id === widget.id
+                  return (
+                    <li key={widget.id}>
+                      <button
+                        type="button"
+                        aria-current={isSelected || undefined}
                         onClick={() => selectWidget(widget)}
+                        className={cn(
+                          'flex w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 px-2.5 py-2 text-left [font-family:inherit] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          isSelected
+                            ? 'bg-accent text-accent-foreground'
+                            : 'bg-transparent hover:bg-accent/40',
+                        )}
                       >
-                        <ListItemDecorator>
-                          {getChannelIcon(widget.channel)}
-                        </ListItemDecorator>
-                        <ListItemContent>
-                          <Typography level="body-sm" fontWeight="md">
+                        {getChannelIcon(widget.channel)}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">
                             {widget.name}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
                             {widget.whatsapp?.name || 'Sin conexión'}
-                          </Typography>
-                        </ListItemContent>
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={widget.status ? 'success' : 'neutral'}
-                        >
+                          </span>
+                        </span>
+                        <Badge variant={widget.status ? 'success' : 'neutral'}>
                           {widget.status ? 'Activo' : 'Inactivo'}
-                        </Chip>
-                      </ListItemButton>
-                    </ListItem>
-                  ))}
-                  {widgets.length === 0 && (
-                    <ListItem>
-                      <ListItemContent>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
-                          No hay widgets creados
-                        </Typography>
-                      </ListItemContent>
-                    </ListItem>
-                  )}
-                </List>
-              </CardContent>
-            </Card>
-          </Grid>
+                        </Badge>
+                      </button>
+                    </li>
+                  )
+                })}
+                {widgets.length === 0 && (
+                  <li className="px-2.5 py-6 text-center text-sm text-muted-foreground">
+                    No hay widgets creados
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
 
           {/* Configuración */}
-          <Grid xs={12} md={showPreview ? 5 : 9}>
-            <Card>
-              <Tabs value={selectedTab} onChange={(_, value) => setSelectedTab(value as number)}>
-                <TabList>
-                  <Tab>
-                    <WidgetIcon sx={{ mr: 1 }} />
+          <div className={showPreview ? 'md:col-span-5' : 'md:col-span-9'}>
+            <div className={cardClass}>
+              <Tabs
+                value={String(selectedTab)}
+                onValueChange={(value) => setSelectedTab(Number(value))}
+              >
+                {/* flex-nowrap + scroll horizontal: con 5 tabs no siempre caben. */}
+                <TabsList className="flex max-w-full flex-nowrap overflow-x-auto">
+                  <TabsTrigger value="0">
+                    <SquaresFour className="size-4" aria-hidden />
                     General
-                  </Tab>
-                  <Tab>
-                    <PaletteIcon sx={{ mr: 1 }} />
+                  </TabsTrigger>
+                  <TabsTrigger value="1">
+                    <Palette className="size-4" aria-hidden />
                     Apariencia
-                  </Tab>
-                  <Tab>
-                    <MessageIcon sx={{ mr: 1 }} />
+                  </TabsTrigger>
+                  <TabsTrigger value="2">
+                    <ChatCircleText className="size-4" aria-hidden />
                     Mensajes
-                  </Tab>
-                  <Tab>
-                    <SettingsIcon sx={{ mr: 1 }} />
+                  </TabsTrigger>
+                  <TabsTrigger value="3">
+                    <Gear className="size-4" aria-hidden />
                     Comportamiento
-                  </Tab>
-                  <Tab>
-                    <CodeIcon sx={{ mr: 1 }} />
+                  </TabsTrigger>
+                  <TabsTrigger value="4">
+                    <Code className="size-4" aria-hidden />
                     Código
-                  </Tab>
-                </TabList>
+                  </TabsTrigger>
+                </TabsList>
 
                 {/* Tab General */}
-                <TabPanel value={0}>
-                  <Stack spacing={3}>
-                    <Typography level="h4">Configuración General</Typography>
+                <TabsContent value="0" className="mt-5 space-y-5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Configuración General
+                  </h3>
 
-                    <FormControl>
-                      <FormLabel>Nombre del Widget</FormLabel>
-                      <Input
-                        value={settings.name}
-                        onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                        placeholder="Mi Widget Principal"
-                      />
-                    </FormControl>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="widget-name">Nombre del Widget</Label>
+                    <input
+                      id="widget-name"
+                      value={settings.name}
+                      onChange={(e) => setSettings({ ...settings, name: e.target.value })}
+                      placeholder="Mi Widget Principal"
+                      className={inputClass}
+                    />
+                  </div>
 
-                    <FormControl>
-                      <FormLabel>Conexión a Usar</FormLabel>
-                      <Select
-                        value={settings.whatsappId?.toString() || ''}
-                        onChange={(_, value) => {
-                          const connId = value ? parseInt(value as string, 10) : null
-                          const conn = connections.find(c => c.id === connId)
-                          setSettings({
-                            ...settings,
-                            whatsappId: connId,
-                            channel: conn?.channel || 'whatsapp',
-                          })
-                        }}
-                        placeholder="Selecciona una conexión"
-                      >
+                  <div className="space-y-1.5">
+                    <Label htmlFor="widget-connection">Conexión a Usar</Label>
+                    <Select
+                      value={settings.whatsappId?.toString() || ''}
+                      onValueChange={(value) => {
+                        const connId = value ? parseInt(value, 10) : null
+                        const conn = connections.find(c => c.id === connId)
+                        setSettings({
+                          ...settings,
+                          whatsappId: connId,
+                          channel: conn?.channel || 'whatsapp',
+                        })
+                      }}
+                    >
+                      <SelectTrigger id="widget-connection" className="h-11">
+                        <SelectValue placeholder="Selecciona una conexión" />
+                      </SelectTrigger>
+                      <SelectContent>
                         {connections.map((conn) => (
-                          <Option key={conn.id} value={conn.id.toString()}>
-                            <Stack direction="row" spacing={1} alignItems="center">
+                          <SelectItem key={conn.id} value={conn.id.toString()}>
+                            <span className="flex items-center gap-2">
                               {getChannelIcon(conn.channel)}
                               <span>{conn.name}</span>
-                              <Chip size="sm" variant="soft" color={conn.status === 'CONNECTED' ? 'success' : 'warning'}>
+                              <Badge variant={conn.status === 'CONNECTED' ? 'success' : 'warning'}>
                                 {conn.status}
-                              </Chip>
-                            </Stack>
-                          </Option>
+                              </Badge>
+                            </span>
+                          </SelectItem>
                         ))}
-                      </Select>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                        El widget usará esta conexión para crear tickets
-                      </Typography>
-                    </FormControl>
+                      </SelectContent>
+                    </Select>
+                    <p className={hintClass}>
+                      El widget usará esta conexión para crear tickets
+                    </p>
+                  </div>
 
-                    <FormControl>
-                      <FormLabel>Cola por Defecto</FormLabel>
-                      <Select
-                        value={settings.queueId?.toString() || ''}
-                        onChange={(_, value) => setSettings({ ...settings, queueId: value ? parseInt(value as string, 10) : null })}
-                        placeholder="Sin cola específica"
-                      >
-                        <Option value="">Sin cola específica</Option>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="widget-queue">Cola por Defecto</Label>
+                    <Select
+                      value={settings.queueId?.toString() || NO_QUEUE}
+                      onValueChange={(value) =>
+                        setSettings({
+                          ...settings,
+                          queueId: value === NO_QUEUE ? null : parseInt(value, 10),
+                        })
+                      }
+                    >
+                      <SelectTrigger id="widget-queue" className="h-11">
+                        <SelectValue placeholder="Sin cola específica" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_QUEUE}>Sin cola específica</SelectItem>
                         {queues.map((queue) => (
-                          <Option key={queue.id} value={queue.id.toString()}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: queue.color }} />
+                          <SelectItem key={queue.id} value={queue.id.toString()}>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className="size-3 shrink-0 rounded-full"
+                                style={{ backgroundColor: queue.color }}
+                                aria-hidden
+                              />
                               <span>{queue.name}</span>
-                            </Stack>
-                          </Option>
+                            </span>
+                          </SelectItem>
                         ))}
-                      </Select>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                        Los tickets del widget se asignarán a esta cola
-                      </Typography>
-                    </FormControl>
+                      </SelectContent>
+                    </Select>
+                    <p className={hintClass}>
+                      Los tickets del widget se asignarán a esta cola
+                    </p>
+                  </div>
 
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Estado del Widget
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Activa o desactiva el widget sin eliminarlo
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.status}
-                        onChange={(e) => setSettings({ ...settings, status: e.target.checked })}
-                        color={settings.status ? 'success' : 'neutral'}
-                      />
-                    </Box>
+                  <SettingRow
+                    title="Estado del Widget"
+                    description="Activa o desactiva el widget sin eliminarlo"
+                    checked={settings.status}
+                    onChange={() => setSettings({ ...settings, status: !settings.status })}
+                  />
 
-                    {selectedWidget && (
-                      <Alert color="neutral" variant="soft">
-                        <Typography level="body-sm">
-                          <strong>API Key:</strong> {selectedWidget.apiKey}
-                        </Typography>
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          onClick={() => {
-                            navigator.clipboard.writeText(selectedWidget.apiKey)
-                            toast.success('API Key copiada')
-                          }}
-                        >
-                          <CopyIcon fontSize="small" />
-                        </IconButton>
-                      </Alert>
-                    )}
-                  </Stack>
-                </TabPanel>
+                  {selectedWidget && (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 p-3">
+                      <p className="min-w-0 text-sm text-foreground">
+                        <span className="font-semibold">API Key:</span>{' '}
+                        <span className="break-all font-mono">{selectedWidget.apiKey}</span>
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Copiar API Key"
+                        className="size-8 shrink-0"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedWidget.apiKey)
+                          toast.success('API Key copiada')
+                        }}
+                      >
+                        <Copy className="size-4" aria-hidden />
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
 
                 {/* Tab Apariencia */}
-                <TabPanel value={1}>
-                  <Stack spacing={3}>
-                    <Typography level="h4">Personalización Visual</Typography>
+                <TabsContent value="1" className="mt-5 space-y-5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Personalización Visual
+                  </h3>
 
-                    <Grid container spacing={2}>
-                      <Grid xs={12} sm={6}>
-                        <FormControl>
-                          <FormLabel>Color Primario</FormLabel>
-                          <Input
-                            type="color"
-                            value={settings.primaryColor}
-                            onChange={(e) => setSettings({ ...settings, primaryColor: e.target.value })}
-                          />
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                            Color del encabezado y botones
-                          </Typography>
-                        </FormControl>
-                      </Grid>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="widget-primary-color">Color Primario</Label>
+                      <input
+                        id="widget-primary-color"
+                        type="color"
+                        value={settings.primaryColor}
+                        onChange={(e) => setSettings({ ...settings, primaryColor: e.target.value })}
+                        className="h-11 w-full cursor-pointer rounded-md border border-input bg-card p-1"
+                      />
+                      <p className={hintClass}>Color del encabezado y botones</p>
+                    </div>
 
-                      <Grid xs={12} sm={6}>
-                        <FormControl>
-                          <FormLabel>Color Secundario</FormLabel>
-                          <Input
-                            type="color"
-                            value={settings.secondaryColor}
-                            onChange={(e) => setSettings({ ...settings, secondaryColor: e.target.value })}
-                          />
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                            Color de acentos y efectos hover
-                          </Typography>
-                        </FormControl>
-                      </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="widget-secondary-color">Color Secundario</Label>
+                      <input
+                        id="widget-secondary-color"
+                        type="color"
+                        value={settings.secondaryColor}
+                        onChange={(e) => setSettings({ ...settings, secondaryColor: e.target.value })}
+                        className="h-11 w-full cursor-pointer rounded-md border border-input bg-card p-1"
+                      />
+                      <p className={hintClass}>Color de acentos y efectos hover</p>
+                    </div>
 
-                      <Grid xs={12} sm={6}>
-                        <FormControl>
-                          <FormLabel>Posición en Pantalla</FormLabel>
-                          <Select
-                            value={settings.position}
-                            onChange={(_, value) => setSettings({ ...settings, position: value as string })}
-                          >
-                            <Option value="bottom-right">Abajo Derecha</Option>
-                            <Option value="bottom-left">Abajo Izquierda</Option>
-                            <Option value="top-right">Arriba Derecha</Option>
-                            <Option value="top-left">Arriba Izquierda</Option>
-                          </Select>
-                        </FormControl>
-                      </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="widget-position">Posición en Pantalla</Label>
+                      <Select
+                        value={settings.position}
+                        onValueChange={(value) => setSettings({ ...settings, position: value })}
+                      >
+                        <SelectTrigger id="widget-position" className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="bottom-right">Abajo Derecha</SelectItem>
+                          <SelectItem value="bottom-left">Abajo Izquierda</SelectItem>
+                          <SelectItem value="top-right">Arriba Derecha</SelectItem>
+                          <SelectItem value="top-left">Arriba Izquierda</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                      <Grid xs={12} sm={6}>
-                        <FormControl>
-                          <FormLabel>Tamaño del Widget</FormLabel>
-                          <Select
-                            value={settings.size}
-                            onChange={(_, value) => setSettings({ ...settings, size: value as string })}
-                          >
-                            <Option value="small">Pequeño</Option>
-                            <Option value="medium">Mediano</Option>
-                            <Option value="large">Grande</Option>
-                          </Select>
-                        </FormControl>
-                      </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="widget-size">Tamaño del Widget</Label>
+                      <Select
+                        value={settings.size}
+                        onValueChange={(value) => setSettings({ ...settings, size: value })}
+                      >
+                        <SelectTrigger id="widget-size" className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="small">Pequeño</SelectItem>
+                          <SelectItem value="medium">Mediano</SelectItem>
+                          <SelectItem value="large">Grande</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                      <Grid xs={12}>
-                        <FormControl>
-                          <FormLabel>Radio del Borde: {settings.borderRadius}px</FormLabel>
-                          <Slider
-                            min={0}
-                            max={32}
-                            value={settings.borderRadius}
-                            onChange={(_e, value) => setSettings({ ...settings, borderRadius: value as number })}
-                          />
-                        </FormControl>
-                      </Grid>
-                    </Grid>
-                  </Stack>
-                </TabPanel>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="widget-radius">
+                        Radio del Borde: {settings.borderRadius}px
+                      </Label>
+                      <input
+                        id="widget-radius"
+                        type="range"
+                        min={0}
+                        max={32}
+                        value={settings.borderRadius}
+                        onChange={(e) =>
+                          setSettings({ ...settings, borderRadius: Number(e.target.value) })
+                        }
+                        className="h-11 w-full cursor-pointer accent-primary"
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
 
                 {/* Tab Mensajes */}
-                <TabPanel value={2}>
-                  <Stack spacing={3}>
-                    <Typography level="h4">Mensajes del Widget</Typography>
+                <TabsContent value="2" className="mt-5 space-y-5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Mensajes del Widget
+                  </h3>
 
-                    <FormControl>
-                      <FormLabel>Mensaje de Bienvenida</FormLabel>
-                      <Textarea
-                        value={settings.welcomeMessage}
-                        onChange={(e) => setSettings({ ...settings, welcomeMessage: e.target.value })}
-                        minRows={2}
-                        placeholder="¡Hola! ¿En qué podemos ayudarte?"
-                      />
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                        Primer mensaje que verá el usuario
-                      </Typography>
-                    </FormControl>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="widget-welcome">Mensaje de Bienvenida</Label>
+                    <textarea
+                      id="widget-welcome"
+                      value={settings.welcomeMessage}
+                      onChange={(e) => setSettings({ ...settings, welcomeMessage: e.target.value })}
+                      rows={2}
+                      placeholder="¡Hola! ¿En qué podemos ayudarte?"
+                      className={textareaClass}
+                    />
+                    <p className={hintClass}>Primer mensaje que verá el usuario</p>
+                  </div>
 
-                    <FormControl>
-                      <FormLabel>Mensaje Fuera de Línea</FormLabel>
-                      <Textarea
-                        value={settings.offlineMessage}
-                        onChange={(e) => setSettings({ ...settings, offlineMessage: e.target.value })}
-                        minRows={2}
-                        placeholder="Lo sentimos, no hay agentes disponibles..."
-                      />
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                        Mensaje cuando no hay agentes conectados
-                      </Typography>
-                    </FormControl>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="widget-offline">Mensaje Fuera de Línea</Label>
+                    <textarea
+                      id="widget-offline"
+                      value={settings.offlineMessage}
+                      onChange={(e) => setSettings({ ...settings, offlineMessage: e.target.value })}
+                      rows={2}
+                      placeholder="Lo sentimos, no hay agentes disponibles..."
+                      className={textareaClass}
+                    />
+                    <p className={hintClass}>Mensaje cuando no hay agentes conectados</p>
+                  </div>
 
-                    <FormControl>
-                      <FormLabel>Texto del Placeholder</FormLabel>
-                      <Input
-                        value={settings.placeholderText}
-                        onChange={(e) => setSettings({ ...settings, placeholderText: e.target.value })}
-                        placeholder="Escribe tu mensaje..."
-                      />
-                    </FormControl>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="widget-placeholder">Texto del Placeholder</Label>
+                    <input
+                      id="widget-placeholder"
+                      value={settings.placeholderText}
+                      onChange={(e) => setSettings({ ...settings, placeholderText: e.target.value })}
+                      placeholder="Escribe tu mensaje..."
+                      className={inputClass}
+                    />
+                  </div>
 
-                    <Box sx={{ p: 2, bgcolor: 'primary.softBg', borderRadius: 'sm' }}>
-                      <Typography level="body-sm">
-                        💡 Tip: Usa un lenguaje amigable y cercano para aumentar el engagement
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </TabPanel>
+                  <div className="flex items-start gap-2 rounded-lg bg-primary/10 p-4">
+                    <Lightbulb className="mt-0.5 size-4 shrink-0 text-primary" weight="fill" aria-hidden />
+                    <p className="text-sm text-foreground">
+                      Tip: Usa un lenguaje amigable y cercano para aumentar el engagement
+                    </p>
+                  </div>
+                </TabsContent>
 
                 {/* Tab Comportamiento */}
-                <TabPanel value={3}>
-                  <Stack spacing={3}>
-                    <Typography level="h4">Opciones de Comportamiento</Typography>
+                <TabsContent value="3" className="mt-5 space-y-5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Opciones de Comportamiento
+                  </h3>
 
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Abrir Automáticamente
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          El widget se abrirá automáticamente después de un tiempo
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.autoOpen}
-                        onChange={(e) => setSettings({ ...settings, autoOpen: e.target.checked })}
+                  <SettingRow
+                    title="Abrir Automáticamente"
+                    description="El widget se abrirá automáticamente después de un tiempo"
+                    checked={settings.autoOpen}
+                    onChange={() => setSettings({ ...settings, autoOpen: !settings.autoOpen })}
+                  />
+
+                  {settings.autoOpen && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="widget-autoopen-delay">
+                        Delay de Apertura (segundos): {settings.autoOpenDelay}s
+                      </Label>
+                      <input
+                        id="widget-autoopen-delay"
+                        type="range"
+                        min={1}
+                        max={10}
+                        value={settings.autoOpenDelay}
+                        onChange={(e) =>
+                          setSettings({ ...settings, autoOpenDelay: Number(e.target.value) })
+                        }
+                        className="h-11 w-full cursor-pointer accent-primary"
                       />
-                    </Box>
+                    </div>
+                  )}
 
-                    {settings.autoOpen && (
-                      <FormControl>
-                        <FormLabel>Delay de Apertura (segundos): {settings.autoOpenDelay}s</FormLabel>
-                        <Slider
-                          min={1}
-                          max={10}
-                          value={settings.autoOpenDelay}
-                          onChange={(_e, value) => setSettings({ ...settings, autoOpenDelay: value as number })}
+                  <div className="border-t border-border" />
+
+                  <SettingRow
+                    title="Mostrar Avatar del Agente"
+                    description="Muestra la foto del agente en los mensajes"
+                    checked={settings.showAvatar}
+                    onChange={() => setSettings({ ...settings, showAvatar: !settings.showAvatar })}
+                  />
+
+                  <SettingRow
+                    title="Mostrar Nombre del Agente"
+                    description="Muestra el nombre del agente que responde"
+                    checked={settings.showAgentName}
+                    onChange={() => setSettings({ ...settings, showAgentName: !settings.showAgentName })}
+                  />
+
+                  <SettingRow
+                    title="Sonido de Notificación"
+                    description="Reproduce un sonido al recibir mensajes"
+                    checked={settings.enableSound}
+                    onChange={() => setSettings({ ...settings, enableSound: !settings.enableSound })}
+                  />
+
+                  <SettingRow
+                    title="Permitir Subir Archivos"
+                    description="Los usuarios pueden enviar imágenes y documentos"
+                    checked={settings.enableFileUpload}
+                    onChange={() => setSettings({ ...settings, enableFileUpload: !settings.enableFileUpload })}
+                  />
+
+                  <div className="border-t border-border" />
+
+                  <SettingRow
+                    title="Horario de Atención"
+                    description="Muestra mensaje offline fuera del horario"
+                    checked={settings.workingHoursEnabled}
+                    onChange={() =>
+                      setSettings({ ...settings, workingHoursEnabled: !settings.workingHoursEnabled })
+                    }
+                  />
+
+                  {settings.workingHoursEnabled && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="widget-hours">Horario</Label>
+                        <input
+                          id="widget-hours"
+                          value={settings.workingHours}
+                          onChange={(e) => setSettings({ ...settings, workingHours: e.target.value })}
+                          placeholder="Lun-Vie: 9:00-18:00"
+                          className={inputClass}
                         />
-                      </FormControl>
-                    )}
+                      </div>
 
-                    <Divider />
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Mostrar Avatar del Agente
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Muestra la foto del agente en los mensajes
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.showAvatar}
-                        onChange={(e) => setSettings({ ...settings, showAvatar: e.target.checked })}
-                      />
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Mostrar Nombre del Agente
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Muestra el nombre del agente que responde
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.showAgentName}
-                        onChange={(e) => setSettings({ ...settings, showAgentName: e.target.checked })}
-                      />
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Sonido de Notificación
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Reproduce un sonido al recibir mensajes
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.enableSound}
-                        onChange={(e) => setSettings({ ...settings, enableSound: e.target.checked })}
-                      />
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Permitir Subir Archivos
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Los usuarios pueden enviar imágenes y documentos
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.enableFileUpload}
-                        onChange={(e) => setSettings({ ...settings, enableFileUpload: e.target.checked })}
-                      />
-                    </Box>
-
-                    <Divider />
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography level="body-md" fontWeight="bold">
-                          Horario de Atención
-                        </Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                          Muestra mensaje offline fuera del horario
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={settings.workingHoursEnabled}
-                        onChange={(e) => setSettings({ ...settings, workingHoursEnabled: e.target.checked })}
-                      />
-                    </Box>
-
-                    {settings.workingHoursEnabled && (
-                      <>
-                        <FormControl>
-                          <FormLabel>Horario</FormLabel>
-                          <Input
-                            value={settings.workingHours}
-                            onChange={(e) => setSettings({ ...settings, workingHours: e.target.value })}
-                            placeholder="Lun-Vie: 9:00-18:00"
-                          />
-                        </FormControl>
-
-                        <FormControl>
-                          <FormLabel>Zona Horaria</FormLabel>
-                          <Select
-                            value={settings.timezone}
-                            onChange={(_, value) => setSettings({ ...settings, timezone: value as string })}
-                          >
-                            <Option value="America/Santiago">Santiago (GMT-3)</Option>
-                            <Option value="America/Mexico_City">Ciudad de México (GMT-6)</Option>
-                            <Option value="America/Buenos_Aires">Buenos Aires (GMT-3)</Option>
-                            <Option value="America/Sao_Paulo">São Paulo (GMT-3)</Option>
-                            <Option value="Europe/Madrid">Madrid (GMT+1)</Option>
-                          </Select>
-                        </FormControl>
-                      </>
-                    )}
-                  </Stack>
-                </TabPanel>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="widget-timezone">Zona Horaria</Label>
+                        <Select
+                          value={settings.timezone}
+                          onValueChange={(value) => setSettings({ ...settings, timezone: value })}
+                        >
+                          <SelectTrigger id="widget-timezone" className="h-11">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="America/Santiago">Santiago (GMT-3)</SelectItem>
+                            <SelectItem value="America/Mexico_City">Ciudad de México (GMT-6)</SelectItem>
+                            <SelectItem value="America/Buenos_Aires">Buenos Aires (GMT-3)</SelectItem>
+                            <SelectItem value="America/Sao_Paulo">São Paulo (GMT-3)</SelectItem>
+                            <SelectItem value="Europe/Madrid">Madrid (GMT+1)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
+                </TabsContent>
 
                 {/* Tab Código */}
-                <TabPanel value={4}>
-                  <Stack spacing={3}>
-                    <Typography level="h4">Código de Instalación</Typography>
+                <TabsContent value="4" className="mt-5 space-y-5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Código de Instalación
+                  </h3>
 
-                    {!selectedWidget ? (
-                      <Alert color="warning" variant="soft">
+                  {!selectedWidget ? (
+                    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/16 p-3">
+                      <Info className="mt-0.5 size-4 shrink-0 text-warning-text" weight="fill" aria-hidden />
+                      <p className="text-sm text-warning-text">
                         Guarda el widget primero para obtener el código de instalación
-                      </Alert>
-                    ) : (
-                      <>
-                        <Box>
-                          <Typography level="body-sm" sx={{ mb: 1 }}>
-                            Copia y pega este código antes del cierre de la etiqueta <code>&lt;/body&gt;</code> en tu sitio web:
-                          </Typography>
-                          <Box
-                            sx={{
-                              p: 2,
-                              bgcolor: 'neutral.softBg',
-                              borderRadius: 'sm',
-                              fontFamily: 'monospace',
-                              fontSize: 'xs',
-                              overflow: 'auto',
-                              maxHeight: 300,
-                            }}
-                          >
-                            <pre style={{ margin: 0 }}>{generateEmbedCode()}</pre>
-                          </Box>
-                          <Button
-                            fullWidth
-                            variant="outlined"
-                            startDecorator={<CopyIcon />}
-                            sx={{ mt: 2 }}
-                            onClick={handleCopyCode}
-                          >
-                            Copiar Código
-                          </Button>
-                        </Box>
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="mb-2 text-sm text-foreground">
+                          Copia y pega este código antes del cierre de la etiqueta{' '}
+                          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                            &lt;/body&gt;
+                          </code>{' '}
+                          en tu sitio web:
+                        </p>
+                        <div className="max-h-[300px] overflow-auto rounded-md border border-border bg-muted p-4">
+                          <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs text-foreground">
+                            {generateEmbedCode()}
+                          </pre>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3 w-full"
+                          onClick={handleCopyCode}
+                        >
+                          <Copy className="size-4" aria-hidden />
+                          Copiar Código
+                        </Button>
+                      </div>
 
-                        <Divider />
+                      <div className="border-t border-border" />
 
-                        <FormControl>
-                          <FormLabel>Dominios Permitidos</FormLabel>
-                          <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
-                            {settings.allowedDomains.map((domain) => (
-                              <Chip
-                                key={domain}
-                                variant="soft"
-                                endDecorator={
-                                  <IconButton
-                                    size="sm"
-                                    variant="plain"
-                                    color="neutral"
-                                    onClick={() => handleRemoveDomain(domain)}
-                                  >
-                                    ×
-                                  </IconButton>
-                                }
+                      <div className="space-y-1.5">
+                        <Label htmlFor="widget-domain">Dominios Permitidos</Label>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {settings.allowedDomains.map((domain) => (
+                            <span
+                              key={domain}
+                              className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pl-2.5 pr-1 text-xs font-medium text-foreground"
+                            >
+                              {domain}
+                              <button
+                                type="button"
+                                aria-label={`Quitar dominio ${domain}`}
+                                title={`Quitar dominio ${domain}`}
+                                onClick={() => handleRemoveDomain(domain)}
+                                className="flex size-6 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive-text focus-visible:ring-2 focus-visible:ring-ring"
                               >
-                                {domain}
-                              </Chip>
-                            ))}
-                            {settings.allowedDomains.length === 0 && (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                Sin restricciones (funciona en cualquier dominio)
-                              </Typography>
-                            )}
-                          </Stack>
-                          <Stack direction="row" spacing={1}>
-                            <Input
-                              size="sm"
-                              placeholder="ejemplo.com"
-                              value={newDomain}
-                              onChange={(e) => setNewDomain(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleAddDomain()}
-                              sx={{ flex: 1 }}
-                            />
-                            <Button size="sm" onClick={handleAddDomain}>
-                              Agregar
-                            </Button>
-                          </Stack>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                            El widget solo funcionará en estos dominios (dejar vacío para sin restricciones)
-                          </Typography>
-                        </FormControl>
-
-                        <FormControl>
-                          <FormLabel>CSS Personalizado (Opcional)</FormLabel>
-                          <Textarea
-                            value={settings.customCSS}
-                            onChange={(e) => setSettings({ ...settings, customCSS: e.target.value })}
-                            minRows={6}
-                            placeholder=".webchat-widget { ... }"
-                            sx={{ fontFamily: 'monospace', fontSize: 'sm' }}
+                                <X className="size-3" weight="bold" aria-hidden />
+                              </button>
+                            </span>
+                          ))}
+                          {settings.allowedDomains.length === 0 && (
+                            <p className={hintClass}>
+                              Sin restricciones (funciona en cualquier dominio)
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="widget-domain"
+                            placeholder="ejemplo.com"
+                            value={newDomain}
+                            onChange={(e) => setNewDomain(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddDomain()}
+                            className={cn(inputClass, 'h-9 flex-1')}
                           />
-                        </FormControl>
-                      </>
-                    )}
-                  </Stack>
-                </TabPanel>
+                          <Button size="sm" onClick={handleAddDomain}>
+                            Agregar
+                          </Button>
+                        </div>
+                        <p className={hintClass}>
+                          El widget solo funcionará en estos dominios (dejar vacío para sin restricciones)
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="widget-css">CSS Personalizado (Opcional)</Label>
+                        <textarea
+                          id="widget-css"
+                          value={settings.customCSS}
+                          onChange={(e) => setSettings({ ...settings, customCSS: e.target.value })}
+                          rows={6}
+                          placeholder=".webchat-widget { ... }"
+                          className={cn(textareaClass, 'font-mono')}
+                        />
+                      </div>
+                    </>
+                  )}
+                </TabsContent>
               </Tabs>
-            </Card>
-          </Grid>
+            </div>
+          </div>
 
           {/* Vista Previa */}
           {showPreview && (
-            <Grid xs={12} md={4}>
-              <Card sx={{ position: 'sticky', top: 16 }}>
-                <CardContent>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                    <Typography level="h4">Vista Previa</Typography>
-                    <Button
-                      size="sm"
-                      variant="plain"
-                      onClick={() => setShowPreview(false)}
-                    >
-                      Ocultar
-                    </Button>
-                  </Stack>
+            <div className="md:col-span-4">
+              <div className={cn(cardClass, 'sticky top-4')}>
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-foreground">Vista Previa</h2>
+                  <Button variant="ghost" size="sm" onClick={() => setShowPreview(false)}>
+                    Ocultar
+                  </Button>
+                </div>
 
-                  <Box
-                    sx={{
-                      height: 450,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'sm',
-                      position: 'relative',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      overflow: 'hidden',
-                    }}
+                <div className="relative h-[450px] overflow-hidden rounded-lg border border-border bg-background">
+                  {/* Simulación del widget */}
+                  <div
+                    className="absolute flex flex-col overflow-hidden bg-card shadow-lg"
+                    style={previewWidgetStyle}
                   >
-                    {/* Simulación del widget */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        [settings.position.split('-')[0]]: 16,
-                        [settings.position.split('-')[1]]: 16,
-                        width: settings.size === 'small' ? 280 : settings.size === 'large' ? 380 : 320,
-                        height: settings.size === 'small' ? 360 : settings.size === 'large' ? 500 : 420,
-                        bgcolor: 'background.surface',
-                        borderRadius: `${settings.borderRadius}px`,
-                        boxShadow: 'lg',
-                        display: 'flex',
-                        flexDirection: 'column',
+                    {/* Header */}
+                    <div
+                      className="p-4"
+                      style={{
+                        backgroundColor: settings.primaryColor,
+                        borderRadius: `${settings.borderRadius}px ${settings.borderRadius}px 0 0`,
                       }}
                     >
-                      {/* Header */}
-                      <Box
-                        sx={{
-                          p: 2,
-                          bgcolor: settings.primaryColor,
-                          color: 'white',
-                          borderRadius: `${settings.borderRadius}px ${settings.borderRadius}px 0 0`,
-                        }}
-                      >
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          {getChannelIcon(settings.channel)}
-                          <Box>
-                            <Typography level="body-md" fontWeight="bold" sx={{ color: 'white' }}>
-                              {settings.name || 'Chat de Soporte'}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                              En línea
-                            </Typography>
-                          </Box>
-                        </Stack>
-                      </Box>
+                      <div className="flex items-center gap-2">
+                        {getChannelIcon(settings.channel)}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">
+                            {settings.name || 'Chat de Soporte'}
+                          </p>
+                          <p className="text-xs text-white/80">En línea</p>
+                        </div>
+                      </div>
+                    </div>
 
-                      {/* Messages */}
-                      <Box sx={{ flexGrow: 1, p: 2, overflow: 'auto' }}>
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            bgcolor: 'neutral.softBg',
-                            borderRadius: 'sm',
-                            mb: 1,
-                            maxWidth: '85%',
-                          }}
-                        >
-                          <Typography level="body-sm">{settings.welcomeMessage}</Typography>
-                        </Box>
-                      </Box>
+                    {/* Messages */}
+                    <div className="flex-1 overflow-auto p-4">
+                      <div className="mb-2 max-w-[85%] rounded-lg bg-muted p-3">
+                        <p className="text-sm text-foreground">{settings.welcomeMessage}</p>
+                      </div>
+                    </div>
 
-                      {/* Input */}
-                      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-                        <Input placeholder={settings.placeholderText} disabled size="sm" />
-                      </Box>
-                    </Box>
-                  </Box>
+                    {/* Input */}
+                    <div className="border-t border-border p-4">
+                      <input
+                        placeholder={settings.placeholderText}
+                        disabled
+                        aria-label="Vista previa del campo de mensaje"
+                        className={cn(inputClass, 'h-9')}
+                      />
+                    </div>
+                  </div>
+                </div>
 
-                  <Stack spacing={1} sx={{ mt: 2 }}>
-                    <Chip size="sm" variant="soft" color="primary">
-                      Posición: {getPositionLabel(settings.position)}
-                    </Chip>
-                    <Chip size="sm" variant="soft" color="neutral">
-                      Tamaño: {getSizeLabel(settings.size)}
-                    </Chip>
-                    <Chip size="sm" variant="soft" color={settings.status ? 'success' : 'warning'}>
-                      Estado: {settings.status ? 'Activo' : 'Inactivo'}
-                    </Chip>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
+                <div className="mt-4 flex flex-col items-start gap-1.5">
+                  <Badge variant="primary">
+                    Posición: {getPositionLabel(settings.position)}
+                  </Badge>
+                  <Badge variant="neutral">Tamaño: {getSizeLabel(settings.size)}</Badge>
+                  <Badge variant={settings.status ? 'success' : 'warning'}>
+                    Estado: {settings.status ? 'Activo' : 'Inactivo'}
+                  </Badge>
+                </div>
+              </div>
+            </div>
           )}
 
           {!showPreview && (
-            <Grid xs={12}>
-              <Button
-                variant="plain"
-                onClick={() => setShowPreview(true)}
-                sx={{ width: '100%' }}
-              >
+            <div className="md:col-span-12">
+              <Button variant="outline" className="w-full" onClick={() => setShowPreview(true)}>
                 Mostrar Vista Previa
               </Button>
-            </Grid>
+            </div>
           )}
-        </Grid>
-      </Stack>
+        </div>
+      </div>
 
       {/* Modal de confirmación de eliminación */}
-      <Modal open={deleteModalOpen} onClose={() => setDeleteModalOpen(false)}>
-        <ModalDialog variant="outlined" role="alertdialog">
-          <ModalClose />
-          <Typography level="h4">Eliminar Widget</Typography>
-          <Typography level="body-md">
-            ¿Estás seguro de que deseas eliminar el widget "{selectedWidget?.name}"? Esta acción no se puede deshacer.
-          </Typography>
-          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
-            <Button variant="plain" color="neutral" onClick={() => setDeleteModalOpen(false)}>
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Eliminar Widget</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar el widget "{selectedWidget?.name}"? Esta acción no
+              se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setDeleteModalOpen(false)}>
               Cancelar
             </Button>
-            <Button variant="solid" color="danger" onClick={handleDelete}>
+            <Button
+              size="sm"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDelete}
+            >
               Eliminar
             </Button>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

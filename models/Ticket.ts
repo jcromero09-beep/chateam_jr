@@ -76,6 +76,29 @@ class Ticket extends Model<Ticket> {
   @Column(DataType.BOOLEAN)
   followupEnabled: boolean;
 
+  // ─── PRIMERA OLA (2026-05-07) — TicketFlowEngine + Seguimientos automáticos ──
+  @Default("intake")
+  @Column(DataType.STRING)
+  flowState: string;
+
+  @Default(0)
+  @Column(DataType.INTEGER)
+  flowStep: number;
+
+  @Default({})
+  @Column(DataType.JSONB)
+  flowMetadata: Record<string, any>;
+
+  @Column(DataType.DATE)
+  nextFollowupAt: Date | null;
+
+  @Column(DataType.DATE)
+  lastFollowupAt: Date | null;
+
+  @Column(DataType.STRING)
+  followupReason: string | null;
+  // ─── /PRIMERA OLA ────────────────────────────────────────────────────────────
+
   @Default(false)
   @Column(DataType.BOOLEAN)
   isGroup: boolean;
@@ -157,6 +180,11 @@ class Ticket extends Model<Ticket> {
   @Column(DataType.STRING)
   channel: string;
 
+  // [Fase2·C3.1] Origen del ticket: 'paid' (vino de anuncio CTWA) | 'organic'.
+  // Separa los embudos de pauta vs orgánico en métricas/reportes.
+  @Column(DataType.STRING)
+  sourceKind: string;
+
   @AllowNull(false)
   @Default(0)
   @Column(DataType.INTEGER)
@@ -188,6 +216,11 @@ class Ticket extends Model<Ticket> {
 
   @Column(DataType.DATE)
   imported: Date;
+
+  // Campo VIRTUAL — no se persiste en BD. Señaliza al frontend que el
+  // contacto ya tenía un ticket activo y se reutilizó (no se creó uno nuevo).
+  @Column(DataType.VIRTUAL)
+  alreadyOpen: boolean;
 
   @Default(false)
   @Column(DataType.BOOLEAN)
@@ -228,6 +261,16 @@ class Ticket extends Model<Ticket> {
   @Default("inactive")
   @Column(DataType.STRING(20))
   aiStatus: string;
+
+  // ─── FASE 3 Coexistencia WhatsApp — identidad unificada ──────────────
+  @AllowNull(true)
+  @Column(DataType.UUID)
+  conversationId: string | null;
+
+  @AllowNull(true)
+  @Column(DataType.STRING(20))
+  inboundChannelHint: string | null;
+  // ─── /FASE 3 Coexistencia ────────────────────────────────────────────
 }
 
 export default Ticket;

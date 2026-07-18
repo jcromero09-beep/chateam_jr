@@ -1,28 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
+// [Fase2·G] Conservados como MUI Joy a propósito: CircularProgress / LinearProgress
+// (no hay equivalente en el design system Tailwind/Radix todavía).
+import { LinearProgress, CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  LinearProgress,
-  Chip,
-  Table,
-  Sheet,
-  Button,
-  Select,
-  Option,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Psychology as AIIcon,
-  TrendingUp as TrendingUpIcon,
-  Speed as SpeedIcon,
-  AttachMoney as CostIcon,
-  Refresh as RefreshIcon,
-  AccountBalanceWallet as WalletIcon,
-  ShoppingCart as ShopIcon,
-} from '@mui/icons-material'
+  Brain,
+  TrendUp,
+  Gauge,
+  CurrencyDollar,
+  ArrowClockwise,
+  Wallet,
+  ShoppingCart,
+} from '@phosphor-icons/react'
 import {
   AreaChart,
   Area,
@@ -38,6 +26,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import api from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import SubplanModal from '../components/SubplanModal'
@@ -90,6 +87,28 @@ interface SubplanConsumption {
   tokensConsumed: number
 }
 
+type BalanceTone = 'neutral' | 'danger' | 'warning' | 'success'
+
+// [a11y] Texto semántico con los tokens *-text; los tokens --success/--warning/
+// --destructive son de superficie y no alcanzan 4.5:1 como color de texto.
+const TONE_TEXT: Record<BalanceTone, string> = {
+  neutral: 'text-foreground',
+  danger: 'text-destructive-text',
+  warning: 'text-warning-text',
+  success: 'text-success-text',
+}
+
+// Estilo compartido de los tooltips de recharts (tokens, no colores fijos).
+const CHART_TOOLTIP_STYLE = {
+  background: 'var(--popover)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius)',
+  color: 'var(--popover-foreground)',
+  fontSize: 12,
+} as const
+
+const CHART_AXIS_TICK = { fill: 'var(--muted-foreground)', fontSize: 12 } as const
+
 export default function OpenAIDashboard() {
   const { user } = useAuth()
   const [timeRange, setTimeRange] = useState('30d')
@@ -104,6 +123,14 @@ export default function OpenAIDashboard() {
     activeSubplanId: number | null
   } | null>(null)
   const [subplanModalOpen, setSubplanModalOpen] = useState(false)
+
+  // Balance UNIFICADO (AICreditBalance — sistema nuevo).
+  const [unifiedSummary, setUnifiedSummary] = useState<{
+    totalCredits: number
+    totalUsed: number
+    totalRemaining: number
+    byKey: Record<string, { totalCredits: number; usedCredits: number; remaining: number; name: string }>
+  } | null>(null)
 
   // Verificar si el usuario es superadmin
   const isSuperAdmin = user?.profile === 'super' || user?.super === true
@@ -128,7 +155,7 @@ export default function OpenAIDashboard() {
       setLoading(true)
       setError(null)
 
-      // Cargar info de tokens desde Company
+      // Cargar info de tokens desde Company (LEGACY — Company.aiTokenBalance)
       try {
         const companyRes = await api.get('/companies/find')
         const company = companyRes.data
@@ -140,6 +167,14 @@ export default function OpenAIDashboard() {
       } catch (tokenErr) {
         console.error('Error fetching company info:', tokenErr)
         // No bloquear si falla la carga de company info
+      }
+
+      // Cargar resumen UNIFICADO (AICreditBalance — sistema actual de cobro IA).
+      try {
+        const summaryRes = await api.get('/ai/credits/summary')
+        setUnifiedSummary(summaryRes.data)
+      } catch (sumErr) {
+        console.error('Error fetching unified credits summary:', sumErr)
       }
 
       // Solo cargar subplans si el usuario es superadmin
@@ -191,7 +226,7 @@ export default function OpenAIDashboard() {
   }
 
   // Calcular color semáforo basado en porcentaje de tokens restantes
-  const getTokenBalanceColor = () => {
+  const getTokenBalanceColor = (): BalanceTone => {
     if (!tokenInfo?.activeSubplan) return 'neutral'
     const totalTokens = Number(tokenInfo.activeSubplan.tokens || 0)
     const currentBalance = Number(tokenInfo.tokenBalance || 0)
@@ -213,210 +248,502 @@ export default function OpenAIDashboard() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
+  const balanceTone = getTokenBalanceColor()
+
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AIIcon sx={{ fontSize: 32 }} />
-            Dashboard OpenAI
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Metricas de uso, tokens y costos de modelos de IA
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Select value={timeRange} onChange={(_, val) => setTimeRange(val as string)} size="sm">
-            <Option value="24h">Ultimas 24 horas</Option>
-            <Option value="7d">Ultimos 7 dias</Option>
-            <Option value="30d">Ultimos 30 dias</Option>
-            <Option value="90d">Ultimos 90 dias</Option>
-          </Select>
-          <Button variant="outlined" size="sm" startDecorator={<RefreshIcon />} onClick={fetchData}>
-            Actualizar
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Brain className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Dashboard OpenAI
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Metricas de uso, tokens y costos de modelos de IA
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={timeRange} onValueChange={setTimeRange}>
+              <SelectTrigger className="w-[190px]" aria-label="Rango de tiempo">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24h">Ultimas 24 horas</SelectItem>
+                <SelectItem value="7d">Ultimos 7 dias</SelectItem>
+                <SelectItem value="30d">Ultimos 30 dias</SelectItem>
+                <SelectItem value="90d">Ultimos 90 dias</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
+            </Button>
+          </div>
+        </div>
 
-      {error && (
-        <Card sx={{ mb: 3, bgcolor: 'danger.softBg' }}>
-          <CardContent>
-            <Typography color="danger">{error}</Typography>
-          </CardContent>
-        </Card>
-      )}
+        {error && (
+          <div
+            role="alert"
+            className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-medium text-destructive-text"
+          >
+            {error}
+          </div>
+        )}
 
-      {/* KPIs Principales */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Tokens (Este mes)
-                  </Typography>
-                  <Typography level="h3">{formatNumber(data.stats.totalTokensMonth)}</Typography>
-                </Box>
-                <AIIcon sx={{ fontSize: 40, color: 'primary.500', opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+        {/* KPIs Principales */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Tokens (Este mes)</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {formatNumber(data.stats.totalTokensMonth)}
+                </p>
+              </div>
+              <Brain className="size-10 shrink-0 text-primary/30" weight="fill" aria-hidden />
+            </div>
+          </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Total Tokens (Historico)
-                  </Typography>
-                  <Typography level="h3">{formatNumber(data.stats.totalTokensAll)}</Typography>
-                </Box>
-                <TrendingUpIcon sx={{ fontSize: 40, color: 'success.500', opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Tokens (Historico)</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {formatNumber(data.stats.totalTokensAll)}
+                </p>
+              </div>
+              <TrendUp className="size-10 shrink-0 text-success-text/30" weight="fill" aria-hidden />
+            </div>
+          </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Costo (Este mes)
-                  </Typography>
-                  <Typography level="h3">{formatCurrency(data.stats.totalCostMonth)}</Typography>
-                </Box>
-                <CostIcon sx={{ fontSize: 40, color: 'warning.500', opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Costo (Este mes)</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {formatCurrency(data.stats.totalCostMonth)}
+                </p>
+              </div>
+              <CurrencyDollar className="size-10 shrink-0 text-warning-text/30" weight="fill" aria-hidden />
+            </div>
+          </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Costo Total (Historico)
-                  </Typography>
-                  <Typography level="h3">{formatCurrency(data.stats.totalCostAll)}</Typography>
-                </Box>
-                <SpeedIcon sx={{ fontSize: 40, color: 'info.500', opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Costo Total (Historico)</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {formatCurrency(data.stats.totalCostAll)}
+                </p>
+              </div>
+              <Gauge className="size-10 shrink-0 text-brand-cyan/40" weight="fill" aria-hidden />
+            </div>
+          </div>
+        </div>
 
-      {/* Metricas Adicionales */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={4}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                Modelos Activos
-              </Typography>
-              <Typography level="h4">{data.stats.activeModels} modelos</Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 1 }}>
-                Configurados y en uso
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+        {/* Metricas Adicionales */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <p className="text-sm text-muted-foreground">Modelos Activos</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight text-foreground">
+              {data.stats.activeModels} modelos
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Configurados y en uso</p>
+          </div>
 
-        <Grid xs={12} sm={6} md={4}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                Costo Promedio / Request
-              </Typography>
-              <Typography level="h4">{formatCurrency(data.stats.avgCostPerRequest)}</Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 1 }}>
-                Estimado por solicitud
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <p className="text-sm text-muted-foreground">Costo Promedio / Request</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight tabular-nums text-foreground">
+              {formatCurrency(data.stats.avgCostPerRequest)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Estimado por solicitud</p>
+          </div>
 
-        <Grid xs={12} sm={6} md={4}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                Modelo Mas Usado
-              </Typography>
-              <Typography level="h4">{data.stats.popularModel}</Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 1 }}>
-                Mayor cantidad de tokens
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <p className="text-sm text-muted-foreground">Modelo Mas Usado</p>
+            <p className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground">
+              {data.stats.popularModel}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Mayor cantidad de tokens</p>
+          </div>
+        </div>
 
-      {/* Card de Balance de Tokens IA */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
-              <WalletIcon sx={{ fontSize: 40, color: `${getTokenBalanceColor()}.500` }} />
-              <Box sx={{ flex: 1 }}>
-                <Typography level="title-lg" sx={{ mb: 0.5 }}>
-                  Balance de Tokens IA
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                  <Typography level="h2" sx={{ color: `${getTokenBalanceColor()}.600` }}>
+        {/* Card de Balance de Tokens IA */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-1 items-center gap-4">
+              <Wallet className={`size-10 shrink-0 ${TONE_TEXT[balanceTone]}`} weight="fill" aria-hidden />
+              <div className="flex-1">
+                <h2 className="text-base font-semibold text-foreground">Balance de Tokens IA</h2>
+                <div className="mt-0.5 flex items-baseline gap-2">
+                  <span className={`text-2xl font-semibold tracking-tight tabular-nums ${TONE_TEXT[balanceTone]}`}>
                     {formatNumber(tokenInfo?.tokenBalance || 0)}
-                  </Typography>
-                  <Typography level="body-md">tokens disponibles</Typography>
-                </Box>
+                  </span>
+                  <span className="text-sm text-muted-foreground">tokens disponibles</span>
+                </div>
                 {tokenInfo?.activeSubplan && (
-                  <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                    <Chip size="sm" variant="soft" color="primary">
-                      Plan activo: {tokenInfo.activeSubplan.name} ({formatNumber(tokenInfo.activeSubplan.tokens)} tokens)
-                    </Chip>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    <div>
+                      <Badge variant="primary">
+                        Plan activo: {tokenInfo.activeSubplan.name} ({formatNumber(tokenInfo.activeSubplan.tokens)} tokens)
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <LinearProgress
                         determinate
                         value={getTokenPercentage()}
-                        color={getTokenBalanceColor()}
+                        color={balanceTone}
                         sx={{ flex: 1, height: 8 }}
                       />
-                      <Typography level="body-xs" sx={{ minWidth: 45, color: `${getTokenBalanceColor()}.600` }}>
+                      <span className={`min-w-[45px] text-xs tabular-nums ${TONE_TEXT[balanceTone]}`}>
                         {getTokenPercentage().toFixed(1)}%
-                      </Typography>
-                    </Box>
-                  </Box>
+                      </span>
+                    </div>
+                  </div>
                 )}
                 {!tokenInfo?.activeSubplan && (
-                  <Typography level="body-sm" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+                  <p className="mt-1 text-sm text-muted-foreground">
                     No tienes un plan activo. Compra tokens para comenzar.
-                  </Typography>
+                  </p>
                 )}
-              </Box>
-            </Box>
-            <Button
-              variant="solid"
-              color="primary"
-              size="lg"
-              startDecorator={<ShopIcon />}
-              onClick={() => setSubplanModalOpen(true)}
-            >
+              </div>
+            </div>
+            <Button size="lg" onClick={() => setSubplanModalOpen(true)}>
+              <ShoppingCart className="size-5" aria-hidden />
               {tokenInfo?.activeSubplan ? 'Comprar Más Tokens' : 'Comprar Tokens'}
             </Button>
-          </Box>
-        </CardContent>
-      </Card>
+          </div>
+        </div>
+
+        {/* Card de Créditos UNIFICADOS (sistema actual de cobro IA) */}
+        {unifiedSummary && (
+          <div className="rounded-xl border border-success/40 bg-success/[0.06] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  Créditos IA disponibles (sistema unificado)
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Balance real cobrado por todas las acciones IA: chat, classification,
+                  agent_execution, flow_execution, image, video, audio, vision, etc.
+                </p>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-2xl font-semibold tracking-tight tabular-nums text-success-text">
+                    {formatNumber(unifiedSummary.totalRemaining)}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    de {formatNumber(unifiedSummary.totalCredits)} créditos
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Usados: {formatNumber(unifiedSummary.totalUsed)} créditos
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.entries(unifiedSummary.byKey)
+                    .filter(([, v]) => v.totalCredits > 0)
+                    .slice(0, 6)
+                    .map(([key, v]) => (
+                      <Badge key={key} variant="primary">
+                        {v.name}: {formatNumber(v.remaining)} / {formatNumber(v.totalCredits)}
+                      </Badge>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Consumo de Tokens por Subplan */}
+        {subplans.length > 0 && (
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="border-b border-border px-5 py-4">
+              <h2 className="text-base font-semibold text-foreground">
+                Consumo de Tokens por Subplan
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Subplan
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Tokens Totales
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Usados
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Restantes
+                    </th>
+                    <th className="w-[200px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Progreso
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {subplans.map((subplan) => {
+                    const remaining = Number(subplan.tokens) - Number(subplan.tokensConsumed || 0)
+                    const usedPercent = Number(subplan.tokens) > 0
+                      ? (Number(subplan.tokensConsumed || 0) / Number(subplan.tokens)) * 100
+                      : 0
+                    return (
+                      <tr key={subplan.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 font-medium text-foreground">{subplan.name}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                          {formatNumber(Number(subplan.tokens))}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                          {formatNumber(Number(subplan.tokensConsumed || 0))}
+                        </td>
+                        <td
+                          className={`px-4 py-3 text-right tabular-nums font-medium ${
+                            remaining > 0 ? 'text-success-text' : 'text-destructive-text'
+                          }`}
+                        >
+                          {formatNumber(remaining)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <LinearProgress
+                              determinate
+                              value={Math.min(usedPercent, 100)}
+                              color={usedPercent > 90 ? 'danger' : usedPercent > 70 ? 'warning' : 'success'}
+                              sx={{ flex: 1 }}
+                            />
+                            <span className="min-w-[40px] text-xs tabular-nums text-muted-foreground">
+                              {usedPercent.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Graficos */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Tendencia de Tokens por Mes */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] lg:col-span-2">
+            <h2 className="mb-4 text-base font-semibold text-foreground">Uso de Tokens por Mes</h2>
+            {data.tokenTrends.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={data.tokenTrends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="month" tick={CHART_AXIS_TICK} stroke="var(--border)" />
+                  <YAxis tick={CHART_AXIS_TICK} stroke="var(--border)" />
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    formatter={((value: number) => formatNumber(value)) as any}
+                  />
+                  <Legend />
+                  <Area
+                    type="monotone"
+                    dataKey="tokens"
+                    stroke="var(--success)"
+                    fill="var(--success)"
+                    name="Tokens"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center">
+                <p className="text-sm text-muted-foreground">Sin datos de tendencia disponibles</p>
+              </div>
+            )}
+          </div>
+
+          {/* Distribucion por Modelo */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 text-base font-semibold text-foreground">Distribucion por Modelo</h2>
+            {data.modelUsage.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={data.modelUsage as any}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={(props: any) => `${(props.name || '').split('-')[0]} ${props.value}%`}
+                    outerRadius={80}
+                    fill="var(--primary)"
+                    dataKey="value"
+                  >
+                    {data.modelUsage.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    formatter={((value: number, name: string) => [`${value}%`, name]) as any}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center">
+                <p className="text-sm text-muted-foreground">Sin datos de modelos disponibles</p>
+              </div>
+            )}
+          </div>
+
+          {/* Tendencia de Costos */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] lg:col-span-3">
+            <h2 className="mb-4 text-base font-semibold text-foreground">Costos por Mes</h2>
+            {data.tokenTrends.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={data.tokenTrends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="month" tick={CHART_AXIS_TICK} stroke="var(--border)" />
+                  <YAxis tick={CHART_AXIS_TICK} stroke="var(--border)" />
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    formatter={((value: number) => formatCurrency(value)) as any}
+                  />
+                  <Legend />
+                  <Bar dataKey="cost" fill="var(--warning)" name="Costo (USD)" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center">
+                <p className="text-sm text-muted-foreground">Sin datos de costos disponibles</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Detalle por Modelo */}
+        {data.modelUsage.length > 0 && (
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="border-b border-border px-5 py-4">
+              <h2 className="text-base font-semibold text-foreground">Detalle por Modelo</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Modelo
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Tokens
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Costo USD
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      % del Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {data.modelUsage.map((model) => (
+                    <tr key={model.name} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="size-3 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
+                            style={{ backgroundColor: model.color }}
+                            aria-hidden
+                          />
+                          <span className="font-medium text-foreground">{model.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {formatNumber(model.tokens)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {formatCurrency(model.cost)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          <LinearProgress determinate value={model.value} sx={{ width: 60 }} />
+                          <span className="tabular-nums text-muted-foreground">{model.value}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Actividad Reciente */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">Actividad Reciente</h2>
+          </div>
+          {data.recentActivity.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="w-[100px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Mes
+                    </th>
+                    <th className="w-[180px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Modelo
+                    </th>
+                    <th className="w-[120px] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Tokens
+                    </th>
+                    <th className="w-[120px] whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Costo USD
+                    </th>
+                    <th className="w-[180px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Ultima actualizacion
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {data.recentActivity.map((activity) => (
+                    <tr key={activity.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <Badge variant="neutral">{activity.month}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">{activity.model}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {formatNumber(activity.tokens_month)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {formatCurrency(activity.cost_usd_month)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                        {formatDate(activity.updated_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-muted-foreground">
+                No hay actividad registrada aun. Los tokens se registraran cuando la IA responda mensajes.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Modal de compra de subplans */}
       <SubplanModal
@@ -427,266 +754,6 @@ export default function OpenAIDashboard() {
         }}
         currentTokenInfo={tokenInfo}
       />
-
-      {/* Consumo de Tokens por Subplan */}
-      {subplans.length > 0 && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography level="title-lg" sx={{ mb: 2 }}>
-              Consumo de Tokens por Subplan
-            </Typography>
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th>Subplan</th>
-                    <th style={{ textAlign: 'right' }}>Tokens Totales</th>
-                    <th style={{ textAlign: 'right' }}>Usados</th>
-                    <th style={{ textAlign: 'right' }}>Restantes</th>
-                    <th style={{ width: 200 }}>Progreso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subplans.map((subplan) => {
-                    const remaining = Number(subplan.tokens) - Number(subplan.tokensConsumed || 0)
-                    const usedPercent = Number(subplan.tokens) > 0
-                      ? (Number(subplan.tokensConsumed || 0) / Number(subplan.tokens)) * 100
-                      : 0
-                    return (
-                      <tr key={subplan.id}>
-                        <td>
-                          <Typography level="body-sm" fontWeight="lg">{subplan.name}</Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm">{formatNumber(Number(subplan.tokens))}</Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm">{formatNumber(Number(subplan.tokensConsumed || 0))}</Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm" sx={{ color: remaining > 0 ? 'success.600' : 'danger.600' }}>
-                            {formatNumber(remaining)}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <LinearProgress
-                              determinate
-                              value={Math.min(usedPercent, 100)}
-                              color={usedPercent > 90 ? 'danger' : usedPercent > 70 ? 'warning' : 'success'}
-                              sx={{ flex: 1 }}
-                            />
-                            <Typography level="body-xs" sx={{ minWidth: 40 }}>
-                              {usedPercent.toFixed(0)}%
-                            </Typography>
-                          </Box>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </Table>
-            </Sheet>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Graficos */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        {/* Tendencia de Tokens por Mes */}
-        <Grid xs={12} lg={8}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Uso de Tokens por Mes
-              </Typography>
-              {data.tokenTrends.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={data.tokenTrends}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip formatter={((value: number) => formatNumber(value)) as any} />
-                    <Legend />
-                    <Area type="monotone" dataKey="tokens" stroke="#10b981" fill="#10b981" name="Tokens" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Sin datos de tendencia disponibles
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Distribucion por Modelo */}
-        <Grid xs={12} lg={4}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Distribucion por Modelo
-              </Typography>
-              {data.modelUsage.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={data.modelUsage as any}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(props: any) => `${(props.name || '').split('-')[0]} ${props.value}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {data.modelUsage.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={((value: number, name: string) => [`${value}%`, name]) as any} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Sin datos de modelos disponibles
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Tendencia de Costos */}
-        <Grid xs={12}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 2 }}>
-                Costos por Mes
-              </Typography>
-              {data.tokenTrends.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={data.tokenTrends}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip formatter={((value: number) => formatCurrency(value)) as any} />
-                    <Legend />
-                    <Bar dataKey="cost" fill="#f59e0b" name="Costo (USD)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    Sin datos de costos disponibles
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Detalle por Modelo */}
-      {data.modelUsage.length > 0 && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography level="title-lg" sx={{ mb: 2 }}>
-              Detalle por Modelo
-            </Typography>
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th>Modelo</th>
-                    <th style={{ textAlign: 'right' }}>Tokens</th>
-                    <th style={{ textAlign: 'right' }}>Costo USD</th>
-                    <th style={{ textAlign: 'right' }}>% del Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.modelUsage.map((model) => (
-                    <tr key={model.name}>
-                      <td>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: model.color }} />
-                          <Typography level="body-sm">{model.name}</Typography>
-                        </Box>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm">{formatNumber(model.tokens)}</Typography>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm">{formatCurrency(model.cost)}</Typography>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'flex-end' }}>
-                          <LinearProgress determinate value={model.value} sx={{ width: 60 }} />
-                          <Typography level="body-sm">{model.value}%</Typography>
-                        </Box>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Actividad Reciente */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            Actividad Reciente
-          </Typography>
-          {data.recentActivity.length > 0 ? (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 100 }}>Mes</th>
-                    <th style={{ width: 180 }}>Modelo</th>
-                    <th style={{ width: 120, textAlign: 'right' }}>Tokens</th>
-                    <th style={{ width: 120, textAlign: 'right' }}>Costo USD</th>
-                    <th style={{ width: 180 }}>Ultima actualizacion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recentActivity.map((activity) => (
-                    <tr key={activity.id}>
-                      <td>
-                        <Chip size="sm" variant="soft">{activity.month}</Chip>
-                      </td>
-                      <td>
-                        <Chip size="sm" variant="outlined">{activity.model}</Chip>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm">{formatNumber(activity.tokens_month)}</Typography>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography level="body-sm">{formatCurrency(activity.cost_usd_month)}</Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">{formatDate(activity.updated_at)}</Typography>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
-          ) : (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                No hay actividad registrada aun. Los tokens se registraran cuando la IA responda mensajes.
-              </Typography>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-    </Box>
+    </div>
   )
 }

@@ -69,7 +69,7 @@ REGLAS:
 - Cada memoria debe ser una oracion concisa`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

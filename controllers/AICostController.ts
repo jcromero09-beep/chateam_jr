@@ -63,12 +63,14 @@ export const getCacheStats = async (req: Request, res: Response): Promise<Respon
 // ============================================================================
 
 import { Op } from "sequelize";
+import AICreditBalance from "../models/AICreditBalance";
 import AICreditTransaction from "../models/AICreditTransaction";
 import AICreditType from "../models/AICreditType";
 import Company from "../models/Company";
 
 // Pricing de OpenAI (USD por 1M tokens)
 const OPENAI_PRICING: Record<string, { input: number; output: number }> = {
+  "gpt-5.5": { input: 5, output: 30 },
   "gpt-4": { input: 30, output: 60 },
   "gpt-4-turbo": { input: 10, output: 30 },
   "gpt-4o": { input: 5, output: 15 },
@@ -312,7 +314,6 @@ export const getAICompanySummary = async (req: Request, res: Response): Promise<
       byAgent[source].cost += Number(tx.realCostUsd) || 0;
     }
 
-    const AICreditBalance = require("../models/AICreditBalance").default;
     const currentBalances = await AICreditBalance.findAll({
       where: { companyId },
       attributes: ["creditTypeId", "totalCredits", "usedCredits"]

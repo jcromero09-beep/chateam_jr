@@ -1,31 +1,21 @@
 import { useState, useEffect } from 'react'
+import { LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Switch,
-  LinearProgress,
-  Alert as _Alert,
-  Divider,
-} from '@mui/joy'
-import {
-  Extension as IntegrationIcon,
-  CheckCircle as CheckIcon,
-  Warning as WarningIcon,
-  Settings as SettingsIcon,
-  Refresh as RefreshIcon,
-  WhatsApp as WhatsAppIcon,
-  Telegram as TelegramIcon,
-  Email as EmailIcon,
-  Payment as StripeIcon,
-  Campaign as MetaIcon,
-} from '@mui/icons-material'
+  PuzzlePiece,
+  CheckCircle,
+  Warning,
+  Gear,
+  ArrowClockwise,
+  WhatsappLogo,
+  TelegramLogo,
+  EnvelopeSimple,
+  CreditCard,
+  Megaphone,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 interface Integration {
@@ -41,11 +31,44 @@ interface Integration {
 
 // Mapa de iconos por id para reconstruir el nodo React desde la API
 const ICON_MAP: Record<string, React.ReactNode> = {
-  whatsapp: <WhatsAppIcon sx={{ color: '#25D366' }} />,
-  telegram: <TelegramIcon sx={{ color: '#0088cc' }} />,
-  stripe: <StripeIcon sx={{ color: '#635BFF' }} />,
-  email: <EmailIcon sx={{ color: '#EA4335' }} />,
-  meta: <MetaIcon sx={{ color: '#1877F2' }} />,
+  whatsapp: <WhatsappLogo className="size-6" weight="fill" style={{ color: '#25D366' }} aria-hidden />,
+  telegram: <TelegramLogo className="size-6" weight="fill" style={{ color: '#0088cc' }} aria-hidden />,
+  stripe: <CreditCard className="size-6" weight="fill" style={{ color: '#635BFF' }} aria-hidden />,
+  email: <EnvelopeSimple className="size-6" weight="fill" style={{ color: '#EA4335' }} aria-hidden />,
+  meta: <Megaphone className="size-6" weight="fill" style={{ color: '#1877F2' }} aria-hidden />,
+}
+
+// Toggle accesible (reemplaza el Switch de MUI). Solo presentación.
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  onChange: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
 }
 
 export default function Integrations() {
@@ -63,7 +86,7 @@ export default function Integrations() {
       const rawData: any[] = response.data?.data ?? response.data ?? []
       const mapped: Integration[] = rawData.map((item: any) => ({
         ...item,
-        icon: ICON_MAP[item.id] ?? <IntegrationIcon />,
+        icon: ICON_MAP[item.id] ?? <PuzzlePiece className="size-6" weight="fill" aria-hidden />,
       }))
       setIntegrations(mapped)
     } catch {
@@ -91,161 +114,132 @@ export default function Integrations() {
     )
   }
 
+  const getStatusBadge = (
+    status: Integration['status']
+  ): { label: string; variant: BadgeProps['variant']; active: boolean } => {
+    switch (status) {
+      case 'active':
+        return { label: 'Activa', variant: 'success', active: true }
+      case 'error':
+        return { label: 'Error', variant: 'destructive', active: false }
+      default:
+        return { label: 'Inactiva', variant: 'neutral', active: false }
+    }
+  }
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <IntegrationIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Integraciones</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <PuzzlePiece className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Integraciones
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Gestión de integraciones y APIs externas
-              </Typography>
-            </Box>
-          </Stack>
-          <Button startDecorator={<RefreshIcon />} onClick={fetchIntegrations}>
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchIntegrations}>
+            <ArrowClockwise className="size-4" aria-hidden />
             Actualizar
           </Button>
-        </Stack>
+        </div>
 
         {loading && <LinearProgress />}
 
         {/* KPI cards — siempre visibles */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  Total
-                </Typography>
-                <Typography level="h2">{stats.total}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  Activas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'success.main' }}>
-                  {stats.active}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  Inactivas
-                </Typography>
-                <Typography level="h2" sx={{ color: 'neutral.main' }}>
-                  {stats.inactive}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  Errores
-                </Typography>
-                <Typography level="h2" sx={{ color: 'danger.main' }}>
-                  {stats.errors}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total" value={String(stats.total)} />
+          <StatTile label="Activas" value={String(stats.active)} tone="success" />
+          <StatTile label="Inactivas" value={String(stats.inactive)} />
+          <StatTile label="Errores" value={String(stats.errors)} tone="destructive" />
+        </div>
 
         {/* Estado vacío */}
         {!loading && integrations.length === 0 && (
-          <Card>
-            <CardContent>
-              <Stack spacing={2} alignItems="center" sx={{ py: 6 }}>
-                <IntegrationIcon sx={{ fontSize: 56, color: 'text.tertiary' }} />
-                <Typography level="title-lg" sx={{ color: 'text.secondary' }}>
-                  No hay integraciones configuradas
-                </Typography>
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center', maxWidth: 480 }}>
-                  Configura tus primeras integraciones para conectar canales de comunicación.
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <PuzzlePiece className="size-14 text-muted-foreground" aria-hidden />
+              <p className="text-lg font-semibold text-foreground">
+                No hay integraciones configuradas
+              </p>
+              <p className="max-w-[480px] text-sm text-muted-foreground">
+                Configura tus primeras integraciones para conectar canales de comunicación.
+              </p>
+            </div>
+          </div>
         )}
 
         {/* Lista de integraciones */}
         {integrations.length > 0 && (
-          <Grid container spacing={2}>
-            {integrations.map((integration) => (
-              <Grid key={integration.id} xs={12} md={6}>
-                <Card variant="outlined">
-                  <CardContent>
-                    <Stack spacing={2}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="start">
-                        <Stack direction="row" spacing={2} alignItems="center">
-                          <Box sx={{ fontSize: 40 }}>{integration.icon}</Box>
-                          <Box>
-                            <Typography level="title-lg">{integration.name}</Typography>
-                            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                              {integration.description}
-                            </Typography>
-                          </Box>
-                        </Stack>
-                        <Switch
-                          checked={integration.status === 'active'}
-                          onChange={() => toggleIntegration(integration.id)}
-                        />
-                      </Stack>
-                      <Divider />
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Chip
-                          size="sm"
-                          color={
-                            integration.status === 'active'
-                              ? 'success'
-                              : integration.status === 'error'
-                              ? 'danger'
-                              : 'neutral'
-                          }
-                          startDecorator={
-                            integration.status === 'active' ? <CheckIcon /> : <WarningIcon />
-                          }
-                        >
-                          {integration.status === 'active'
-                            ? 'Activa'
-                            : integration.status === 'error'
-                            ? 'Error'
-                            : 'Inactiva'}
-                        </Chip>
-                        <Chip size="sm" variant="soft">
-                          {integration.category}
-                        </Chip>
-                        {integration.lastSync && (
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            Sync: {new Date(integration.lastSync).toLocaleTimeString('es-ES')}
-                          </Typography>
-                        )}
-                      </Stack>
-                      <Button
-                        variant="outlined"
-                        startDecorator={<SettingsIcon />}
-                        fullWidth
-                      >
-                        Configurar
-                      </Button>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {integrations.map((integration) => {
+              const status = getStatusBadge(integration.status)
+              return (
+                <div
+                  key={integration.id}
+                  className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+                >
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-muted">
+                          {integration.icon}
+                        </span>
+                        <div>
+                          <p className="text-base font-semibold text-foreground">
+                            {integration.name}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {integration.description}
+                          </p>
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={integration.status === 'active'}
+                        onChange={() => toggleIntegration(integration.id)}
+                        label={`Activar ${integration.name}`}
+                      />
+                    </div>
+
+                    <div className="border-t border-border" />
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={status.variant} dot>
+                        <span className="inline-flex items-center gap-1">
+                          {status.active ? (
+                            <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                          ) : (
+                            <Warning className="size-3.5" weight="fill" aria-hidden />
+                          )}
+                          {status.label}
+                        </span>
+                      </Badge>
+                      <Badge variant="outline">{integration.category}</Badge>
+                      {integration.lastSync && (
+                        <span className="text-xs text-muted-foreground">
+                          Sync: {new Date(integration.lastSync).toLocaleTimeString('es-ES')}
+                        </span>
+                      )}
+                    </div>
+
+                    <Button variant="outline" size="sm" className="w-full">
+                      <Gear className="size-4" aria-hidden />
+                      Configurar
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
-      </Stack>
-    </Container>
+      </div>
+    </div>
   )
 }

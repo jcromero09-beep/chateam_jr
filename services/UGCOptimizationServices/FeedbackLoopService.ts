@@ -244,7 +244,7 @@ Genera recomendaciones en JSON:
 Genera entre 2 y 5 insights relevantes.`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -293,7 +293,7 @@ Genera entre 2 y 5 insights relevantes.`;
         confidence,
         recommendation: item.recommendation || undefined,
         source: "feedback_loop",
-        extractedBy: "gpt-4o",
+        extractedBy: "gpt-5.5",
         evidence: {
           snapshotId: metricsSnapshot.id,
           previousSnapshotId: previousSnapshot?.id || null

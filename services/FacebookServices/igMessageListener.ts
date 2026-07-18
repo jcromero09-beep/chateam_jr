@@ -50,11 +50,8 @@ export const sendIgMessageMedia = async ({
   body
 }: Request): Promise<any> => {
   try {
- //   console.log('sendface', media)
     const type = typeAttachment(media);
-  ///  console.log('type', type)
     const url = `${process.env.BACKEND_URL}/public/company${ticket.companyId}/${media.filename}`
-   // console.log('ticket',ticket)
 
 const whatsapp = Whatsapp.findByPk(ticket.whatsappId) 
 const  faceid = (await whatsapp).facebookPageUserId

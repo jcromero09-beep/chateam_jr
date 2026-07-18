@@ -5,37 +5,31 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useContext } from 'react';
+// [conservado] Sin equivalente Radix: indicadores de progreso MUI Joy.
+import { CircularProgress, LinearProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  Textarea,
-  Select,
-  Option,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Chip,
-  IconButton,
-  LinearProgress,
-} from '@mui/joy';
-import {
-  Mic,
-  Volume2,
-  Upload,
+  Microphone,
+  SpeakerHigh,
+  UploadSimple,
   FileAudio,
   Coins,
   X,
-  RefreshCw,
+  ArrowClockwise,
   Play,
-  Download,
-} from 'lucide-react';
+  DownloadSimple,
+} from '@phosphor-icons/react';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import api from '../services/api';
 import { AuthContext } from '../context/Auth/AuthContext';
 
@@ -103,11 +97,17 @@ export default function AIAudio() {
   const loadCredits = useCallback(async () => {
     try {
       setLoadingCredits(true);
-      // Usar endpoint de token-info que devuelve el balance general de tokens de la compañía
-      const res = await api.get('/ai/subplan-purchase/token-info');
-      const raw = res.data as Record<string, unknown>;
-      const tokenBalance = typeof raw.tokenBalance === 'number' ? raw.tokenBalance : 0;
-      setCredits({ balance: tokenBalance, totalUsed: 0 });
+      // Endpoint UNIFICADO: balance real del sistema AICreditBalance.
+      // AIAudio cobra principalmente "audio_minute" (STT) + "tts_character" (TTS).
+      // Mostramos el balance combinado.
+      const res = await api.get('/ai/credits/summary?keys=audio_minute,tts_character');
+      const raw = res.data as {
+        totalRemaining?: number;
+        totalUsed?: number;
+      };
+      const remaining = Number(raw?.totalRemaining ?? 0);
+      const used = Number(raw?.totalUsed ?? 0);
+      setCredits({ balance: remaining, totalUsed: used });
     } catch (err: unknown) {
       devError('[AIAudio] Error cargando créditos:', err);
     } finally {
@@ -210,439 +210,374 @@ export default function AIAudio() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Mic size={28} color="var(--joy-palette-primary-500)" />
-            Audio IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Convierte voz a texto y genera audio con inteligencia artificial
-          </Typography>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Microphone className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Audio IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Convierte voz a texto y genera audio con inteligencia artificial
+              </p>
+            </div>
+          </div>
 
-        {/* Balance de créditos */}
-        <Card variant="soft" sx={{ minWidth: 180 }}>
-          <CardContent sx={{ py: 1, px: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Coins size={16} />
-              <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                Créditos disponibles
-              </Typography>
-            </Box>
+          {/* Balance de créditos — REAL del sistema unificado (STT + TTS) */}
+          <div className="min-w-[220px] rounded-lg border border-border bg-muted/40 px-4 py-2.5">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Coins className="size-4" aria-hidden />
+              <span className="text-xs">Créditos disponibles (audio + TTS)</span>
+            </div>
             {loadingCredits ? (
-              <CircularProgress size="sm" sx={{ mt: 0.5 }} />
+              <div className="mt-1">
+                <CircularProgress size="sm" />
+              </div>
             ) : (
-              <Typography level="h4" sx={{ color: 'primary.500' }}>
-                {isSuperAdmin ? '∞ Ilimitado' : credits?.balance?.toLocaleString('es-ES') ?? '—'}
-              </Typography>
+              <div>
+                <p className="text-2xl font-semibold text-primary">
+                  {isSuperAdmin ? '∞ Ilimitado' : credits?.balance?.toLocaleString('es-ES') ?? '—'}
+                </p>
+                {!isSuperAdmin && (credits?.totalUsed ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Usados: {credits?.totalUsed?.toLocaleString('es-ES')}
+                  </p>
+                )}
+              </div>
             )}
-          </CardContent>
-        </Card>
-      </Box>
+          </div>
+        </div>
 
-      {/* Error global */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 3 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
+        {/* Error global */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar error"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/12"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <Tabs
+          value={activeTab === 0 ? 'stt' : 'tts'}
+          onValueChange={(val) => setActiveTab(val === 'stt' ? 0 : 1)}
         >
-          {error}
-        </Alert>
-      )}
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onChange={(_, val) => setActiveTab(val as number)}>
-        <TabList>
-          <Tab>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Mic size={16} />
+          <TabsList>
+            <TabsTrigger value="stt">
+              <Microphone className="size-4" aria-hidden />
               Voz a Texto
-            </Box>
-          </Tab>
-          <Tab>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Volume2 size={16} />
+            </TabsTrigger>
+            <TabsTrigger value="tts">
+              <SpeakerHigh className="size-4" aria-hidden />
               Texto a Voz
-            </Box>
-          </Tab>
-        </TabList>
+            </TabsTrigger>
+          </TabsList>
 
-        {/* ── TAB 1: Voz a Texto ──────────────────────────────────────── */}
-        <TabPanel value={0} sx={{ px: 0, pt: 3 }}>
-          <Grid container spacing={3}>
-            <Grid xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography level="title-md" sx={{ mb: 2 }}>
-                    Subir archivo de audio
-                  </Typography>
+          {/* ── TAB 1: Voz a Texto ──────────────────────────────────────── */}
+          <TabsContent value="stt" className="pt-4">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                <h2 className="mb-4 text-base font-semibold text-foreground">
+                  Subir archivo de audio
+                </h2>
 
-                  {/* Zona de drop */}
-                  <Box
-                    ref={dropZoneRef}
-                    onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                    onDragLeave={() => setIsDragOver(false)}
-                    onDrop={handleFileDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    sx={{
-                      border: '2px dashed',
-                      borderColor: isDragOver ? 'primary.500' : 'neutral.300',
-                      borderRadius: 'md',
-                      p: 4,
-                      textAlign: 'center',
-                      cursor: 'pointer',
-                      bgcolor: isDragOver ? 'primary.softBg' : 'background.level1',
-                      transition: 'all 0.2s',
-                      '&:hover': {
-                        borderColor: 'primary.400',
-                        bgcolor: 'primary.softBg',
-                      },
-                    }}
-                  >
-                    <Upload size={32} color="var(--joy-palette-neutral-500)" />
-                    <Typography level="body-sm" sx={{ mt: 1, color: 'text.secondary' }}>
-                      Arrastra un archivo de audio aquí
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                      o haz clic para seleccionar (MP3, WAV, M4A, OGG, etc.)
-                    </Typography>
-                  </Box>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="audio/*"
-                    style={{ display: 'none' }}
-                    onChange={handleFileSelect}
-                  />
+                {/* Zona de drop */}
+                <div
+                  ref={dropZoneRef}
+                  role="button"
+                  tabIndex={0}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  className={cn(
+                    'cursor-pointer rounded-md border-2 border-dashed p-8 text-center transition-colors',
+                    isDragOver
+                      ? 'border-primary bg-primary/5'
+                      : 'border-input bg-muted/40 hover:border-primary/60 hover:bg-primary/5',
+                  )}
+                >
+                  <UploadSimple className="mx-auto size-8 text-muted-foreground" aria-hidden />
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Arrastra un archivo de audio aquí
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    o haz clic para seleccionar (MP3, WAV, M4A, OGG, etc.)
+                  </p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
 
-                  {/* Archivo seleccionado */}
-                  {audioFile && (
-                    <Box
-                      sx={{
-                        mt: 2,
-                        p: 1.5,
-                        bgcolor: 'success.softBg',
-                        borderRadius: 'sm',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
+                {/* Archivo seleccionado */}
+                {audioFile && (
+                  <div className="mt-4 flex items-center gap-2 rounded-md bg-success/14 p-3">
+                    <FileAudio className="size-5 shrink-0 text-success-text" aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {audioFile.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatFileSize(audioFile.size)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Quitar archivo"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAudioFile(null);
+                        setTranscription(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
                       }}
+                      className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                     >
-                      <FileAudio size={20} color="var(--joy-palette-success-600)" />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography level="body-sm" fontWeight="lg" noWrap>
-                          {audioFile.name}
-                        </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {formatFileSize(audioFile.size)}
-                        </Typography>
-                      </Box>
-                      <IconButton
-                        size="sm"
-                        variant="plain"
-                        color="neutral"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setAudioFile(null);
-                          setTranscription(null);
-                          if (fileInputRef.current) fileInputRef.current.value = '';
-                        }}
-                      >
-                        <X size={14} />
-                      </IconButton>
-                    </Box>
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  </div>
+                )}
+
+                {transcribing && (
+                  <div className="mt-4">
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      Transcribiendo audio...
+                    </p>
+                    <LinearProgress />
+                  </div>
+                )}
+
+                <Button
+                  className="mt-4 w-full"
+                  disabled={!audioFile || transcribing}
+                  loading={transcribing}
+                  onClick={handleTranscribe}
+                >
+                  {!transcribing && <Microphone className="size-4" aria-hidden />}
+                  Transcribir
+                </Button>
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-base font-semibold text-foreground">Resultado</h2>
+                  {transcribeMeta && (
+                    <div className="flex gap-1.5">
+                      {transcribeMeta.language && (
+                        <Badge variant="primary">
+                          {transcribeMeta.language.toUpperCase()}
+                        </Badge>
+                      )}
+                      {transcribeMeta.duration && (
+                        <Badge variant="neutral">
+                          {formatDuration(transcribeMeta.duration)}
+                        </Badge>
+                      )}
+                    </div>
                   )}
+                </div>
 
-                  {transcribing && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary', mb: 0.5 }}>
-                        Transcribiendo audio...
-                      </Typography>
-                      <LinearProgress />
-                    </Box>
-                  )}
+                {!transcription && !transcribing ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <FileAudio className="size-10" aria-hidden />
+                    <p className="mt-2 text-sm">La transcripción aparecerá aquí</p>
+                  </div>
+                ) : (
+                  <div className="min-h-40 whitespace-pre-wrap break-words rounded-md bg-muted/40 p-4 text-sm leading-relaxed text-foreground">
+                    {transcription}
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
 
-                  <Button
-                    fullWidth
-                    sx={{ mt: 2 }}
-                    startDecorator={transcribing ? <CircularProgress size="sm" /> : <Mic size={16} />}
-                    disabled={!audioFile || transcribing}
-                    loading={transcribing}
-                    onClick={handleTranscribe}
-                  >
-                    Transcribir
-                  </Button>
-                </CardContent>
-              </Card>
-            </Grid>
+          {/* ── TAB 2: Texto a Voz ──────────────────────────────────────── */}
+          <TabsContent value="tts" className="pt-4">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                <h2 className="mb-4 text-base font-semibold text-foreground">
+                  Texto a convertir
+                </h2>
 
-            <Grid xs={12} md={6}>
-              <Card sx={{ height: '100%' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography level="title-md">Resultado</Typography>
-                    {transcribeMeta && (
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        {transcribeMeta.language && (
-                          <Chip size="sm" color="primary" variant="soft">
-                            {transcribeMeta.language.toUpperCase()}
-                          </Chip>
-                        )}
-                        {transcribeMeta.duration && (
-                          <Chip size="sm" color="neutral" variant="soft">
-                            {formatDuration(transcribeMeta.duration)}
-                          </Chip>
-                        )}
-                      </Box>
+                <textarea
+                  placeholder="Escribe el texto que deseas convertir a audio..."
+                  rows={6}
+                  aria-label="Texto a convertir"
+                  value={ttsText}
+                  onChange={(e) => setTtsText(e.target.value)}
+                  className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+
+                <div className="mb-4 mt-2 flex justify-end">
+                  <span
+                    className={cn(
+                      'text-xs',
+                      ttsText.length > 4000 ? 'text-destructive-text' : 'text-muted-foreground',
                     )}
-                  </Box>
-
-                  {!transcription && !transcribing ? (
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        py: 6,
-                        color: 'text.tertiary',
-                      }}
-                    >
-                      <FileAudio size={40} />
-                      <Typography level="body-sm" sx={{ mt: 1 }}>
-                        La transcripción aparecerá aquí
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Box
-                      sx={{
-                        p: 2,
-                        bgcolor: 'background.level1',
-                        borderRadius: 'sm',
-                        minHeight: 160,
-                        fontSize: 'sm',
-                        lineHeight: 1.7,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                      }}
-                    >
-                      {transcription}
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </TabPanel>
-
-        {/* ── TAB 2: Texto a Voz ──────────────────────────────────────── */}
-        <TabPanel value={1} sx={{ px: 0, pt: 3 }}>
-          <Grid container spacing={3}>
-            <Grid xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography level="title-md" sx={{ mb: 2 }}>
-                    Texto a convertir
-                  </Typography>
-
-                  <Textarea
-                    placeholder="Escribe el texto que deseas convertir a audio..."
-                    minRows={6}
-                    maxRows={12}
-                    value={ttsText}
-                    onChange={(e) => setTtsText(e.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                    <Typography level="body-xs" sx={{ color: ttsText.length > 4000 ? 'danger.500' : 'text.tertiary' }}>
-                      {ttsText.length} / 4000 caracteres
-                    </Typography>
-                  </Box>
-
-                  <Box sx={{ mb: 2 }}>
-                    <Typography level="body-sm" sx={{ mb: 1, fontWeight: 'md' }}>
-                      Voz
-                    </Typography>
-                    <Select
-                      value={selectedVoice}
-                      onChange={(_, val) => val && setSelectedVoice(val as VoiceOption)}
-                    >
-                      {VOICE_OPTIONS.map((v) => (
-                        <Option key={v.value} value={v.value}>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="md">
-                              {v.label}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {v.description}
-                            </Typography>
-                          </Box>
-                        </Option>
-                      ))}
-                    </Select>
-                  </Box>
-
-                  <Button
-                    fullWidth
-                    startDecorator={generating ? <CircularProgress size="sm" /> : <Volume2 size={16} />}
-                    disabled={!ttsText.trim() || generating || ttsText.length > 4000}
-                    loading={generating}
-                    onClick={handleGenerateTTS}
                   >
-                    Generar Audio
-                  </Button>
-                </CardContent>
-              </Card>
-            </Grid>
+                    {ttsText.length} / 4000 caracteres
+                  </span>
+                </div>
 
-            <Grid xs={12} md={6}>
-              <Card sx={{ height: '100%' }}>
-                <CardContent>
-                  <Typography level="title-md" sx={{ mb: 2 }}>
-                    Audio generado
-                  </Typography>
+                <div className="mb-4 space-y-1.5">
+                  <Label htmlFor="tts-voice">Voz</Label>
+                  <Select
+                    value={selectedVoice}
+                    onValueChange={(val) => setSelectedVoice(val as VoiceOption)}
+                  >
+                    <SelectTrigger id="tts-voice" aria-label="Seleccionar voz">
+                      <SelectValue placeholder="Selecciona una voz" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VOICE_OPTIONS.map((v) => (
+                        <SelectItem key={v.value} value={v.value}>
+                          <span className="block text-sm font-medium text-foreground">
+                            {v.label}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {v.description}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                  {!audioResult && !generating ? (
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        py: 6,
-                        color: 'text.tertiary',
-                      }}
+                <Button
+                  className="w-full"
+                  disabled={!ttsText.trim() || generating || ttsText.length > 4000}
+                  loading={generating}
+                  onClick={handleGenerateTTS}
+                >
+                  {!generating && <SpeakerHigh className="size-4" aria-hidden />}
+                  Generar Audio
+                </Button>
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+                <h2 className="mb-4 text-base font-semibold text-foreground">
+                  Audio generado
+                </h2>
+
+                {!audioResult && !generating ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <SpeakerHigh className="size-10" aria-hidden />
+                    <p className="mt-2 text-sm">El audio generado aparecerá aquí</p>
+                  </div>
+                ) : generating ? (
+                  <div className="flex flex-col items-center py-12">
+                    <CircularProgress size="lg" />
+                    <p className="mt-4 text-sm text-muted-foreground">Generando audio...</p>
+                  </div>
+                ) : audioResult ? (
+                  <div>
+                    <div className="mb-4 rounded-md bg-muted/40 p-4">
+                      <audio
+                        controls
+                        src={audioResult.audioUrl}
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {audioResult.duration && (
+                        <Badge variant="neutral">
+                          <Play className="size-3" aria-hidden />
+                          {formatDuration(audioResult.duration)}
+                        </Badge>
+                      )}
+                      {audioResult.creditsUsed && (
+                        <Badge variant="warning">
+                          <Coins className="size-3" aria-hidden />
+                          {audioResult.creditsUsed} créditos
+                        </Badge>
+                      )}
+                      <Badge variant="primary">
+                        {VOICE_OPTIONS.find((v) => v.value === selectedVoice)?.label}
+                      </Badge>
+                    </div>
+
+                    <a
+                      href={audioResult.audioUrl}
+                      download="audio-generado.mp3"
+                      className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4')}
                     >
-                      <Volume2 size={40} />
-                      <Typography level="body-sm" sx={{ mt: 1 }}>
-                        El audio generado aparecerá aquí
-                      </Typography>
-                    </Box>
-                  ) : generating ? (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 6 }}>
-                      <CircularProgress size="lg" />
-                      <Typography level="body-sm" sx={{ mt: 2, color: 'text.secondary' }}>
-                        Generando audio...
-                      </Typography>
-                    </Box>
-                  ) : audioResult ? (
-                    <Box>
-                      <Box
-                        sx={{
-                          p: 2,
-                          bgcolor: 'background.level1',
-                          borderRadius: 'sm',
-                          mb: 2,
-                        }}
-                      >
-                        <audio
-                          controls
-                          src={audioResult.audioUrl}
-                          style={{ width: '100%' }}
-                        />
-                      </Box>
+                      <DownloadSimple className="size-4" aria-hidden />
+                      Descargar MP3
+                    </a>
+                  </div>
+                ) : null}
+              </div>
+            </div>
 
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        {audioResult.duration && (
-                          <Chip size="sm" color="neutral" variant="soft" startDecorator={<Play size={12} />}>
-                            {formatDuration(audioResult.duration)}
-                          </Chip>
-                        )}
-                        {audioResult.creditsUsed && (
-                          <Chip size="sm" color="warning" variant="soft" startDecorator={<Coins size={12} />}>
-                            {audioResult.creditsUsed} créditos
-                          </Chip>
-                        )}
-                        <Chip size="sm" color="primary" variant="soft">
-                          {VOICE_OPTIONS.find((v) => v.value === selectedVoice)?.label}
-                        </Chip>
-                      </Box>
-
-                      <Button
-                        variant="outlined"
-                        size="sm"
-                        startDecorator={<Download size={14} />}
-                        component="a"
-                        href={audioResult.audioUrl}
-                        download="audio-generado.mp3"
-                        sx={{ mt: 2 }}
-                      >
-                        Descargar MP3
-                      </Button>
-                    </Box>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-
-          {/* Voces disponibles */}
-          <Card sx={{ mt: 3 }}>
-            <CardContent>
-              <Typography level="title-sm" sx={{ mb: 2 }}>
+            {/* Voces disponibles */}
+            <div className="mt-6 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h3 className="mb-4 text-sm font-semibold text-foreground">
                 Voces disponibles
-              </Typography>
-              <Grid container spacing={1}>
+              </h3>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
                 {VOICE_OPTIONS.map((v) => (
-                  <Grid xs={12} sm={6} md={4} key={v.value}>
-                    <Box
-                      onClick={() => setSelectedVoice(v.value)}
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 'sm',
-                        cursor: 'pointer',
-                        border: '1px solid',
-                        borderColor: selectedVoice === v.value ? 'primary.500' : 'neutral.200',
-                        bgcolor: selectedVoice === v.value ? 'primary.softBg' : 'transparent',
-                        '&:hover': { bgcolor: 'primary.softBg' },
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      <Typography level="body-sm" fontWeight="lg">
-                        {v.label}
-                      </Typography>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {v.description}
-                      </Typography>
-                    </Box>
-                  </Grid>
+                  <button
+                    key={v.value}
+                    type="button"
+                    aria-pressed={selectedVoice === v.value}
+                    onClick={() => setSelectedVoice(v.value)}
+                    className={cn(
+                      'rounded-md border p-3 text-left transition-colors',
+                      selectedVoice === v.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:bg-accent/40',
+                    )}
+                  >
+                    <span className="block text-sm font-semibold text-foreground">
+                      {v.label}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {v.description}
+                    </span>
+                  </button>
                 ))}
-              </Grid>
-            </CardContent>
-          </Card>
-        </TabPanel>
-      </Tabs>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
 
-      {/* Recargar créditos */}
-      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
-        <Button
-          variant="plain"
-          size="sm"
-          startDecorator={<RefreshCw size={14} />}
-          onClick={loadCredits}
-          loading={loadingCredits}
-        >
-          Actualizar créditos
-        </Button>
-      </Box>
-    </Box>
+        {/* Recargar créditos */}
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={loadingCredits}
+            onClick={loadCredits}
+          >
+            {!loadingCredits && <ArrowClockwise className="size-4" aria-hidden />}
+            Actualizar créditos
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

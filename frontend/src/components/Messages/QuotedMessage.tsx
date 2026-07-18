@@ -31,7 +31,7 @@ export default function QuotedMessage({ quotedMsg, isDark, isOwn }: QuotedMessag
         bgcolor: bgColor,
         borderRadius: '0 4px 4px 0',
         p: '4px 8px',
-        mb: 4,
+        mb: 0.5,
         cursor: 'pointer',
         '&:hover': { bgcolor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' },
       }}

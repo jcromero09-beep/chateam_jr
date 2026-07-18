@@ -70,10 +70,29 @@ class CampaignMessage extends Model<CampaignMessage> {
     // ============================================
 
     @Column(DataType.STRING)
-    sourceId: string;
+    sourceId: string; // = ad_id
 
     @Column(DataType.STRING)
     sourceType: string;
+
+    // [Fase2·C2.1] Cadena de atribución NORMALIZADA (antes solo en rawData JSON) →
+    // consultable/agregable por SQL para ROAS por campaña/conjunto/anuncio.
+    @Column(DataType.STRING)
+    adName: string;
+
+    @Index
+    @Column(DataType.STRING)
+    adSetId: string;
+
+    @Column(DataType.STRING)
+    adSetName: string;
+
+    @Index
+    @Column(DataType.STRING)
+    campaignId: string;
+
+    @Column(DataType.STRING)
+    campaignName: string;
 
     @Column(DataType.TEXT)
     sourceUrl: string;

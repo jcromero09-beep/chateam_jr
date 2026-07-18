@@ -68,14 +68,44 @@ app.use(compression());
 
 // CORS configuration
 app.use(
-  cors({
-    credentials: true,
-    origin: process.env.FRONTEND_URL
-  })
+  (req: Request, res: Response, next: NextFunction) => {
+    const isPublicWebChat = req.path.startsWith("/webchat/public/");
+
+    return cors({
+      credentials: !isPublicWebChat,
+      origin: (origin, callback) => {
+        if (isPublicWebChat) {
+          return callback(null, origin || true);
+        }
+
+        return callback(null, process.env.FRONTEND_URL);
+      }
+    })(req, res, next);
+  }
 );
 
 // Body parsing middleware
 app.use(cookieParser());
+
+// Stripe necesita el body crudo exacto para validar stripe-signature.
+// Montar este parser ANTES del JSON global evita que JSON.stringify/parse cambie
+// espacios, saltos de linea o formato y rompa constructEvent().
+app.use(
+  "/subscription/stripewebhook",
+  bodyParser.raw({ type: "application/json", limit: "5mb" })
+);
+
+// Relay interno entre nodos (RemoteWbot, /internal/wbot-call): transmite la media
+// serializada como base64 DENTRO del JSON. Un video de 38MB → ~51MB en base64, lo que
+// superaba el límite global de 50mb y devolvía PayloadTooLargeError → "Internal server
+// error" → el frontend veía status 400 al enviar videos grandes. Estas rutas son
+// localhost-only (montadas con routes.use(internalRoutes), comentario "Solo accesible
+// desde localhost"), por lo que un límite alto NO expone endpoints públicos.
+// Se monta ANTES del JSON global; body-parser es idempotente (no re-parsea /internal).
+app.use(
+  "/internal",
+  bodyParser.json({ limit: '300mb' })
+);
 
 // Capturar raw body para validación HMAC de:
 //   - Stripe webhook (stripe.webhooks.constructEvent requiere Buffer)
@@ -86,6 +116,9 @@ app.use(bodyParser.json({
     const url = req.originalUrl || "";
     if (
       url.includes('/stripewebhook') ||
+      url.includes('/api/fal/webhook') ||
+      url.includes('/webhook/meta') ||
+      url.includes('/webhook/metaws') ||
       url.includes('/webhooks/meta') ||
       url.includes('/webhooks/metaws')
     ) {
@@ -96,8 +129,28 @@ app.use(bodyParser.json({
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static files
+// Si la URL incluye ?download (opcionalmente ?download=nombre.ext), se fuerza la
+// descarga del archivo añadiendo la cabecera Content-Disposition: attachment.
+// Necesario porque el atributo HTML `download` es ignorado en enlaces
+// cross-origin (frontend y backend están en dominios distintos).
 app.use(
   "/public",
+  (req: Request, _res: Response, next: NextFunction) => {
+    if (req.query.download !== undefined) {
+      const rawName = req.path.split("/").pop() || "descarga";
+      const suggested =
+        typeof req.query.download === "string" && req.query.download.trim()
+          ? req.query.download.trim()
+          : rawName;
+      // Sanear el nombre para evitar inyección de cabeceras
+      const safeName = suggested.replace(/["\r\n\\]/g, "").slice(0, 200);
+      _res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeName}"`
+      );
+    }
+    next();
+  },
   express.static(uploadConfig.directory)
 );
 

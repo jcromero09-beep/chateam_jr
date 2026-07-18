@@ -72,6 +72,16 @@ const UpdateUserService = async ({
     throw new AppError(err.message);
   }
 
+  const parsedSendAt = sendAt ? new Date(sendAt) : undefined;
+
+  if (sendAt && Number.isNaN(parsedSendAt?.getTime())) {
+    throw new AppError("Fecha de envío inválida");
+  }
+
+  if (parsedSendAt && parsedSendAt.getTime() <= Date.now()) {
+    throw new AppError("La fecha debe ser futura");
+  }
+
   const shouldResolveTicketId =
     ticketId !== undefined ||
     contactId !== undefined ||
@@ -92,7 +102,7 @@ const UpdateUserService = async ({
 
   const buildUpdatePayload = (finalTicketId?: number) => ({
     body,
-    sendAt: sendAt ? new Date(sendAt) : undefined,
+    sendAt: parsedSendAt,
     sentAt: sentAt ? new Date(sentAt) : undefined,
     contactId,
     ticketId: finalTicketId,

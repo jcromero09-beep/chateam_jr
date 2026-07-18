@@ -1,34 +1,29 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  CircularProgress,
-  Alert,
-  FormControl,
-  FormLabel,
-  Textarea,
-  Select,
-  Option,
-  IconButton,
-} from '@mui/joy'
-import {
-  Video,
-  RefreshCw,
+  VideoCamera,
+  ArrowClockwise,
   X,
   User,
-  Clapperboard,
+  FilmSlate,
   Clock,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Coins,
-  Send,
-} from 'lucide-react'
+  CheckCircle,
+  WarningCircle,
+  CircleNotch,
+  PaperPlaneTilt,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -68,11 +63,11 @@ const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
   { value: 'pt', label: 'Portugues' },
 ]
 
-const VIDEO_STATUS_CONFIG: Record<VideoStatus, { label: string; color: 'neutral' | 'primary' | 'success' | 'danger'; icon: ReactNode }> = {
-  pending: { label: 'Pendiente', color: 'neutral', icon: <Clock size={12} /> },
-  processing: { label: 'Procesando', color: 'primary', icon: <Loader2 size={12} /> },
-  completed: { label: 'Completado', color: 'success', icon: <CheckCircle2 size={12} /> },
-  failed: { label: 'Fallido', color: 'danger', icon: <AlertCircle size={12} /> },
+const VIDEO_STATUS_CONFIG: Record<VideoStatus, { label: string; variant: BadgeProps['variant']; icon: ReactNode }> = {
+  pending: { label: 'Pendiente', variant: 'neutral', icon: <Clock className="size-3" aria-hidden /> },
+  processing: { label: 'Procesando', variant: 'primary', icon: <CircleNotch className="size-3 animate-spin" aria-hidden /> },
+  completed: { label: 'Completado', variant: 'success', icon: <CheckCircle className="size-3" aria-hidden /> },
+  failed: { label: 'Fallido', variant: 'destructive', icon: <WarningCircle className="size-3" aria-hidden /> },
 }
 
 const formatDate = (dateStr: string) => {
@@ -204,317 +199,286 @@ export default function AIHeyGen() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
+        {/* [conservado] CircularProgress: sin equivalente Radix en el design system */}
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Video size={28} />
-            HeyGen — Avatares de Video
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Genera videos con avatares de IA usando la integracion de HeyGen
-          </Typography>
-        </Box>
-        <Button variant="outlined" startDecorator={<RefreshCw size={16} />} onClick={fetchData}>
-          Actualizar
-        </Button>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <VideoCamera className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                HeyGen — Avatares de Video
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Genera videos con avatares de IA usando la integracion de HeyGen
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchData}>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar
+          </Button>
+        </div>
 
-      {/* Error global */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }} endDecorator={
-          <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-        }>
-          {error}
-        </Alert>
-      )}
+        {/* Error global */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text/80 transition-colors hover:bg-destructive/15 hover:text-destructive-text"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <User size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Avatares Disponibles</Typography>
-              </Box>
-              <Typography level="h3">{stats.totalAvatars || avatars.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Clapperboard size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Videos Generados</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>{stats.totalVideos || videos.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Coins size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Creditos Restantes</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: 'warning.500' }}>
-                {stats.remainingCredits.toLocaleString('es-ES')}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+          <StatTile label="Avatares disponibles" value={String(stats.totalAvatars || avatars.length)} />
+          <StatTile label="Videos generados" value={String(stats.totalVideos || videos.length)} tone="primary" />
+          <StatTile label="Créditos restantes" value={stats.remainingCredits.toLocaleString('es-ES')} tone="warning" />
+        </div>
 
-      {/* Seccion 1: Grid de Avatares */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <User size={20} />
-            Avatares Disponibles
-          </Typography>
+        {/* Seccion 1: Grid de Avatares */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <User className="size-5" aria-hidden />
+            Avatares disponibles
+          </h2>
           {avatars.length === 0 ? (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <User size={40} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <User className="size-10 text-muted-foreground/40" aria-hidden />
+              <p className="text-sm text-muted-foreground">
                 No hay avatares disponibles. Verifica la configuracion de HeyGen.
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ) : (
-            <Grid container spacing={2}>
-              {avatars.map((avatar) => (
-                <Grid key={avatar.avatarId} xs={12} sm={6} md={4} lg={3}>
-                  <Card
-                    variant={selectedAvatarId === avatar.avatarId ? 'solid' : 'outlined'}
-                    color={selectedAvatarId === avatar.avatarId ? 'primary' : 'neutral'}
-                    sx={{ cursor: 'pointer', transition: 'all 0.15s' }}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              {avatars.map((avatar) => {
+                const isSelected = selectedAvatarId === avatar.avatarId
+                return (
+                  <button
+                    key={avatar.avatarId}
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => setSelectedAvatarId(avatar.avatarId)}
+                    className={cn(
+                      'flex flex-col rounded-lg border p-3 text-left transition-colors',
+                      isSelected
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/40',
+                    )}
                   >
-                    <CardContent>
-                      {/* Placeholder de imagen de preview */}
-                      <Box
-                        sx={{
-                          width: '100%',
-                          height: 100,
-                          borderRadius: 'sm',
-                          bgcolor: selectedAvatarId === avatar.avatarId ? 'primary.700' : 'background.level2',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          mb: 1,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {avatar.previewUrl ? (
-                          <img
-                            src={avatar.previewUrl}
-                            alt={avatar.name}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          />
-                        ) : (
-                          <User
-                            size={36}
-                            style={{ opacity: selectedAvatarId === avatar.avatarId ? 0.8 : 0.3 }}
-                          />
-                        )}
-                      </Box>
-                      <Typography
-                        level="body-sm"
-                        fontWeight="lg"
-                        sx={{ color: selectedAvatarId === avatar.avatarId ? 'primary.50' : 'text.primary' }}
-                      >
-                        {avatar.name}
-                      </Typography>
-                      <Typography
-                        level="body-xs"
-                        sx={{ color: selectedAvatarId === avatar.avatarId ? 'primary.200' : 'text.tertiary' }}
-                      >
-                        {avatar.language}
-                      </Typography>
-                      <Typography
-                        level="body-xs"
-                        sx={{ color: selectedAvatarId === avatar.avatarId ? 'primary.200' : 'text.tertiary', fontFamily: 'monospace' }}
-                      >
-                        ID: {avatar.avatarId.length > 16 ? avatar.avatarId.substring(0, 16) + '...' : avatar.avatarId}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
+                    {/* Placeholder de imagen de preview */}
+                    <div
+                      className={cn(
+                        'mb-2 flex h-24 w-full items-center justify-center overflow-hidden rounded-md',
+                        isSelected ? 'bg-primary-hover' : 'bg-muted',
+                      )}
+                    >
+                      {avatar.previewUrl ? (
+                        <img
+                          src={avatar.previewUrl}
+                          alt={avatar.name}
+                          width={240}
+                          height={96}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <User className={cn('size-9', isSelected ? 'opacity-80' : 'opacity-30')} aria-hidden />
+                      )}
+                    </div>
+                    <span className={cn('text-sm font-semibold', isSelected ? 'text-primary-foreground' : 'text-foreground')}>
+                      {avatar.name}
+                    </span>
+                    <span className={cn('text-xs', isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                      {avatar.language}
+                    </span>
+                    <span className={cn('font-mono text-xs', isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
+                      ID: {avatar.avatarId.length > 16 ? avatar.avatarId.substring(0, 16) + '...' : avatar.avatarId}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </section>
 
-      {/* Seccion 2: Formulario de Generacion */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Clapperboard size={20} />
-            Generar Video
-          </Typography>
+        {/* Seccion 2: Formulario de Generacion */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <FilmSlate className="size-5" aria-hidden />
+            Generar video
+          </h2>
 
           {generateError && (
-            <Alert color="danger" sx={{ mb: 2 }} endDecorator={
-              <IconButton size="sm" variant="plain" color="danger" onClick={() => setGenerateError(null)}>
-                <X size={16} />
-              </IconButton>
-            }>
-              {generateError}
-            </Alert>
+            <div
+              role="alert"
+              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+            >
+              <span>{generateError}</span>
+              <button
+                type="button"
+                aria-label="Cerrar aviso"
+                onClick={() => setGenerateError(null)}
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text/80 transition-colors hover:bg-destructive/15 hover:text-destructive-text"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
           )}
 
           {generateSuccess && (
-            <Alert color="success" sx={{ mb: 2 }} endDecorator={
-              <IconButton size="sm" variant="plain" color="success" onClick={() => setGenerateSuccess(null)}>
-                <X size={16} />
-              </IconButton>
-            }>
-              {generateSuccess}
-            </Alert>
+            <div
+              role="status"
+              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success-text"
+            >
+              <span>{generateSuccess}</span>
+              <button
+                type="button"
+                aria-label="Cerrar aviso"
+                onClick={() => setGenerateSuccess(null)}
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-success-text/80 transition-colors hover:bg-success/15 hover:text-success-text"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
           )}
 
-          <Grid container spacing={2}>
-            <Grid xs={12} sm={6}>
-              <FormControl required>
-                <FormLabel>Avatar Seleccionado</FormLabel>
-                <Select
-                  value={selectedAvatarId}
-                  onChange={(_, val) => { if (val) setSelectedAvatarId(val as string) }}
-                  placeholder="Selecciona un avatar"
-                >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="avatar-select">Avatar seleccionado</Label>
+              <Select
+                value={selectedAvatarId}
+                onValueChange={(val) => { if (val) setSelectedAvatarId(val) }}
+              >
+                <SelectTrigger id="avatar-select" className="h-11">
+                  <SelectValue placeholder="Selecciona un avatar" />
+                </SelectTrigger>
+                <SelectContent>
                   {avatars.map((av) => (
-                    <Option key={av.avatarId} value={av.avatarId}>{av.name}</Option>
+                    <SelectItem key={av.avatarId} value={av.avatarId}>{av.name}</SelectItem>
                   ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={12} sm={6}>
-              <FormControl required>
-                <FormLabel>Idioma</FormLabel>
-                <Select
-                  value={language}
-                  onChange={(_, val) => { if (val) setLanguage(val as Language) }}
-                >
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="language-select">Idioma</Label>
+              <Select
+                value={language}
+                onValueChange={(val) => { if (val) setLanguage(val as Language) }}
+              >
+                <SelectTrigger id="language-select" className="h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {LANGUAGE_OPTIONS.map((opt) => (
-                    <Option key={opt.value} value={opt.value}>{opt.label}</Option>
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={12}>
-              <FormControl required>
-                <FormLabel>Guion del Video</FormLabel>
-                <Textarea
-                  placeholder="Escribe el guion que el avatar narrara en el video..."
-                  value={script}
-                  onChange={(e) => setScript(e.target.value)}
-                  minRows={4}
-                />
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                  {script.length} caracteres
-                </Typography>
-              </FormControl>
-            </Grid>
-            <Grid xs={12}>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="script">Guion del video</Label>
+              <textarea
+                id="script"
+                placeholder="Escribe el guion que el avatar narrara en el video..."
+                value={script}
+                onChange={(e) => setScript(e.target.value)}
+                rows={4}
+                className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+              <p className="text-xs text-muted-foreground">{script.length} caracteres</p>
+            </div>
+
+            <div className="sm:col-span-2">
               <Button
                 onClick={handleGenerate}
                 loading={generating}
-                startDecorator={<Send size={16} />}
                 disabled={!selectedAvatarId || !script.trim()}
               >
-                Generar Video
+                <PaperPlaneTilt className="size-4" aria-hidden />
+                Generar video
               </Button>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+            </div>
+          </div>
+        </section>
 
-      {/* Seccion 3: Historial de Videos */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Video size={20} />
-            Historial de Videos
-          </Typography>
+        {/* Seccion 3: Historial de Videos */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <VideoCamera className="size-5" aria-hidden />
+            Historial de videos
+          </h2>
 
           {videos.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <Video size={48} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <VideoCamera className="size-12 text-muted-foreground/30" aria-hidden />
+              <p className="text-sm text-muted-foreground">
                 No hay videos generados aun. Crea tu primer video con un avatar.
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ) : (
-            <Grid container spacing={2}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
               {videos.map((video) => {
                 const statusConf = VIDEO_STATUS_CONFIG[video.status] ?? VIDEO_STATUS_CONFIG.pending
                 return (
-                  <Grid key={video.id} xs={12} sm={6} md={4}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        {/* Thumbnail placeholder */}
-                        <Box
-                          sx={{
-                            width: '100%',
-                            height: 120,
-                            borderRadius: 'sm',
-                            bgcolor: 'background.level2',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            mb: 1.5,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {video.thumbnailUrl ? (
-                            <img
-                              src={video.thumbnailUrl}
-                              alt={video.title}
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                          ) : (
-                            <Clapperboard size={36} style={{ opacity: 0.3 }} />
-                          )}
-                        </Box>
+                  <div key={video.id} className="flex flex-col rounded-lg border border-border bg-card p-3">
+                    {/* Thumbnail placeholder */}
+                    <div className="mb-3 flex h-28 w-full items-center justify-center overflow-hidden rounded-md bg-muted">
+                      {video.thumbnailUrl ? (
+                        <img
+                          src={video.thumbnailUrl}
+                          alt={video.title}
+                          width={320}
+                          height={112}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <FilmSlate className="size-9 text-muted-foreground/30" aria-hidden />
+                      )}
+                    </div>
 
-                        <Typography level="body-sm" fontWeight="lg" sx={{ mb: 0.5 }}>
-                          {video.title}
-                        </Typography>
+                    <p className="mb-2 text-sm font-semibold text-foreground">{video.title}</p>
 
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                          <Chip size="sm" color={statusConf.color} startDecorator={statusConf.icon}>
-                            {statusConf.label}
-                          </Chip>
-                          {video.duration !== null && (
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {formatDuration(video.duration)}
-                            </Typography>
-                          )}
-                        </Box>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <Badge variant={statusConf.variant}>
+                        {statusConf.icon}
+                        {statusConf.label}
+                      </Badge>
+                      {video.duration !== null && (
+                        <span className="text-xs text-muted-foreground">
+                          {formatDuration(video.duration)}
+                        </span>
+                      )}
+                    </div>
 
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {formatDate(video.createdAt)}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
+                    <span className="text-xs text-muted-foreground">{formatDate(video.createdAt)}</span>
+                  </div>
                 )
               })}
-            </Grid>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </Box>
+        </section>
+      </div>
+    </div>
   )
 }

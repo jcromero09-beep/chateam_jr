@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import express from "express";
 import isAuth from "../middleware/isAuth";
 

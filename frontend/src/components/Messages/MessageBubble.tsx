@@ -73,6 +73,17 @@ export default function MessageBubble({ message, isDark, formatTime }: MessageBu
           borderTopRightRadius: isOwn ? 0 : facebookDesignTokens.message.borderRadius,
           borderTopLeftRadius: !isOwn ? 0 : facebookDesignTokens.message.borderRadius,
           boxShadow: isDark ? '0 1px 0.5px rgba(11,20,26,.13)' : '0 1px 0.5px rgba(0,0,0,.08)',
+          '& a': {
+            color: isOwn ? 'inherit !important' : '#1877F2',
+            textDecorationColor: 'currentColor',
+          },
+          '& a:visited': {
+            color: isOwn ? 'inherit !important' : '#6B46C1',
+          },
+          '& a:hover': {
+            color: isOwn ? 'inherit !important' : '#0F5EC7',
+            textDecorationColor: 'currentColor',
+          },
         }}
       >
         <Typography level="body-sm" sx={{ color: 'inherit' }}>{message.body}</Typography>

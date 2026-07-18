@@ -54,9 +54,9 @@ export default class AiTokenTransaction extends Model {
   tokens: number;
 
   @Column({
-    type: DataType.DECIMAL(10, 2),
+    type: DataType.DECIMAL(18, 10),
     allowNull: true,
-    comment: "Monto en USD (solo para compras)"
+    comment: "Monto en USD de compras o consumos"
   })
   amountUsd: number;
 

@@ -50,19 +50,27 @@ function applyHighlight(fragments: string[], searchTerm: string): React.ReactNod
  * Parsea formato WhatsApp y retorna React nodes.
  * Orden: URLs → code → bold → italic → strikethrough.
  * Si searchTerm, los fragmentos de texto plano reciben highlighting.
+ *
+ * @param isOwn — si el mensaje es propio (burbuja saliente con fondo de color),
+ *   los enlaces usan un color claro para mantener contraste sobre el fondo.
+ *   Si es false/undefined (mensaje entrante con fondo claro) usan azul primary.
  */
 export function formatWhatsAppText(
   text: string,
-  searchTerm?: string
+  searchTerm?: string,
+  isOwn?: boolean
 ): React.ReactNode[] {
   if (!text) return []
+
+  const makePlaceholder = (type: string, index: number) =>
+    `%%${type}PLACEHOLDER${index}%%`
 
   // 1. Extraer URLs temporalmente para protegerlas
   const urlRegex = /(https?:\/\/[^\s]+)/g
   const urls: string[] = []
   let processed = text.replace(urlRegex, (match) => {
     urls.push(match)
-    return `__URL_PLACEHOLDER_${urls.length - 1}__`
+    return makePlaceholder('URL', urls.length - 1)
   })
 
   // 2. Code (backticks)
@@ -70,7 +78,7 @@ export function formatWhatsAppText(
   const codes: string[] = []
   processed = processed.replace(codeRegex, (_, code) => {
     codes.push(code)
-    return `__CODE_PLACEHOLDER_${codes.length - 1}__`
+    return makePlaceholder('CODE', codes.length - 1)
   })
 
   // 3. Bold (*texto*)
@@ -78,7 +86,7 @@ export function formatWhatsAppText(
   const boldTexts: string[] = []
   processed = processed.replace(boldRegex, (_, bold) => {
     boldTexts.push(bold)
-    return `__BOLD_PLACEHOLDER_${boldTexts.length - 1}__`
+    return makePlaceholder('BOLD', boldTexts.length - 1)
   })
 
   // 4. Italic (_texto_)
@@ -86,7 +94,7 @@ export function formatWhatsAppText(
   const italicTexts: string[] = []
   processed = processed.replace(italicRegex, (_, italic) => {
     italicTexts.push(italic)
-    return `__ITALIC_PLACEHOLDER_${italicTexts.length - 1}__`
+    return makePlaceholder('ITALIC', italicTexts.length - 1)
   })
 
   // 5. Strikethrough (~texto~)
@@ -94,14 +102,14 @@ export function formatWhatsAppText(
   const strikeTexts: string[] = []
   processed = processed.replace(strikeRegex, (_, strike) => {
     strikeTexts.push(strike)
-    return `__STRIKE_PLACEHOLDER_${strikeTexts.length - 1}__`
+    return makePlaceholder('STRIKE', strikeTexts.length - 1)
   })
 
   // 6. Reconstruir dividiendo por placeholders para mantener orden
-  const parts = processed.split(/(__[A-Z_]+_PLACEHOLDER_\d+__)/g)
+  const parts = processed.split(/(%%[A-Z]+PLACEHOLDER\d+%%)/g)
 
   return parts.map((part, i) => {
-    const urlMatch = part.match(/^__URL_PLACEHOLDER_(\d+)__$/)
+    const urlMatch = part.match(/^%%URLPLACEHOLDER(\d+)%%$/)
     if (urlMatch) {
       const url = urls[parseInt(urlMatch[1])]
       return (
@@ -112,9 +120,20 @@ export function formatWhatsAppText(
           target="_blank"
           rel="noopener noreferrer"
           sx={{
-            color: 'primary.500',
+            // Mensajes propios (fondo de color): blanco subrayado para contraste.
+            // Mensajes entrantes (fondo claro): azul primary clásico.
+            color: isOwn ? '#FFFFFF' : 'primary.500',
             textDecoration: 'underline',
+            textDecorationColor: isOwn ? 'rgba(255,255,255,0.7)' : undefined,
+            textUnderlineOffset: '2px',
             wordBreak: 'break-all',
+            '&:hover': {
+              color: isOwn ? '#FFFFFF' : 'primary.600',
+              textDecorationColor: isOwn ? '#FFFFFF' : undefined,
+            },
+            '&:visited': {
+              color: isOwn ? '#FFFFFF' : 'primary.500',
+            },
           }}
         >
           {url}
@@ -122,7 +141,7 @@ export function formatWhatsAppText(
       )
     }
 
-    const codeMatch = part.match(/^__CODE_PLACEHOLDER_(\d+)__$/)
+    const codeMatch = part.match(/^%%CODEPLACEHOLDER(\d+)%%$/)
     if (codeMatch) {
       return (
         <Box
@@ -141,19 +160,19 @@ export function formatWhatsAppText(
       )
     }
 
-    const boldMatch = part.match(/^__BOLD_PLACEHOLDER_(\d+)__$/)
+    const boldMatch = part.match(/^%%BOLDPLACEHOLDER(\d+)%%$/)
     if (boldMatch) {
       const content = applyHighlight([boldTexts[parseInt(boldMatch[1])]], searchTerm || '')
       return <strong key={i}>{content}</strong>
     }
 
-    const italicMatch = part.match(/^__ITALIC_PLACEHOLDER_(\d+)__$/)
+    const italicMatch = part.match(/^%%ITALICPLACEHOLDER(\d+)%%$/)
     if (italicMatch) {
       const content = applyHighlight([italicTexts[parseInt(italicMatch[1])]], searchTerm || '')
       return <em key={i}>{content}</em>
     }
 
-    const strikeMatch = part.match(/^__STRIKE_PLACEHOLDER_(\d+)__$/)
+    const strikeMatch = part.match(/^%%STRIKEPLACEHOLDER(\d+)%%$/)
     if (strikeMatch) {
       const content = applyHighlight([strikeTexts[parseInt(strikeMatch[1])]], searchTerm || '')
       return <s key={i}>{content}</s>

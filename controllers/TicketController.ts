@@ -1,4 +1,5 @@
 import { query, Request, Response } from "express";
+import logger from "../utils/logger";
 import { getIO } from "../libs/socket";
 import Ticket from "../models/Ticket";
 
@@ -17,6 +18,7 @@ import ListTicketsServiceReport from "../services/TicketServices/ListTicketsServ
 import SetTicketMessagesAsRead from "../helpers/SetTicketMessagesAsRead";
 import SetTicketMessagesAsUnRead from "../helpers/SetTicketMessagesAsUnRead";
 import { Mutex } from "async-mutex";
+import { removeFollowupJobByTicketId } from "../workers/stageClassifier.worker";
 
 type IndexQuery = {
   searchParam: string;
@@ -87,7 +89,6 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     limit
   } = req.query as IndexQuery;
 
-  // console.log(req.query);
 
   const userId = Number(req.user.id);
   const { companyId } = req.user;
@@ -302,7 +303,7 @@ export const setunredmsg = async (req: Request, res: Response): Promise<Response
 
   if ((ticket.channel === "whatsapp" && ticket.whatsappId) ||
   (ticket.channel === "telegram" && ticket.telegramId)) {
-  SetTicketMessagesAsUnRead(ticket);
+  SetTicketMessagesAsUnRead(ticket).catch((e: any) => logger.error(`[SetUnRead] ${e?.message || e}`));
   }
 
 
@@ -346,7 +347,7 @@ export const showFromUUID = async (
   if ((ticket.channel === "whatsapp" && ticket.whatsappId && ticket.unreadMessages > 0) ||
   (ticket.channel === "telegram" && ticket.telegramId && ticket.unreadMessages > 0)) {
 
-    SetTicketMessagesAsRead(ticket);
+    SetTicketMessagesAsRead(ticket).catch((e: any) => logger.error(`[SetRead] ${e?.message || e}`));
   }
   await CreateLogTicketService({
     userId,
@@ -413,7 +414,7 @@ export const closeAll = async (req: Request, res: Response): Promise<Response> =
     order: [["updatedAt", "DESC"]]
   });
 
-  tickets.forEach(async ticket => {
+  for (const ticket of tickets) {
 
     const ticketData = {
       status: "closed",
@@ -424,9 +425,13 @@ export const closeAll = async (req: Request, res: Response): Promise<Response> =
       sendFarewellMessage: false
     };
 
-    await UpdateTicketService({ ticketData, ticketId: ticket.id, companyId })
+    try {
+      await UpdateTicketService({ ticketData, ticketId: ticket.id, companyId })
+    } catch (e: any) {
+      logger.error(`[closeAll] error cerrando ticket ${ticket.id}: ${e?.message || e}`);
+    }
 
-  });
+  }
 
   return res.status(200).json();
 };
@@ -447,7 +452,12 @@ export const toggleFollowup = async (req: Request, res: Response): Promise<Respo
 
     // Toggle el valor actual
     const newValue = !ticket.followupEnabled;
-    await ticket.update({ followupEnabled: newValue });
+    // FECHA SAGRADA: cambio de flag interno (followup) NO debe mover la fecha
+    // de la lista. silent:true evita el bump de updatedAt. (regresión 2026-06-16)
+    await ticket.update({ followupEnabled: newValue }, { silent: true });
+    if (!newValue) {
+      await removeFollowupJobByTicketId(ticket.id);
+    }
 
     return res.json({ followupEnabled: newValue });
   } catch (error) {

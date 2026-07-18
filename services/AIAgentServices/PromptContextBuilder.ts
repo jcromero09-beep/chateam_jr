@@ -15,8 +15,11 @@
 
 import TicketContextService from "./TicketContextService";
 import QuickReplySemanticService from "./QuickReplySemanticService";
+import type { RelevantQuickReply } from "./QuickReplySemanticService";
 import ContactMemoryService from "./ContactMemoryService";
 import CorrectionSearchService from "./CorrectionSearchService";
+import CurrentTicketMemoryService from "./CurrentTicketMemoryService";
+import ZepMemoryService from "./ZepMemoryService";
 import Company from "../../models/Company";
 import logger from "../../utils/logger";
 
@@ -29,6 +32,7 @@ export interface PromptContextRequest {
   currentMessage: string;
   ticketHistory: Array<{ role: string; content: string }>;
   contactInfo?: Record<string, unknown>;
+  quickReplyCandidates?: RelevantQuickReply[];
 }
 
 /**
@@ -110,25 +114,73 @@ const buildSupervisorContext = async (
     }
   }
 
+  // ── 2b. MEMORIA ESTRUCTURADA DEL TICKET (2026-04-22) ───────────────
+  //  Se inyecta ANTES del historial crudo para que el LLM "vea" primero
+  //  los hechos ya respondidos y preguntas pendientes, en vez de depender
+  //  de scrollear 20 mensajes truncados.
+  if (ticketId) {
+    try {
+      const memBlock = await CurrentTicketMemoryService.buildSupervisorBlock(
+        ticketId, companyId, currentMessage
+      );
+      if (memBlock.block && memBlock.block.trim()) {
+        sections.push(memBlock.block);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`ticketMemory: ${msg}`);
+    }
+  }
+
+  // -- 2c. MEMORIA ZEP (opcional, shadow/context por env vars) --------
+  if (ticketId) {
+    try {
+      const zepBlock = await ZepMemoryService.buildSupervisorBlock({
+        companyId,
+        ticketId,
+        contactId
+      });
+      if (zepBlock.trim()) {
+        sections.push(zepBlock);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`zepMemory: ${msg}`);
+    }
+  }
+
+  // ── 2c. RESUMEN COMPACTO DEL HILO (DERIVADO) ───────────────────────
+  //  Lee como máximo los últimos 20 mensajes, pero los compacta en un
+  //  resumen operativo breve. Esto reduce ruido sin perder continuidad,
+  //  especialmente cuando la memoria estructurada aún está "fría".
+  const compactHistoryBlock = buildCompactHistoryDigest(ticketHistory, currentMessage);
+  if (compactHistoryBlock.trim()) {
+    sections.push(compactHistoryBlock);
+  }
+
   // ── 3. HISTORIAL RECIENTE ───────────────────────────────────────────
   if (ticketHistory && ticketHistory.length > 0) {
     const formatted = ticketHistory
-      .slice(-20) // últimos 20 mensajes
+      .slice(-6) // ventana corta: solo lo inmediato
       .map(m => `**${m.role === "assistant" ? "🤖 Agente" : "👤 Cliente"}:** ${truncate(m.content, 150)}`)
       .join("\n");
 
     sections.push(
-      `## 💬 HISTORIAL RECIENTE DE ESTE CHAT\n` +
-      `*(Los últimos ${Math.min(ticketHistory.length, 20)} mensajes)*\n\n` +
+      `## 💬 VENTANA CORTA RECIENTE DEL CHAT\n` +
+      `*(Solo los últimos ${Math.min(ticketHistory.length, 6)} mensajes literales para referencias inmediatas; prioriza primero la memoria y el resumen compacto)*\n\n` +
       formatted
     );
   }
 
   // ── 4. RESPUESTAS RÁPIDAS SEMÁNTICAS ────────────────────────────────
   try {
-    const quickRepliesBlock = await QuickReplySemanticService.buildSupervisorBlock(
-      currentMessage, companyId
-    );
+    const quickRepliesBlock = request.quickReplyCandidates
+      ? QuickReplySemanticService.buildSupervisorBlockFromCandidates(
+          request.quickReplyCandidates
+        )
+      : await QuickReplySemanticService.buildSupervisorBlock(
+          currentMessage, companyId
+        );
     if (quickRepliesBlock.trim()) {
       sections.push(quickRepliesBlock);
     }
@@ -165,8 +217,12 @@ const buildSupervisorContext = async (
     `---`,
     `**INSTRUCCIONES:**`,
     `- Lee cada sección antes de responder.`,
-    `- prioriza RESPUESTAS RÁPIDAS DISPONIBLES si hay match de intent.`,
-    `- El HISTORIAL te da contexto de la conversación previa.`,
+    `- Si la sección "MEMORIA ESTRUCTURADA DEL TICKET" indica que la pregunta YA fue respondida, DEBES responder consistentemente con esa respuesta previa — no la contradigas ni la reformules de manera distinta. Si el cliente repite la pregunta porque no quedó claro, resume en 1-2 frases.`,
+    `- Usa el "RESUMEN COMPACTO DEL HILO" para continuidad conversacional; úsalo como contexto operativo, no como fuente factual si contradice memoria/KB/correcciones.`,
+    `- Prioriza CORRECCIONES VERIFICADAS por encima de todo.`,
+    `- Considera las RESPUESTAS RAPIDAS DISPONIBLES solo si en este turno ya vas a compartir una ficha o material concreto.`,
+    `- Si aun estas calificando al cliente o te falta contexto para recomendar algo, NO te apoyes en una respuesta rapida.`,
+    `- La "VENTANA CORTA RECIENTE DEL CHAT" sirve solo para wording inmediato y referencias muy recientes; no dependas de ella como única memoria.`,
     `- El ESTADO DEL TICKET te indica en qué punto del proceso está el cliente.`,
     `- Las MEMORIAS DEL CONTACTO son hechos conocidos sobre este cliente.`,
     `- Si una sección está vacía o no aplica, ignórala.`,
@@ -187,6 +243,88 @@ function truncate(text: string, max: number): string {
   if (!text) return "";
   if (text.length <= max) return text;
   return text.substring(0, max) + "...";
+}
+
+function buildCompactHistoryDigest(
+  ticketHistory: Array<{ role: string; content: string }>,
+  currentMessage: string
+): string {
+  if (!ticketHistory || ticketHistory.length < 4) return "";
+
+  const recent = ticketHistory
+    .slice(-20)
+    .filter(item => isMeaningfulHistoryLine(item.content));
+
+  if (recent.length < 3) return "";
+
+  const users = recent.filter(item => item.role !== "assistant");
+  const assistants = recent.filter(item => item.role === "assistant");
+
+  const latestUser = users[users.length - 1];
+  const previousUser = users.length > 1 ? users[users.length - 2] : undefined;
+  const latestAssistant = assistants[assistants.length - 1];
+
+  const followUps = dedupeHistoryLines(
+    users
+      .slice(-3)
+      .map(item => item.content)
+      .filter(content => normalizeHistoryLine(content) !== normalizeHistoryLine(currentMessage))
+      .map(content => truncate(content, 140))
+  );
+
+  const lines: string[] = [
+    `## 🪶 RESUMEN COMPACTO DEL HILO`,
+    `*(Derivado de los últimos ${Math.min(ticketHistory.length, 20)} mensajes, compactado para evitar ruido)*`
+  ];
+
+  if (previousUser) {
+    lines.push(`**Venía preguntando por:** ${truncate(previousUser.content, 160)}`);
+  }
+
+  if (latestAssistant) {
+    lines.push(`**Última respuesta del agente:** ${truncate(latestAssistant.content, 170)}`);
+  }
+
+  if (latestUser && normalizeHistoryLine(latestUser.content) !== normalizeHistoryLine(currentMessage)) {
+    lines.push(`**Último mensaje del cliente antes de este turno:** ${truncate(latestUser.content, 160)}`);
+  }
+
+  if (followUps.length > 0) {
+    lines.push(`**Mensajes recientes del cliente a tener presentes:**`);
+    followUps.slice(-2).forEach(item => lines.push(`- ${item}`));
+  }
+
+  return lines.length > 2 ? lines.join("\n") : "";
+}
+
+function isMeaningfulHistoryLine(text: string): boolean {
+  const value = (text || "").trim();
+  if (!value) return false;
+  if (value.length < 3) return false;
+  return !/^(ok|okay|oki|dale|listo|gracias|muchas gracias|perfecto|entendido|👍|👌|🙏|🙂)$/i.test(value);
+}
+
+function normalizeHistoryLine(text: string): string {
+  return (text || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[¿?¡!.,;:()"'`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeHistoryLines(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const value of values) {
+    const normalized = normalizeHistoryLine(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(value);
+  }
+
+  return output;
 }
 
 export default {

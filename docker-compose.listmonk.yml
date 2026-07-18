@@ -1,0 +1,69 @@
+version: "3.8"
+
+# Listmonk + PostgreSQL dedicado para ChatEAM JR
+# Levantar con: docker compose -f docker-compose.listmonk.yml up -d
+# Inicializar BD (solo primera vez): docker compose -f docker-compose.listmonk.yml run --rm listmonk ./listmonk --install --yes
+# Logs: docker logs -f listmonk
+# Detener: docker compose -f docker-compose.listmonk.yml down
+# Detener y borrar datos: docker compose -f docker-compose.listmonk.yml down -v
+
+services:
+  listmonk-db:
+    image: postgres:15-alpine
+    container_name: listmonk-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: listmonk
+      POSTGRES_PASSWORD: listmonk_chateam_2026_secure
+      POSTGRES_DB: listmonk
+    volumes:
+      - listmonk-db-data:/var/lib/postgresql/data
+    networks:
+      - listmonk-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U listmonk"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  listmonk:
+    image: listmonk/listmonk:latest
+    container_name: listmonk
+    restart: unless-stopped
+    depends_on:
+      listmonk-db:
+        condition: service_healthy
+    ports:
+      # Solo accesible en LAN (192.168.100.21:9000), no expuesto a internet
+      - "192.168.100.21:9000:9000"
+      - "127.0.0.1:9000:9000"
+    environment:
+      TZ: "America/Guayaquil"
+      LISTMONK_app__address: "0.0.0.0:9000"
+      LISTMONK_db__host: listmonk-db
+      LISTMONK_db__port: "5432"
+      LISTMONK_db__user: listmonk
+      LISTMONK_db__password: listmonk_chateam_2026_secure
+      LISTMONK_db__database: listmonk
+      LISTMONK_db__ssl_mode: disable
+      LISTMONK_db__max_open: "25"
+      LISTMONK_db__max_idle: "25"
+      LISTMONK_db__max_lifetime: "300s"
+      # Admin inicial (se puede cambiar después en panel)
+      LISTMONK_ADMIN_USER: chateam_admin
+      LISTMONK_ADMIN_PASSWORD: ChatEAM_Listmonk_2026!
+    volumes:
+      - listmonk-uploads:/listmonk/uploads
+    networks:
+      - listmonk-net
+
+volumes:
+  listmonk-db-data:
+    name: chateam-listmonk-db-data
+  listmonk-uploads:
+    name: chateam-listmonk-uploads
+
+networks:
+  listmonk-net:
+    name: chateam-listmonk-net
+    driver: bridge

@@ -20,10 +20,20 @@ export class SessionRegistry {
     this.port = parseInt(process.env.PORT || "3001");
   }
 
-  /** Registrar que esta sesión pertenece a este nodo */
-  async register(whatsappId: number): Promise<void> {
+  /**
+   * Reclamar o confirmar ownership de una sesión.
+   * HSETNX evita que dos procesos que arrancan al mismo tiempo se la asignen.
+   */
+  async register(whatsappId: number): Promise<boolean> {
     const redis = cacheLayer.getRedisInstance();
-    await redis.hset(REGISTRY_KEY, String(whatsappId), `${this.nodeId}:${this.port}`);
+    const field = String(whatsappId);
+    const owner = `${this.nodeId}:${this.port}`;
+    const current = await redis.hget(REGISTRY_KEY, field);
+
+    if (current === owner) return true;
+    if (current) return false;
+
+    return (await redis.hsetnx(REGISTRY_KEY, field, owner)) === 1;
   }
 
   /** Buscar qué nodo tiene esta sesión */
@@ -35,10 +45,24 @@ export class SessionRegistry {
     return { nodeId, port: parseInt(portStr) };
   }
 
-  /** Desregistrar una sesión (cuando se desconecta o mueve) */
-  async unregister(whatsappId: number): Promise<void> {
+  /** Desregistrar solo si esta instancia sigue siendo la propietaria. */
+  async unregister(whatsappId: number): Promise<boolean> {
     const redis = cacheLayer.getRedisInstance();
-    await redis.hdel(REGISTRY_KEY, String(whatsappId));
+    const result = await redis.eval(
+      `
+        local current = redis.call('HGET', KEYS[1], ARGV[1])
+        if current == ARGV[2] then
+          return redis.call('HDEL', KEYS[1], ARGV[1])
+        end
+        return 0
+      `,
+      1,
+      REGISTRY_KEY,
+      String(whatsappId),
+      `${this.nodeId}:${this.port}`
+    );
+
+    return Number(result) === 1;
   }
 
   /** Obtener todas las sesiones de un nodo específico */

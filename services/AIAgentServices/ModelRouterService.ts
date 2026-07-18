@@ -80,14 +80,49 @@ export async function selectModel(
 ): Promise<ModelSelection | null> {
   const tier = preferredTier || classifyComplexity(input);
 
-  // Buscar modelo configurado en el agente
+  // 1) Fuente global de verdad: provider default para texto.
+  //    Esto evita que agentes viejos con modelKey stale se salten el modelo configurado.
+  try {
+    const provider = await getDefaultProviderForCapability('text');
+    const configuredModelKey = provider?.settings?.defaultModel?.trim();
+    if (configuredModelKey) {
+      const configuredEntity = await AIEntity.findOne({
+        where: { key: configuredModelKey, status: 'active' }
+      });
+
+      if (configuredEntity) {
+        return {
+          entity: configuredEntity,
+          tier,
+          reason: 'Modelo global configurado para text: ' + configuredEntity.key
+        };
+      }
+    }
+  } catch (err: any) {
+    logger.warn('[ModelRouter] No se pudo leer provider default text: ' + (err?.message || err));
+  }
+
+  // 2) Catálogo central: modelo marcado como seleccionado.
+  const selectedEntity = await AIEntity.findOne({
+    where: { type: 'text', status: 'active', isSelected: true },
+    order: [['updatedAt', 'DESC'], ['id', 'ASC']]
+  });
+
+  if (selectedEntity) {
+    return {
+      entity: selectedEntity,
+      tier,
+      reason: 'Modelo seleccionado globalmente: ' + selectedEntity.key
+    };
+  }
+
+  // 3) Compatibilidad: modelo configurado en el agente.
   const agentConfig = await AIAgentConfig.findOne({
     where: { agentType, isActive: true },
-    order: [["companyId", "ASC"]] // Global primero, luego empresa
+    order: [['companyId', 'ASC']]
   });
 
   if (agentConfig) {
-    // Buscar la entidad del modelo configurado
     const entity = await AIEntity.findOne({
       where: { key: agentConfig.modelKey, status: 'active' }
     });
@@ -96,19 +131,18 @@ export async function selectModel(
       return {
         entity,
         tier,
-        reason: `Modelo configurado para agente ${agentType}: ${entity.key}`
+        reason: 'Modelo configurado para agente ' + agentType + ': ' + entity.key
       };
     }
   }
 
-  // Fallback: buscar por tier y tipo
-  const maxPrice = tierPriceRanges[tier].maxPrice;
-
+  // 4) Último recurso: buscar por tier y tipo, priorizando seleccionado y costo.
   const entity = await AIEntity.findOne({
     where: { type: 'text', status: 'active' },
     order: [
-      ["inputPrice", "ASC"],
-      ["maxTokens", "DESC"]
+      ['isSelected', 'DESC'],
+      ['inputPrice', 'ASC'],
+      ['maxTokens', 'DESC']
     ]
   });
 
@@ -116,11 +150,11 @@ export async function selectModel(
     return {
       entity,
       tier,
-      reason: `Auto-seleccionado por tier ${tier}: ${entity.key}`
+      reason: 'Auto-seleccionado por disponibilidad: ' + entity.key
     };
   }
 
-  logger.warn(`[ModelRouter] No se encontró modelo para tier=${tier}, agentType=${agentType}`);
+  logger.warn('[ModelRouter] No se encontró modelo para tier=' + tier + ', agentType=' + agentType);
   return null;
 }
 

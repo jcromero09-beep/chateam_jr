@@ -1,357 +1,340 @@
-import React, {
-  useState,
-  useEffect,
-  useReducer,
-} from "react";
-import { toast } from "react-toastify";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useCallback } from 'react'
+import { toast } from 'react-toastify'
+import { useNavigate } from 'react-router-dom'
+// [conservado] CircularProgress no tiene equivalente en el design system
+import { CircularProgress } from '@mui/joy'
+import {
+  MagnifyingGlass,
+  PencilSimple,
+  Trash,
+  Plus,
+  ArrowLeft,
+  CaretLeft,
+  CaretRight,
+  Tag as TagIcon,
+} from '@phosphor-icons/react'
 
-import { makeStyles } from "@material-ui/core/styles";
-import Paper from "@material-ui/core/Paper";
-import Button from "@material-ui/core/Button";
-import Table from "@material-ui/core/Table";
-import TableBody from "@material-ui/core/TableBody";
-import TableCell from "@material-ui/core/TableCell";
-import TableHead from "@material-ui/core/TableHead";
-import TableRow from "@material-ui/core/TableRow";
-import IconButton from "@material-ui/core/IconButton";
-import SearchIcon from "@material-ui/icons/Search";
-import TextField from "@material-ui/core/TextField";
-import InputAdornment from "@material-ui/core/InputAdornment";
-import CircularProgress from "@material-ui/core/CircularProgress";
-import DeleteOutlineIcon from "@material-ui/icons/DeleteOutline";
-import EditIcon from "@material-ui/icons/Edit";
-import { Chip, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from "@material-ui/core";
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 
-import api from "../services/api";
-// @ts-ignore
-import TagModal from "../components/TagModal";
+import api from '../services/api'
+// @ts-ignore - TagModal es JS/JSX sin tipos
+import TagModal from '../components/TagModal'
 
-const reducer = (state: any, action: any) => {
-  if (action.type === "LOAD_TAGS") {
-    const tags = action.payload;
-    const newTags: any[] = [];
+const PAGE_LIMIT = 10
 
-    tags.forEach((tag: any) => {
-      const tagIndex = state.findIndex((s: any) => s.id === tag.id);
-      if (tagIndex !== -1) {
-        state[tagIndex] = tag;
-      } else {
-        newTags.push(tag);
-      }
-    });
+interface Tag {
+  id: number
+  name: string
+  color: string
+  ticketTags?: unknown[]
+}
 
-    return [...state, ...newTags];
-  }
-
-  if (action.type === "UPDATE_TAGS") {
-    const tag = action.payload;
-    const tagIndex = state.findIndex((s: any) => s.id === tag.id);
-
-    if (tagIndex !== -1) {
-      state[tagIndex] = tag;
-      return [...state];
-    } else {
-      return [tag, ...state];
-    }
-  }
-
-  if (action.type === "DELETE_TAGS") {
-    const tagId = action.payload;
-
-    const tagIndex = state.findIndex((s: any) => s.id === tagId);
-    if (tagIndex !== -1) {
-      state.splice(tagIndex, 1);
-    }
-    return [...state];
-  }
-
-  if (action.type === "RESET") {
-    return [];
-  }
-
-  return state;
-};
-
-const useStyles = makeStyles((theme) => ({
-  mainPaper: {
-    flex: 1,
-    padding: theme.spacing(2),
-    overflowY: "auto",
-    margin: theme.spacing(2),
-  },
-  mainContainer: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    padding: theme.spacing(2),
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: theme.spacing(2),
-    flexWrap: "wrap",
-    gap: theme.spacing(2),
-  },
-  buttonsWrapper: {
-    display: "flex",
-    gap: theme.spacing(1),
-    alignItems: "center",
-  },
-}));
-
-// Helper function to display error toasts
 const toastError = (err: any) => {
-  const errorMsg = err.response?.data?.message || err.message || "An error occurred";
-  toast.error(errorMsg);
-};
+  const errorMsg = err?.response?.data?.message || err?.message || 'Ocurrió un error'
+  toast.error(errorMsg)
+}
 
-const TagsKanban = () => {
-  const classes = useStyles();
-  const navigate = useNavigate();
+const TagsKanban: React.FC = () => {
+  const navigate = useNavigate()
 
-  const [loading, setLoading] = useState(false);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [selectedTag, setSelectedTag] = useState<any>(null);
-  const [deletingTag, setDeletingTag] = useState<any>(null);
-  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
-  const [searchParam, setSearchParam] = useState("");
-  const [tags, dispatch] = useReducer(reducer, []);
-  const [tagModalOpen, setTagModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false)
+  const [pageNumber, setPageNumber] = useState(1)
+  const [count, setCount] = useState(0)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [searchParam, setSearchParam] = useState('')
 
-  useEffect(() => {
-    setLoading(true);
-    const delayDebounceFn = setTimeout(() => {
-      const fetchTags = async () => {
-        try {
-          const { data } = await api.get("/tags/", {
-            params: { searchParam, pageNumber, kanban: 1 },
-          });
-          dispatch({ type: "LOAD_TAGS", payload: data.tags });
-          setHasMore(data.hasMore);
-          setLoading(false);
-        } catch (err) {
-          toastError(err);
-          setLoading(false);
-        }
-      };
-      fetchTags();
-    }, 500);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchParam, pageNumber]);
+  const [selectedTag, setSelectedTag] = useState<Tag | null>(null)
+  const [tagModalOpen, setTagModalOpen] = useState(false)
+  const [deletingTag, setDeletingTag] = useState<Tag | null>(null)
 
-  useEffect(() => {
-    dispatch({ type: "RESET" });
-    setPageNumber(1);
-  }, [searchParam]);
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_LIMIT))
 
-  const reloadTags = async () => {
+  const fetchTags = useCallback(async (page: number, search: string) => {
+    setLoading(true)
     try {
-      setLoading(true);
-      const { data } = await api.get("/tags/", {
-        params: { searchParam, pageNumber: 1, kanban: 1 },
-      });
-      dispatch({ type: "LOAD_TAGS", payload: data.tags });
-      setHasMore(data.hasMore);
+      const { data } = await api.get('/tags/', {
+        params: { searchParam: search, pageNumber: page, kanban: 1 },
+      })
+      setTags(data.tags || [])
+      setCount(data.count || 0)
     } catch (err) {
-      toastError(err);
+      toastError(err)
+      setTags([])
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }, [])
 
-  const handleOpenTagModal = () => {
-    setSelectedTag(null);
-    setTagModalOpen(true);
-  };
+  // Búsqueda con debounce → reinicia a página 1
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPageNumber(1)
+      fetchTags(1, searchParam)
+    }, 500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParam])
 
-  const handleCloseTagModal = () => {
-    setSelectedTag(null);
-    setTagModalOpen(false);
-  };
+  // Cambio de página
+  useEffect(() => {
+    fetchTags(pageNumber, searchParam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageNumber])
+
+  const reload = () => fetchTags(pageNumber, searchParam)
+
+  const handleOpenNew = () => {
+    setSelectedTag(null)
+    setTagModalOpen(true)
+  }
+
+  const handleEdit = (tag: Tag) => {
+    setSelectedTag(tag)
+    setTagModalOpen(true)
+  }
+
+  const handleCloseModal = () => {
+    setSelectedTag(null)
+    setTagModalOpen(false)
+  }
 
   const handleSaved = () => {
-    setSelectedTag(null);
-    setTagModalOpen(false);
-    reloadTags();
-  };
+    handleCloseModal()
+    reload()
+  }
 
-  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchParam(event.target.value.toLowerCase());
-  };
-
-  const handleEditTag = (tag: any) => {
-    setSelectedTag(tag);
-    setTagModalOpen(true);
-  };
-
-  const handleDeleteTag = async (tagId: number) => {
+  const handleDelete = async (tagId: number) => {
     try {
-      await api.delete(`/tags/${tagId}`);
-      toast.success("Etiqueta eliminada con éxito");
-      dispatch({ type: "DELETE_TAGS", payload: tagId });
+      await api.delete(`/tags/${tagId}`)
+      toast.success('Etiqueta eliminada con éxito')
+      // Si era el último de la página, retrocede una página
+      if (tags.length === 1 && pageNumber > 1) {
+        setPageNumber(p => p - 1)
+      } else {
+        reload()
+      }
     } catch (err) {
-      toastError(err);
+      toastError(err)
+    } finally {
+      setDeletingTag(null)
     }
-    setDeletingTag(null);
-    setConfirmModalOpen(false);
-  };
+  }
 
-  const loadMore = () => {
-    setPageNumber((prevState) => prevState + 1);
-  };
-
-  const handleScroll = (e: any) => {
-    if (!hasMore || loading) return;
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - (scrollTop + 100) < clientHeight) {
-      loadMore();
-    }
-  };
-
-  const handleReturnToKanban = () => {
-    navigate("/kanban");
-  };
+  const goPrev = () => setPageNumber(p => Math.max(1, p - 1))
+  const goNext = () => setPageNumber(p => Math.min(totalPages, p + 1))
 
   return (
-    <div className={classes.mainContainer}>
-      {/* Confirmation Modal */}
-      <Dialog
-        open={confirmModalOpen}
-        onClose={() => setConfirmModalOpen(false)}
-      >
-        <DialogTitle>
-          {deletingTag ? `¿Eliminar etiqueta "${deletingTag.name}"?` : "Confirmar"}
-        </DialogTitle>
-        <DialogContent>
-          <Typography>¿Estás seguro de que quieres eliminar esta etiqueta?</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmModalOpen(false)} color="default">
-            Cancelar
-          </Button>
-          <Button
-            onClick={() => deletingTag && handleDeleteTag(deletingTag.id)}
-            color="secondary"
-            variant="contained"
-          >
-            Eliminar
-          </Button>
-        </DialogActions>
-      </Dialog>
+    <TooltipProvider delayDuration={300}>
+      <div className="flex h-full flex-col bg-background p-4">
+        {/* Cabecera */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-md bg-brand-teal/10 text-brand-teal">
+              <TagIcon className="size-5" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-xl font-semibold leading-tight tracking-tight text-foreground">
+                Etiquetas del Funnel
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {count} etiqueta{count === 1 ? '' : 's'} en total
+              </p>
+            </div>
+          </div>
 
-      {/* Tag Modal */}
-      {tagModalOpen && (
-        <TagModal
-          open={tagModalOpen}
-          onClose={handleCloseTagModal}
-          onSaved={handleSaved}
-          aria-labelledby="form-dialog-title"
-          tagId={selectedTag?.id}
-          kanban={1}
-        />
-      )}
-
-      {/* Header */}
-      <div className={classes.header}>
-        <Typography variant="h5" color="primary">
-          Etiquetas Kanban ({tags.length})
-        </Typography>
-        <div className={classes.buttonsWrapper}>
-          <TextField
-            placeholder="Buscar etiquetas..."
-            type="search"
-            value={searchParam}
-            onChange={handleSearch}
-            variant="outlined"
-            size="small"
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon style={{ color: "gray" }} />
-                </InputAdornment>
-              ),
-            }}
-          />
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleOpenTagModal}
-          >
-            Añadir Etiqueta
-          </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleReturnToKanban}
-          >
-            Volver a Kanban
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[240px]">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                placeholder="Buscar etiquetas…"
+                aria-label="Buscar etiquetas"
+                value={searchParam}
+                onChange={e => setSearchParam(e.target.value.toLowerCase())}
+                className="h-9 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
+            <Button size="sm" onClick={handleOpenNew}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Añadir etiqueta
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => navigate('/funnel')}>
+              <ArrowLeft className="size-4" aria-hidden />
+              Volver al Funnel
+            </Button>
+          </div>
         </div>
+
+        {/* Tabla */}
+        <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-border bg-muted/60 text-left">
+                  <th className="w-1/2 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Etiqueta
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Tickets
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {!loading && tags.length === 0 && (
+                  <tr>
+                    <td colSpan={3}>
+                      <div className="flex flex-col items-center justify-center gap-2 py-12">
+                        <TagIcon className="size-9 text-muted-foreground" aria-hidden />
+                        <p className="text-sm text-muted-foreground">
+                          {searchParam ? 'Sin resultados para tu búsqueda' : 'Aún no hay etiquetas de funnel'}
+                        </p>
+                        {!searchParam && (
+                          <Button size="sm" variant="outline" onClick={handleOpenNew}>
+                            <Plus className="size-4" weight="bold" aria-hidden />
+                            Crear la primera
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {tags.map(tag => (
+                  <tr key={tag.id} className="transition-colors hover:bg-accent/40">
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-foreground">
+                        <span
+                          className="size-2.5 rounded-full"
+                          style={{ backgroundColor: tag.color }}
+                          aria-hidden
+                        />
+                        {tag.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Badge variant="neutral">{tag.ticketTags?.length ?? 0}</Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Tooltip title="Editar">
+                          <button
+                            type="button"
+                            aria-label="Editar"
+                            onClick={() => handleEdit(tag)}
+                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </button>
+                        </Tooltip>
+                        <Tooltip title="Eliminar">
+                          <button
+                            type="button"
+                            aria-label="Eliminar"
+                            onClick={() => setDeletingTag(tag)}
+                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            <Trash className="size-[18px]" aria-hidden />
+                          </button>
+                        </Tooltip>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {loading && (
+                  <tr>
+                    <td colSpan={3}>
+                      <div className="flex items-center justify-center py-8">
+                        <CircularProgress size="sm" />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Paginación */}
+          <div className="flex items-center justify-between border-t border-border px-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Página {pageNumber} de {totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pageNumber <= 1 || loading}
+                onClick={goPrev}
+              >
+                <CaretLeft className="size-4" aria-hidden />
+                Anterior
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pageNumber >= totalPages || loading}
+                onClick={goNext}
+              >
+                Siguiente
+                <CaretRight className="size-4" aria-hidden />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal crear/editar */}
+        {tagModalOpen && (
+          <TagModal
+            open={tagModalOpen}
+            onClose={handleCloseModal}
+            onSaved={handleSaved}
+            aria-labelledby="form-dialog-title"
+            tagId={selectedTag?.id}
+            kanban={1}
+          />
+        )}
+
+        {/* Confirmación de borrado */}
+        <Dialog open={!!deletingTag} onOpenChange={open => { if (!open) setDeletingTag(null) }}>
+          <DialogContent role="alertdialog" className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Eliminar etiqueta</DialogTitle>
+              <DialogDescription>
+                ¿Seguro que deseas eliminar la etiqueta <strong className="text-foreground">{deletingTag?.name}</strong>? Los tickets dejarán de estar en esta etapa del funnel.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setDeletingTag(null)}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                onClick={() => deletingTag && handleDelete(deletingTag.id)}
+              >
+                Eliminar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
+    </TooltipProvider>
+  )
+}
 
-      {/* Table */}
-      <Paper
-        className={classes.mainPaper}
-        variant="outlined"
-        onScroll={handleScroll}
-      >
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell align="center">Nombre</TableCell>
-              <TableCell align="center">Tickets</TableCell>
-              <TableCell align="center">Acciones</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {tags.map((tag: any) => (
-              <TableRow key={tag.id}>
-                <TableCell align="center">
-                  <Chip
-                    variant="outlined"
-                    style={{
-                      backgroundColor: tag.color,
-                      textShadow: "1px 1px 1px #000",
-                      color: "white",
-                    }}
-                    label={tag.name}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell align="center">
-                  {tag?.ticketTags ? <span>{tag?.ticketTags?.length}</span> : <span>0</span>}
-                </TableCell>
-                <TableCell align="center">
-                  <IconButton size="small" onClick={() => handleEditTag(tag)}>
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setConfirmModalOpen(true);
-                      setDeletingTag(tag);
-                    }}
-                  >
-                    <DeleteOutlineIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={3} align="center">
-                  <CircularProgress size={24} />
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </Paper>
-    </div>
-  );
-};
-
-export default TagsKanban;
+export default TagsKanban

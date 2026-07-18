@@ -61,6 +61,19 @@ class Company extends Model<Company> {
   @Column(DataType.STRING)
   recurrence: string;
 
+  // ============================================================================
+  // Tracking de alertas de expiración (idempotencia del CronJob)
+  // - expirationWarningSentAt: cuando se envió el aviso 4 días antes
+  // - expirationNotifiedAt: cuando se envió el aviso de expirado
+  // Se resetean automáticamente al renovar dueDate.
+  // ============================================================================
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  expirationWarningSentAt: Date;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  expirationNotifiedAt: Date;
+
   @Column(DataType.TEXT)
   facebookAppId: string;
 

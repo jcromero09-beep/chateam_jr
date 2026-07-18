@@ -17,6 +17,7 @@ import Whatsapp from "../models/Whatsapp";
 import CoexistenceLivenessService from "../services/MetaServices/CoexistenceLivenessService";
 import { runMetaAppSetup, getMetaAppStatus } from "../services/MetaServices/MetaAppSetupService";
 import { processEmbeddedSignupCallback } from "../services/MetaServices/metaEmbeddedSignupService";
+import CompaniesSettings from "../models/CompaniesSettings";
 import {
   connectViaManualToken,
   requestVerificationCode,
@@ -94,10 +95,11 @@ export const getCoexistenceStatus = async (
       (d) => d.companyId === companyId
     );
 
-    // 3. Env check
+    // 3. Company Meta app config check
+    const companySettings = await CompaniesSettings.findOne({ where: { companyId } });
     const envCheck = {
-      FACEBOOK_APP_ID: !!process.env.FACEBOOK_APP_ID,
-      FACEBOOK_APP_SECRET: !!process.env.FACEBOOK_APP_SECRET,
+      FACEBOOK_APP_ID: !!companySettings?.facebookAppId,
+      FACEBOOK_APP_SECRET: !!companySettings?.facebookAppSecret,
       FB_GRAPH_VERSION: process.env.FB_GRAPH_VERSION || "v24.0",
     };
 
@@ -173,7 +175,8 @@ export const getAppStatus = async (
   res: Response
 ): Promise<Response> => {
   try {
-    const appStatus = await getMetaAppStatus();
+    const { companyId } = req.user;
+    const appStatus = await getMetaAppStatus(companyId);
 
     return res.json({
       success: true,
@@ -235,7 +238,7 @@ export const embeddedSignup = async (
 ): Promise<Response> => {
   try {
     const { companyId } = req.user;
-    const { code, connectionName, _isAccessToken } = req.body;
+    const { code, connectionName, redirectUri, _isAccessToken } = req.body;
 
     if (!code) {
       return res.status(400).json({
@@ -248,6 +251,7 @@ export const embeddedSignup = async (
       code,
       companyId,
       connectionName,
+      redirectUri: typeof redirectUri === "string" ? redirectUri.trim() : undefined,
       isAccessToken: _isAccessToken === true,
     });
 
@@ -610,8 +614,9 @@ export const updateCoexistenceConfig = async (
     await whatsapp.update({
       coexistenceEnabled: coexistenceEnabled !== undefined ? coexistenceEnabled : whatsapp.coexistenceEnabled,
       coexistenceStatus: coexistenceEnabled === false ? "disabled" : (coexistenceEnabled === true ? "active" : whatsapp.coexistenceStatus),
-      receiveChannel: receiveChannel || whatsapp.receiveChannel,
-      sendChannel: sendChannel || whatsapp.sendChannel,
+      receiveChannel: receiveChannel || whatsapp.receiveChannel || "both",
+      // Meta principal en coexistencia: si no se especifica y no hay valor previo, 'meta'.
+      sendChannel: sendChannel || whatsapp.sendChannel || "meta",
       linkedWhatsappId: linkedWhatsappId !== undefined ? linkedWhatsappId : whatsapp.linkedWhatsappId,
       ...(coexistenceEnabled && !whatsapp.coexistenceOnboardedAt ? { coexistenceOnboardedAt: new Date() } : {}),
     });

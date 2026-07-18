@@ -19,6 +19,27 @@ interface DashboardResponse {
     pending: number;
     closed: number;
   };
+  unassignedTickets: {
+    total: number;
+    open: number;
+    pending: number;
+    closed: number;
+  };
+  ratings: {
+    total: number;
+    average: number;
+    scale: number;
+    positiveRate: number;
+    last30Days: number;
+    distribution: Array<{ rate: number; count: number }>;
+    latest: Array<{
+      id: number;
+      ticketId: number | null;
+      rate: number;
+      createdAt: string;
+      userName: string;
+    }>;
+  };
   campaigns: {
     active: number;
     scheduled: number;
@@ -33,6 +54,22 @@ interface DashboardResponse {
     id: number;
     name: string;
     ticketsClosed: number;
+    avgResponseTime: string;
+  }>;
+  userMetrics: Array<{
+    id: number;
+    name: string;
+    email: string;
+    online: boolean;
+    onlineSince: string | null;
+    onlineDurationMinutes: number;
+    lastSeenAt: string | null;
+    totalTickets: number;
+    openTickets: number;
+    pendingTickets: number;
+    closedTickets: number;
+    avgRating: number;
+    ratingCount: number;
     avgResponseTime: string;
   }>;
   recentActivity: Array<{
@@ -144,6 +181,19 @@ const GetDashboardDataService = async (
     ]);
     console.log('📊 Contadores de tickets:', { openTickets, pendingTickets, closedTickets, showAll, userId });
 
+    const [unassignedOpenTickets, unassignedPendingTickets, unassignedClosedTickets] = await Promise.all([
+      Ticket.count({ where: { companyId, userId: null, status: 'open' } }),
+      Ticket.count({ where: { companyId, userId: null, status: 'pending' } }),
+      Ticket.count({ where: { companyId, userId: null, status: 'closed' } })
+    ]);
+
+    const unassignedTickets = {
+      open: unassignedOpenTickets,
+      pending: unassignedPendingTickets,
+      closed: unassignedClosedTickets,
+      total: unassignedOpenTickets + unassignedPendingTickets + unassignedClosedTickets
+    };
+
     // 7. Campañas
     const [activeCampaigns, scheduledCampaigns, completedCampaigns] = await Promise.all([
       Campaign.count({ where: { companyId, status: 'INPROGRESS' } }),
@@ -193,7 +243,177 @@ const GetDashboardDataService = async (
       avgResponseTime: `${parseFloat(agent.avgResponseTime).toFixed(1)} min`
     }));
 
-    // 10. Actividad reciente (últimos 5 eventos)
+    // 10. Resumen de reseñas/NPS
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+    const ratingsSummaryQuery = `
+      SELECT
+        COUNT(ur.id) as total,
+        COALESCE(ROUND(AVG(ur.rate)::numeric, 1), 0) as average,
+        COALESCE(MAX(ur.rate), 0) as "maxRate",
+        COUNT(CASE WHEN ur.rate >= 4 THEN 1 END) as positive,
+        COUNT(CASE WHEN ur."createdAt" >= :thirtyDaysAgo THEN 1 END) as "last30Days"
+      FROM "UserRatings" ur
+      WHERE ur."companyId" = :companyId
+        AND ur.rate > 0
+    `;
+
+    const ratingsSummaryData: any = await sequelize.query(ratingsSummaryQuery, {
+      replacements: { companyId, thirtyDaysAgo },
+      type: QueryTypes.SELECT,
+      plain: true
+    });
+
+    const ratingsDistributionQuery = `
+      SELECT ur.rate, COUNT(ur.id) as count
+      FROM "UserRatings" ur
+      WHERE ur."companyId" = :companyId
+        AND ur.rate > 0
+      GROUP BY ur.rate
+      ORDER BY ur.rate ASC
+    `;
+
+    const ratingsDistributionData: any[] = await sequelize.query(ratingsDistributionQuery, {
+      replacements: { companyId },
+      type: QueryTypes.SELECT
+    });
+
+    const latestRatingsQuery = `
+      SELECT
+        ur.id,
+        ur."ticketId",
+        ur.rate,
+        ur."createdAt",
+        COALESCE(u.name, 'Sin agente') as "userName"
+      FROM "UserRatings" ur
+      LEFT JOIN "Users" u ON u.id = ur."userId"
+      WHERE ur."companyId" = :companyId
+        AND ur.rate > 0
+      ORDER BY ur."createdAt" DESC
+      LIMIT 5
+    `;
+
+    const latestRatingsData: any[] = await sequelize.query(latestRatingsQuery, {
+      replacements: { companyId },
+      type: QueryTypes.SELECT
+    });
+
+    const ratingsTotal = parseInt(ratingsSummaryData?.total || 0);
+    const positiveRatings = parseInt(ratingsSummaryData?.positive || 0);
+    const maxObservedRate = parseInt(ratingsSummaryData?.maxRate || 0);
+    const ratings = {
+      total: ratingsTotal,
+      average: parseFloat(ratingsSummaryData?.average || 0),
+      scale: maxObservedRate > 5 ? 10 : 5,
+      positiveRate: ratingsTotal > 0 ? Math.round((positiveRatings / ratingsTotal) * 100) : 0,
+      last30Days: parseInt(ratingsSummaryData?.last30Days || 0),
+      distribution: ratingsDistributionData.map((item: any) => ({
+        rate: parseInt(item.rate),
+        count: parseInt(item.count)
+      })),
+      latest: latestRatingsData.map((item: any) => ({
+        id: parseInt(item.id),
+        ticketId: item.ticketId ? parseInt(item.ticketId) : null,
+        rate: parseInt(item.rate),
+        createdAt: item.createdAt,
+        userName: item.userName
+      }))
+    };
+
+    // 11. Métricas por usuario/agente
+    const userMetricsQuery = `
+      WITH ticket_stats AS (
+        SELECT
+          t."userId",
+          COUNT(t.id) as "totalTickets",
+          COUNT(CASE WHEN t.status = 'open' THEN 1 END) as "openTickets",
+          COUNT(CASE WHEN t.status = 'pending' THEN 1 END) as "pendingTickets",
+          COUNT(CASE WHEN t.status = 'closed' THEN 1 END) as "closedTickets",
+          COALESCE(ROUND(AVG(
+            CASE WHEN t.status = 'closed' THEN EXTRACT(EPOCH FROM (t."updatedAt" - t."createdAt")) / 60 END
+          )::numeric, 1), 0) as "avgResponseTime"
+        FROM "Tickets" t
+        WHERE t."companyId" = :companyId
+          AND t."userId" IS NOT NULL
+        GROUP BY t."userId"
+      ),
+      rating_stats AS (
+        SELECT
+          ur."userId",
+          COUNT(ur.id) as "ratingCount",
+          COALESCE(ROUND(AVG(ur.rate)::numeric, 1), 0) as "avgRating"
+        FROM "UserRatings" ur
+        WHERE ur."companyId" = :companyId
+          AND ur.rate > 0
+          AND ur."userId" IS NOT NULL
+        GROUP BY ur."userId"
+      ),
+      latest_session AS (
+        SELECT DISTINCT ON (s."userId")
+          s."userId",
+          s."lastSeenAt"
+        FROM "Sessions" s
+        WHERE s."revokedAt" IS NULL
+          AND s."expiresAt" > NOW()
+        ORDER BY s."userId", s."lastSeenAt" DESC NULLS LAST
+      )
+      SELECT
+        u.id,
+        u.name,
+        u.email,
+        u.online,
+        CASE
+          WHEN u.online = true THEN COALESCE(NULLIF(u.metadata->>'lastOnlineAt', '')::timestamptz, u."updatedAt")
+          ELSE NULL
+        END as "onlineSince",
+        CASE
+          WHEN u.online = true THEN FLOOR(EXTRACT(EPOCH FROM (
+            NOW() - COALESCE(NULLIF(u.metadata->>'lastOnlineAt', '')::timestamptz, u."updatedAt")
+          )) / 60)
+          ELSE 0
+        END as "onlineDurationMinutes",
+        COALESCE(ls."lastSeenAt", NULLIF(u.metadata->>'lastSeenAt', '')::timestamptz, u."updatedAt") as "lastSeenAt",
+        COALESCE(ts."totalTickets", 0) as "totalTickets",
+        COALESCE(ts."openTickets", 0) as "openTickets",
+        COALESCE(ts."pendingTickets", 0) as "pendingTickets",
+        COALESCE(ts."closedTickets", 0) as "closedTickets",
+        COALESCE(rs."avgRating", 0) as "avgRating",
+        COALESCE(rs."ratingCount", 0) as "ratingCount",
+        COALESCE(ts."avgResponseTime", 0) as "avgResponseTime"
+      FROM "Users" u
+      LEFT JOIN ticket_stats ts ON ts."userId" = u.id
+      LEFT JOIN rating_stats rs ON rs."userId" = u.id
+      LEFT JOIN latest_session ls ON ls."userId" = u.id
+      WHERE u."companyId" = :companyId
+        AND u.profile IN ('admin', 'supervisor', 'user')
+      ORDER BY u.online DESC, COALESCE(ts."totalTickets", 0) DESC, u.name ASC
+    `;
+
+    const userMetricsData: any[] = await sequelize.query(userMetricsQuery, {
+      replacements: { companyId },
+      type: QueryTypes.SELECT
+    });
+
+    const userMetrics = userMetricsData.map((agent: any) => ({
+      id: parseInt(agent.id),
+      name: agent.name,
+      email: agent.email,
+      online: Boolean(agent.online),
+      onlineSince: agent.onlineSince || null,
+      onlineDurationMinutes: Math.max(0, parseInt(agent.onlineDurationMinutes || 0)),
+      lastSeenAt: agent.lastSeenAt || null,
+      totalTickets: parseInt(agent.totalTickets || 0),
+      openTickets: parseInt(agent.openTickets || 0),
+      pendingTickets: parseInt(agent.pendingTickets || 0),
+      closedTickets: parseInt(agent.closedTickets || 0),
+      avgRating: parseFloat(agent.avgRating || 0),
+      ratingCount: parseInt(agent.ratingCount || 0),
+      avgResponseTime: `${parseFloat(agent.avgResponseTime || 0).toFixed(1)} min`
+    }));
+
+    // 12. Actividad reciente (últimos 5 eventos)
     const recentTickets = await Ticket.findAll({
       where: { companyId },
       include: [
@@ -241,7 +461,7 @@ const GetDashboardDataService = async (
       };
     });
 
-    // 11. Métricas de performance
+    // 13. Métricas de performance
     const performanceQuery = `
       SELECT
         COALESCE(ROUND(AVG(
@@ -282,6 +502,8 @@ const GetDashboardDataService = async (
         pending: pendingTickets,
         closed: closedTickets
       },
+      unassignedTickets,
+      ratings,
       campaigns: {
         active: activeCampaigns,
         scheduled: scheduledCampaigns,
@@ -293,6 +515,7 @@ const GetDashboardDataService = async (
         total: connections.length
       },
       topAgents,
+      userMetrics,
       recentActivity,
       performance
     };

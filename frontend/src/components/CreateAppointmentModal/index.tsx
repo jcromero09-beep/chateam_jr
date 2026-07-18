@@ -96,6 +96,17 @@ interface CreateAppointmentModalProps {
   lockContact?: boolean
   existingAppointment?: ExistingAppointment | null
   mode?: 'create' | 'reschedule'
+  /** Ticket del chat de origen: fija la conexión de WhatsApp por la que se
+      enviarán la confirmación y los recordatorios de la cita (evita que salgan
+      por la conexión "de entrada" del contacto en vez de la de la conversación). */
+  ticketId?: number | null
+}
+
+const formatDateForInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export default function CreateAppointmentModal({
@@ -106,6 +117,7 @@ export default function CreateAppointmentModal({
   lockContact = false,
   existingAppointment,
   mode = 'create',
+  ticketId,
 }: CreateAppointmentModalProps) {
   const isReschedule = mode === 'reschedule' && !!existingAppointment
   const [saving, setSaving] = useState(false)
@@ -156,7 +168,7 @@ export default function CreateAppointmentModal({
         setTitle(existingAppointment.title)
       } else {
         // Set default date to today
-        const today = new Date().toISOString().split('T')[0]
+        const today = formatDateForInput(new Date())
         setDate(today)
       }
     }
@@ -182,12 +194,19 @@ export default function CreateAppointmentModal({
     }
   }, [isReschedule, existingAppointment, users])
 
-  // Load blocks when date or user changes
+  // Load blocks only after the service is selected
   useEffect(() => {
-    if (date) {
-      fetchAvailableBlocks()
+    if (!open) {
+      return
     }
-  }, [date, selectedUser])
+
+    if (date && selectedService) {
+      fetchAvailableBlocks()
+    } else {
+      setAvailableBlocks([])
+      setSelectedBlock(null)
+    }
+  }, [open, date, selectedUser, selectedService])
 
   // Search contacts
   useEffect(() => {
@@ -235,6 +254,12 @@ export default function CreateAppointmentModal({
   }
 
   const fetchAvailableBlocks = async () => {
+    if (!date || !selectedService) {
+      setAvailableBlocks([])
+      setSelectedBlock(null)
+      return
+    }
+
     try {
       setLoadingBlocks(true)
       setSelectedBlock(null)
@@ -243,9 +268,7 @@ export default function CreateAppointmentModal({
       if (selectedUser) {
         params.userId = selectedUser.id
       }
-      if (selectedService) {
-        params.serviceId = selectedService.id
-      }
+      params.serviceId = selectedService.id
 
       const response = await api.get('/appointments/availability/blocks-for-date', { params })
       setAvailableBlocks(response.data || [])
@@ -274,12 +297,12 @@ export default function CreateAppointmentModal({
   const handleServiceChange = (_event: React.SyntheticEvent | null, value: string | null) => {
     const service = services.find(s => String(s.id) === value)
     setSelectedService(service || null)
+    setSelectedBlock(null)
+    setAvailableBlocks([])
     if (service) {
       setTitle(service.name)
-    }
-    // Refetch blocks when service changes
-    if (date) {
-      fetchAvailableBlocks()
+    } else {
+      setTitle('')
     }
   }
 
@@ -371,6 +394,10 @@ export default function CreateAppointmentModal({
           serviceId: selectedService.id,
           userId: selectedUser?.id,
           contactId: selectedContact.id,
+          // Conexión de la cita: usar el ticket del chat de origen para que la
+          // confirmación y los recordatorios salgan por ESA conexión, no por la
+          // conexión "de entrada" del contacto (Contact.whatsappId).
+          ...(ticketId ? { ticketId } : {}),
           reminderTemplateId: selectedTemplate?.id,
           title: title || selectedService.name,
           description: notes,
@@ -395,7 +422,11 @@ export default function CreateAppointmentModal({
           console.warn('Could not mark block as booked:', markError)
         }
 
-        toast.success('Cita creada exitosamente')
+        toast.success(
+          newAppointment.googleCalendarEventId
+            ? 'Cita creada y sincronizada con Google Calendar'
+            : 'Cita creada exitosamente'
+        )
       }
 
       handleClose()
@@ -609,7 +640,7 @@ export default function CreateAppointmentModal({
               onChange={(e) => setDate(e.target.value)}
               slotProps={{
                 input: {
-                  min: new Date().toISOString().split('T')[0],
+                  min: formatDateForInput(new Date()),
                 },
               }}
             />
@@ -626,7 +657,11 @@ export default function CreateAppointmentModal({
               <Box sx={{ p: 2, textAlign: 'center', bgcolor: 'background.level1', borderRadius: 'sm' }}>
                 <BusyIcon sx={{ fontSize: 40, opacity: 0.3, mb: 1 }} />
                 <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  {date ? 'No hay bloques de disponibilidad para esta fecha' : 'Selecciona una fecha primero'}
+                  {!selectedService
+                    ? 'Selecciona un servicio primero'
+                    : date
+                      ? 'No hay bloques de disponibilidad para esta fecha'
+                      : 'Selecciona una fecha primero'}
                 </Typography>
               </Box>
             ) : (

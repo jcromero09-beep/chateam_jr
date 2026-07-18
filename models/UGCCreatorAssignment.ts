@@ -153,7 +153,10 @@ class UGCCreatorAssignment extends Model<UGCCreatorAssignment> {
   @BelongsTo(() => UGCCampaign)
   campaign!: UGCCampaign;
 
-  // HasMany UGCCreatorPayment se registra via lazy import
+  // OJO: NO hay HasMany UGCCreatorPayment registrado (el "lazy import" nunca existio).
+  // Hoy nadie hace include con alias "payments"; si hace falta, declararlo aqui con
+  // @HasMany(() => UGCCreatorPayment): el thunk difiere la resolucion y el import
+  // circular no molesta (probado en UGCCreator.assignments, 2026-07-15).
 
   // --- Metodos auxiliares ---
 

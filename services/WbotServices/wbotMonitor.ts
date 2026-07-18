@@ -1,10 +1,16 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import {
   WASocket,
   BinaryNode,
   Contact as BContact,
   isJidBroadcast,
   isJidStatusBroadcast,
-} from "@whiskeysockets/baileys";
+} from "baileys";
 
 // isJidUser was removed from baileys - create our own implementation
 const isJidUser = (jid: string | undefined): boolean => {
@@ -55,13 +61,25 @@ const wbotMonitor = async (
         });
 
 
-        if (settings.acceptCallWhatsapp === "enabled") {
-          const sentMessage = await wbot.sendMessage(node.attrs.from, {
-            text:
-              `\u200e ${settings.AcceptCallWhatsappMessage}`,
-            // text:
-            // "\u200e *Mensagem Automática:*\n\nAs chamadas de voz e vídeo estão desabilitadas para esse WhatsApp, favor enviar uma mensagem de texto. Obrigado",              
-          });
+        // Permiso "Aceptar llamadas de WhatsApp" (CompaniesSettings.acceptCallWhatsapp):
+        //   - "enabled"  → se aceptan las llamadas: no se hace nada.
+        //   - "disabled" → NO se aceptan: se rechaza y se envía el mensaje
+        //                  configurado en la conexión (Whatsapps.callRejectMessage).
+        // Si la conexión no tiene mensaje, NO se envía nada al cliente.
+        if (settings?.acceptCallWhatsapp === "disabled") {
+          // El mensaje de rechazo vive ÚNICAMENTE en la conexión (tabla Whatsapps).
+          // Se re-consulta para tomar siempre el valor más reciente (el objeto en
+          // memoria puede quedar obsoleto si se edita la conexión sin reconectar).
+          let freshWhatsapp: Whatsapp | null = null;
+          try {
+            freshWhatsapp = await Whatsapp.findByPk(wbot.id);
+          } catch {
+            freshWhatsapp = null;
+          }
+          const callRejectText = (
+            (freshWhatsapp?.callRejectMessage ?? (whatsapp as any)?.callRejectMessage) || ""
+          ).trim();
+
           const number = node.attrs.from.split(":")[0].replace(/\D/g, "");
 
           const contact = await Contact.findOne({
@@ -90,13 +108,21 @@ const wbotMonitor = async (
           //se não existir o ticket não faz nada.
           if (!ticket) return;
 
-          await verifyMessage(sentMessage, ticket, contact);
+          // Solo se envía el mensaje al cliente si la conexión tiene uno configurado.
+          // Si está vacío, no se manda nada (sin texto quemado).
+          if (callRejectText) {
+            const sentMessage = await wbot.sendMessage(node.attrs.from, {
+              text: callRejectText,
+            });
+            await verifyMessage(sentMessage, ticket, contact);
+          }
 
+          // Registro interno de la llamada perdida (en español, sin portugués quemado).
           const date = new Date();
-          const hours = date.getHours();
-          const minutes = date.getMinutes();
+          const hours = String(date.getHours()).padStart(2, "0");
+          const minutes = String(date.getMinutes()).padStart(2, "0");
 
-          const body = `Chamada de voz/vídeo perdida às ${hours}:${minutes}`;
+          const body = `Llamada de voz/video perdida a las ${hours}:${minutes}`;
           const messageData = {
             wid: content.attrs["call-id"],
             ticketId: ticket.id,
@@ -150,7 +176,7 @@ const wbotMonitor = async (
           })
         );
 
-        const publicFolder = path.resolve(__dirname, "..", "..", "public");
+        const publicFolder = path.resolve(currentDir, "..", "..", "public");
         if (!fs.existsSync(path.join(publicFolder, `company${companyId}`))) {
           fs.mkdirSync(path.join(publicFolder, `company${companyId}`), { recursive: true })
           fs.chmodSync(path.join(publicFolder, `company${companyId}`), 0o777)

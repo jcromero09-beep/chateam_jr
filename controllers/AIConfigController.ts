@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Request, Response } from "express";
 import AIProviderConfig from "../models/AIProviderConfig";
 import AIPromptTemplate from "../models/AIPromptTemplate";
@@ -719,6 +723,7 @@ export const getAvailableModels = async (req: Request, res: Response): Promise<R
 function getDefaultModels(provider: string): string[] {
   const modelsByProvider: Record<string, string[]> = {
     openai: [
+      "gpt-5.5",
       "gpt-4o",
       "gpt-4o-mini",
       "gpt-4-turbo",

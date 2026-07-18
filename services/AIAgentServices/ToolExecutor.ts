@@ -28,15 +28,27 @@ interface ToolExecutionResult {
   executionTimeMs: number;
 }
 
+interface ExecuteOptions {
+  /**
+   * Si true, las herramientas con kind='write' NO se ejecutan; en su lugar
+   * el resultado contiene { proposedOnly: true, action, params } para que
+   * el agente las acumule como acciones propuestas (modo plan).
+   * Las herramientas read (default) se ejecutan normalmente.
+   */
+  dryRun?: boolean;
+}
+
 /**
  * Ejecuta una lista de tool_calls del LLM
  */
 async function executeToolCalls(
   toolCalls: ToolCall[],
   context: ToolContext,
-  agentType: string
+  agentType: string,
+  options: ExecuteOptions = {}
 ): Promise<ToolExecutionResult[]> {
   const results: ToolExecutionResult[] = [];
+  const dryRun = options.dryRun === true;
 
   for (const toolCall of toolCalls) {
     const startTime = Date.now();
@@ -44,7 +56,7 @@ async function executeToolCalls(
 
     logger.info(
       `[ToolExecutor] Ejecutando tool: ${toolName} | agente: ${agentType} | ` +
-      `empresa: ${context.companyId} | ticket: ${context.ticketId}`
+      `empresa: ${context.companyId} | dryRun: ${dryRun}`
     );
 
     // 1. Buscar la herramienta en el registro
@@ -102,7 +114,31 @@ async function executeToolCalls(
       continue;
     }
 
-    // 4. Ejecutar la herramienta con timeout de 15 segundos
+    // 4. Modo dry-run: si la herramienta es de escritura, no ejecutarla,
+    //    sólo capturarla como acción propuesta (modo plan del agente).
+    if (dryRun && tool.kind === 'write') {
+      logger.info(
+        `[ToolExecutor] 📋 dryRun=true · ${toolName} (write) capturada como propuesta`
+      );
+      results.push({
+        toolCallId: toolCall.id,
+        toolName,
+        result: {
+          success: true,
+          data: {
+            proposedOnly: true,
+            action: toolName,
+            params: args
+          },
+          message:
+            `Acción "${toolName}" propuesta (no ejecutada). El usuario debe confirmar para ejecutarla.`
+        },
+        executionTimeMs: Date.now() - startTime
+      });
+      continue;
+    }
+
+    // 5. Ejecutar la herramienta con timeout de 15 segundos
     try {
       const timeoutPromise = new Promise<ToolResult>((_, reject) => {
         setTimeout(() => reject(new Error('Timeout: la herramienta tardó más de 15 segundos')), 15000);

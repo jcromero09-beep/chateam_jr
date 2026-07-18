@@ -129,7 +129,7 @@ Comentario a responder: "${commentContent}"
 Responde EN PERSONAJE como ${identity.name}:`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

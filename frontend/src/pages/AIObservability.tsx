@@ -5,33 +5,18 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  Select,
-  Option,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-} from '@mui/joy';
-import {
-  Activity,
+  Pulse,
   Gauge,
-  AlertTriangle,
-  Layers,
-  RefreshCw,
+  Warning,
+  Stack,
+  ArrowClockwise,
   X,
   Clock,
-  CheckCircle2,
+  CheckCircle,
   XCircle,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -41,6 +26,15 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import api from '../services/api';
 
 // Logging solo en desarrollo
@@ -94,9 +88,9 @@ const PERIOD_OPTIONS: { value: TimePeriod; label: string }[] = [
   { value: '90d', label: 'Últimos 90 días' },
 ];
 
-const STATUS_COLOR: Record<string, 'success' | 'danger' | 'warning' | 'neutral'> = {
+const STATUS_VARIANT: Record<string, BadgeProps['variant']> = {
   success: 'success',
-  error: 'danger',
+  error: 'destructive',
   pending: 'warning',
 };
 
@@ -211,183 +205,155 @@ export default function AIObservability() {
   }));
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Activity size={28} color="var(--joy-palette-primary-500)" />
-            Observabilidad IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Monitorea trazas, latencia y métricas de los modelos de IA
-          </Typography>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Pulse className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Observabilidad IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Monitorea trazas, latencia y métricas de los modelos de IA
+              </p>
+            </div>
+          </div>
 
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <Select
-            value={period}
-            onChange={(_, val) => val && setPeriod(val as TimePeriod)}
-            size="sm"
-            sx={{ minWidth: 160 }}
+          <div className="flex items-center gap-2">
+            <Select value={period} onValueChange={(val) => setPeriod(val as TimePeriod)}>
+              <SelectTrigger className="w-[180px]" aria-label="Periodo">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERIOD_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={loadData} loading={loading}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
+            </Button>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
           >
-            {PERIOD_OPTIONS.map((opt) => (
-              <Option key={opt.value} value={opt.value}>
-                {opt.label}
-              </Option>
-            ))}
-          </Select>
-          <Button
-            variant="outlined"
-            size="sm"
-            startDecorator={<RefreshCw size={14} />}
-            onClick={loadData}
-            loading={loading}
-          >
-            Actualizar
-          </Button>
-        </Box>
-      </Box>
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar alerta"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/15"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* Error */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 3 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
+        {/* ── Stats Cards ──────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <Pulse className="size-[18px] text-primary" aria-hidden />
+              <span className="text-sm text-muted-foreground">Total Trazas</span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {stats.totalTraces.toLocaleString('es-ES')}
+              </p>
+            )}
+          </div>
 
-      {/* ── Stats Cards ──────────────────────────────────────────────────── */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Activity size={18} color="var(--joy-palette-primary-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Total Trazas
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">
-                  {stats.totalTraces.toLocaleString('es-ES')}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <Gauge className="size-[18px] text-success-text" aria-hidden />
+              <span className="text-sm text-muted-foreground">Latencia promedio</span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+                {formatLatency(stats.avgLatency)}
+              </p>
+            )}
+          </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Gauge size={18} color="var(--joy-palette-success-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Latencia promedio
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3" sx={{ color: 'success.600' }}>
-                  {formatLatency(stats.avgLatency)}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <Warning className="size-[18px] text-warning-text" aria-hidden />
+              <span className="text-sm text-muted-foreground">Tasa de error</span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p
+                className={`text-3xl font-semibold tracking-tight tabular-nums ${
+                  stats.errorRate > 10 ? 'text-destructive-text' : 'text-warning-text'
+                }`}
+              >
+                {stats.errorRate}%
+              </p>
+            )}
+          </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <AlertTriangle size={18} color="var(--joy-palette-warning-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Tasa de error
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography
-                  level="h3"
-                  sx={{ color: stats.errorRate > 10 ? 'danger.500' : 'warning.600' }}
-                >
-                  {stats.errorRate}%
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-1 flex items-center gap-2">
+              <Stack className="size-[18px] text-muted-foreground" aria-hidden />
+              <span className="text-sm text-muted-foreground">Modelos usados</span>
+            </div>
+            {loading ? (
+              <CircularProgress size="sm" />
+            ) : (
+              <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {stats.modelsUsed}
+              </p>
+            )}
+          </div>
+        </div>
 
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Layers size={18} color="var(--joy-palette-neutral-500)" />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                  Modelos usados
-                </Typography>
-              </Box>
-              {loading ? (
-                <CircularProgress size="sm" />
-              ) : (
-                <Typography level="h3">{stats.modelsUsed}</Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* ── Gráfico de latencia por modelo ──────────────────────────────── */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-md" sx={{ mb: 2 }}>
+        {/* ── Gráfico de latencia por modelo ──────────────────────────────── */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-base font-semibold text-foreground">
             Latencia promedio por modelo
-          </Typography>
+          </h2>
 
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+            <div className="flex justify-center py-12">
               <CircularProgress size="lg" />
-            </Box>
+            </div>
           ) : chartData.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 5, color: 'text.tertiary' }}>
-              <Activity size={36} />
-              <Typography level="body-sm" sx={{ mt: 1 }}>
+            <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
+              <Pulse className="size-9" aria-hidden />
+              <p className="text-sm">
                 Sin datos de modelos para el periodo seleccionado
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis
                   dataKey="model"
-                  tick={{ fontSize: 12 }}
+                  tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
                   tickFormatter={(v: number | undefined) => formatValue(v ?? 0)}
-                  tick={{ fontSize: 11 }}
+                  tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
                   axisLine={false}
                   tickLine={false}
                   width={64}
@@ -400,100 +366,103 @@ export default function AIObservability() {
                   }}
                   contentStyle={{
                     borderRadius: 8,
-                    border: '1px solid var(--joy-palette-neutral-200)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--popover)',
+                    color: 'var(--popover-foreground)',
                     fontSize: 13,
                   }}
+                  cursor={{ fill: 'var(--muted)' }}
                 />
                 <Bar
                   dataKey="latencia"
-                  fill="var(--joy-palette-primary-400)"
+                  fill="var(--primary)"
                   radius={[4, 4, 0, 0]}
                   maxBarSize={60}
                 />
               </BarChart>
             </ResponsiveContainer>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* ── Tabla de trazas recientes ────────────────────────────────────── */}
-      <Card>
-        <CardContent>
-          <Typography level="title-md" sx={{ mb: 2 }}>
+        {/* ── Tabla de trazas recientes ────────────────────────────────────── */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-base font-semibold text-foreground">
             Trazas recientes
-          </Typography>
+          </h2>
 
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+            <div className="flex justify-center py-12">
               <CircularProgress size="lg" />
-            </Box>
+            </div>
           ) : traces.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 6, color: 'text.tertiary' }}>
-              <Activity size={40} />
-              <Typography level="body-sm" sx={{ mt: 1.5 }}>
+            <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
+              <Pulse className="size-10" aria-hidden />
+              <p className="text-sm">
                 No hay trazas registradas para este periodo
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto', borderRadius: 'sm' }}>
-              <Table>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead>
-                  <tr>
-                    <th style={{ minWidth: 140 }}>Trace ID</th>
-                    <th style={{ minWidth: 160 }}>Modelo</th>
-                    <th style={{ width: 110, textAlign: 'right' }}>Latencia</th>
-                    <th style={{ width: 120, textAlign: 'center' }}>Estado</th>
-                    <th style={{ width: 160 }}>Timestamp</th>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Trace ID
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Modelo
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Latencia
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Estado
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Timestamp
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border">
                   {traces.map((trace, idx) => {
-                    const statusColor =
-                      STATUS_COLOR[trace.status] ?? 'neutral';
+                    const statusVariant = STATUS_VARIANT[trace.status] ?? 'neutral';
                     const StatusIcon =
                       trace.status === 'success'
-                        ? CheckCircle2
+                        ? CheckCircle
                         : trace.status === 'error'
                         ? XCircle
                         : Clock;
 
                     return (
-                      <tr key={trace.id ?? trace.traceId ?? idx}>
-                        <td>
-                          <Typography
-                            level="body-xs"
-                            sx={{ fontFamily: 'monospace', color: 'text.secondary' }}
+                      <tr
+                        key={trace.id ?? trace.traceId ?? idx}
+                        className="transition-colors hover:bg-accent/40"
+                      >
+                        <td className="px-4 py-3">
+                          <span
+                            className="font-mono text-xs text-muted-foreground"
                             title={trace.traceId}
                           >
                             {truncateTrace(trace.traceId)}
-                          </Typography>
+                          </span>
                         </td>
-                        <td>
-                          <Typography level="body-sm">{trace.model}</Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography
-                            level="body-sm"
-                            sx={{
-                              color:
-                                trace.latency > 5000
-                                  ? 'danger.500'
-                                  : trace.latency > 2000
-                                  ? 'warning.600'
-                                  : 'success.600',
-                              fontWeight: 'md',
-                            }}
+                        <td className="px-4 py-3 text-foreground">{trace.model}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span
+                            className={`font-medium tabular-nums ${
+                              trace.latency > 5000
+                                ? 'text-destructive-text'
+                                : trace.latency > 2000
+                                ? 'text-warning-text'
+                                : 'text-success-text'
+                            }`}
                           >
                             {formatLatency(trace.latency)}
-                          </Typography>
+                          </span>
                         </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <Chip
-                            size="sm"
-                            color={statusColor}
-                            variant="soft"
-                            startDecorator={<StatusIcon size={12} />}
-                          >
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant={statusVariant} className="justify-center">
+                            <StatusIcon className="size-3" aria-hidden />
                             {trace.status === 'success'
                               ? 'Éxito'
                               : trace.status === 'error'
@@ -501,25 +470,23 @@ export default function AIObservability() {
                               : trace.status === 'pending'
                               ? 'Pendiente'
                               : trace.status}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Clock size={12} color="var(--joy-palette-text-tertiary)" />
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {formatDate(trace.timestamp)}
-                            </Typography>
-                          </Box>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Clock className="size-3" aria-hidden />
+                            <span className="text-xs">{formatDate(trace.timestamp)}</span>
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
-              </Table>
-            </Sheet>
+              </table>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 }

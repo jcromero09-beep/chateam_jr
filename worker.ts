@@ -3,6 +3,9 @@ import './bootstrap';
 import 'reflect-metadata';
 import './database';
 
+process.env.NODE_ID = process.env.NODE_ID || 'worker';
+process.env.DISTRIBUTED_MODE = process.env.DISTRIBUTED_MODE || 'true';
+
 import logger from './utils/logger';
 import { startQueueProcess, startCampaignScheduler, getAllQueues } from './queues';
 import { startFacebookConversionScheduler } from './scheduler/FacebookConversionScheduler';
@@ -21,7 +24,7 @@ async function startWorker() {
 
     // ✅ Iniciar el procesamiento de colas del worker
     logger.info('🔄 Iniciando processamento de filas...');
-    startQueueProcess();
+    await startQueueProcess();
 
     // ✅ NUEVO: Iniciar el scheduler interno de campañas
     logger.info('⏰ Iniciando scheduler interno de campañas...');

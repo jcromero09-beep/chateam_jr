@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { selectModel } from "./ModelRouterService";
 import AgentLogService from "./AgentLogService";
 import logger from "../../utils/logger";
@@ -69,7 +73,7 @@ const evaluate = async (
 
   // LLM-based evaluation for complex cases
   const modelSelection = await selectModel('escalation', message, 'mini');
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini';
+  const modelKey = modelSelection?.entity.key || 'gpt-5.5';
 
   // Cargar systemPrompt personalizado de BD (si existe)
   let dbSystemPrompt: string | undefined;

@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import ListCampaignMessagesService from "../services/CampaignMessageServices/ListCampaignMessagesService";
+import CountCampaignMessagesByStatusService from "../services/CampaignMessageServices/CountCampaignMessagesByStatusService";
 import ShowCampaignMessageService from "../services/CampaignMessageServices/ShowCampaignMessageService";
 import UpdateCampaignMessageService from "../services/CampaignMessageServices/UpdateCampaignMessageService";
 import FindByTicketIdService from "../services/CampaignMessageServices/FindByTicketIdService";
@@ -12,27 +14,38 @@ type IndexQuery = {
   searchParam?: string;
   pageNumber?: string;
   channel?: string;
+  conversionStatus?: string;
 };
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
-  const { searchParam, pageNumber, channel } = req.query as IndexQuery;
+  const { searchParam, pageNumber, channel, conversionStatus } = req.query as IndexQuery;
 
   const { campaignMessages, count, hasMore } = await ListCampaignMessagesService({
     companyId,
     searchParam,
     pageNumber,
-    channel
+    channel,
+    conversionStatus: conversionStatus as any
   });
 
   return res.json({ campaignMessages, count, hasMore });
+};
+
+// Conteos TOTALES por estado (all/sent/pending/pending_no_value) para los botones de filtro.
+export const counts = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { channel } = req.query as { channel?: string };
+  const result = await CountCampaignMessagesByStatusService({ companyId, channel });
+  return res.json(result);
 };
 
 export const show = async (req: Request, res: Response): Promise<Response> => {
   const { id } = req.params;
 
   const campaignMessage = await ShowCampaignMessageService({
-    id: Number(id)
+    id: Number(id),
+    companyId: req.user.companyId
   });
 
   return res.json(campaignMessage);

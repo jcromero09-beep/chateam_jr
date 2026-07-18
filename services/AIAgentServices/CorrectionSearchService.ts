@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * CorrectionSearchService — Búsqueda semántica de correcciones/soluciones
  *
@@ -27,6 +31,12 @@ export interface MatchedCorrection {
   solution: string;
   category: string;
   similarity: number;
+  /** Sprint 1: origen ('admin' | 'human_correction_loop' | 'api' | 'import') */
+  source?: string;
+  /** Sprint 1: prioridad — menor = más relevante */
+  priority?: number;
+  /** Sprint 1: true si fue verificada por humano (verifiedAt IS NOT NULL) */
+  verifiedByHuman?: boolean;
 }
 
 /**
@@ -43,19 +53,28 @@ const findRelevant = async (
     const queryEmbedding = await EmbeddingService.generateEmbedding(message, companyId);
     const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
+    // Sprint 1 (2026-05-20): incluir source/priority/verifiedAt para que el
+    // bloque de prompt marque visiblemente correcciones del loop de aprendizaje
+    // y respete prioridades. Las columnas pueden no existir en bases antiguas
+    // — usamos COALESCE/EXISTS defensivos para mantener compatibilidad.
     const sql = `
       SELECT
         id,
         problem,
         solution,
         category,
+        COALESCE(source, 'admin') AS source,
+        COALESCE(priority, 100) AS priority,
+        CASE WHEN "verifiedAt" IS NOT NULL THEN true ELSE false END AS "verifiedByHuman",
         (1 - (embedding <=> :embedding::vector)) AS similarity
       FROM "AISupportCorrections"
       WHERE "companyId" = :companyId
         AND "isActive" = true
         AND embedding IS NOT NULL
         AND (1 - (embedding <=> :embedding::vector)) >= :threshold
-      ORDER BY embedding <=> :embedding::vector ASC
+      ORDER BY
+        COALESCE(priority, 100) ASC,
+        embedding <=> :embedding::vector ASC
       LIMIT :limit
     `;
 
@@ -64,6 +83,9 @@ const findRelevant = async (
       problem: string;
       solution: string;
       category: string;
+      source: string;
+      priority: number;
+      verifiedByHuman: boolean;
       similarity: number;
     }>(sql, {
       replacements: { embedding: embeddingStr, companyId, threshold, limit: MAX_CORRECTIONS },
@@ -91,7 +113,10 @@ const findRelevant = async (
       problem: r.problem,
       solution: r.solution,
       category: r.category,
-      similarity: parseFloat(String(r.similarity))
+      similarity: parseFloat(String(r.similarity)),
+      source: r.source,
+      priority: r.priority,
+      verifiedByHuman: r.verifiedByHuman
     }));
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -113,12 +138,19 @@ const buildSupervisorBlock = async (
 
   const lines = [
     `## 🔧 CORRECCIONES VERIFICADAS (PRIORIDAD MÁXIMA)`,
-    `Estas son soluciones verificadas por el equipo. USA ESTAS respuestas en lugar de generar nuevas:`,
+    `Estas son soluciones verificadas por el equipo. USA ESTAS respuestas en lugar de generar nuevas.`,
+    `Si una de estas correcciones aplica, NO INVENTES otra respuesta — usa la solución verificada.`,
     ``
   ];
 
   corrections.forEach((c, i) => {
+    // Sprint 1: marcador visible para correcciones del loop de aprendizaje.
+    const isFromHumanLoop = c.source === "human_correction_loop" || c.verifiedByHuman;
+    const badge = isFromHumanLoop
+      ? `🛑 ESTE ERROR YA FUE CORREGIDO POR UN HUMANO — NO LO REPITAS`
+      : `✅ Corrección verificada`;
     lines.push(
+      `**${badge}**`,
       `**Problema ${i + 1}:** ${c.problem}`,
       `**Solución verificada:** ${c.solution}`,
       ``

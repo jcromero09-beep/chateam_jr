@@ -1,15 +1,16 @@
 /**
- * ListProgramsService — Módulo Afiliados Independiente
- * Lista programas con paginación, filtro status/search, include Tier + Wallet.
+ * ListProgramsService — Lista programas con paginación, filtro status/search.
+ *
+ * - Si companyId === null → modo superadmin (lista todos los programas).
+ * - Si companyId !== null → filtra a programas de esa company.
  */
 
 import { Op } from "sequelize";
 import AIAffiliateProgram from "../../models/AIAffiliateProgram";
-import AffiliateTier from "../../models/AffiliateTier";
-import AffiliateWallet from "../../models/AffiliateWallet";
+import Company from "../../models/Company";
 
 interface ListParams {
-  companyId: number;
+  companyId: number | null;
   page?: number;
   limit?: number;
   status?: string;
@@ -23,23 +24,23 @@ const ListProgramsService = async ({
   status,
   search
 }: ListParams): Promise<{ rows: AIAffiliateProgram[]; count: number; hasMore: boolean }> => {
-  const where: Record<string, unknown> = { companyId };
+  const where: Record<string, unknown> = {};
+  if (companyId) where.companyId = companyId;
 
-  if (status) {
-    where.status = status;
-  }
-
-  if (search) {
-    where.name = { [Op.iLike]: `%${search}%` };
-  }
+  if (status) where.status = status;
+  if (search) where.name = { [Op.iLike]: `%${search}%` };
 
   const offset = (page - 1) * limit;
 
   const { rows, count } = await AIAffiliateProgram.findAndCountAll({
     where,
     include: [
-      { model: AffiliateTier, as: "tier", required: false },
-      { model: AffiliateWallet, as: "wallet", required: false }
+      {
+        model: Company,
+        as: "company",
+        attributes: ["id", "name", "email"],
+        required: false
+      }
     ],
     order: [["createdAt", "DESC"]],
     limit,

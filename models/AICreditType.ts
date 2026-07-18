@@ -12,6 +12,7 @@ import {
   Unique,
   Index
 } from "sequelize-typescript";
+import AICreditBalance from "./AICreditBalance";
 
 @Table({
   tableName: "AICreditTypes",
@@ -37,6 +38,12 @@ class AICreditType extends Model<AICreditType> {
   })
   name!: string; // Nombre visible, ej: "Tokens de Chat", "Generacion de Imagenes"
 
+  @Column({
+    type: DataType.STRING(50),
+    allowNull: true
+  })
+  category!: string; // [Fase A] categoria del tipo (AICreditTransactionController la selecciona)
+
   @Column(DataType.TEXT)
   description!: string; // Descripcion del tipo de credito
 
@@ -61,7 +68,7 @@ class AICreditType extends Model<AICreditType> {
   updatedAt!: Date;
 
   // Relaciones
-  @HasMany(() => require("./AICreditBalance").default)
+  @HasMany(() => AICreditBalance)
   balances!: any[];
 }
 

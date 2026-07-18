@@ -1,47 +1,39 @@
 import { useState, useMemo, useEffect } from 'react'
+// [Conservado como MUI por regla del design system] CircularProgress no tiene
+// equivalente en el DS (spinner); se deja su import de @mui/joy intacto.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Table,
+  FloppyDisk,
+  ArrowClockwise,
+  ShieldCheck,
+  MagnifyingGlass,
+  CheckCircle,
+  Warning,
+  Prohibit,
+  Info,
+  Buildings,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
   Select,
-  Option,
-  Chip,
-  Button,
-  Alert,
-  Card,
-  CardContent,
-  Sheet,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Stack,
-  Input,
-  Grid,
-  Divider,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Save as SaveIcon,
-  Refresh as RefreshIcon,
-  Security as SecurityIcon,
-  Search as SearchIcon,
-  CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon,
-  Block as BlockIcon,
-  Info as InfoIcon,
-  Business as BusinessIcon,
-} from '@mui/icons-material'
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { toast } from 'react-toastify'
 import api from '../services/api'
-import { useAuth } from '../hooks/useAuth'
 import { usePermissions } from '../hooks/usePermissions'
+import { useAuth } from '../hooks/useAuth'
 import {
   Module,
   InterfacePermissions,
   PermissionLevel,
   DEFAULT_PLAN_PERMISSIONS,
-  ALL_MODULES,
+  PLAN_MANAGED_MODULES,
   getEffectivePlanPermissions,
 } from '../utils/permissions'
 
@@ -195,6 +187,7 @@ const moduleCategories: Record<Module, ModuleCategory> = {
   facebook_conversions: 'campanas',
   comment_autoreply: 'openai',
   comment_autoreply_campaigns: 'openai',
+  social_comments: 'openai',
 
   // Customer Origins
   customer_origins: 'operativo',
@@ -215,6 +208,8 @@ const moduleCategories: Record<Module, ModuleCategory> = {
   ai_heygen: 'openai',
   ai_ab_testing: 'openai',
   ai_affiliates: 'openai',
+  // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+  ai_correction_review: 'openai',
 
   // Agentes IA
   agent_comments: 'openai',
@@ -272,8 +267,11 @@ const categoryNames: Record<ModuleCategory, string> = {
 }
 
 const PermissionsManager = () => {
-  const { user } = useAuth()
   const { isSuperAdmin } = usePermissions()
+  // useAuth usa useState por-componente (no Context): al montar, `user` puede estar
+  // aún en null mientras carga /auth/me → isSuperAdmin=false transitorio. Se espera
+  // a que auth termine de cargar antes de decidir el acceso (evita toast falso).
+  const { loading: authLoading, user } = useAuth()
 
   // Estados
   const [plans, setPlans] = useState<PlanWithPermissions[]>([])
@@ -286,12 +284,13 @@ const PermissionsManager = () => {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Verificar acceso - Solo superadmin puede acceder
+  // Verificar acceso - Solo superadmin puede acceder. Se espera a que auth cargue
+  // y a que exista `user` para no disparar el toast durante el estado transitorio.
   useEffect(() => {
-    if (!isSuperAdmin) {
+    if (!authLoading && user && !isSuperAdmin) {
       toast.error('Solo el superadmin puede acceder a esta seccion')
     }
-  }, [isSuperAdmin])
+  }, [authLoading, user, isSuperAdmin])
 
   // Cargar planes
   useEffect(() => {
@@ -354,7 +353,7 @@ const PermissionsManager = () => {
 
   // Filtrar modulos por busqueda y categoria
   const filteredModules = useMemo(() => {
-    let filtered = ALL_MODULES
+    let filtered = PLAN_MANAGED_MODULES
 
     // Filtrar por busqueda
     if (searchQuery) {
@@ -373,10 +372,10 @@ const PermissionsManager = () => {
 
   // Calcular estadisticas de permisos
   const stats = useMemo(() => {
-    const total = ALL_MODULES.length
-    const full = ALL_MODULES.filter(m => modifiedPermissions[m] === true).length
-    const read = ALL_MODULES.filter(m => modifiedPermissions[m] === 'read').length
-    const denied = ALL_MODULES.filter(m => modifiedPermissions[m] === false).length
+    const total = PLAN_MANAGED_MODULES.length
+    const full = PLAN_MANAGED_MODULES.filter(m => modifiedPermissions[m] === true).length
+    const read = PLAN_MANAGED_MODULES.filter(m => modifiedPermissions[m] === 'read').length
+    const denied = PLAN_MANAGED_MODULES.filter(m => modifiedPermissions[m] === false).length
 
     return {
       total,
@@ -407,7 +406,7 @@ const PermissionsManager = () => {
 
       // Solo enviar los permisos que son diferentes a los defaults
       const permissionsToSave: InterfacePermissions = {}
-      for (const module of ALL_MODULES) {
+      for (const module of PLAN_MANAGED_MODULES) {
         const currentValue = modifiedPermissions[module]
         const defaultValue = DEFAULT_PLAN_PERMISSIONS[module]
         if (currentValue !== defaultValue) {
@@ -439,26 +438,36 @@ const PermissionsManager = () => {
     }
   }
 
+  // Cambiar permiso desde el valor string del <Select>
+  const handleSelectPermission = (module: Module, value: string) => {
+    if (value === 'true') handleChangePermission(module, true)
+    else if (value === 'read') handleChangePermission(module, 'read')
+    else handleChangePermission(module, false)
+  }
+
   // Renderizar badge de permiso
   const renderPermissionBadge = (permission: PermissionLevel) => {
     if (permission === true) {
       return (
-        <Chip color="success" variant="soft" startDecorator={<CheckCircleIcon />} size="sm">
+        <Badge variant="success">
+          <CheckCircle className="size-3.5" aria-hidden />
           Completo
-        </Chip>
+        </Badge>
       )
     }
     if (permission === 'read') {
       return (
-        <Chip color="warning" variant="soft" startDecorator={<WarningIcon />} size="sm">
+        <Badge variant="warning">
+          <Warning className="size-3.5" aria-hidden />
           Solo Lectura
-        </Chip>
+        </Badge>
       )
     }
     return (
-      <Chip color="danger" variant="soft" startDecorator={<BlockIcon />} size="sm">
+      <Badge variant="destructive">
+        <Prohibit className="size-3.5" aria-hidden />
         Sin Acceso
-      </Chip>
+      </Badge>
     )
   }
 
@@ -473,334 +482,296 @@ const PermissionsManager = () => {
   // Si no es superadmin, mostrar mensaje de acceso denegado
   if (!isSuperAdmin) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert color="danger" startDecorator={<BlockIcon />}>
-          <Box>
-            <Typography level="title-md">Acceso Denegado</Typography>
-            <Typography level="body-sm">
+      <div className="p-5 sm:p-6 lg:p-8">
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/12 p-4 text-destructive-text">
+          <Prohibit className="size-5 shrink-0" aria-hidden />
+          <div>
+            <p className="text-sm font-semibold">Acceso Denegado</p>
+            <p className="text-sm">
               Solo el superadmin puede acceder a la gestion de permisos de interfaz.
-            </Typography>
-          </Box>
-        </Alert>
-      </Box>
+            </p>
+          </div>
+        </div>
+      </div>
     )
   }
 
   if (loading) {
     return (
-      <Box sx={{ p: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+      <div className="flex min-h-[400px] items-center justify-center p-5 sm:p-6 lg:p-8">
         <CircularProgress />
-      </Box>
+      </div>
+    )
+  }
+
+  // Fila de un modulo para las tablas (reutilizable en ambas pestañas)
+  const renderModuleRow = (
+    module: Module,
+    index: number | null,
+    variant: 'full' | 'compact',
+  ) => {
+    const currentPermission = modifiedPermissions[module] ?? false
+    const category = moduleCategories[module]
+
+    return (
+      <tr key={module} className="transition-colors hover:bg-accent/40">
+        {index !== null && (
+          <td className="px-4 py-3 tabular-nums text-muted-foreground">{index + 1}</td>
+        )}
+        <td className="px-4 py-3">
+          <p className="text-sm font-medium text-foreground">{formatModuleName(module)}</p>
+          {variant === 'full' && (
+            <p className="text-xs text-muted-foreground">{module}</p>
+          )}
+        </td>
+        {variant === 'full' && (
+          <td className="px-4 py-3">
+            <Badge variant="outline">{categoryNames[category]}</Badge>
+          </td>
+        )}
+        <td className="px-4 py-3">{renderPermissionBadge(currentPermission)}</td>
+        <td className="px-4 py-3">
+          <Select
+            value={String(currentPermission)}
+            onValueChange={value => handleSelectPermission(module, value)}
+          >
+            <SelectTrigger className="h-8 min-w-[150px]" aria-label={`Cambiar permiso de ${formatModuleName(module)}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="true">
+                {variant === 'full' ? 'Acceso Completo' : 'Completo'}
+              </SelectItem>
+              <SelectItem value="read">
+                {variant === 'full' ? 'Solo Lectura' : 'Lectura'}
+              </SelectItem>
+              <SelectItem value="false">
+                {variant === 'full' ? 'Sin Acceso' : 'Sin acceso'}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </td>
+      </tr>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          mb: 3,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 2,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <SecurityIcon sx={{ fontSize: 40, color: 'primary.500' }} />
-          <Box>
-            <Typography level="h1">Gestion de Permisos de Interfaz</Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Control de acceso por Plan - Solo Superadmin
-            </Typography>
-          </Box>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ShieldCheck className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Gestion de Permisos de Interfaz
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Control de acceso por Plan - Solo Superadmin
+              </p>
+            </div>
+          </div>
 
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button
-            variant="outlined"
-            onClick={handleReset}
-            disabled={!hasChanges || saving}
-            startDecorator={<RefreshIcon />}
-          >
-            Resetear
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={!hasChanges || saving}
-            loading={saving}
-            startDecorator={<SaveIcon />}
-            color="primary"
-          >
-            Guardar Cambios
-          </Button>
-        </Box>
-      </Box>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              disabled={!hasChanges || saving}
+            >
+              <ArrowClockwise className="size-4" aria-hidden />
+              Resetear
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={!hasChanges || saving}
+              loading={saving}
+            >
+              <FloppyDisk className="size-4" aria-hidden />
+              Guardar Cambios
+            </Button>
+          </div>
+        </div>
 
-      {/* Alerta de cambios pendientes */}
-      {hasChanges && (
-        <Alert color="warning" sx={{ mb: 3 }} startDecorator={<InfoIcon />}>
-          <Box>
-            <Typography level="title-sm">Cambios sin guardar</Typography>
-            <Typography level="body-sm">
-              Tienes modificaciones pendientes. Asegurate de guardar antes de salir.
-            </Typography>
-          </Box>
-        </Alert>
-      )}
+        {/* Alerta de cambios pendientes */}
+        {hasChanges && (
+          <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/16 p-4 text-warning-text">
+            <Info className="size-5 shrink-0" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold">Cambios sin guardar</p>
+              <p className="text-sm">
+                Tienes modificaciones pendientes. Asegurate de guardar antes de salir.
+              </p>
+            </div>
+          </div>
+        )}
 
-      {/* Selector de plan y estadisticas */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {/* Selector de plan */}
-        <Grid xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <BusinessIcon color="primary" />
-                <Typography level="title-sm">
-                  Plan a Configurar
-                </Typography>
-              </Box>
-              <Select
-                value={selectedPlanId}
-                onChange={(_, value) => value && setSelectedPlanId(value)}
-                sx={{ width: '100%' }}
-                placeholder="Selecciona un plan"
-              >
+        {/* Selector de plan y estadisticas */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {/* Selector de plan */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] md:col-span-1">
+            <div className="mb-2 flex items-center gap-2 text-primary">
+              <Buildings className="size-5" aria-hidden />
+              <h2 className="text-sm font-semibold text-foreground">Plan a Configurar</h2>
+            </div>
+            <Select
+              value={selectedPlanId ? String(selectedPlanId) : undefined}
+              onValueChange={value => setSelectedPlanId(Number(value))}
+            >
+              <SelectTrigger aria-label="Plan a configurar">
+                <SelectValue placeholder="Selecciona un plan" />
+              </SelectTrigger>
+              <SelectContent>
                 {plans.map(plan => (
-                  <Option key={plan.id} value={plan.id}>
+                  <SelectItem key={plan.id} value={String(plan.id)}>
                     {plan.name}
-                  </Option>
+                  </SelectItem>
                 ))}
-              </Select>
-              {selectedPlan && (
-                <Typography level="body-xs" sx={{ mt: 1, color: 'text.secondary' }}>
-                  Los permisos configurados aqui aplicaran a todas las empresas con este plan.
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+              </SelectContent>
+            </Select>
+            {selectedPlan && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Los permisos configurados aqui aplicaran a todas las empresas con este plan.
+              </p>
+            )}
+          </div>
 
-        {/* Estadisticas */}
-        <Grid xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography level="title-sm" sx={{ mb: 2 }}>
-                Resumen de Permisos para {selectedPlan?.name || 'Plan'}
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid xs={12} sm={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography level="h2" sx={{ color: 'success.500' }}>
-                      {stats.full}
-                    </Typography>
-                    <Typography level="body-sm">Acceso Completo</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                      {stats.fullPercent}% del total
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid xs={12} sm={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography level="h2" sx={{ color: 'warning.500' }}>
-                      {stats.read}
-                    </Typography>
-                    <Typography level="body-sm">Solo Lectura</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                      {stats.readPercent}% del total
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid xs={12} sm={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography level="h2" sx={{ color: 'danger.500' }}>
-                      {stats.denied}
-                    </Typography>
-                    <Typography level="body-sm">Sin Acceso</Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                      {stats.deniedPercent}% del total
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          {/* Estadisticas */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] md:col-span-2">
+            <h2 className="mb-4 text-sm font-semibold text-foreground">
+              Resumen de Permisos para {selectedPlan?.name || 'Plan'}
+            </h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="text-center">
+                <p className="text-3xl font-semibold tabular-nums text-success-text">{stats.full}</p>
+                <p className="text-sm text-foreground">Acceso Completo</p>
+                <p className="text-xs text-muted-foreground">{stats.fullPercent}% del total</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-semibold tabular-nums text-warning-text">{stats.read}</p>
+                <p className="text-sm text-foreground">Solo Lectura</p>
+                <p className="text-xs text-muted-foreground">{stats.readPercent}% del total</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-semibold tabular-nums text-destructive-text">{stats.denied}</p>
+                <p className="text-sm text-foreground">Sin Acceso</p>
+                <p className="text-xs text-muted-foreground">{stats.deniedPercent}% del total</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      {/* Filtros */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Stack direction="row" spacing={2} flexWrap="wrap">
+        {/* Filtros */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Busqueda */}
-            <Input
-              placeholder="Buscar modulo..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              startDecorator={<SearchIcon />}
-              sx={{ flex: 1, minWidth: 200 }}
-            />
+            <div className="relative min-w-[200px] flex-1">
+              <MagnifyingGlass
+                className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                placeholder="Buscar modulo..."
+                aria-label="Buscar modulo"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
 
             {/* Filtro por categoria */}
             <Select
               value={selectedCategory}
-              onChange={(_, value) => value && setSelectedCategory(value as ModuleCategory | 'all')}
-              sx={{ minWidth: 200 }}
+              onValueChange={value => setSelectedCategory(value as ModuleCategory | 'all')}
             >
-              <Option value="all">Todas las categorias</Option>
-              <Divider />
-              {Object.entries(categoryNames).map(([key, name]) => (
-                <Option key={key} value={key}>
-                  {name}
-                </Option>
-              ))}
+              <SelectTrigger className="min-w-[200px]" aria-label="Filtrar por categoria">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las categorias</SelectItem>
+                <SelectSeparator className="my-1 h-px bg-border" />
+                {Object.entries(categoryNames).map(([key, name]) => (
+                  <SelectItem key={key} value={key}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </Stack>
-        </CardContent>
-      </Card>
+          </div>
+        </div>
 
-      {/* Tabla de permisos con tabs por categoria */}
-      <Card>
-        <Tabs
-          defaultValue={0}
-          sx={{ bgcolor: 'background.surface' }}
-        >
-          <TabList>
-            <Tab>Todos ({filteredModules.length})</Tab>
-            <Tab>Por Categoria</Tab>
-          </TabList>
+        {/* Tabla de permisos con tabs por categoria */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <Tabs defaultValue="all">
+            <TabsList>
+              <TabsTrigger value="all">Todos ({filteredModules.length})</TabsTrigger>
+              <TabsTrigger value="category">Por Categoria</TabsTrigger>
+            </TabsList>
 
-          {/* Tab 1: Todos los modulos */}
-          <TabPanel value={0}>
-            <Sheet sx={{ overflow: 'auto', maxHeight: 600 }}>
-              <Table stickyHeader>
-                <thead>
-                  <tr>
-                    <th style={{ width: '5%' }}>#</th>
-                    <th style={{ width: '35%' }}>Modulo</th>
-                    <th style={{ width: '15%' }}>Categoria</th>
-                    <th style={{ width: '20%' }}>Permiso Actual</th>
-                    <th style={{ width: '25%' }}>Cambiar Permiso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredModules.map((module, index) => {
-                    const currentPermission = modifiedPermissions[module] ?? false
-                    const category = moduleCategories[module]
+            {/* Tab 1: Todos los modulos */}
+            <TabsContent value="all">
+              <div className="max-h-[600px] overflow-auto rounded-lg border border-border">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="border-b border-border bg-muted/60 text-left">
+                      <th className="w-[5%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">#</th>
+                      <th className="w-[35%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modulo</th>
+                      <th className="w-[15%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categoria</th>
+                      <th className="w-[20%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Permiso Actual</th>
+                      <th className="w-[25%] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cambiar Permiso</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredModules.map((module, index) => renderModuleRow(module, index, 'full'))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
 
-                    return (
-                      <tr key={module}>
-                        <td>{index + 1}</td>
-                        <td>
-                          <Typography level="body-sm" fontWeight="md">
-                            {formatModuleName(module)}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                            {module}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip size="sm" variant="outlined">
-                            {categoryNames[category]}
-                          </Chip>
-                        </td>
-                        <td>{renderPermissionBadge(currentPermission)}</td>
-                        <td>
-                          <Select
-                            value={String(currentPermission)}
-                            onChange={(_, value) => {
-                              if (value === 'true') handleChangePermission(module, true)
-                              else if (value === 'read') handleChangePermission(module, 'read')
-                              else handleChangePermission(module, false)
-                            }}
-                            size="sm"
-                          >
-                            <Option value="true">Acceso Completo</Option>
-                            <Option value="read">Solo Lectura</Option>
-                            <Option value="false">Sin Acceso</Option>
-                          </Select>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </Table>
-            </Sheet>
-          </TabPanel>
+            {/* Tab 2: Por categoria */}
+            <TabsContent value="category">
+              <div className="max-h-[600px] space-y-6 overflow-auto">
+                {Object.entries(categoryNames).map(([categoryKey, categoryName]) => {
+                  const categoryModules = PLAN_MANAGED_MODULES.filter(
+                    m => moduleCategories[m] === categoryKey
+                  )
 
-          {/* Tab 2: Por categoria */}
-          <TabPanel value={1}>
-            <Stack spacing={3} sx={{ maxHeight: 600, overflow: 'auto' }}>
-              {Object.entries(categoryNames).map(([categoryKey, categoryName]) => {
-                const categoryModules = ALL_MODULES.filter(
-                  m => moduleCategories[m] === categoryKey
-                )
+                  return (
+                    <div key={categoryKey}>
+                      <h3 className="mb-2 text-base font-semibold text-foreground">
+                        {categoryName} ({categoryModules.length} modulos)
+                      </h3>
+                      <div className="overflow-auto rounded-lg border border-border">
+                        <table className="w-full min-w-[520px] text-sm">
+                          <thead>
+                            <tr className="border-b border-border bg-muted/60 text-left">
+                              <th className="w-[40%] whitespace-nowrap px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modulo</th>
+                              <th className="w-[30%] whitespace-nowrap px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Permiso Actual</th>
+                              <th className="w-[30%] whitespace-nowrap px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cambiar</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {categoryModules.map(module => renderModuleRow(module, null, 'compact'))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
 
-                return (
-                  <Box key={categoryKey}>
-                    <Typography level="title-md" sx={{ mb: 2 }}>
-                      {categoryName} ({categoryModules.length} modulos)
-                    </Typography>
-                    <Sheet sx={{ overflow: 'auto' }}>
-                      <Table size="sm">
-                        <thead>
-                          <tr>
-                            <th style={{ width: '40%' }}>Modulo</th>
-                            <th style={{ width: '30%' }}>Permiso Actual</th>
-                            <th style={{ width: '30%' }}>Cambiar</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {categoryModules.map(module => {
-                            const currentPermission = modifiedPermissions[module] ?? false
-
-                            return (
-                              <tr key={module}>
-                                <td>
-                                  <Typography level="body-sm" fontWeight="md">
-                                    {formatModuleName(module)}
-                                  </Typography>
-                                </td>
-                                <td>{renderPermissionBadge(currentPermission)}</td>
-                                <td>
-                                  <Select
-                                    value={String(currentPermission)}
-                                    onChange={(_, value) => {
-                                      if (value === 'true') handleChangePermission(module, true)
-                                      else if (value === 'read')
-                                        handleChangePermission(module, 'read')
-                                      else handleChangePermission(module, false)
-                                    }}
-                                    size="sm"
-                                  >
-                                    <Option value="true">Completo</Option>
-                                    <Option value="read">Lectura</Option>
-                                    <Option value="false">Sin acceso</Option>
-                                  </Select>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </Table>
-                    </Sheet>
-                  </Box>
-                )
-              })}
-            </Stack>
-          </TabPanel>
-        </Tabs>
-      </Card>
-
-      {/* Footer informativo */}
-      <Card sx={{ mt: 3, bgcolor: 'neutral.softBg' }}>
-        <CardContent>
-          <Typography level="title-sm" sx={{ mb: 1 }}>
+        {/* Footer informativo */}
+        <div className="rounded-xl border border-border bg-muted/40 p-5">
+          <h2 className="mb-1 text-sm font-semibold text-foreground">
             Informacion del Sistema de Permisos por Plan
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+          </h2>
+          <p className="text-sm text-muted-foreground">
             * <strong>Acceso Completo</strong>: Los usuarios con este plan pueden ver, crear, editar y eliminar
             recursos en el modulo.
             <br />
@@ -814,10 +785,10 @@ const PermissionsManager = () => {
             independientemente del plan.
             <br />* Los cambios se aplican inmediatamente despues de guardar. Se recomienda que los
             usuarios afectados cierren sesion y vuelvan a entrar.
-          </Typography>
-        </CardContent>
-      </Card>
-    </Box>
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 

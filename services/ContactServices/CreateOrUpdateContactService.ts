@@ -1,7 +1,12 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { getIO } from "../../libs/socket";
 import Contact from "../../models/Contact";
 import logger from "../../utils/logger";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import Whatsapp from "../../models/Whatsapp";
 import { Op } from "sequelize";
 
@@ -57,13 +62,21 @@ const hasLetters = (name: string): boolean => {
   return /[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/.test(name);
 };
 
+const isLikelyTechnicalLid = (remoteJid = ""): boolean => {
+  return remoteJid.endsWith("@lid");
+};
+
 /**
  * Clean and format the name:
- * - If name has no letters (only emojis, numbers, or empty), use the number as name
+ * - If name has no letters and number looks like a WhatsApp LID, use "Sin nombre"
+ * - If name has no letters for a regular phone, use the number as name
  * - Otherwise, keep the original name
  */
-const formatName = (name: string, number: string): string => {
+const formatName = (name: string, number: string, remoteJid = ""): string => {
   if (!hasLetters(name)) {
+    if (isLikelyTechnicalLid(remoteJid)) {
+      return "Sin nombre";
+    }
     // Use the phone number as name if no valid letters found
     return number;
   }
@@ -91,24 +104,23 @@ const CreateOrUpdateContactService = async ({
     // 1. Normalize the number
     const number = normalizeNumber(rawNumber, isGroup);
 
-    // 1.1. Format name: use number if name has no letters (only emojis, numbers, etc.)
-    const finalName = formatName(name, number);
-
     // 2. Build remoteJid if not provided
     let finalRemoteJid = remoteJid;
     if (!finalRemoteJid && number) {
       finalRemoteJid = isGroup ? `${number}@g.us` : `${number}@s.whatsapp.net`;
     }
 
+    // 2.1. Format name: avoid using WhatsApp LID as a human-facing name.
+    const finalName = formatName(name, number, finalRemoteJid);
+
     // 3. OPTIMIZED LOOKUP: Single robust strategy - match by number digits only
     // This handles all formats: LID (Meta), s.whatsapp.net (Baileys), with/without +
     let contact: Contact | null = null;
 
-    // Build where clause based on available data
+    // Contact is canonical inside a company. Connection-specific identity is
+    // represented by Ticket.whatsappId and ContactBindings, so the lookup must
+    // not scope by whatsappId or Baileys connections will create duplicates.
     const baseWhere: any = { companyId };
-    if (whatsappId) {
-      baseWhere.whatsappId = whatsappId;
-    }
 
     // Normalize number for comparison (remove all non-digits)
     const normalizedNumber = number.replace(/[^0-9]/g, "");

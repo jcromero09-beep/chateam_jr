@@ -127,7 +127,10 @@ export class ConversionsAPI {
      * @param wabaId - WhatsApp Business Account ID
      * @returns Dataset ID
      */
-    async getOrCreateDataset(wabaId: string): Promise<string> {
+    async getOrCreateDataset(
+        wabaId: string,
+        options: { name?: string } = {}
+    ): Promise<string> {
         try {
             // First, try to get existing dataset
             const existingDataset = await this.getDataset(wabaId);
@@ -138,10 +141,24 @@ export class ConversionsAPI {
 
             // If no dataset exists, create one
             console.log(`[getOrCreateDataset] Creando nuevo dataset para WABA ${wabaId}...`);
-            const response = await this.client.post<any>(
-                `/${wabaId}/dataset`,
-                {}
-            );
+            const payload = options.name ? { name: options.name } : {};
+            let response: any;
+            try {
+                response = await this.client.post<any>(
+                    `/${wabaId}/dataset`,
+                    payload
+                );
+            } catch (error: any) {
+                if (!options.name) throw error;
+
+                console.warn(
+                    `[getOrCreateDataset] Meta no aceptó el nombre del dataset; reintentando sin name. Error: ${error.message}`
+                );
+                response = await this.client.post<any>(
+                    `/${wabaId}/dataset`,
+                    {}
+                );
+            }
 
             // Facebook puede devolver el ID en diferentes formatos:
             // 1. Directo: {"id": "123456"}
@@ -196,6 +213,27 @@ export class ConversionsAPI {
             }
             throw error;
         }
+    }
+
+    /**
+     * Validate/read a dataset or pixel by ID.
+     */
+    async getDatasetDetails(datasetId: string): Promise<{ id: string; name?: string }> {
+        const response = await this.client.get<any>(
+            `/${datasetId}`,
+            { fields: 'id,name' }
+        );
+
+        const raw = response as any;
+        const id = raw.id || raw.data?.[0]?.id;
+        if (!id) {
+            throw new Error('Dataset validation failed: Meta did not return an id');
+        }
+
+        return {
+            id: String(id),
+            name: raw.name || raw.data?.[0]?.name
+        };
     }
 
     /**

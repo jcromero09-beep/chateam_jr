@@ -1,48 +1,82 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+// [Migración] Autocomplete y CircularProgress se CONSERVAN como MUI Joy
+// (no hay equivalente en el design system). El resto de la pantalla migra a
+// Tailwind v4 + shadcn/Radix. El listbox del Autocomplete usa `disablePortal`
+// para poder vivir dentro del Dialog de Radix (el portal a <body> queda fuera
+// del focus trap / RemoveScroll y no sería clicable).
+import { Autocomplete, CircularProgress } from '@mui/joy'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Textarea,
+  CalendarBlank,
+  Plus,
+  PencilSimple,
+  Trash,
+  MagnifyingGlass,
+  ArrowClockwise,
+  CheckCircle,
+  Clock,
+  XCircle,
+  WarningCircle,
+  Paperclip,
+  UploadSimple,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Select,
-  Option,
-  Autocomplete,
-  CircularProgress,
-  Switch,
-} from '@mui/joy'
-import {
-  CalendarToday as CalendarIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckIcon,
-  Schedule as ScheduleIcon,
-  Cancel as CancelIcon,
-  ErrorOutline as ErrorIcon,
-  AttachFile as AttachFileIcon,
-  UploadFile as UploadFileIcon,
-} from '@mui/icons-material'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import { toast } from 'react-toastify'
 import api from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import getApiErrorMessage from '../utils/getApiErrorMessage'
+
+// Clases compartidas para inputs (mismo look que Tags/Connections/Prompts)
+const inputClass =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-55'
+
+// Botón de acción de fila (mismo look que RowAction del design system, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
 
 interface Contact {
   id: number
@@ -116,6 +150,17 @@ interface ScheduleFormData {
   assinar: boolean
 }
 
+const columns = [
+  'Estado',
+  'Mensaje',
+  'Contacto',
+  'Conexión',
+  'Recurrencia',
+  'Progreso',
+  'Envío programado',
+  '',
+]
+
 const intervalOptions = [
   { value: 1, label: 'Días' },
   { value: 2, label: 'Semanas' },
@@ -169,12 +214,12 @@ const normalizeScheduleStatus = (status?: string) => {
   return 'pending'
 }
 
-const getStatusColor = (status?: string) => {
+const getStatusVariant = (status?: string): BadgeProps['variant'] => {
   switch (normalizeScheduleStatus(status)) {
     case 'sent':
       return 'success'
     case 'error':
-      return 'danger'
+      return 'destructive'
     case 'cancelled':
       return 'neutral'
     default:
@@ -198,13 +243,13 @@ const getStatusLabel = (status?: string) => {
 const getStatusIcon = (status?: string) => {
   switch (normalizeScheduleStatus(status)) {
     case 'sent':
-      return <CheckIcon />
+      return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
     case 'error':
-      return <ErrorIcon />
+      return <WarningCircle className="size-3.5" weight="fill" aria-hidden />
     case 'cancelled':
-      return <CancelIcon />
+      return <XCircle className="size-3.5" weight="fill" aria-hidden />
     default:
-      return <ScheduleIcon />
+      return <Clock className="size-3.5" weight="fill" aria-hidden />
   }
 }
 
@@ -228,6 +273,7 @@ export default function Schedules() {
   const { user } = useAuth()
 
   const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [scheduleCount, setScheduleCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -249,9 +295,50 @@ export default function Schedules() {
   const [existingMedia, setExistingMedia] = useState<{ name: string; path: string } | null>(null)
   const [removeExistingMedia, setRemoveExistingMedia] = useState(false)
 
-  useEffect(() => {
-    loadInitialData()
+  const fetchSchedules = useCallback(async (search = '') => {
+    try {
+      const params: { pageNumber: number; searchParam?: string } = { pageNumber: 1 }
+      const trimmedSearch = search.trim()
+
+      if (trimmedSearch) {
+        params.searchParam = trimmedSearch
+      }
+
+      const response = await api.get('/schedules', { params })
+      const list = response.data.schedules || response.data || []
+      setSchedules(list)
+      setScheduleCount(response.data.count ?? list.length)
+    } catch (error) {
+      console.error('Error fetching schedules:', error)
+      setSchedules([])
+      setScheduleCount(0)
+      toast.error('No se pudieron cargar las agendas')
+    }
   }, [])
+
+  useEffect(() => {
+    fetchFormOptions()
+  }, [])
+
+  useEffect(() => {
+    let isActive = true
+
+    setLoading(true)
+    const timeout = window.setTimeout(async () => {
+      try {
+        await fetchSchedules(searchTerm)
+      } finally {
+        if (isActive) {
+          setLoading(false)
+        }
+      }
+    }, 350)
+
+    return () => {
+      isActive = false
+      window.clearTimeout(timeout)
+    }
+  }, [fetchSchedules, searchTerm])
 
   useEffect(() => {
     if (contactSearch.length >= 2) {
@@ -264,20 +351,9 @@ export default function Schedules() {
   const loadInitialData = async () => {
     setLoading(true)
     try {
-      await Promise.all([fetchSchedules(), fetchFormOptions()])
+      await Promise.all([fetchSchedules(searchTerm), fetchFormOptions()])
     } finally {
       setLoading(false)
-    }
-  }
-
-  const fetchSchedules = async () => {
-    try {
-      const response = await api.get('/schedules')
-      setSchedules(response.data.schedules || response.data || [])
-    } catch (error) {
-      console.error('Error fetching schedules:', error)
-      setSchedules([])
-      toast.error('No se pudieron cargar las agendas')
     }
   }
 
@@ -358,6 +434,17 @@ export default function Schedules() {
       return false
     }
 
+    const sendAtDate = new Date(formData.sendAt)
+    if (Number.isNaN(sendAtDate.getTime())) {
+      toast.error('La fecha de envío no es válida')
+      return false
+    }
+
+    if (sendAtDate.getTime() <= Date.now()) {
+      toast.error('La fecha debe ser futura')
+      return false
+    }
+
     if (!formData.contactId) {
       toast.error('Selecciona un contacto')
       return false
@@ -384,7 +471,7 @@ export default function Schedules() {
       const { data } = await api.post('/schedules', buildPayload())
       await syncScheduleMedia(data.id)
       toast.success('Mensaje programado correctamente')
-      await fetchSchedules()
+      await fetchSchedules(searchTerm)
       setOpenModal(false)
       resetForm()
     } catch (error) {
@@ -403,7 +490,7 @@ export default function Schedules() {
       await api.put(`/schedules/${selectedSchedule.id}`, buildPayload())
       await syncScheduleMedia(selectedSchedule.id)
       toast.success('Mensaje programado actualizado')
-      await fetchSchedules()
+      await fetchSchedules(searchTerm)
       setOpenModal(false)
       resetForm()
     } catch (error) {
@@ -420,7 +507,7 @@ export default function Schedules() {
     try {
       await api.delete(`/schedules/${scheduleId}`)
       toast.success('Mensaje programado eliminado')
-      fetchSchedules()
+      fetchSchedules(searchTerm)
     } catch (error) {
       console.error('Error deleting schedule:', error)
       toast.error('Error al eliminar el mensaje programado')
@@ -504,19 +591,14 @@ export default function Schedules() {
   const filteredSchedules = useMemo(() => {
     return schedules.filter((schedule) => {
       const normalizedStatus = normalizeScheduleStatus(schedule.status)
-      const matchesSearch =
-        schedule.body.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        schedule.contact?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        schedule.whatsapp?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-
       const matchesStatus = statusFilter === 'all' || normalizedStatus === statusFilter
-      return matchesSearch && matchesStatus
+      return matchesStatus
     })
-  }, [schedules, searchTerm, statusFilter])
+  }, [schedules, statusFilter])
 
   const stats = useMemo(() => {
     return {
-      total: schedules.length,
+      total: scheduleCount,
       pending: schedules.filter((item) => normalizeScheduleStatus(item.status) === 'pending').length,
       sent: schedules.filter((item) => normalizeScheduleStatus(item.status) === 'sent').length,
       errors: schedules.filter((item) => normalizeScheduleStatus(item.status) === 'error').length,
@@ -526,99 +608,112 @@ export default function Schedules() {
           normalizeScheduleStatus(item.status) === 'pending'
       ).length,
     }
-  }, [schedules])
+  }, [scheduleCount, schedules])
 
   const selectedWhatsapp = whatsapps.find(item => item.id === formData.whatsappId)
   const selectedQueue = queues.find(item => item.id === formData.queueId)
   const selectedTicketUser = users.find(item => item.id === formData.ticketUserId)
+  const ticketOptionsDisabled = formData.openTicket !== 'enabled'
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <CalendarIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Agendas</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <CalendarBlank className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Agendas
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Mensajes programados para envío automático
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <IconButton variant="outlined" color="neutral" onClick={loadInitialData}>
-              <RefreshIcon />
-            </IconButton>
-            <Button startDecorator={<AddIcon />} color="primary" onClick={openCreateModal}>
-              Nuevo Mensaje
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={loadInitialData}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
             </Button>
-          </Stack>
-        </Stack>
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nuevo mensaje
+            </Button>
+          </div>
+        </div>
 
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={4} lg={2}>
-            <Card><CardContent><Typography level="body-sm">Total Programados</Typography><Typography level="h2">{stats.total}</Typography></CardContent></Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={4} lg={2}>
-            <Card><CardContent><Typography level="body-sm">Pendientes</Typography><Typography level="h2" sx={{ color: 'warning.main' }}>{stats.pending}</Typography></CardContent></Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={4} lg={2}>
-            <Card><CardContent><Typography level="body-sm">Enviados</Typography><Typography level="h2" sx={{ color: 'success.main' }}>{stats.sent}</Typography></CardContent></Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={6} lg={3}>
-            <Card><CardContent><Typography level="body-sm">Con Error</Typography><Typography level="h2" sx={{ color: 'danger.main' }}>{stats.errors}</Typography></CardContent></Card>
-          </Grid>
-          <Grid xs={12} sm={6} md={6} lg={3}>
-            <Card><CardContent><Typography level="body-sm">Hoy</Typography><Typography level="h2">{stats.today}</Typography></CardContent></Card>
-          </Grid>
-        </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+          <StatTile label="Total programados" value={String(stats.total)} />
+          <StatTile label="Pendientes" value={String(stats.pending)} tone="warning" />
+          <StatTile label="Enviados" value={String(stats.sent)} tone="success" />
+          <StatTile label="Con error" value={String(stats.errors)} tone="destructive" />
+          <StatTile label="Hoy" value={String(stats.today)} />
+        </div>
 
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <Input
-                placeholder="Buscar mensajes, contactos o conexiones..."
-                startDecorator={<SearchIcon />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ flexGrow: 1 }}
-              />
-              <Select value={statusFilter} onChange={(_, value) => setStatusFilter((value as string) || 'all')} sx={{ minWidth: 180 }}>
-                <Option value="all">Todos los estados</Option>
-                <Option value="pending">Pendientes</Option>
-                <Option value="sent">Enviados</Option>
-                <Option value="error">Con error</Option>
-              </Select>
-            </Stack>
-          </CardContent>
-        </Card>
+        {/* Filtros */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:max-w-md">
+            <MagnifyingGlass
+              className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              placeholder="Buscar mensajes, contactos o conexiones"
+              aria-label="Buscar mensajes programados"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value || 'all')}>
+            <SelectTrigger aria-label="Filtrar por estado" className="h-10 sm:w-[220px]">
+              <SelectValue placeholder="Todos los estados" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los estados</SelectItem>
+              <SelectItem value="pending">Pendientes</SelectItem>
+              <SelectItem value="sent">Enviados</SelectItem>
+              <SelectItem value="error">Con error</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-        <Card>
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table stickyHeader>
+        {/* Tabla */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead>
-                <tr>
-                  <th style={{ width: 110 }}>Estado</th>
-                  <th>Mensaje</th>
-                  <th style={{ width: 180 }}>Contacto</th>
-                  <th style={{ width: 160 }}>Conexión</th>
-                  <th style={{ width: 240 }}>Recurrencia</th>
-                  <th style={{ width: 120 }}>Progreso</th>
-                  <th style={{ width: 180 }}>Envío Programado</th>
-                  <th style={{ width: 150 }}>Acciones</th>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>Cargando mensajes programados...</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      Cargando mensajes programados...
                     </td>
                   </tr>
                 ) : filteredSchedules.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                      <Typography>No se encontraron mensajes programados</Typography>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      No se encontraron mensajes programados
                     </td>
                   </tr>
                 ) : (
@@ -627,355 +722,450 @@ export default function Schedules() {
                     const isLocked = normalizedStatus === 'sent'
 
                     return (
-                      <tr key={schedule.id}>
-                        <td>
-                          <Chip size="sm" color={getStatusColor(schedule.status)} startDecorator={getStatusIcon(schedule.status)}>
+                      <tr key={schedule.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusVariant(schedule.status)}>
+                            {getStatusIcon(schedule.status)}
                             {getStatusLabel(schedule.status)}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td>
-                          <Stack spacing={0.5}>
-                            <Typography level="body-sm" noWrap sx={{ maxWidth: 320 }}>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="block max-w-[320px] truncate text-foreground">
                               {schedule.body}
-                            </Typography>
+                            </span>
                             {schedule.mediaName && (
-                              <Chip size="sm" variant="soft" startDecorator={<AttachFileIcon />}>
-                                {schedule.mediaName}
-                              </Chip>
+                              <Badge variant="neutral" className="max-w-[320px]">
+                                <Paperclip className="size-3.5 shrink-0" aria-hidden />
+                                <span className="truncate">{schedule.mediaName}</span>
+                              </Badge>
                             )}
-                          </Stack>
+                          </div>
                         </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {schedule.contact?.name || `#${schedule.contactId}`}
-                          </Typography>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {schedule.contact?.name || `#${schedule.contactId}`}
                         </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {schedule.whatsapp?.name || (schedule.whatsappId ? `#${schedule.whatsappId}` : '-')}
-                          </Typography>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {schedule.whatsapp?.name || (schedule.whatsappId ? `#${schedule.whatsappId}` : '-')}
                         </td>
-                        <td>
-                          <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                            {getRecurrenceSummary(schedule)}
-                          </Typography>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                          {getRecurrenceSummary(schedule)}
                         </td>
-                        <td>
-                          <Chip size="sm" variant="soft">
+                        <td className="px-4 py-3">
+                          <Badge variant="neutral" className="tabular-nums">
                             {(schedule.contadorEnvio || 0)}/{schedule.enviarQuantasVezes || 1}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td>
-                          <Stack spacing={0.25}>
-                            <Typography level="body-sm">
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-foreground">
                               {new Date(schedule.sendAt).toLocaleString('es-ES', {
                                 dateStyle: 'short',
                                 timeStyle: 'short',
                               })}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                            </span>
+                            <span className="text-xs text-muted-foreground">
                               {schedule.sentAt
                                 ? `Último envío: ${new Date(schedule.sentAt).toLocaleString('es-ES', {
                                     dateStyle: 'short',
                                     timeStyle: 'short',
                                   })}`
                                 : 'Aún no enviado'}
-                            </Typography>
-                          </Stack>
+                            </span>
+                          </div>
                         </td>
-                        <td>
-                          <Stack direction="row" spacing={0.5}>
-                            <IconButton size="sm" variant="plain" color="primary" onClick={() => openEditModal(schedule)} disabled={isLocked}>
-                              <EditIcon />
-                            </IconButton>
-                            <IconButton size="sm" variant="plain" color="danger" onClick={() => handleDelete(schedule.id)} disabled={isLocked}>
-                              <DeleteIcon />
-                            </IconButton>
-                          </Stack>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <ActionBtn
+                              label="Editar"
+                              onClick={() => openEditModal(schedule)}
+                              disabled={isLocked}
+                            >
+                              <PencilSimple className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                            <ActionBtn
+                              label="Eliminar"
+                              onClick={() => handleDelete(schedule.id)}
+                              className="hover:bg-destructive/10 hover:text-destructive-text"
+                            >
+                              <Trash className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                          </div>
                         </td>
                       </tr>
                     )
                   })
                 )}
               </tbody>
-            </Table>
-          </Sheet>
-        </Card>
+            </table>
+          </div>
+        </div>
+      </div>
 
-        <Modal open={openModal} onClose={() => setOpenModal(false)}>
-          <ModalDialog sx={{ width: 'min(920px, calc(100vw - 32px))', maxHeight: '90vh', overflowY: 'auto' }}>
-            <ModalClose />
-            <Typography level="h4" sx={{ mb: 2 }}>
-              {selectedSchedule ? 'Editar Mensaje Programado' : 'Nuevo Mensaje Programado'}
-            </Typography>
+      {/* Modal Crear/Editar */}
+      <Dialog open={openModal} onOpenChange={setOpenModal}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedSchedule ? 'Editar mensaje programado' : 'Nuevo mensaje programado'}
+            </DialogTitle>
+          </DialogHeader>
 
-            <Stack spacing={2}>
-              <FormControl>
-                <FormLabel>Mensaje</FormLabel>
-                <Textarea
-                  value={formData.body}
-                  onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
-                  placeholder="Escribe el mensaje a enviar..."
-                  minRows={4}
-                  maxRows={8}
-                />
-              </FormControl>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="schedule-body">Mensaje</Label>
+              <textarea
+                id="schedule-body"
+                value={formData.body}
+                onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
+                placeholder="Escribe el mensaje a enviar..."
+                rows={4}
+                className="min-h-[7rem] w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+              />
+            </div>
 
-              <Grid container spacing={2}>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Contacto</FormLabel>
-                    <Autocomplete
-                      placeholder="Buscar por nombre o número..."
-                      options={contacts}
-                      value={selectedContact}
-                      onChange={(_event, value) => {
-                        setSelectedContact(value)
-                        setFormData(prev => ({ ...prev, contactId: value?.id || 0 }))
-                      }}
-                      inputValue={contactSearch}
-                      onInputChange={(_event, value) => setContactSearch(value)}
-                      getOptionLabel={(option) => `${option.name} - ${option.number}`}
-                      isOptionEqualToValue={(option, value) => option.id === value.id}
-                      loading={loadingContacts}
-                      startDecorator={<SearchIcon />}
-                      endDecorator={loadingContacts ? <CircularProgress size="sm" /> : null}
-                      renderOption={(props, option) => (
-                        <Box component="li" {...props} key={option.id}>
-                          <Stack>
-                            <Typography level="body-sm" fontWeight="bold">
-                              {option.name}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              {option.number}
-                            </Typography>
-                          </Stack>
-                        </Box>
-                      )}
-                      noOptionsText={contactSearch.length < 2 ? 'Escribe al menos 2 caracteres' : 'No se encontraron contactos'}
-                    />
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Fecha y Hora de Envío</FormLabel>
-                    <Input type="datetime-local" value={formData.sendAt} onChange={(e) => setFormData(prev => ({ ...prev, sendAt: e.target.value }))} />
-                  </FormControl>
-                </Grid>
-              </Grid>
-
-              <Grid container spacing={2}>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Conexión</FormLabel>
-                    <Select value={formData.whatsappId ?? 0} onChange={(_, value) => setFormData(prev => ({ ...prev, whatsappId: Number(value) > 0 ? Number(value) : null }))}>
-                      <Option value={0}>Sin seleccionar</Option>
-                      {whatsapps.map((item) => (
-                        <Option key={item.id} value={item.id}>
-                          {item.name}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Abrir ticket</FormLabel>
-                    <Select
-                      value={formData.openTicket}
-                      onChange={(_, value) => setFormData(prev => ({ ...prev, openTicket: (value as string) || 'disabled' }))}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Contacto</Label>
+                {/* [Migración] Autocomplete CONSERVADO como MUI Joy (sin equivalente Radix).
+                    disablePortal en el listbox para que funcione dentro del Dialog de Radix. */}
+                <Autocomplete
+                  placeholder="Buscar por nombre o número..."
+                  options={contacts}
+                  value={selectedContact}
+                  onChange={(_event, value) => {
+                    setSelectedContact(value)
+                    setFormData(prev => ({ ...prev, contactId: value?.id || 0 }))
+                  }}
+                  inputValue={contactSearch}
+                  onInputChange={(_event, value) => setContactSearch(value)}
+                  getOptionLabel={(option) => `${option.name} - ${option.number}`}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  loading={loadingContacts}
+                  slotProps={{ listbox: { disablePortal: true } }}
+                  startDecorator={<MagnifyingGlass className="size-[18px]" aria-hidden />}
+                  endDecorator={loadingContacts ? <CircularProgress size="sm" /> : null}
+                  renderOption={(props, option) => (
+                    <li
+                      {...props}
+                      key={option.id}
+                      className="flex cursor-pointer flex-col items-start gap-0.5 rounded-md px-3 py-2 aria-selected:bg-accent [&.Mui-focused]:bg-accent"
                     >
-                      <Option value="enabled">Activado</Option>
-                      <Option value="disabled">Desactivado</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
-
-              <Grid container spacing={2}>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Usuario asignado al ticket</FormLabel>
-                    <Select
-                      value={formData.ticketUserId ?? 0}
-                      disabled={formData.openTicket !== 'enabled'}
-                      onChange={(_, value) => setFormData(prev => ({ ...prev, ticketUserId: Number(value) > 0 ? Number(value) : null }))}
-                    >
-                      <Option value={0}>Sin asignar</Option>
-                      {users.map((item) => (
-                        <Option key={item.id} value={item.id}>
-                          {item.name}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Transferir para departamentos</FormLabel>
-                    <Select
-                      value={formData.queueId ?? 0}
-                      disabled={formData.openTicket !== 'enabled'}
-                      onChange={(_, value) => setFormData(prev => ({ ...prev, queueId: Number(value) > 0 ? Number(value) : null }))}
-                    >
-                      <Option value={0}>Sin departamento</Option>
-                      {queues.map((item) => (
-                        <Option key={item.id} value={item.id}>
-                          {item.name}
-                        </Option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
-
-              <Grid container spacing={2}>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Status del ticket</FormLabel>
-                    <Select
-                      value={formData.statusTicket}
-                      disabled={formData.openTicket !== 'enabled'}
-                      onChange={(_, value) => setFormData(prev => ({ ...prev, statusTicket: (value as string) || 'closed' }))}
-                    >
-                      <Option value="open">Abierto</Option>
-                      <Option value="closed">Cerrado</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Adjunto</FormLabel>
-                    <Input
-                      type="file"
-                      startDecorator={<UploadFileIcon />}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0] || null
-                        setSelectedFile(file)
-                        if (file) {
-                          setRemoveExistingMedia(false)
-                        }
-                      }}
-                    />
-                  </FormControl>
-                </Grid>
-              </Grid>
-
-              {(existingMedia || selectedFile) && (
-                <Box sx={{ p: 1.5, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                    <Typography level="body-sm">
-                      Archivo actual: {selectedFile?.name || existingMedia?.name}
-                    </Typography>
-                    {existingMedia && !selectedFile && (
-                      <Button size="sm" variant="soft" color="danger" onClick={() => setRemoveExistingMedia(true)}>
-                        Quitar archivo actual
-                      </Button>
-                    )}
-                  </Stack>
-                  {removeExistingMedia && (
-                    <Typography level="body-xs" sx={{ mt: 1, color: 'danger.main' }}>
-                      El archivo actual se eliminará al guardar.
-                    </Typography>
+                      <span className="text-sm font-semibold text-foreground">{option.name}</span>
+                      <span className="text-xs text-muted-foreground">{option.number}</span>
+                    </li>
                   )}
-                </Box>
-              )}
+                  noOptionsText={contactSearch.length < 2 ? 'Escribe al menos 2 caracteres' : 'No se encontraron contactos'}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-sendat">Fecha y hora de envío</Label>
+                <input
+                  id="schedule-sendat"
+                  type="datetime-local"
+                  value={formData.sendAt}
+                  onChange={(e) => setFormData(prev => ({ ...prev, sendAt: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+            </div>
 
-              <Stack direction="row" spacing={1.5} alignItems="center">
-                <Switch checked={formData.assinar} onChange={(e) => setFormData(prev => ({ ...prev, assinar: e.target.checked }))} />
-                <Box>
-                  <Typography level="body-sm">Enviar firma</Typography>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                    Usa la opción de firma del backend al momento del envío.
-                  </Typography>
-                </Box>
-              </Stack>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-whatsapp">Conexión</Label>
+                <Select
+                  value={String(formData.whatsappId ?? 0)}
+                  onValueChange={(value) =>
+                    setFormData(prev => ({ ...prev, whatsappId: Number(value) > 0 ? Number(value) : null }))
+                  }
+                >
+                  <SelectTrigger id="schedule-whatsapp" className="h-11">
+                    <SelectValue placeholder="Sin seleccionar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Sin seleccionar</SelectItem>
+                    {whatsapps.map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-openticket">Abrir ticket</Label>
+                <Select
+                  value={formData.openTicket}
+                  onValueChange={(value) =>
+                    setFormData(prev => ({ ...prev, openTicket: value || 'disabled' }))
+                  }
+                >
+                  <SelectTrigger id="schedule-openticket" className="h-11">
+                    <SelectValue placeholder="Desactivado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="enabled">Activado</SelectItem>
+                    <SelectItem value="disabled">Desactivado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-              <Box sx={{ p: 2, borderRadius: 'sm', bgcolor: 'background.level1' }}>
-                <Typography level="title-sm" sx={{ mb: 0.5 }}>
-                  Recurrencia
-                </Typography>
-                <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 1.5 }}>
-                  Si no quieres recurrencia, deja el valor del intervalo en 0 y la cantidad de envíos en 1.
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid xs={12} md={3}>
-                    <FormControl>
-                      <FormLabel>Intervalo</FormLabel>
-                      <Select value={formData.intervalo} onChange={(_, value) => setFormData(prev => ({ ...prev, intervalo: Number(value) || 1 }))}>
-                        {intervalOptions.map((item) => (
-                          <Option key={item.value} value={item.value}>
-                            {item.label}
-                          </Option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} md={3}>
-                    <FormControl>
-                      <FormLabel>Rango valor</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.valorIntervalo}
-                        onChange={(e) => setFormData(prev => ({ ...prev, valorIntervalo: Math.max(0, Number(e.target.value) || 0) }))}
-                      />
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} md={3}>
-                    <FormControl>
-                      <FormLabel>Enviar cuántas veces</FormLabel>
-                      <Input
-                        type="number"
-                        value={formData.enviarQuantasVezes}
-                        onChange={(e) => setFormData(prev => ({ ...prev, enviarQuantasVezes: Math.max(1, Number(e.target.value) || 1) }))}
-                      />
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} md={3}>
-                    <FormControl>
-                      <FormLabel>Contador actual</FormLabel>
-                      <Input type="number" value={formData.contadorEnvio} disabled />
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12}>
-                    <FormControl>
-                      <FormLabel>Comportamiento en días no laborables</FormLabel>
-                      <Select value={formData.tipoDias} onChange={(_, value) => setFormData(prev => ({ ...prev, tipoDias: Number(value) || 4 }))}>
-                        {businessDayOptions.map((item) => (
-                          <Option key={item.value} value={item.value}>
-                            {item.label}
-                          </Option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
-              </Box>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-ticketuser">Usuario asignado al ticket</Label>
+                <Select
+                  value={String(formData.ticketUserId ?? 0)}
+                  disabled={ticketOptionsDisabled}
+                  onValueChange={(value) =>
+                    setFormData(prev => ({ ...prev, ticketUserId: Number(value) > 0 ? Number(value) : null }))
+                  }
+                >
+                  <SelectTrigger id="schedule-ticketuser" className="h-11">
+                    <SelectValue placeholder="Sin asignar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Sin asignar</SelectItem>
+                    {users.map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-queue">Transferir para departamentos</Label>
+                <Select
+                  value={String(formData.queueId ?? 0)}
+                  disabled={ticketOptionsDisabled}
+                  onValueChange={(value) =>
+                    setFormData(prev => ({ ...prev, queueId: Number(value) > 0 ? Number(value) : null }))
+                  }
+                >
+                  <SelectTrigger id="schedule-queue" className="h-11">
+                    <SelectValue placeholder="Sin departamento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Sin departamento</SelectItem>
+                    {queues.map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-              <Box sx={{ p: 2, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-                <Typography level="body-sm" sx={{ flex: 1 }}>
-                  <strong>Vista previa:</strong>
-                  <br />
-                  {selectedContact ? `Contacto: ${selectedContact.name} (${selectedContact.number})` : 'Contacto: no seleccionado'}
-                  <br />
-                  {selectedWhatsapp ? `Conexión: ${selectedWhatsapp.name}` : 'Conexión: no seleccionada'}
-                  <br />
-                  Ticket: {formData.openTicket === 'enabled' ? `se abrirá en estado ${formData.statusTicket === 'open' ? 'abierto' : 'cerrado'}` : 'no se abrirá automáticamente'}
-                  <br />
-                  Responsable: {selectedTicketUser?.name || 'sin usuario asignado'}
-                  {selectedQueue ? ` · Departamento: ${selectedQueue.name}` : ''}
-                  <br />
-                  Recurrencia: {getRecurrenceSummary(formData)}
-                </Typography>
-              </Box>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-statusticket">Status del ticket</Label>
+                <Select
+                  value={formData.statusTicket}
+                  disabled={ticketOptionsDisabled}
+                  onValueChange={(value) =>
+                    setFormData(prev => ({ ...prev, statusTicket: value || 'closed' }))
+                  }
+                >
+                  <SelectTrigger id="schedule-statusticket" className="h-11">
+                    <SelectValue placeholder="Cerrado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Abierto</SelectItem>
+                    <SelectItem value="closed">Cerrado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-file">
+                  <span className="flex items-center gap-1.5">
+                    <UploadSimple className="size-4" aria-hidden />
+                    <span>Adjunto</span>
+                  </span>
+                </Label>
+                <input
+                  id="schedule-file"
+                  type="file"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null
+                    setSelectedFile(file)
+                    if (file) {
+                      setRemoveExistingMedia(false)
+                    }
+                  }}
+                  className={cn(
+                    inputClass,
+                    'cursor-pointer py-2.5 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-secondary-foreground',
+                  )}
+                />
+              </div>
+            </div>
 
-              <Button color="primary" loading={modalLoading} onClick={selectedSchedule ? handleUpdate : handleCreate}>
-                {selectedSchedule ? 'Actualizar' : 'Programar'} Mensaje
+            {(existingMedia || selectedFile) && (
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                  <span className="flex items-center gap-1.5 text-sm text-foreground">
+                    <Paperclip className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    Archivo actual: {selectedFile?.name || existingMedia?.name}
+                  </span>
+                  {existingMedia && !selectedFile && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+                      onClick={() => setRemoveExistingMedia(true)}
+                    >
+                      Quitar archivo actual
+                    </Button>
+                  )}
+                </div>
+                {removeExistingMedia && (
+                  <p className="mt-2 text-xs text-destructive-text">
+                    El archivo actual se eliminará al guardar.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="schedule-assinar"
+                checked={formData.assinar}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, assinar: checked }))}
+              />
+              <div>
+                <Label htmlFor="schedule-assinar" className="cursor-pointer">
+                  Enviar firma
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Usa la opción de firma del backend al momento del envío.
+                </p>
+              </div>
+            </div>
+
+            {/* Recurrencia */}
+            <div className="rounded-lg border border-border bg-muted/40 p-4">
+              <h3 className="text-sm font-semibold text-foreground">Recurrencia</h3>
+              <p className="mb-3 mt-0.5 text-sm text-muted-foreground">
+                Si no quieres recurrencia, deja el valor del intervalo en 0 y la cantidad de envíos en 1.
+              </p>
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="schedule-intervalo">Intervalo</Label>
+                  <Select
+                    value={String(formData.intervalo)}
+                    onValueChange={(value) =>
+                      setFormData(prev => ({ ...prev, intervalo: Number(value) || 1 }))
+                    }
+                  >
+                    <SelectTrigger id="schedule-intervalo" className="h-11">
+                      <SelectValue placeholder="Días" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {intervalOptions.map((item) => (
+                        <SelectItem key={item.value} value={String(item.value)}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="schedule-valorintervalo">Rango valor</Label>
+                  <input
+                    id="schedule-valorintervalo"
+                    type="number"
+                    value={formData.valorIntervalo}
+                    onChange={(e) =>
+                      setFormData(prev => ({ ...prev, valorIntervalo: Math.max(0, Number(e.target.value) || 0) }))
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="schedule-cuantasveces">Enviar cuántas veces</Label>
+                  <input
+                    id="schedule-cuantasveces"
+                    type="number"
+                    value={formData.enviarQuantasVezes}
+                    onChange={(e) =>
+                      setFormData(prev => ({ ...prev, enviarQuantasVezes: Math.max(1, Number(e.target.value) || 1) }))
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="schedule-contador">Contador actual</Label>
+                  <input
+                    id="schedule-contador"
+                    type="number"
+                    value={formData.contadorEnvio}
+                    disabled
+                    readOnly
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-4">
+                  <Label htmlFor="schedule-tipodias">Comportamiento en días no laborables</Label>
+                  <Select
+                    value={String(formData.tipoDias)}
+                    onValueChange={(value) =>
+                      setFormData(prev => ({ ...prev, tipoDias: Number(value) || 4 }))
+                    }
+                  >
+                    <SelectTrigger id="schedule-tipodias" className="h-11">
+                      <SelectValue placeholder="Selecciona un comportamiento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {businessDayOptions.map((item) => (
+                        <SelectItem key={item.value} value={String(item.value)}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Vista previa */}
+            <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+              <p className="mb-1 font-semibold text-foreground">Vista previa:</p>
+              <p>
+                {selectedContact
+                  ? `Contacto: ${selectedContact.name} (${selectedContact.number})`
+                  : 'Contacto: no seleccionado'}
+              </p>
+              <p>{selectedWhatsapp ? `Conexión: ${selectedWhatsapp.name}` : 'Conexión: no seleccionada'}</p>
+              <p>
+                Ticket:{' '}
+                {formData.openTicket === 'enabled'
+                  ? `se abrirá en estado ${formData.statusTicket === 'open' ? 'abierto' : 'cerrado'}`
+                  : 'no se abrirá automáticamente'}
+              </p>
+              <p>
+                Responsable: {selectedTicketUser?.name || 'sin usuario asignado'}
+                {selectedQueue ? ` · Departamento: ${selectedQueue.name}` : ''}
+              </p>
+              <p>Recurrencia: {getRecurrenceSummary(formData)}</p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
+                Cancelar
               </Button>
-            </Stack>
-          </ModalDialog>
-        </Modal>
-      </Stack>
-    </Container>
+              <Button
+                size="sm"
+                loading={modalLoading}
+                onClick={selectedSchedule ? handleUpdate : handleCreate}
+              >
+                {selectedSchedule ? 'Actualizar' : 'Programar'} mensaje
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

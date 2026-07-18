@@ -5,7 +5,6 @@ import * as Sentry from "@sentry/node";
 export const StartAllWhatsAppsSessions = async (
   companyId: number
 ): Promise<void> => {
- // console.log("⚡ StartWhatsAppSession invocado para:", companyId,  "desde", new Error().stack);
   try {
     const whatsapps = await ListWhatsAppsService({ companyId });
     if (whatsapps.length > 0) {
@@ -33,4 +32,3 @@ export const StartAllWhatsAppsSessions = async (
   }
 };
 
-// console.log("📱📱📱 START-ALL-WHATSAPP-SESSIONS.TS FULLY LOADED! 📱📱📱");

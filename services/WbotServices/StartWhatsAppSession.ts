@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { initWASocket, isSessionInitializing } from "../../libs/wbot";
 import Whatsapp from "../../models/Whatsapp";
 import { wbotMessageListener } from "./wbotMessageListener";
@@ -5,6 +9,7 @@ import { getIO } from "../../libs/socket";
 import wbotMonitor from "./wbotMonitor";
 import logger from "../../utils/logger";
 import * as Sentry from "@sentry/node";
+import { sessionRegistry } from "../../libs/sessionRegistry";
 
 export const StartWhatsAppSession = async (
   whatsapp: Whatsapp,
@@ -12,7 +17,6 @@ export const StartWhatsAppSession = async (
 ): Promise<void> => {
   // Guard: evitar inicios concurrentes para la misma sesion
   if (isSessionInitializing(whatsapp.id)) {
-    // console.log("⚠️ [StartWhatsAppSession] Session already initializing, skipping", {
     //   whatsappId: whatsapp.id,
     //   whatsappName: whatsapp.name,
     //   companyId
@@ -20,7 +24,30 @@ export const StartWhatsAppSession = async (
     return;
   }
 
-  // console.log("🚀 [StartWhatsAppSession] Starting WhatsApp session initialization", {
+  const location = await sessionRegistry.lookup(whatsapp.id);
+  if (location && location.nodeId !== sessionRegistry.getNodeId()) {
+    logger.info(
+      `[StartWhatsAppSession] Session ${whatsapp.id} belongs to ${location.nodeId}:${location.port}; skipping on ${sessionRegistry.getNodeId()}`
+    );
+    return;
+  }
+
+  const claimed = location ? true : await sessionRegistry.register(whatsapp.id);
+  if (!claimed) {
+    logger.info(
+      `[StartWhatsAppSession] Session ${whatsapp.id} was claimed by another node; skipping on ${sessionRegistry.getNodeId()}`
+    );
+    return;
+  }
+
+  const lockAcquired = await sessionRegistry.acquireLock(whatsapp.id);
+  if (!lockAcquired) {
+    logger.info(
+      `[StartWhatsAppSession] Session ${whatsapp.id} is already starting on another process`
+    );
+    return;
+  }
+
   //   whatsappId: whatsapp.id,
   //   whatsappName: whatsapp.name,
   //   companyId,
@@ -29,58 +56,58 @@ export const StartWhatsAppSession = async (
   // });
 
   try {
-    // console.log("📝 [StartWhatsAppSession] Updating status to OPENING...");
     await whatsapp.update({ status: "OPENING" });
-    // console.log("✅ [StartWhatsAppSession] Status updated to OPENING");
 
     const io = getIO();
-    // console.log("📡 [StartWhatsAppSession] Emitting socket event for session update...");
     io.of(String(companyId))
       .emit(`company-${companyId}-whatsappSession`, {
         action: "update",
         session: whatsapp
       });
-    // console.log("✅ [StartWhatsAppSession] Socket event emitted");
 
-    // console.log("🔧 [StartWhatsAppSession] Calling initWASocket...");
     const wbot = await initWASocket(whatsapp);
-    // console.log("✅ [StartWhatsAppSession] initWASocket completed successfully", {
     //   wbotId: wbot?.id,
     //   wbotType: wbot?.type
     // });
 
     if (wbot.id) {
-      // console.log("🎧 [StartWhatsAppSession] Setting up message listener...");
       wbotMessageListener(wbot, companyId);
-      // console.log("✅ [StartWhatsAppSession] Message listener set up");
 
-      // console.log("👁️ [StartWhatsAppSession] Setting up monitor...");
       wbotMonitor(wbot, whatsapp, companyId);
-      // console.log("✅ [StartWhatsAppSession] Monitor set up");
 
       // NUEVO: Registrar sesión en Redis (como respaldo, en caso de que connection.update no se dispare)
       try {
-        const { sessionRegistry } = require("../../libs/sessionRegistry");
+        // Fix (2026-07-07): se reutiliza el import estático de sessionRegistry (línea 12)
+        // en vez de un require() CommonJS. En el runtime ESM (tsx) ese require fallaba con
+        // "Cannot find module '../../libs/sessionRegistry'" y saltaba este registro de respaldo.
         await sessionRegistry.register(whatsapp.id);
         console.log(`[StartWhatsAppSession] Sesión ${whatsapp.id} registrada en Redis`);
       } catch (regErr: any) {
         console.warn('[StartWhatsAppSession] Error registrando en Redis:', regErr.message);
       }
 
-      // console.log("🎉 [StartWhatsAppSession] WhatsApp session initialization completed successfully");
     } else {
-      // console.warn("⚠️ [StartWhatsAppSession] wbot.id is undefined - session may not be properly initialized");
     }
 
-  } catch (err) {
-    // console.error("❌ [StartWhatsAppSession] Error during session initialization:", {
+  } catch (err: any) {
     //   whatsappId: whatsapp.id,
     //   whatsappName: whatsapp.name,
     //   companyId,
     //   error: err.message,
     //   stack: err.stack
     // });
-    Sentry.captureException(err);
-    logger.error(err);
+    if (
+      err?.message === "ERR_WAPP_RECONNECT_SCHEDULED" ||
+      err?.message === "ERR_WAPP_DEVICE_REMOVED"
+    ) {
+      logger.info(
+        `[StartWhatsAppSession] Session ${whatsapp.id} finished current attempt: ${err.message}`
+      );
+    } else {
+      Sentry.captureException(err);
+      logger.error(err);
+    }
+  } finally {
+    await sessionRegistry.releaseLock(whatsapp.id);
   }
 };

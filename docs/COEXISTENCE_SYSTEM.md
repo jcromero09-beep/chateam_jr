@@ -1,6 +1,6 @@
 # Sistema de Coexistencia Meta + Baileys — ChatEAM JR
 
-> **Fecha**: 2026-04-16 | **Version**: 1.0
+> **Fecha**: 2026-06-18 | **Version**: 1.1
 
 ---
 
@@ -325,3 +325,96 @@ psql -c "SELECT id, name, \"phoneNumberId\", \"coexistenceEnabled\", \"receiveCh
 - **Fallback**: Si Baileys falla, automaticamente envia por Meta API
 - **Liveness**: Meta requiere abrir WA Business App cada 14 dias (CronJob existente verifica)
 - **Deduplicacion**: handleSmbMessageEchoes evita duplicados por wid
+
+---
+
+## Ticket Canónico Único (v1.1 — 2026-06-18)
+
+> Meta y Baileys son **dos transportes del MISMO WhatsApp** cuando están en
+> coexistencia. Para el negocio es **una sola conversación** con el mismo
+> cliente y el mismo número. Por tanto debe existir **un solo ticket canónico**
+> por (cliente + número), aunque cambie el transporte activo.
+
+### Principios
+
+1. **Una conversación unificada** (`UnifiedConversation`, por `companyId + canonicalNumber`)
+   puede tener varios bindings (Meta y Baileys) pero **un solo ticket abierto canónico**.
+2. El ticket canónico vive en el **transporte activo** (owner): Meta o Baileys.
+   - `Ticket.whatsappId` → conexión dueña del transporte activo.
+   - `Ticket.channel` → `'meta'` | `'whatsapp'`.
+   - `Ticket.conversationId` → identidad lógica estable entre transportes.
+3. Los mensajes guardan **su origen real** en `Message.sourceChannel`
+   (`cloud_api` | `business_app` | `history_import` | `baileys`), pero **nunca**
+   abren un segundo ticket para la misma conversación.
+
+### Servicio central — `CoexistenceTicketRoutingService`
+
+Fuente ÚNICA de verdad de coexistencia (facade que reutiliza `ConversationResolverService`,
+`OutboundRoutingService` y `FindOrCreateTicketService`):
+
+| Helper | Responsabilidad |
+|--------|-----------------|
+| `resolveCoexistencePair(seed)` | Encuentra la conexión hermana en **ambos sentidos** (Meta↔Baileys por `linkedWhatsappId`, vínculo inverso, o mismo número). |
+| `isCoexistenceSibling(a, b)` | ¿Son a y b transportes del mismo WhatsApp? |
+| `resolveTicketOwner(...)` | Decide qué conexión debe ser dueña del ticket (Meta principal por defecto). |
+| `shouldDropProviderEvent(...)` | ¿Ignorar un evento Meta/Baileys para no duplicar? (según `receiveChannel`/`sendChannel`). |
+| `resolveOrCreateCanonicalTicket(...)` | Resuelve `conversationId` + crea/reutiliza el ticket canónico. |
+| `findEquivalentOutboundMessage(...)` | Dedup cross-provider: `meta_echo` vs `baileys_fromme`. |
+| `switchTicketOwner(ticketId, provider)` | Cambia el owner real (whatsappId + channel + routingPolicy + socket). |
+
+### Canal activo del ticket y filtros visuales
+
+- En la bandeja hay **filtros por canal** (Todos / WhatsApp(Baileys) / Meta /
+  Facebook / Instagram / Telegram). Filtran por **canal activo** (`Ticket.channel`),
+  **no** crean conversaciones separadas.
+- El selector de canal (`RoutingPolicySelector`) al elegir **Forzar Meta** o
+  **Forzar Baileys** llama a `POST /coexistence/tickets/:id/switch-owner`, que
+  **cambia el owner real** del ticket (un solo ticket canónico) y emite socket.
+- `MetaWindowIndicator` muestra la **ventana Meta 24h** y permite pasar a Baileys.
+
+### Política Meta 24h + fallback Baileys
+
+- Outbound manual pasa por el router central (`CoexistenceOutboundRouterService` →
+  `OutboundDispatchService` → `OutboundRoutingService`).
+- Modos: `auto` | `force_meta` | `force_baileys` | `sticky_inbound` |
+  `meta_first_baileys_after_23h`. En coexistencia **Meta es principal** por defecto
+  (`sendChannel = 'meta'`); si la ventana 24h está cerca/cerrada (≥23h) o Meta falla,
+  se aplica **fallback a Baileys** marcando `fallbackApplied=true`.
+- **Un solo intento lógico**: nunca se envía el mismo mensaje por Meta **y** Baileys
+  como intentos independientes. El fallback en `helpers/SendMessage.ts` (flujos
+  programados/recordatorios/seguimientos) sólo usa Baileys **después** de que Meta
+  falla.
+
+### Cómo se evitan mensajes/tickets dobles
+
+- **`smb_message_echoes`** (staff desde WA Business App): ahora resuelve
+  `conversationId` y crea/reutiliza el **ticket canónico** (no abre uno nuevo).
+  Antes de crear el mensaje, busca un `baileys_fromme` equivalente reciente
+  (mismo ticket, body normalizado, ventana 120s); si existe, marca el ledger como
+  `dropped` (`cross_provider.baileys_fromme_recent`) y **no duplica**.
+- **Dedup `meta_echo` vs `baileys_fromme`**: la deduplicación NO usa el `wid`
+  (difiere entre transportes), sino el match por ticket + body normalizado + ventana.
+- **Inbound**: `InboundEventLedger` (idempotencia por `eventKey`) + dedup
+  cross-provider por body/ventana + reutilización por `conversationId` en
+  `FindOrCreateTicketService`.
+
+### Defaults (Meta principal)
+
+- `Whatsapps.sendChannel` default = **`meta`** (modelo + migración
+  `20260618000001-align-coexistence-send-channel-default-meta`). El backfill sólo
+  toca filas en coexistencia con `sendChannel` NULL (BD SAGRADA: ALTER DEFAULT + UPDATE,
+  sin DROP). UI y runtime ahora muestran lo mismo.
+
+### Flujos automáticos (Fase C — 2026-06-18)
+
+Recordatorios de citas (cron) y seguimientos (`OmnichannelDispatcher` / followups)
+ahora envían vía **`CoexistenceAwareTextSender.sendTicketText`**:
+- Ticket **en coexistencia** → router central (`routeAndSendOutbound`): respeta el
+  canal activo/owner, ventana Meta 24h + **fallback Baileys como un solo intento
+  lógico**, persiste el Message una vez (dedup por `wid` contra el echo de Baileys,
+  igual que el envío manual) y emite socket.
+- Ticket **sin coexistencia** → legacy `SendWhatsAppMessage` (comportamiento idéntico).
+- El cron de recordatorios **omite** su `CreateMessageService` cuando `viaRouter=true`
+  (el router ya persistió) → nunca duplica el mensaje.
+- **Nunca** se envía el mismo recordatorio/seguimiento por Meta y Baileys como
+  intentos independientes.

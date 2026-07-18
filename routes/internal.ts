@@ -134,7 +134,7 @@ internalRoutes.post("/internal/send-media", async (req: Request, res: Response) 
   let tempMediaPath: string | null = null;
 
   try {
-    const { whatsappId, to, mediaPath, mediaName, body, companyId, options } = req.body;
+    const { whatsappId, to, mediaPath, mediaName, body, companyId, options, contextInfo, gifPlayback } = req.body;
 
     if (!whatsappId || !to || !mediaPath) {
       return res.status(400).json({
@@ -168,6 +168,15 @@ internalRoutes.post("/internal/send-media", async (req: Request, res: Response) 
       return res.status(500).json({
         error: "No fue posible generar el payload del adjunto"
       });
+    }
+
+    if (contextInfo) {
+      messageOptions.contextInfo = contextInfo;
+    }
+
+    if (gifPlayback && messageOptions.image) {
+      messageOptions.gifPlayback = true;
+      messageOptions.mimetype = messageOptions.mimetype || "image/gif";
     }
 
     const hydratedOptions = reviveSerializedBuffers(options || {});
@@ -398,10 +407,10 @@ internalRoutes.post("/internal/edit-message", async (req: Request, res: Response
     logger.info(`[INTERNAL-EDIT] Editando mensaje en sesión ${whatsappId} desde nodo=${req.ip}`);
 
     const wbot = getWbot(whatsappId);
-    await (wbot as any).sendMessage(remoteJid, { text: newBody, edit: messageKey });
+    const result = await (wbot as any).sendMessage(remoteJid, { text: newBody, edit: messageKey });
 
     logger.info(`[INTERNAL-EDIT] ✅ Mensaje editado exitosamente en sesión ${whatsappId}`);
-    return res.json({ success: true });
+    return res.json({ success: true, result });
   } catch (error: any) {
     logger.error(`[INTERNAL-EDIT] ❌ Error: ${error.message}`);
     if (error.message === "ERR_WAPP_NOT_INITIALIZED" ||

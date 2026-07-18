@@ -1,44 +1,31 @@
 import { useState, useEffect } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Container,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Sheet,
-  Chip,
-  Button,
-  IconButton,
-  Table,
-  Input,
-  Textarea,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
+  Plus,
+  PencilSimple,
+  Trash,
+  MagnifyingGlass,
+  Clock,
+  CurrencyDollar,
+  SquaresFour,
+  TrendUp,
+  Eye,
+  EyeSlash,
+  ArrowClockwise,
+  X,
+  Warning,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
   Select,
-  Option,
-  Switch,
-  Divider,
-  Avatar,
-  CircularProgress,
-  Alert,
-} from '@mui/joy'
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  AccessTime as TimeIcon,
-  AttachMoney as MoneyIcon,
-  Category as CategoryIcon,
-  TrendingUp as TrendingUpIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material'
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import { toast } from 'react-toastify'
 import appointmentService, { AppointmentServiceType, CreateServiceData } from '../services/appointmentService'
 
@@ -47,7 +34,10 @@ interface Service extends AppointmentServiceType {
   revenue?: number
 }
 
-const categories = ['Consulta', 'Evaluacion', 'Seguimiento', 'Especializada', 'Express', 'Otro']
+const inputCls =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+const columns = ['Color', 'Nombre', 'Duracion', 'Buffer', 'Precio', 'Max. Asistentes', 'Estado', 'Acciones']
 
 export default function AppointmentsServices() {
   const [services, setServices] = useState<Service[]>([])
@@ -55,7 +45,6 @@ export default function AppointmentsServices() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [openModal, setOpenModal] = useState(false)
   const [editingService, setEditingService] = useState<Service | null>(null)
@@ -199,365 +188,396 @@ export default function AppointmentsServices() {
 
   if (loading) {
     return (
-      <Container maxWidth="xl" sx={{ py: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+      <div className="flex min-h-[50vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Container>
+      </div>
     )
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 0.5 }}>
-            Gestion de Servicios
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Administra los servicios disponibles para agendamiento
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshIcon />} onClick={fetchServices}>
-            Actualizar
-          </Button>
-          <Button startDecorator={<AddIcon />} onClick={() => handleOpenModal()}>
-            Nuevo Servicio
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <SquaresFour className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Gestion de Servicios
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Administra los servicios disponibles para agendamiento
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchServices}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
+            </Button>
+            <Button size="sm" onClick={() => handleOpenModal()}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nuevo Servicio
+            </Button>
+          </div>
+        </div>
 
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+          >
+            <Warning className="size-5 shrink-0" weight="fill" aria-hidden />
+            {error}
+          </div>
+        )}
 
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card variant="soft" color="primary">
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <CategoryIcon sx={{ fontSize: 32 }} />
-                <Box>
-                  <Typography level="body-sm">Total Servicios</Typography>
-                  <Typography level="h4">{services.length}</Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card variant="soft" color="success">
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <VisibilityIcon sx={{ fontSize: 32 }} />
-                <Box>
-                  <Typography level="body-sm">Servicios Activos</Typography>
-                  <Typography level="h4">{activeServices}</Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card variant="soft" color="warning">
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <TrendingUpIcon sx={{ fontSize: 32 }} />
-                <Box>
-                  <Typography level="body-sm">Total Reservas</Typography>
-                  <Typography level="h4">{totalBookings}</Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card variant="soft" color="neutral">
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <MoneyIcon sx={{ fontSize: 32 }} />
-                <Box>
-                  <Typography level="body-sm">Ingresos Totales</Typography>
-                  <Typography level="h4">${totalRevenue.toLocaleString()}</Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <SquaresFour className="size-6" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm text-muted-foreground">Total Servicios</p>
+              <p className="text-2xl font-semibold tabular-nums text-foreground">{services.length}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-success/14 text-success-text">
+              <Eye className="size-6" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm text-muted-foreground">Servicios Activos</p>
+              <p className="text-2xl font-semibold tabular-nums text-foreground">{activeServices}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-warning/16 text-warning-text">
+              <TrendUp className="size-6" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm text-muted-foreground">Total Reservas</p>
+              <p className="text-2xl font-semibold tabular-nums text-foreground">{totalBookings}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <CurrencyDollar className="size-6" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm text-muted-foreground">Ingresos Totales</p>
+              <p className="text-2xl font-semibold tabular-nums text-foreground">${totalRevenue.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
 
-      {/* Filters */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Input
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+          <div className="relative min-w-[280px] flex-1">
+            <MagnifyingGlass
+              className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
               placeholder="Buscar servicios..."
-              startDecorator={<SearchIcon />}
+              aria-label="Buscar servicios"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              sx={{ minWidth: 300, flexGrow: 1 }}
+              className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography level="body-sm">Mostrar inactivos:</Typography>
-              <Switch checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox checked={showInactive} onCheckedChange={setShowInactive} id="show-inactive" />
+            Mostrar inactivos
+          </label>
+        </div>
 
-      {/* Services Table */}
-      <Card>
-        <Sheet sx={{ overflow: 'auto' }}>
-          <Table>
-            <thead>
-              <tr>
-                <th style={{ width: 60 }}>Color</th>
-                <th>Nombre</th>
-                <th>Duracion</th>
-                <th>Buffer</th>
-                <th>Precio</th>
-                <th>Max. Asistentes</th>
-                <th>Estado</th>
-                <th style={{ width: 140 }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredServices.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      {services.length === 0 ? 'No hay servicios creados. Crea tu primer servicio.' : 'No se encontraron servicios con los filtros aplicados.'}
-                    </Typography>
-                  </td>
+        {/* Services Table */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-left">
+                  {columns.map((c, i) => (
+                    <th
+                      key={i}
+                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
-              ) : (
-                filteredServices.map((service) => (
-                  <tr key={service.id}>
-                    <td>
-                      <Avatar
-                        sx={{
-                          bgcolor: service.color || '#3b82f6',
-                          width: 32,
-                          height: 32,
-                        }}
-                      >
-                        {' '}
-                      </Avatar>
-                    </td>
-                    <td>
-                      <Box>
-                        <Typography level="body-sm" fontWeight="md">
-                          {service.name}
-                        </Typography>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {service.description || 'Sin descripcion'}
-                        </Typography>
-                      </Box>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <TimeIcon sx={{ fontSize: 16, color: 'text.tertiary' }} />
-                        <Typography level="body-sm">{service.duration} min</Typography>
-                      </Box>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{service.bufferTime || 0} min</Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm" fontWeight="md">
-                        ${service.price || 0} {service.currency || 'USD'}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">{service.maxAttendees || 1}</Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" color={service.isActive ? 'success' : 'neutral'}>
-                        {service.isActive ? 'Activo' : 'Inactivo'}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <IconButton
-                          size="sm"
-                          variant="soft"
-                          color={service.isActive ? 'neutral' : 'success'}
-                          onClick={() => handleToggleActive(service)}
-                        >
-                          {service.isActive ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                        </IconButton>
-                        <IconButton size="sm" variant="soft" color="primary" onClick={() => handleOpenModal(service)}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          size="sm"
-                          variant="soft"
-                          color="danger"
-                          onClick={() => handleDelete(service.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filteredServices.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      {services.length === 0
+                        ? 'No hay servicios creados. Crea tu primer servicio.'
+                        : 'No se encontraron servicios con los filtros aplicados.'}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </Table>
-        </Sheet>
-      </Card>
+                ) : (
+                  filteredServices.map((service) => (
+                    <tr key={service.id} className="transition-colors hover:bg-accent/40">
+                      <td className="px-4 py-3">
+                        <span
+                          className="block size-8 rounded-full ring-1 ring-inset ring-black/10"
+                          style={{ backgroundColor: service.color || '#3b82f6' }}
+                          aria-hidden
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-foreground">{service.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {service.description || 'Sin descripcion'}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <Clock className="size-4" aria-hidden />
+                          <span>{service.duration} min</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {service.bufferTime || 0} min
+                      </td>
+                      <td className="px-4 py-3 font-medium tabular-nums text-foreground">
+                        ${service.price || 0} {service.currency || 'USD'}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {service.maxAttendees || 1}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={service.isActive ? 'success' : 'neutral'}>
+                          {service.isActive ? 'Activo' : 'Inactivo'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button
+                            type="button"
+                            aria-label={service.isActive ? 'Desactivar servicio' : 'Activar servicio'}
+                            title={service.isActive ? 'Desactivar servicio' : 'Activar servicio'}
+                            onClick={() => handleToggleActive(service)}
+                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            {service.isActive ? (
+                              <EyeSlash className="size-[18px]" aria-hidden />
+                            ) : (
+                              <Eye className="size-[18px]" aria-hidden />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Editar"
+                            title="Editar"
+                            onClick={() => handleOpenModal(service)}
+                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <PencilSimple className="size-[18px]" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Eliminar"
+                            title="Eliminar"
+                            onClick={() => handleDelete(service.id)}
+                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
+                          >
+                            <Trash className="size-[18px]" aria-hidden />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       {/* Create/Edit Modal */}
-      <Modal open={openModal} onClose={handleCloseModal}>
-        <ModalDialog sx={{ minWidth: 600 }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {editingService ? 'Editar Servicio' : 'Nuevo Servicio'}
-          </Typography>
+      {openModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseModal}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                {editingService ? 'Editar Servicio' : 'Nuevo Servicio'}
+              </h2>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                title="Cerrar"
+                onClick={handleCloseModal}
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <X className="size-[18px]" aria-hidden />
+              </button>
+            </div>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <FormControl required>
-              <FormLabel>Nombre del Servicio</FormLabel>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Ej: Consulta General"
-              />
-            </FormControl>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="svc-name">Nombre del Servicio</Label>
+                <input
+                  id="svc-name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Ej: Consulta General"
+                  className={inputCls}
+                />
+              </div>
 
-            <FormControl>
-              <FormLabel>Descripcion</FormLabel>
-              <Textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe el servicio..."
-                minRows={3}
-              />
-            </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="svc-description">Descripcion</Label>
+                <textarea
+                  id="svc-description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Describe el servicio..."
+                  rows={3}
+                  className="w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
 
-            <Grid container spacing={2}>
-              <Grid xs={12} sm={4}>
-                <FormControl required>
-                  <FormLabel>Duracion (min)</FormLabel>
-                  <Input
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="svc-duration">Duracion (min)</Label>
+                  <input
+                    id="svc-duration"
                     type="number"
+                    min={15}
+                    step={15}
                     value={formData.duration}
                     onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) || 0 })}
-                    slotProps={{
-                      input: {
-                        min: 15,
-                        step: 15,
-                      },
-                    }}
+                    className={inputCls}
                   />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} sm={4}>
-                <FormControl>
-                  <FormLabel>Buffer (min)</FormLabel>
-                  <Input
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="svc-buffer">Buffer (min)</Label>
+                  <input
+                    id="svc-buffer"
                     type="number"
+                    min={0}
+                    step={5}
                     value={formData.bufferTime}
                     onChange={(e) => setFormData({ ...formData, bufferTime: parseInt(e.target.value) || 0 })}
-                    slotProps={{
-                      input: {
-                        min: 0,
-                        step: 5,
-                      },
-                    }}
+                    className={inputCls}
                   />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} sm={4}>
-                <FormControl>
-                  <FormLabel>Max. Asistentes</FormLabel>
-                  <Input
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="svc-attendees">Max. Asistentes</Label>
+                  <input
+                    id="svc-attendees"
                     type="number"
+                    min={1}
                     value={formData.maxAttendees}
                     onChange={(e) => setFormData({ ...formData, maxAttendees: parseInt(e.target.value) || 1 })}
-                    slotProps={{
-                      input: {
-                        min: 1,
-                      },
-                    }}
+                    className={inputCls}
                   />
-                </FormControl>
-              </Grid>
-            </Grid>
+                </div>
+              </div>
 
-            <Grid container spacing={2}>
-              <Grid xs={12} sm={6}>
-                <FormControl>
-                  <FormLabel>Precio</FormLabel>
-                  <Input
-                    type="number"
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                    startDecorator="$"
-                    slotProps={{
-                      input: {
-                        min: 0,
-                        step: 10,
-                      },
-                    }}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} sm={6}>
-                <FormControl>
-                  <FormLabel>Moneda</FormLabel>
-                  <Select value={formData.currency} onChange={(_, value) => setFormData({ ...formData, currency: value as string })}>
-                    <Option value="USD">USD</Option>
-                    <Option value="EUR">EUR</Option>
-                    <Option value="MXN">MXN</Option>
-                    <Option value="COP">COP</Option>
-                    <Option value="ARS">ARS</Option>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="svc-price">Precio</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      $
+                    </span>
+                    <input
+                      id="svc-price"
+                      type="number"
+                      min={0}
+                      step={10}
+                      value={formData.price}
+                      onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                      className={`${inputCls} pl-7`}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="svc-currency">Moneda</Label>
+                  <Select
+                    value={formData.currency}
+                    onValueChange={(value) => setFormData({ ...formData, currency: value })}
+                  >
+                    <SelectTrigger id="svc-currency" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="EUR">EUR</SelectItem>
+                      <SelectItem value="MXN">MXN</SelectItem>
+                      <SelectItem value="COP">COP</SelectItem>
+                      <SelectItem value="ARS">ARS</SelectItem>
+                    </SelectContent>
                   </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+                </div>
+              </div>
 
-            <FormControl>
-              <FormLabel>Color</FormLabel>
-              <Input
-                type="color"
-                value={formData.color}
-                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                sx={{ height: 50 }}
-              />
-            </FormControl>
+              <div className="space-y-1.5">
+                <Label htmlFor="svc-color">Color</Label>
+                <input
+                  id="svc-color"
+                  type="color"
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  className="h-11 w-full cursor-pointer rounded-md border border-input bg-card p-1"
+                />
+              </div>
 
-            <Box sx={{ display: 'flex', gap: 3 }}>
-              <FormControl>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Switch checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
-                  <Typography level="body-sm">Servicio activo</Typography>
-                </Box>
-              </FormControl>
-              <FormControl>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Switch checked={formData.requiresConfirmation} onChange={(e) => setFormData({ ...formData, requiresConfirmation: e.target.checked })} />
-                  <Typography level="body-sm">Requiere confirmacion</Typography>
-                </Box>
-              </FormControl>
-            </Box>
+              <div className="flex flex-wrap gap-6">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    id="svc-active"
+                    checked={!!formData.isActive}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
+                  />
+                  Servicio activo
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    id="svc-confirm"
+                    checked={!!formData.requiresConfirmation}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresConfirmation: checked })}
+                  />
+                  Requiere confirmacion
+                </label>
+              </div>
 
-            <Divider />
+              <div className="border-t border-border" />
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-              <Button variant="plain" color="neutral" onClick={handleCloseModal} disabled={saving}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSave} disabled={!formData.name || !formData.duration || saving} loading={saving}>
-                {editingService ? 'Guardar Cambios' : 'Crear Servicio'}
-              </Button>
-            </Box>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Container>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={handleCloseModal} disabled={saving}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={!formData.name || !formData.duration || saving}
+                  loading={saving}
+                >
+                  {editingService ? 'Guardar Cambios' : 'Crear Servicio'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

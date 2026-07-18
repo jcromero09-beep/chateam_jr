@@ -43,9 +43,7 @@ const CreateContactService = async ({
   // Normalize number: remove all non-numeric characters
   const number = rawNumber.replace(/[^0-9]/g, "");
 
-  const numberExists = await Contact.findOne({
-    where: { number, companyId }
-  });
+  const numberExists = await Contact.findOne({ where: { number, companyId } });
   if (numberExists) {
 
     throw new AppError("ERR_DUPLICATED_CONTACT");

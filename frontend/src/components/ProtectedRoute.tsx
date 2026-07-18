@@ -10,6 +10,7 @@ interface ProtectedRouteProps {
   children: ReactNode
   module?: Module
   requireAuth?: boolean
+  superOnly?: boolean
 }
 
 /**
@@ -23,9 +24,10 @@ export default function ProtectedRoute({
   children,
   module,
   requireAuth = true,
+  superOnly = false,
 }: ProtectedRouteProps) {
   const { isAuthenticated, loading } = useAuth()
-  const { canAccess } = usePermissions()
+  const { canAccess, isSuperAdmin } = usePermissions()
 
   // Mostrar loading mientras se verifica la autenticación
   if (loading) {
@@ -39,6 +41,14 @@ export default function ProtectedRoute({
   // Redirigir a login si no está autenticado y se requiere autenticación
   if (requireAuth && !isAuthenticated) {
     return <Navigate to="/login" replace />
+  }
+
+  if (superOnly && !isSuperAdmin) {
+    return (
+      <AppLayout>
+        <AccessDenied message="Solo el superadmin puede acceder a este modulo" />
+      </AppLayout>
+    )
   }
 
   // Si se especifica un módulo, verificar permisos

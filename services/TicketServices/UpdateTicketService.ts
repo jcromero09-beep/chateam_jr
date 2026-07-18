@@ -12,16 +12,19 @@ import SendWhatsAppMessage from "../WbotServices/SendWhatsAppMessage";
 import FindOrCreateATicketTrakingService from "./FindOrCreateATicketTrakingService";
 import GetTicketWbot from "../../helpers/GetTicketWbot";
 import { verifyMessage } from "../WbotServices/wbotMessageListener";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import sendFaceMessage from "../FacebookServices/sendFacebookMessage";
-import { verifyMessageFace } from "../FacebookServices/facebookMessageListener";
 import ShowUserService from "../UserServices/ShowUserService";
 import User from "../../models/User";
 import CompaniesSettings from "../../models/CompaniesSettings";
+import Setting from "../../models/Setting";
+import AppError from "../../errors/AppError";
 import CreateLogTicketService from "./CreateLogTicketService";
 import TicketTag from "../../models/TicketTag";
 import Tag from "../../models/Tag";
 import CreateMessageService from "../MessageServices/CreateMessageService";
+import Message from "../../models/Message";
 import FindOrCreateTicketService from "./FindOrCreateTicketService";
 import formatBody from "../../helpers/Mustache";
 import { Mutex } from "async-mutex";
@@ -30,6 +33,38 @@ import { cancelTicketFollowups } from "../../workers/stageClassifier.worker";
 import { processTelegramTicketClosure } from "../TelegramService/SendTelegramAutomaticMessages";
 import { add as addJob } from "../../queues";
 import logger from "../../utils/logger";
+import { resolveNpsEnabled } from "../../helpers/ResolveChannelConfig";
+import NotifyTicketEventService from "../NotificationServices/NotifyTicketEventService";
+import RunTicketAutomationRules from "../AutomationServices/RunTicketAutomationRules"; // [Fase E]
+
+const verifyMessageFaceForTicketUpdate = async (
+  msg: any,
+  body: any,
+  ticket: Ticket,
+  contact: Contact,
+  fromMe: boolean = false
+) => {
+  const quotedMid = msg?.reply_to?.mid;
+  const quotedMsg = quotedMid
+    ? await Message.findOne({ where: { wid: quotedMid } })
+    : null;
+
+  const messageData = {
+    wid: msg.mid || msg.message_id,
+    ticketId: ticket.id,
+    contactId: fromMe ? undefined : msg.is_echo ? undefined : contact.id,
+    body: msg.text || body,
+    fromMe: fromMe ? fromMe : msg.is_echo ? true : false,
+    read: fromMe ? fromMe : msg.is_echo,
+    quotedMsgId: quotedMsg?.id,
+    ack: 3,
+    dataJson: JSON.stringify(msg),
+    channel: ticket.channel
+  };
+
+  await CreateMessageService({ messageData, companyId: ticket.companyId });
+  await ticket.update({ lastMessage: msg.text });
+};
 interface TicketData {
   status?: string;
   userId?: number | null;
@@ -66,7 +101,6 @@ const UpdateTicketService = async ({
   companyId
 }: Request): Promise<Response> => {
   // DEBUG: Log ALL incoming ticketData to track what's modifying customerOriginId
-  // console.log("🎫 [UpdateTicketService] CALLED:", {
   //   ticketId,
   //   companyId,
   //   ticketDataKeys: Object.keys(ticketData),
@@ -91,7 +125,8 @@ const UpdateTicketService = async ({
       customerOriginId
     } = ticketData;
     let isBot: boolean | null = ticketData.isBot || false;
-    let queueOptionId: number | null = ticketData.queueOptionId || null;
+    const queueOptionId: number | null = ticketData.queueOptionId || null;
+    const hasUserIdField = Object.prototype.hasOwnProperty.call(ticketData, "userId");
 
     const io = getIO();
 
@@ -101,7 +136,7 @@ const UpdateTicketService = async ({
       }
     });
 
-    let ticket = await ShowTicketService(ticketId, companyId);
+    const ticket = await ShowTicketService(ticketId, companyId);
 
 
 
@@ -113,6 +148,7 @@ const UpdateTicketService = async ({
     const oldUserId = ticket.user?.id;
     const oldQueueId = ticket?.queueId;
     const oldContactId = ticket?.contactId;
+    const activityAt = new Date();
 
     // 🔄 Transferencia de ticket a otro contacto
     if (ticketData.newContactId && ticketData.newContactId !== oldContactId) {
@@ -125,8 +161,10 @@ const UpdateTicketService = async ({
         throw new Error("Contacto no encontrado");
       }
 
-      // Actualizar el ticket con el nuevo contactId
-      await ticket.update({ contactId: newContact.id });
+      // Actualizar el ticket con el nuevo contactId.
+      // silent:true → Sequelize NO toca updatedAt; el ticket conserva su posición
+      // en la lista. Solo los mensajes entrantes/salientes mueven el ticket arriba.
+      await ticket.update({ contactId: newContact.id }, { silent: true });
 
       // Crear log de la transferencia
       await CreateLogTicketService({
@@ -159,9 +197,7 @@ const UpdateTicketService = async ({
         type: "closed"
       });
 
-      await ticket.update({
-        status: "closed"
-      });
+      await ticket.update({ status: "closed" }, { silent: true });
       await cancelTicketFollowups(ticket.id);
       await actualizarRetargetingSiEsDormant(ticket.id, companyId);
 
@@ -183,12 +219,10 @@ const UpdateTicketService = async ({
           action: "delete",
           ticketId: ticket.id
         });
-      // console.log(117, "UpdateTicketService")
       return { ticket, oldStatus, oldUserId };
     }
 
     if (oldStatus === "closed") {
-      // console.log(122, "UpdateTicketService")
       let otherTicket = await Ticket.findOne({
         where: {
           contactId: ticket.contactId,
@@ -214,7 +248,6 @@ const UpdateTicketService = async ({
       companyId,
       whatsappId: ticket?.whatsappId
     });
-    // console.log("GETTING WHATSAPP UPDATE TICKETSERVICE", ticket?.whatsappId)
     
     // Solo obtener configuración de WhatsApp si es un ticket de WhatsApp
     let complationMessage, ratingMessage, groupAsTicket;
@@ -241,7 +274,10 @@ const UpdateTicketService = async ({
         user = await User.findByPk(_userId);
       }
 
-      if (settings.userRating === "enabled" &&
+      // NPS resuelto con jerarquía Whatsapp.npsEnabled → CompaniesSettings.userRating
+      const npsEnabled = await resolveNpsEnabled(ticket.whatsapp, companyId);
+
+      if (npsEnabled &&
         (sendFarewellMessage || sendFarewellMessage === undefined) &&
         (!isNil(ratingMessage) && ratingMessage !== "") &&
         !ticket.isGroup) {
@@ -249,7 +285,7 @@ const UpdateTicketService = async ({
         if (ticketTraking.ratingAt == null) {
 
           const ratingTxt = ratingMessage || "";
-          let bodyRatingMessage = `\u200e ${ratingTxt}\n`;
+          const bodyRatingMessage = `\u200e ${ratingTxt}\n`;
 
           if (ticket.channel === "whatsapp" && ticket.whatsapp.status === 'CONNECTED') {
             const msg = await SendWhatsAppMessage({ body: bodyRatingMessage, ticket, isForwarded: false });
@@ -258,8 +294,7 @@ const UpdateTicketService = async ({
             if (["facebook", "instagram"].includes(ticket.channel)) {
 
               const msg = await sendFaceMessage({ body: bodyRatingMessage, ticket });
-              // console.log('update verifyMessageFace')
-              await verifyMessageFace(msg, bodyRatingMessage, ticket, ticket.contact);
+              await verifyMessageFaceForTicketUpdate(msg, bodyRatingMessage, ticket, ticket.contact);
             }
 
           await ticketTraking.update({
@@ -295,10 +330,13 @@ const UpdateTicketService = async ({
           //   Sentry.captureException(error);
           // }
 
-          await ticket.update({
-            status: "nps",
-            amountUsedBotQueuesNPS: 1
-          })
+          await ticket.update(
+            {
+              status: "nps",
+              amountUsedBotQueuesNPS: 1
+            },
+            { silent: true }
+          )
 
           io.of(String(companyId))
             // .to(oldStatus)
@@ -308,7 +346,6 @@ const UpdateTicketService = async ({
               ticketId: ticket.id
             });
 
-          // console.log(277, "UpdateTicketService")
           return { ticket, oldStatus, oldUserId };
 
         }
@@ -379,12 +416,15 @@ const UpdateTicketService = async ({
 
       await ticketTraking.save();
 
-      await ticket.update({
-        status: "closed",
-        lastFlowId: null,
-        dataWebhook: null,
-        hashFlowId: null,
-      });
+      await ticket.update(
+        {
+          status: "closed",
+          lastFlowId: null,
+          dataWebhook: null,
+          hashFlowId: null
+        },
+        { silent: true }
+      );
 
       // NUEVO: Procesar cierre de ticket de Telegram
       if (ticket.channel === "telegram" && sendFarewellMessage) {
@@ -406,7 +446,6 @@ const UpdateTicketService = async ({
         logger.warn(`[UpdateTicket] Error encolando ExtractMemoryJob: ${jobErr.message}`);
       }
 
-      // console.log(1, "actualizarRetargetingSiEsDormant")
       io.of(String(companyId))
         // .to(oldStatus)
         // .to(ticketId.toString())
@@ -414,7 +453,6 @@ const UpdateTicketService = async ({
           action: "delete",
           ticketId: ticket.id
         });
-      // console.log(309, "UpdateTicketService")
       return { ticket, oldStatus, oldUserId };
     }
     let queue
@@ -427,9 +465,10 @@ const UpdateTicketService = async ({
       if (settings.closeTicketOnTransfer) {
         let newTicketTransfer = ticket;
         if (oldQueueId !== queueId) {
-          await ticket.update({
-            status: "closed"
-          });
+          await ticket.update(
+            { status: "closed" },
+            { silent: true }
+          );
 
           // NUEVO: Procesar cierre de ticket de Telegram en transferencia
           if (ticket.channel === "telegram") {
@@ -451,7 +490,6 @@ const UpdateTicketService = async ({
           } catch (jobErr: any) {
             logger.warn(`[UpdateTicket] Error encolando ExtractMemoryJob: ${jobErr.message}`);
           }
-          // console.log(2, "actualizarRetargetingSiEsDormant")
 
           io.of(String(companyId))
             // .to(oldStatus)
@@ -493,21 +531,25 @@ const UpdateTicketService = async ({
             ticketTrakingId: null,
             isPrivate: true
           };
-          // console.log('newMessage ticket 1 CreateMessageService')
           await CreateMessageService({ messageData, companyId: ticket.companyId });
         }
 
-        await newTicketTransfer.update({
-          queueId,
-          userId,
-          status
-        })
+        await newTicketTransfer.update(
+          {
+            queueId,
+            userId,
+            status
+          },
+          { silent: true }
+        )
 
 
 
         await newTicketTransfer.reload();
        await actualizarRetargetingSiEsDormant(ticket.id, companyId);
-        // console.log(3, "actualizarRetargetingSiEsDormant")
+        if (!isNil(userId) && oldUserId !== userId) {
+          await NotifyTicketEventService(newTicketTransfer, "assigned");
+        }
 
         if (settings.sendMsgTransfTicket === "enabled") {
           // Mensagem de transferencia da FILA
@@ -626,7 +668,6 @@ const UpdateTicketService = async ({
           await ticketTraking.update({
             userId: newTicketTransfer.userId
           })
-          // console.log("emitiu socket 497", ticket.id, newTicketTransfer.id)
           io.of(String(companyId))
             // .to(oldStatus)
             .emit(`company-${companyId}-ticket`, {
@@ -726,7 +767,6 @@ const UpdateTicketService = async ({
             ticketTrakingId: null,
             isPrivate: true
           };
-          // console.log('newMessage ticket2 CreateMessageService')
           await CreateMessageService({ messageData, companyId: ticket.companyId });
         }
 
@@ -805,9 +845,41 @@ const UpdateTicketService = async ({
       }
     }
 
+    // 🛡️ Validación: aceptar ticket pending → open requiere queueId
+    // (configurable por empresa vía Setting "requireQueueOnAccept"; default OFF)
+    const isAcceptingFromPending =
+      oldStatus === "pending" && status === "open";
+
+    if (isAcceptingFromPending) {
+      const finalQueueId = !isNil(queueId) ? queueId : ticket.queueId;
+
+      if (isNil(finalQueueId)) {
+        const setting = await Setting.findOne({
+          where: { companyId, key: "requireQueueOnAccept" }
+        });
+        const isRequired =
+          setting?.value === "enabled" || setting?.value === "true";
+
+        if (isRequired) {
+          throw new AppError(
+            "ERR_TICKET_ACCEPT_REQUIRES_QUEUE: Debe seleccionar una cola antes de aceptar el ticket.",
+            400
+          );
+        }
+
+        logger.warn(
+          `[UpdateTicket] Aceptando ticket=${ticket.id} sin queueId (companyId=${companyId}, userId=${userId}) — requireQueueOnAccept desactivado`
+        );
+      }
+    }
+
     status = queue && queue.closeTicket ? "closed" : status;
 
-    // Construir objeto de actualización - solo incluir customerOriginId si explícitamente se envió
+    // Construir objeto de actualización - solo incluir customerOriginId si explícitamente se envió.
+    // NOTA: no incluimos updatedAt — el .update(..., { silent: true }) más abajo evita
+    // que Sequelize lo modifique. La fecha del ticket solo se mueve cuando llega un
+    // mensaje (CreateMessageService.ts), así la lista no se reordena por acciones
+    // administrativas.
     const updateData: any = {
       status,
       queueId,
@@ -823,18 +895,35 @@ const UpdateTicketService = async ({
       unreadMessages: unreadMessages !== undefined ? unreadMessages : ticket.unreadMessages
     };
 
+    if (!hasUserIdField) {
+      delete updateData.userId;
+    }
+
     // Solo actualizar customerOriginId si explícitamente se envió en la request
     if ('customerOriginId' in ticketData) {
       updateData.customerOriginId = customerOriginId;
-      // console.log("🔍 [UpdateTicketService] Updating customerOriginId to:", customerOriginId);
     }
 
-    await ticket.update(updateData);
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+
+    // silent:true → no actualiza updatedAt. La lista de tickets solo se reordena
+    // cuando llega un mensaje (CreateMessageService.ts / wbotMessageListener /
+    // metaMessageListener), no por cambios administrativos (asignar agente,
+    // cambiar cola, transferir, cerrar/reabrir, etc.).
+    await ticket.update(updateData, { silent: true });
 
     ticketTraking.queuedAt = moment().toDate();
     ticketTraking.queueId = queueId;
     await cancelTicketFollowups(ticket.id);
     await ticket.reload();
+
+    if (!isNil(userId) && oldUserId !== userId) {
+      await NotifyTicketEventService(ticket, "assigned");
+    }
 
     if (status === "pending") {
       //ticket voltou para fila
@@ -852,7 +941,6 @@ const UpdateTicketService = async ({
     }
 
     if (status === "open") {
-      // console.log('a')
       await ticketTraking.update({
         startedAt: moment().toDate(),
         ratingAt: null,
@@ -875,7 +963,31 @@ const UpdateTicketService = async ({
     await ticketTraking.save();
 
 
-    // Emit update event - frontend will handle status changes and queue filtering
+    // Emit update event - frontend will handle status changes and queue filtering.
+    // Hidratamos el ticket con sus relaciones (queue, user, whatsapp, contact, tags)
+    // para que la lista y el header del chat actualicen el chip de cola/agente al
+    // instante sin tener que esperar un refetch del frontend.
+    let ticketForSocket = ticket;
+    try {
+      ticketForSocket = await ShowTicketService(ticket.id, companyId);
+    } catch (reloadErr: any) {
+      logger.warn(
+        `[UpdateTicket] No se pudo recargar ticket=${ticket.id} con relaciones para socket: ${reloadErr.message}`
+      );
+    }
+
+    // [Fase E] Motor de reglas por cambios de estado/cola (antes del emit para que el
+    // socket refleje reasignaciones/tags). RunTicketAutomationRules ya es fail-safe;
+    // guardia extra por si acaso — nunca debe romper la actualización del ticket.
+    try {
+      if (oldStatus !== undefined && ticketForSocket.status !== oldStatus) {
+        await RunTicketAutomationRules({ event: "ticket_status_updated", ticket: ticketForSocket, companyId });
+      }
+      if (oldQueueId !== undefined && ticketForSocket.queueId !== oldQueueId) {
+        await RunTicketAutomationRules({ event: "ticket_queue_updated", ticket: ticketForSocket, companyId });
+      }
+    } catch (_) { /* no-op: el motor es aislado */ }
+
     try {
       io.of(String(companyId))
         // .to(ticket.status)
@@ -883,18 +995,15 @@ const UpdateTicketService = async ({
         // .to(ticketId.toString())
         .emit(`company-${companyId}-ticket`, {
           action: "update",
-          ticket
+          ticket: ticketForSocket
         });
     } catch (socketError) {
-      // console.error("Socket emit error:", socketError);
       Sentry.captureException(socketError);
     }
 
 
-    return { ticket, oldStatus, oldUserId };
+    return { ticket: ticketForSocket, oldStatus, oldUserId };
   } catch (err) {
-    // console.log("erro ao atualizar o ticket", ticketId, "ticketData", ticketData);
-    // console.error("Error completo:", err);
     Sentry.captureException(err);
     throw err; // Re-lanzar el error para que se vea en el caller
   }

@@ -57,6 +57,12 @@ export const extractMemoryQueue = REDIS_ENABLED
   ? new Bull("ExtractMemory", REDIS_URI_CONNECTION)
   : null as any;
 
+// Cola de respuestas automáticas a comentarios FB/IG.
+// Se procesa AQUÍ (backend) porque el handler emite Socket.IO al inbox.
+export const commentResponderQueue = REDIS_ENABLED
+  ? new Bull("CommentResponderQueue", REDIS_URI_CONNECTION)
+  : null as any;
+
 // ============================================================
 // HANDLERS
 // ============================================================
@@ -135,7 +141,7 @@ async function handleNotification(job: Bull.Job) {
 // INICIALIZACIÓN
 // ============================================================
 
-export function startBackendQueueProcessors(): void {
+export async function startBackendQueueProcessors(): Promise<void> {
   if (!REDIS_ENABLED) {
     logger.warn("⚠️ [BACKEND] Redis no configurado - las colas están deshabilitadas");
     logger.warn("⚠️ [BACKEND] Configura REDIS_URI en .env para habilitar las colas");
@@ -179,8 +185,10 @@ export function startBackendQueueProcessors(): void {
 
   // ── AI Learning Jobs ──────────────────────────────────────────
   if (feedbackInferenceQueue) {
-    const FeedbackInference = require("./jobs/FeedbackInferenceJob").default;
-    feedbackInferenceQueue.process(5, async (bullJob: Bull.Job) => {
+    const FeedbackInference = (await import("./jobs/FeedbackInferenceJob")).default;
+    // [NAS] concurrencia reducida 5→2: estas colas de IA corren en el node
+    // principal y competían con el event-loop de la API (bursts → 502).
+    feedbackInferenceQueue.process(2, async (bullJob: Bull.Job) => {
       await FeedbackInference(bullJob);
     });
     feedbackInferenceQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
@@ -190,8 +198,8 @@ export function startBackendQueueProcessors(): void {
   }
 
   if (humanCorrectionQueue) {
-    const HumanCorrectionExtractor = require("./jobs/HumanCorrectionExtractorJob").default;
-    humanCorrectionQueue.process(5, async (bullJob: Bull.Job) => {
+    const HumanCorrectionExtractor = (await import("./jobs/HumanCorrectionExtractorJob")).default;
+    humanCorrectionQueue.process(2, async (bullJob: Bull.Job) => {  // [NAS] 5→2
       await HumanCorrectionExtractor(bullJob);
     });
     humanCorrectionQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
@@ -201,14 +209,26 @@ export function startBackendQueueProcessors(): void {
   }
 
   if (extractMemoryQueue) {
-    const ExtractMemory = require("./jobs/ExtractMemoryJob").default;
-    extractMemoryQueue.process(2, async (bullJob: Bull.Job) => {
+    const ExtractMemory = (await import("./jobs/ExtractMemoryJob")).default;
+    extractMemoryQueue.process(1, async (bullJob: Bull.Job) => {  // [NAS] 2→1
       await ExtractMemory(bullJob);
     });
     extractMemoryQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
       logger.error(`❌ [BACKEND] ExtractMemory failed: ${err.message}`);
     });
     logger.info("✅ [BACKEND] ExtractMemoryQueue processor iniciado");
+  }
+
+  // ── Comentarios FB/IG: respuestas automáticas ─────────────────
+  if (commentResponderQueue) {
+    const CommentResponder = (await import("./jobs/CommentResponderQueue")).default;
+    commentResponderQueue.process(2, async (bullJob: Bull.Job) => {  // [NAS] 3→2
+      await CommentResponder(bullJob);
+    });
+    commentResponderQueue.on("failed", (failedJob: Bull.Job, err: Error) => {
+      logger.error(`❌ [BACKEND] CommentResponder failed: ${err.message}`);
+    });
+    logger.info("✅ [BACKEND] CommentResponderQueue processor iniciado (concurrencia 3)");
   }
 
   logger.info("✅ [BACKEND] Todos los procesadores de colas iniciados");

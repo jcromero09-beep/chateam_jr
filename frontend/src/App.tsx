@@ -1,7 +1,13 @@
 import { useEffect, lazy, Suspense } from 'react'
+import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Box, CssVarsProvider } from '@mui/joy'
 import CssBaseline from '@mui/joy/CssBaseline'
+import {
+  CssVarsProvider as MaterialCssVarsProvider,
+  THEME_ID as MATERIAL_THEME_ID,
+} from '@mui/material/styles'
+import materialTheme from './theme/materialTheme'
 import { Toaster } from 'sonner'
 import { useThemeColors } from './context/ThemeContext'
 import { useAuth } from './hooks/useAuth'
@@ -11,135 +17,141 @@ import Login from './pages/Login'
 import SignUp from './pages/SignUp'
 
 // Gestión
-import Dashboard from './pages/Dashboard'
-import Reports from './pages/Reports'
-import RealtimeChats from './pages/RealtimeChats'
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Reports = lazy(() => import('./pages/Reports'))
 
 // Operativo
-import Tickets from './pages/Tickets'
-import QuickReplies from './pages/QuickReplies'
-import Kanban from './pages/Kanban'
-import Contacts from './pages/Contacts'
-import Schedules from './pages/Schedules'
-import Tags from './pages/Tags'
-import TagsKanban from './pages/TagsKanban'
-import InternalChats from './pages/InternalChats'
-import CustomerOrigins from './pages/CustomerOrigins'
-import CustomerOriginReports from './pages/CustomerOriginReports'
+const Tickets = lazy(() => import('./pages/Tickets'))
+const QuickReplies = lazy(() => import('./pages/QuickReplies'))
+const Kanban = lazy(() => import('./pages/Kanban'))
+const FunnelBoard = lazy(() => import('./pages/FunnelBoard'))
+const Contacts = lazy(() => import('./pages/Contacts'))
+const Schedules = lazy(() => import('./pages/Schedules'))
+const Tags = lazy(() => import('./pages/Tags'))
+const TagsKanban = lazy(() => import('./pages/TagsKanban'))
+const AutomationRules = lazy(() => import('./pages/AutomationRules'))
+const InternalChats = lazy(() => import('./pages/InternalChats'))
+const CustomerOriginsHub = lazy(() => import('./pages/CustomerOriginsHub'))
 
 // Administración - Campañas
-import Campaigns from './pages/Campaigns'
-import CampaignsContacts from './pages/CampaignsContacts'
-import CampaignsSettings from './pages/CampaignsSettings'
-import CampaignsInsights from './pages/CampaignsInsights'
-import CampaignsAttribution from './pages/CampaignsAttribution'
-import CampaignsAudit from './pages/CampaignsAudit'
-import FacebookConversions from './pages/FacebookConversions'
+const Campaigns = lazy(() => import('./pages/Campaigns'))
+const CampaignsContacts = lazy(() => import('./pages/CampaignsContacts'))
+const CampaignsSettings = lazy(() => import('./pages/CampaignsSettings'))
+const CampaignsInsights = lazy(() => import('./pages/CampaignsInsights'))
+const CampaignsAttribution = lazy(() => import('./pages/CampaignsAttribution'))
+const CampaignsAudit = lazy(() => import('./pages/CampaignsAudit'))
+const FacebookConversions = lazy(() => import('./pages/FacebookConversions'))
+const KanbanLeadConversions = lazy(() => import('./pages/KanbanLeadConversions'))
 
 // Administración - Flowbuilder
-import Flowbuilder from './pages/Flowbuilder'
-import FlowbuilderCampaign from './pages/FlowbuilderCampaign'
-import FlowbuilderConversation from './pages/FlowbuilderConversation'
-import FlowbuilderEditor from './pages/FlowbuilderEditor'
+const Flowbuilder = lazy(() => import('./pages/Flowbuilder'))
+const FlowbuilderCampaign = lazy(() => import('./pages/FlowbuilderCampaign'))
+const FlowbuilderConversation = lazy(() => import('./pages/FlowbuilderConversation'))
+const FlowbuilderEditor = lazy(() => import('./pages/FlowbuilderEditor'))
 
 // Administración - Otros
-import Announcements from './pages/Announcements'
-import ApiMessages from './pages/ApiMessages'
-import Users from './pages/Users'
-import Queues from './pages/Queues'
-import Prompts from './pages/Prompts'
-import QueueIntegrations from './pages/QueueIntegrations'
-import Connections from './pages/Connections'
-import AllConnections from './pages/AllConnections'
-import Invoices from './pages/Invoices'
-import Files from './pages/Files'
-import Financial from './pages/Financial'
-import Settings from './pages/Settings'
-import Terms from './pages/Terms'
-import Companies from './pages/Companies'
-import Plans from './pages/Plans'
-import EmailPlans from './pages/EmailPlans'
-import EmailCreditsDashboard from './pages/EmailCreditsDashboard'
+const Announcements = lazy(() => import('./pages/Announcements'))
+const ApiMessages = lazy(() => import('./pages/ApiMessages'))
+const Users = lazy(() => import('./pages/Users'))
+const RolesManagement = lazy(() => import('./pages/RolesManagement'))
+const Queues = lazy(() => import('./pages/Queues'))
+const Prompts = lazy(() => import('./pages/Prompts'))
+const QueueIntegrations = lazy(() => import('./pages/QueueIntegrations'))
+const Connections = lazy(() => import('./pages/Connections'))
+const AllConnections = lazy(() => import('./pages/AllConnections'))
+const Invoices = lazy(() => import('./pages/Invoices'))
+const Files = lazy(() => import('./pages/Files'))
+const Financial = lazy(() => import('./pages/Financial'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Terms = lazy(() => import('./pages/Terms'))
+const Companies = lazy(() => import('./pages/Companies'))
+const Plans = lazy(() => import('./pages/Plans'))
+const EmailPlans = lazy(() => import('./pages/EmailPlans'))
+const EmailCreditsDashboard = lazy(() => import('./pages/EmailCreditsDashboard'))
 
 // General
-import Analytics from './pages/Analytics'
-import Leads from './pages/Leads'
-import Billing from './pages/Billing'
-import Checkout from './pages/Checkout'
-import Company from './pages/Company'
-import Profile from './pages/Profile'
-import Notifications from './pages/Notifications'
-import Help from './pages/Help'
-import Feedback from './pages/Feedback'
+const Analytics = lazy(() => import('./pages/Analytics'))
+const Leads = lazy(() => import('./pages/Leads'))
+const Billing = lazy(() => import('./pages/Billing'))
+const Checkout = lazy(() => import('./pages/Checkout'))
+const Company = lazy(() => import('./pages/Company'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Notifications = lazy(() => import('./pages/Notifications'))
+const Help = lazy(() => import('./pages/Help'))
+const Feedback = lazy(() => import('./pages/Feedback'))
 
 // Módulos Avanzados (Día 9)
-import Integrations from './pages/Integrations'
-import EmailMarketing from './pages/EmailMarketing'
+const Integrations = lazy(() => import('./pages/Integrations'))
+const EmailMarketing = lazy(() => import('./pages/EmailMarketing'))
 
 // Módulo Email Marketing - Día 11
-import EmailMarketingCampaigns from './pages/EmailMarketingCampaigns'
-import EmailMarketingAnalytics from './pages/EmailMarketingAnalytics'
-import EmailMarketingTemplates from './pages/EmailMarketingTemplates'
-import EmailMarketingPlantillas from './pages/EmailMarketingPlantillas'
+const EmailMarketingCampaigns = lazy(() => import('./pages/EmailMarketingCampaigns'))
+const EmailMarketingAnalytics = lazy(() => import('./pages/EmailMarketingAnalytics'))
+const EmailMarketingTemplates = lazy(() => import('./pages/EmailMarketingTemplates'))
+const EmailMarketingPlantillas = lazy(() => import('./pages/EmailMarketingPlantillas'))
+const EmailTemplatesEditor = lazy(() => import('./pages/EmailTemplatesEditor'))
+const EmailCampaignWizard = lazy(() => import('./pages/EmailCampaignWizard'))
+const EmailMarketingDashboard = lazy(() => import('./pages/EmailMarketingDashboard'))
 
 // Módulo WebChat - Día 11
-import WebChatSettings from './pages/WebChatSettings'
-import WebChatChats from './pages/WebChatChats'
-import WebChatAnalytics from './pages/WebChatAnalytics'
-import WebChatHistory from './pages/WebChatHistory'
+const WebChatSettings = lazy(() => import('./pages/WebChatSettings'))
+const WebChatChats = lazy(() => import('./pages/WebChatChats'))
+const WebChatAnalytics = lazy(() => import('./pages/WebChatAnalytics'))
+const WebChatHistory = lazy(() => import('./pages/WebChatHistory'))
 
 // Módulo de Citas (Día 10 + Día 11 Extendido)
-import Appointments from './pages/Appointments'
-import AppointmentsCalendar from './pages/AppointmentsCalendar'
-import AppointmentsDashboard from './pages/AppointmentsDashboard'
-import AppointmentsServices from './pages/AppointmentsServices'
-import AppointmentsAvailability from './pages/AppointmentsAvailability'
-import AppointmentsBookings from './pages/AppointmentsBookings'
-import AppointmentsReminders from './pages/AppointmentsReminders'
-import AppointmentsReports from './pages/AppointmentsReports'
+const Appointments = lazy(() => import('./pages/Appointments'))
+const AppointmentsCalendar = lazy(() => import('./pages/AppointmentsCalendar'))
+const AppointmentsDashboard = lazy(() => import('./pages/AppointmentsDashboard'))
+const AppointmentsServices = lazy(() => import('./pages/AppointmentsServices'))
+const AppointmentsAvailability = lazy(() => import('./pages/AppointmentsAvailability'))
+const AppointmentsBookings = lazy(() => import('./pages/AppointmentsBookings'))
+const AppointmentsReminders = lazy(() => import('./pages/AppointmentsReminders'))
+const AppointmentsReports = lazy(() => import('./pages/AppointmentsReports'))
 
 // Módulo WhatsApp Cloud API - Día 11
-import WhatsAppDashboard from './pages/WhatsAppDashboard'
-import WhatsAppNumbers from './pages/WhatsAppNumbers'
-import WhatsAppTemplates from './pages/WhatsAppTemplates'
-import WhatsAppWebhooks from './pages/WhatsAppWebhooks'
-import WhatsAppAnalytics from './pages/WhatsAppAnalytics'
-import WhatsAppSettings from './pages/WhatsAppSettings'
-import WhatsAppTester from './pages/WhatsAppTester'
-import WhatsAppMonitorDashboard from './pages/WhatsAppMonitorDashboard'
+const WhatsAppDashboard = lazy(() => import('./pages/WhatsAppDashboard'))
+const WhatsAppNumbers = lazy(() => import('./pages/WhatsAppNumbers'))
+const WhatsAppTemplates = lazy(() => import('./pages/WhatsAppTemplates'))
+const WhatsAppWebhooks = lazy(() => import('./pages/WhatsAppWebhooks'))
+const WhatsAppAnalytics = lazy(() => import('./pages/WhatsAppAnalytics'))
+const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
+const WhatsAppTester = lazy(() => import('./pages/WhatsAppTester'))
+const WhatsAppMonitorDashboard = lazy(() => import('./pages/WhatsAppMonitorDashboard'))
 
 // Módulo Integraciones Internas - Día 11
-import IntegrationsDashboard from './pages/IntegrationsDashboard'
-import IntegrationBillie from './pages/IntegrationBillie'
-import IntegrationAriaLite from './pages/IntegrationAriaLite'
-import IntegrationSmartTrack from './pages/IntegrationSmartTrack'
-import IntegrationSGR from './pages/IntegrationSGR'
-import IntegrationsWebhooks from './pages/IntegrationsWebhooks'
-import IntegrationsLogs from './pages/IntegrationsLogs'
-import IntegrationsSettings from './pages/IntegrationsSettings'
-import IntegrationsTesting from './pages/IntegrationsTesting'
+const IntegrationsDashboard = lazy(() => import('./pages/IntegrationsDashboard'))
+const IntegrationBillie = lazy(() => import('./pages/IntegrationBillie'))
+const IntegrationAriaLite = lazy(() => import('./pages/IntegrationAriaLite'))
+const IntegrationSmartTrack = lazy(() => import('./pages/IntegrationSmartTrack'))
+const IntegrationSGR = lazy(() => import('./pages/IntegrationSGR'))
+const IntegrationsWebhooks = lazy(() => import('./pages/IntegrationsWebhooks'))
+const IntegrationsLogs = lazy(() => import('./pages/IntegrationsLogs'))
+const IntegrationsSettings = lazy(() => import('./pages/IntegrationsSettings'))
+const IntegrationsTesting = lazy(() => import('./pages/IntegrationsTesting'))
 
 // Módulo OpenAI Integration - Día 11
-import OpenAIDashboard from './pages/OpenAIDashboard'
-import OpenAIPrompts from './pages/OpenAIPrompts'
-import OpenAIModels from './pages/OpenAIModels'
-import OpenAIAnalytics from './pages/OpenAIAnalytics'
-import OpenAITesting from './pages/OpenAITesting'
-import OpenAITemplates from './pages/OpenAITemplates'
-import OpenAISettings from './pages/OpenAISettings'
-import OpenAIHistory from './pages/OpenAIHistory'
+const OpenAIDashboard = lazy(() => import('./pages/OpenAIDashboard'))
+const OpenAIModels = lazy(() => import('./pages/OpenAIModels'))
+const OpenAIAnalytics = lazy(() => import('./pages/OpenAIAnalytics'))
+const OpenAITesting = lazy(() => import('./pages/OpenAITesting'))
+const OpenAITemplates = lazy(() => import('./pages/OpenAITemplates'))
+const CommentModeration = lazy(() => import('./pages/CommentModeration'))
+const StatsRecommendations = lazy(() => import('./pages/StatsRecommendations'))
+const OpenAISettings = lazy(() => import('./pages/OpenAISettings'))
+const OpenAIHistory = lazy(() => import('./pages/OpenAIHistory'))
 
 // Módulo AI Image Generation
-import AIImageGeneration from './pages/AIImageGeneration'
+const AIImageGeneration = lazy(() => import('./pages/AIImageGeneration'))
 
 // Módulo AI Video Generation
-import AIVideoGeneration from './pages/AIVideoGeneration'
+const AIVideoGeneration = lazy(() => import('./pages/AIVideoGeneration'))
 
 // Módulo AI Subplans (Paquetes de Tokens)
-import AISubplans from './pages/AISubplans'
+const AISubplans = lazy(() => import('./pages/AISubplans'))
 
 // FASE 4: Sistema de Permisos - Día 12
-import PermissionsManager from './pages/PermissionsManager'
+const PermissionsManager = lazy(() => import('./pages/PermissionsManager'))
 
 // Kanban Dashboard (lazy)
 const KanbanDashboard = lazy(() => import("./pages/KanbanDashboard"))
@@ -151,14 +163,21 @@ const AIKnowledgeBase = lazy(() => import("./pages/AIKnowledgeBase"))
 const AIChatbotBuilder = lazy(() => import("./pages/AIChatbotBuilder"))
 const AIWriter = lazy(() => import("./pages/AIWriter"))
 const AIAudio = lazy(() => import("./pages/AIAudio"))
+// Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
+const AICorrectionReview = lazy(() => import("./pages/AICorrectionReview"))
 const AIMultimodal = lazy(() => import("./pages/AIMultimodal"))
 const AICredits = lazy(() => import("./pages/AICredits"))
+const AITokenUsageAdmin = lazy(() => import("./pages/AITokenUsageAdmin"))
 const AIScheduler = lazy(() => import("./pages/AIScheduler"))
 const AIObservability = lazy(() => import("./pages/AIObservability"))
 const AIFineTuning = lazy(() => import("./pages/AIFineTuning"))
 const AIHeyGen = lazy(() => import("./pages/AIHeyGen"))
 const AIABTesting = lazy(() => import("./pages/AIABTesting"))
 const AIAffiliates = lazy(() => import("./pages/AIAffiliates"))
+
+// Social Comments FB/IG (lazy)
+const SocialCommentsInbox = lazy(() => import("./pages/SocialCommentsInbox"))
+const SocialCommentsSettings = lazy(() => import("./pages/SocialCommentsSettings"))
 
 // Comment Auto-Reply (lazy)
 const CommentAutoReplyDashboard = lazy(() => import("./pages/CommentAutoReplyDashboard"))
@@ -197,6 +216,8 @@ const UGCSettings = lazy(() => import("./pages/UGCSettings"))
 const UGCSocialAccounts = lazy(() => import("./pages/UGCSocialAccounts"))
 const UGCSocialPosts = lazy(() => import("./pages/UGCSocialPosts"))
 const UGCVideoStudio = lazy(() => import("./pages/UGCVideoStudio"))
+const UGCModelSelector = lazy(() => import("./pages/UGCModelSelector"))
+const UGCGenerate = lazy(() => import("./pages/UGCGenerate"))
 
 // Campañas extras (lazy)
 const CampaignAI = lazy(() => import("./pages/CampaignAI"))
@@ -234,10 +255,17 @@ function App() {
   }, [authLoading, user?.companyId])
 
   return (
-    <CssVarsProvider theme={chateamTheme} defaultMode="light">
+    <MaterialCssVarsProvider theme={{ [MATERIAL_THEME_ID]: materialTheme }} defaultMode="light">
+      <CssVarsProvider theme={chateamTheme} defaultMode="light">
       <CssBaseline />
       <Toaster position="top-right" expand={true} richColors />
       <Box sx={{ minHeight: '100vh', bgcolor: 'background.body' }}>
+        {/* [Fase D] Boundary único para las páginas lazy (bundle inicial más liviano). */}
+        {/* [Barrido UI] ChunkErrorBoundary: Suspense cubre la carga pero NO el rechazo
+            del import(); sin boundary, un chunk viejo tras redespliegue = pantalla en
+            blanco. Ahora auto-recarga una vez o muestra fallback con botón. */}
+        <ChunkErrorBoundary>
+        <Suspense fallback={<div style={{ padding: 24, textAlign: 'center' }}>Cargando…</div>}>
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
@@ -248,19 +276,23 @@ function App() {
           {/* Gestión */}
           <Route path="/" element={<ProtectedRoute module="dashboard"><Dashboard /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
-          <Route path="/realtime-chats" element={<ProtectedRoute module="realtime_chats"><RealtimeChats /></ProtectedRoute>} />
 
           {/* Operativo */}
           <Route path="/tickets" element={<ProtectedRoute module="tickets"><Tickets /></ProtectedRoute>} />
           <Route path="/quick-replies" element={<ProtectedRoute module="quick_replies"><QuickReplies /></ProtectedRoute>} />
-          <Route path="/kanban" element={<ProtectedRoute module="kanban"><Kanban /></ProtectedRoute>} />
+          <Route path="/funnel" element={<ProtectedRoute module="kanban"><Kanban /></ProtectedRoute>} />
+          {/* Redirección de la URL antigua /kanban -> /funnel (mantiene marcadores y enlaces existentes) */}
+          <Route path="/kanban" element={<Navigate to="/funnel" replace />} />
+          <Route path="/kanban-legacy" element={<ProtectedRoute module="kanban"><Kanban /></ProtectedRoute>} />
           <Route path="/kanban-dashboard" element={<Suspense fallback={null}><ProtectedRoute module="kanban"><KanbanDashboard /></ProtectedRoute></Suspense>} />
           <Route path="/contacts" element={<ProtectedRoute module="contacts"><Contacts /></ProtectedRoute>} />
           <Route path="/schedules" element={<ProtectedRoute module="schedules"><Schedules /></ProtectedRoute>} />
           <Route path="/tags" element={<ProtectedRoute module="tags"><Tags /></ProtectedRoute>} />
+          <Route path="/automation-rules" element={<ProtectedRoute module="settings"><AutomationRules /></ProtectedRoute>} />
           <Route path="/tagsKanban" element={<ProtectedRoute module="tags"><TagsKanban /></ProtectedRoute>} />
-          <Route path="/customer-origins" element={<ProtectedRoute module="customer_origins"><CustomerOrigins /></ProtectedRoute>} />
-          <Route path="/customer-origins/reports" element={<ProtectedRoute module="customer_origins_reports"><CustomerOriginReports /></ProtectedRoute>} />
+          <Route path="/customer-origins" element={<ProtectedRoute module="customer_origins"><CustomerOriginsHub /></ProtectedRoute>} />
+          {/* Retrocompatibilidad: la antigua ruta de reportes redirige al hub unificado (pestaña Análisis) */}
+          <Route path="/customer-origins/reports" element={<Navigate to="/customer-origins?tab=analisis" replace />} />
           <Route path="/internal-chats" element={<ProtectedRoute module="internal_chats"><InternalChats /></ProtectedRoute>} />
 
           {/* Administración - Campañas */}
@@ -271,6 +303,7 @@ function App() {
           <Route path="/campaigns/attribution" element={<ProtectedRoute module="campaigns_attribution"><CampaignsAttribution /></ProtectedRoute>} />
           <Route path="/campaigns/audit" element={<ProtectedRoute module="campaigns_audit"><CampaignsAudit /></ProtectedRoute>} />
           <Route path="/facebook-conversions" element={<ProtectedRoute module="facebook_conversions"><FacebookConversions /></ProtectedRoute>} />
+          <Route path="/kanban-lead-conversions" element={<ProtectedRoute module="facebook_conversions"><KanbanLeadConversions /></ProtectedRoute>} />
 
           {/* Administración - Flowbuilder */}
           <Route path="/flowbuilder" element={<ProtectedRoute module="flowbuilder"><Flowbuilder /></ProtectedRoute>} />
@@ -282,6 +315,7 @@ function App() {
           <Route path="/announcements" element={<ProtectedRoute module="announcements"><Announcements /></ProtectedRoute>} />
           <Route path="/api-messages" element={<ProtectedRoute module="api_messages"><ApiMessages /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute module="users"><Users /></ProtectedRoute>} />
+          <Route path="/roles-management" element={<ProtectedRoute module="users"><RolesManagement /></ProtectedRoute>} />
           <Route path="/queues" element={<ProtectedRoute module="queues"><Queues /></ProtectedRoute>} />
           <Route path="/prompts" element={<ProtectedRoute module="prompts"><Prompts /></ProtectedRoute>} />
           <Route path="/queue-integrations" element={<ProtectedRoute module="queue_integrations"><QueueIntegrations /></ProtectedRoute>} />
@@ -317,6 +351,9 @@ function App() {
           <Route path="/email-marketing/analytics" element={<ProtectedRoute module="email_marketing_analytics"><EmailMarketingAnalytics /></ProtectedRoute>} />
           <Route path="/email-marketing/templates" element={<ProtectedRoute module="email_marketing_templates"><EmailMarketingTemplates /></ProtectedRoute>} />
           <Route path="/email-marketing/plantillas" element={<ProtectedRoute module="email_marketing_templates"><EmailMarketingPlantillas /></ProtectedRoute>} />
+          <Route path="/email-marketing/editor" element={<ProtectedRoute module="email_marketing_templates"><EmailTemplatesEditor /></ProtectedRoute>} />
+          <Route path="/email-marketing/wizard" element={<ProtectedRoute module="email_marketing_campaigns"><EmailCampaignWizard /></ProtectedRoute>} />
+          <Route path="/email-marketing/dashboard" element={<ProtectedRoute module="email_marketing_analytics"><EmailMarketingDashboard /></ProtectedRoute>} />
 
           {/* Módulo WebChat Completo - Día 11 */}
           <Route path="/webchat/settings" element={<ProtectedRoute module="webchat_settings"><WebChatSettings /></ProtectedRoute>} />
@@ -357,11 +394,12 @@ function App() {
 
           {/* Módulo OpenAI Integration Completo (Día 11) */}
           <Route path="/openai/dashboard" element={<ProtectedRoute module="openai_dashboard"><OpenAIDashboard /></ProtectedRoute>} />
-          <Route path="/openai/prompts" element={<ProtectedRoute module="openai_prompts"><OpenAIPrompts /></ProtectedRoute>} />
           <Route path="/openai/models" element={<ProtectedRoute module="openai_models"><OpenAIModels /></ProtectedRoute>} />
           <Route path="/openai/analytics" element={<ProtectedRoute module="openai_analytics"><OpenAIAnalytics /></ProtectedRoute>} />
           <Route path="/openai/testing" element={<ProtectedRoute module="openai_testing"><OpenAITesting /></ProtectedRoute>} />
           <Route path="/openai/templates" element={<ProtectedRoute module="openai_templates"><OpenAITemplates /></ProtectedRoute>} />
+          <Route path="/moderation" element={<Suspense fallback={null}><ProtectedRoute module="social_comments"><CommentModeration /></ProtectedRoute></Suspense>} />
+          <Route path="/stats/recommendations" element={<Suspense fallback={null}><ProtectedRoute module="ai_platform"><StatsRecommendations /></ProtectedRoute></Suspense>} />
           <Route path="/openai/settings" element={<ProtectedRoute module="openai_settings"><OpenAISettings /></ProtectedRoute>} />
           <Route path="/openai/history" element={<ProtectedRoute module="openai_history"><OpenAIHistory /></ProtectedRoute>} />
 
@@ -375,7 +413,7 @@ function App() {
           <Route path="/ai/subplans" element={<ProtectedRoute module="ai_subplans"><AISubplans /></ProtectedRoute>} />
 
           {/* FASE 4: Sistema de Permisos (Día 12) */}
-          <Route path="/permissions-manager" element={<ProtectedRoute module="permissions_manager"><PermissionsManager /></ProtectedRoute>} />
+          <Route path="/permissions-manager" element={<ProtectedRoute module="permissions_manager" superOnly><PermissionsManager /></ProtectedRoute>} />
 
           {/* Plataforma IA */}
           <Route path="/ai/platform" element={<Suspense fallback={null}><ProtectedRoute module="ai_platform"><AIPlatform /></ProtectedRoute></Suspense>} />
@@ -386,16 +424,19 @@ function App() {
           <Route path="/ai/audio" element={<Suspense fallback={null}><ProtectedRoute module="ai_audio"><AIAudio /></ProtectedRoute></Suspense>} />
           <Route path="/ai/multimodal" element={<Suspense fallback={null}><ProtectedRoute module="ai_multimodal"><AIMultimodal /></ProtectedRoute></Suspense>} />
           <Route path="/ai/credits" element={<Suspense fallback={null}><ProtectedRoute module="ai_credits"><AICredits /></ProtectedRoute></Suspense>} />
+          <Route path="/admin/ai-token-usage" element={<Suspense fallback={null}><ProtectedRoute superOnly><AITokenUsageAdmin /></ProtectedRoute></Suspense>} />
           <Route path="/ai/scheduler" element={<Suspense fallback={null}><ProtectedRoute module="ai_scheduler"><AIScheduler /></ProtectedRoute></Suspense>} />
           <Route path="/ai/observability" element={<Suspense fallback={null}><ProtectedRoute module="ai_observability"><AIObservability /></ProtectedRoute></Suspense>} />
           <Route path="/ai/fine-tuning" element={<Suspense fallback={null}><ProtectedRoute module="ai_fine_tuning"><AIFineTuning /></ProtectedRoute></Suspense>} />
           <Route path="/ai/heygen" element={<Suspense fallback={null}><ProtectedRoute module="ai_heygen"><AIHeyGen /></ProtectedRoute></Suspense>} />
           <Route path="/ai/ab-testing" element={<Suspense fallback={null}><ProtectedRoute module="ai_ab_testing"><AIABTesting /></ProtectedRoute></Suspense>} />
           <Route path="/ai/affiliates" element={<Suspense fallback={null}><ProtectedRoute module="ai_affiliates"><AIAffiliates /></ProtectedRoute></Suspense>} />
+          {/* Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA */}
+          <Route path="/ai/correction-review" element={<Suspense fallback={null}><ProtectedRoute module="ai_correction_review"><AICorrectionReview /></ProtectedRoute></Suspense>} />
 
           {/* Afiliados Independiente */}
           <Route path="/affiliates" element={<Suspense fallback={null}><ProtectedRoute module="affiliates"><AffiliateDashboard /></ProtectedRoute></Suspense>} />
-          <Route path="/ai-rentability" element={<Suspense fallback={null}><ProtectedRoute module="superadmin"><AIRentabilityDashboard /></ProtectedRoute></Suspense>} />
+          <Route path="/ai-rentability" element={<Suspense fallback={null}><ProtectedRoute module="superadmin" superOnly><AIRentabilityDashboard /></ProtectedRoute></Suspense>} />
           <Route path="/ai-usage" element={<Suspense fallback={null}><ProtectedRoute><AIUsageDashboard /></ProtectedRoute></Suspense>} />
           <Route path="/affiliates/programs" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_programs"><AffiliatePrograms /></ProtectedRoute></Suspense>} />
           <Route path="/affiliates/referrals" element={<Suspense fallback={null}><ProtectedRoute module="affiliate_referrals"><AffiliateReferrals /></ProtectedRoute></Suspense>} />
@@ -415,15 +456,19 @@ function App() {
           <Route path="/tiktok-connections" element={<Suspense fallback={null}><ProtectedRoute module="connections"><TikTokConnections /></ProtectedRoute></Suspense>} />
 
           {/* UGC */}
+          <Route path="/ugc" element={<Navigate to="/ugc/dashboard" replace />} />
           <Route path="/ugc/dashboard" element={<Suspense fallback={null}><ProtectedRoute module="ugc_dashboard"><UGCDashboard /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/campaigns" element={<Suspense fallback={null}><ProtectedRoute module="ugc_campaigns"><UGCCampaigns /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/creators" element={<Suspense fallback={null}><ProtectedRoute module="ugc_creators"><UGCCreatorNetwork /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/analytics" element={<Suspense fallback={null}><ProtectedRoute module="ugc_analytics"><UGCAnalytics /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/optimization" element={<Suspense fallback={null}><ProtectedRoute module="ugc_optimization"><UGCOptimization /></ProtectedRoute></Suspense>} />
-          <Route path="/ugc/settings" element={<Suspense fallback={null}><ProtectedRoute module="ugc_settings"><UGCSettings /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/settings" element={<Suspense fallback={null}><ProtectedRoute module="ugc_settings" superOnly><UGCSettings /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/social-accounts" element={<Suspense fallback={null}><ProtectedRoute module="ugc_social_accounts"><UGCSocialAccounts /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/social-posts" element={<Suspense fallback={null}><ProtectedRoute module="ugc_social_posts"><UGCSocialPosts /></ProtectedRoute></Suspense>} />
           <Route path="/ugc/video-studio" element={<Suspense fallback={null}><ProtectedRoute module="ugc_video_studio"><UGCVideoStudio /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/model-selector" element={<Suspense fallback={null}><ProtectedRoute module="ugc_campaigns"><UGCModelSelector /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/generate" element={<Suspense fallback={null}><ProtectedRoute module="ugc_video_studio"><UGCGenerate /></ProtectedRoute></Suspense>} />
+          <Route path="/ugc/campaigns/:id/model-selector" element={<Suspense fallback={null}><ProtectedRoute module="ugc_campaigns"><UGCModelSelector /></ProtectedRoute></Suspense>} />
 
           {/* Campañas extras */}
           <Route path="/campaigns/ai" element={<Suspense fallback={null}><ProtectedRoute module="campaigns_ai"><CampaignAI /></ProtectedRoute></Suspense>} />
@@ -432,6 +477,10 @@ function App() {
           {/* Email extras */}
           <Route path="/email/provider-settings" element={<Suspense fallback={null}><ProtectedRoute module="email_provider_settings"><EmailProviderSettings /></ProtectedRoute></Suspense>} />
           <Route path="/email/credit-packs" element={<Suspense fallback={null}><ProtectedRoute module="email_credit_packs"><EmailCreditPacks /></ProtectedRoute></Suspense>} />
+
+          {/* Social Comments FB/IG */}
+          <Route path="/social-comments" element={<Suspense fallback={null}><ProtectedRoute module="social_comments"><SocialCommentsInbox /></ProtectedRoute></Suspense>} />
+          <Route path="/social-comments/settings" element={<Suspense fallback={null}><ProtectedRoute module="social_comments"><SocialCommentsSettings /></ProtectedRoute></Suspense>} />
 
           {/* Comment Auto-Reply (Auto-Respondedor de Comentarios) */}
           <Route path="/comment-autoreply" element={<Suspense fallback={null}><ProtectedRoute module="comment_autoreply"><CommentAutoReplyDashboard /></ProtectedRoute></Suspense>} />
@@ -446,8 +495,11 @@ function App() {
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
+        </ChunkErrorBoundary>
       </Box>
-    </CssVarsProvider>
+      </CssVarsProvider>
+    </MaterialCssVarsProvider>
   )
 }
 

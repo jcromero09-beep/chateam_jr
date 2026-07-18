@@ -3,12 +3,12 @@ import logger, { logError, logInfo, logWarn, logDebug } from "../utils/logger";
 import Appointment from "../models/Appointments/Appointment";
 import ReminderTemplate from "../models/Appointments/ReminderTemplate";
 import Contact from "../models/Contact";
-import Whatsapp from "../models/Whatsapp";
 import User from "../models/User";
 import AppointmentService from "../models/AppointmentService";
 import CampaignSetting from "../models/CampaignSetting";
 import moment from "moment";
 import { add } from "../queues";
+import ResolveAppointmentReminderWhatsapp from "../services/AppointmentServices/ResolveAppointmentReminderWhatsapp";
 
 interface AppointmentReminderData {
   appointmentId: number;
@@ -127,7 +127,7 @@ async function getAppointmentWithDetails(appointmentId: number) {
       {
         model: Contact,
         as: "contact",
-        attributes: ["id", "name", "number", "email", "companyId"]
+        attributes: ["id", "name", "number", "email", "companyId", "whatsappId"]
       },
       {
         model: ReminderTemplate,
@@ -208,18 +208,25 @@ export default async function handle(job: Job<AppointmentReminderData>): Promise
       throw error;
     }
 
-    // Obtener WhatsApp disponible para la empresa
-    const whatsapp = await Whatsapp.findOne({
-      where: {
-        companyId,
-        status: "CONNECTED"
-      },
-      attributes: ["id", "name", "status"]
+    // Resolver la conexión correcta: primero la del ticket de la cita,
+    // luego la del contacto, y solo como último recurso una conectada
+    // de la empresa.
+    const whatsappResult = await ResolveAppointmentReminderWhatsapp({
+      appointment,
+      contact: appointment.contact,
+      companyId,
+      logPrefix: "APPT-REMINDER"
     });
+    const whatsapp = whatsappResult.whatsapp;
 
     if (!whatsapp) {
-      logWarn(`⚠️ [APPT-REMINDER] No hay WhatsApp conectado para empresa ${companyId}`);
-      const error = new Error("WhatsApp no conectado - reagendando en 5 minutos");
+      logWarn(
+        `⚠️ [APPT-REMINDER] No se puede enviar cita ID=${appointmentId}: ` +
+        `${whatsappResult.reason || "WhatsApp no conectado"}`
+      );
+      const error = new Error(
+        `${whatsappResult.reason || "WhatsApp no conectado"} - reagendando en 5 minutos`
+      );
       (error as any).delay = 5 * 60 * 1000;
       throw error;
     }

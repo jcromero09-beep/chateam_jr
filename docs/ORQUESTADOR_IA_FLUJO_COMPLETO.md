@@ -1,8 +1,8 @@
 # Orquestador IA — Flujo Completo de Respuesta Automática
 
-> **Documento generado:** 25-Mar-2026
+> **Documento actualizado:** 19-May-2026
 > **Proyecto:** ChatEAM JR v6.0.0
-> **Autor:** Análisis de codebase
+> **Autor:** Análisis de codebase + actualización de flujo de respuestas a clientes
 
 ---
 
@@ -26,55 +26,42 @@
 
 ## 1. VISIÓN GENERAL
 
-El orquestador de IA de ChatEAM JR es un **sistema multi-agente** que procesa mensajes entrantes de WhatsApp (Baileys y Meta Cloud API) y genera respuestas automáticas inteligentes.
+El orquestador de IA de ChatEAM JR es un **sistema multi-agente** que procesa mensajes entrantes de WhatsApp, Meta Cloud API, webchat y otros canales, y genera respuestas automáticas con memoria del ticket, memoria histórica cross-ticket, RAG documental, tools y guardrails.
+
+La búsqueda de información para responder clientes no debe reimplementarse leyendo `Messages` a mano. El flujo actual ya tiene una herramienta especializada:
+
+- `CurrentTicketMemoryService`: hechos respondidos dentro del ticket actual.
+- `AIHistoricalQA`: tabla de Q&A reutilizable entre tickets de la misma empresa.
+- `HistoricalQARetrieverService`: búsqueda híbrida con `pgvector` + `pg_trgm`.
+- `MemoryJudgeAgent`: juez que decide si una respuesta histórica realmente aplica.
+- `QAExtractorService`: alimenta `AIHistoricalQA` después de respuestas aprobadas por gatekeeper.
 
 ### Componentes Principales
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    WHATSAPP MESSAGES                        │
-│         (Baileys WebSocket / Meta Cloud API)                │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│              wbotMessageListener / metaMessageListener      │
-│                   (Valida + Crea Ticket)                    │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   SupervisorService                          │
-│              (Orquestador Central - Nodo 1)                 │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │              RouterAgentService                         │ │
-│  │            (Clasificador de Intención)                 │ │
-│  └─────────────────────────┬───────────────────────────────┘ │
-│                            │                                │
-│              ┌─────────────┼─────────────┐                  │
-│              ▼             ▼             ▼                  │
-│         ┌────────┐   ┌──────────┐   ┌──────────┐          │
-│         │  RAG   │   │ Support/ │   │Appointment│          │
-│         │ Agent  │   │  Sales   │   │  Agent    │          │
-│         └───┬────┘   └────┬─────┘   └────┬─────┘          │
-│             │             │               │                │
-│             ▼             ▼               ▼                │
-│         ┌────────────────────────────────────────┐          │
-│         │       HybridSearchService              │          │
-│         │   (pgvector + BM25 + RRF Fusion)      │          │
-│         └────────────────────────────────────────┘          │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│              PromptContextBuilder                            │
-│         (Constructor Unificado de Contexto)                  │
-│                                                               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│  │ Empresa  │ │  Tags    │ │ Historial│ │QuickReplies│     │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
-└─────────────────────────────────────────────────────────────┘
+Canal inbound
+  └─ wbotMessageListener / metaMessageListener / webchat
+      └─ crea o actualiza Ticket + Message
+          └─ SupervisorService
+              ├─ PreprocessingService + SentimentDetectionService
+              ├─ QueryEnrichmentAgent
+              │   ├─ intent / targetAgent
+              │   ├─ enrichedQuery / hydeQuery
+              │   └─ keywords / alternativeQueries
+              ├─ ResponsePlannerService
+              │   ├─ CurrentTicketMemoryService
+              │   ├─ HistoricalQARetrieverService → AIHistoricalQA
+              │   └─ MemoryJudgeAgent
+              ├─ Si planner=reuse: memory_reuse_current_ticket|historical_qa
+              ├─ Si planner=dispatch:
+              │   ├─ RAGAgentService
+              │   ├─ SalesAgentService / SupportAgentService + ToolExecutor
+              │   └─ AppointmentAgentService
+              ├─ ResponseGatekeeperService
+              ├─ QuickReplyDecisionService + QuickReplySemanticService
+              └─ Escritura post-envío:
+                  ├─ CurrentTicketMemoryService.recordTurn
+                  └─ QAExtractorService → AIHistoricalQA
 ```
 
 ---
@@ -96,16 +83,18 @@ interface SupervisorRequest {
   ticketHistory?: Array<{ role: string; content: string }>;  // Historial
   contactInfo?: Record<string, unknown>;  // Info adicional
   chatbotId?: number;        // ID del chatbot (opcional)
+  channel?: string;          // whatsapp, webchat, facebook, etc.
 }
 
 interface SupervisorResponse {
-  response: string;          // Respuesta generada
+  message: string;           // Respuesta generada
+  intent: string;            // Intención detectada
   confidence: number;        // Confianza 0-1
   agentUsed: string;         // Agente que respondió
   shouldEscalate: boolean;   // Si debe escalar a humano
-  tokensUsed: number;        // Tokens consumidos
-  cached: boolean;           // Si vino de cache
-  source?: string;           // Fuente: rag, quickreply, memory, agent
+  responseSource?: "current_ticket" | "historical_qa" | "kb" | "tool" | "agent" | "human";
+  historicalQaId?: number;   // Si reutilizó AIHistoricalQA
+  skipSend?: boolean;        // Gatekeeper puede decidir no enviar
 }
 ```
 
@@ -113,43 +102,47 @@ interface SupervisorResponse {
 
 ```typescript
 const processMessage = async (request: SupervisorRequest): Promise<SupervisorResponse> => {
-  // 1. Construir contexto unificado
-  const unifiedContext = await PromptContextBuilder.buildSupervisorContext(request);
+  // 0. Preprocesar texto, detectar sentimiento y manejar citas pendientes.
 
-  // 2. Clasificar intención con RouterAgent
-  const classification = await RouterAgentService.classify(
-    request.message,
-    request.companyId,
-    request.ticketId,
-    request.contactId
-  );
+  // 1. QueryEnrichmentAgent clasifica y genera enrichedQuery/HyDE/keywords.
+  const enrichment = await QueryEnrichmentAgent.enrich(request);
+  const classification = mapEnrichmentToClassification(enrichment);
 
-  // 3. Ejecutar según tipo de agente
-  switch (classification.targetAgent) {
-    case 'rag':
-      return handleRAGAgent(request, classification, unifiedContext);
-    case 'support':
-    case 'sales':
-      return handleAgentWithTools(request, classification, unifiedContext);
-    case 'appointment':
-      return handleAppointmentAgent(request, classification, unifiedContext);
-    case 'escalation':
-      return { shouldEscalate: true, ... };
-    case 'self':
-      return handleGreetingFarewell(request);
+  // 2. Planner intenta responder con memoria antes de gastar en agentes.
+  const planner = await ResponsePlannerService.plan({
+    companyId: request.companyId,
+    ticketId: request.ticketId,
+    contactId: request.contactId,
+    currentMessage: request.message,
+    enrichedQuery: enrichment.enrichedQuery,
+    hydeQuery: enrichment.hydeQuery,
+    intent: classification.intent,
+    language: classification.language,
+    channel: request.channel
+  });
+
+  let agentResponse: SupervisorResponse;
+  if (planner.decision === "reuse") {
+    agentResponse = buildMemoryReuseResponse(planner);
+  } else if (planner.decision === "escalate") {
+    agentResponse = buildEscalationResponse(planner);
+  } else {
+    const unifiedContext = await PromptContextBuilder.buildSupervisorContext(request);
+    agentResponse = await dispatchToSpecializedAgent(classification, unifiedContext);
   }
 
-  // 4. Evaluar calidad
-  if (agentResponse.confidence < 0.4) {
-    agentResponse.message += " ¿Necesitas más ayuda?";
-  }
+  // 3. Gatekeeper valida/rewrite/escalate/ignore antes del envío.
+  agentResponse = await ResponseGatekeeperService.evaluateAndApply(agentResponse);
 
-  // 5. Deducir créditos
-  await DeductCreditsService({ creditTypeKey: 'message', amount: creditsToDeduct });
+  // 4. Después del gatekeeper se escribe memoria sin bloquear el envío.
+  void CurrentTicketMemoryService.recordTurn(...);
+  void QAExtractorService.extractAndStore(...);
 
   return agentResponse;
 };
 ```
+
+**Nota importante:** `RouterAgentService` sigue existiendo como apoyo/compatibilidad y patrones rápidos, pero el flujo principal actual usa `QueryEnrichmentAgent` para clasificar y enriquecer la consulta en una sola pasada.
 
 ### 2.2 RouterAgentService — Clasificador de Intención
 
@@ -721,6 +714,34 @@ const buildContextPrompt = (context: TicketTagContext): string => {
 
 ## 6. HISTORIAL DE TICKETS
 
+El historial tiene dos usos distintos:
+
+1. **Historial reciente del ticket actual**: mensajes del mismo `ticketId` que se pasan como `ticketHistory` al `SupervisorService` para mantener coherencia conversacional.
+2. **Memoria histórica cross-ticket**: pares pregunta/respuesta guardados en `AIHistoricalQA`, buscables por empresa con embeddings y trigrama. Esta es la herramienta correcta para que el agente encuentre respuestas ya dadas en otros tickets sin programar una búsqueda manual sobre toda la tabla `Messages`.
+
+Flujo actual para búsqueda de mensajes/respuestas anteriores:
+
+```
+Cliente pregunta
+  ↓
+ResponsePlannerService.plan()
+  ├─ CurrentTicketMemoryService.findAnsweredFact()
+  │   └─ busca si esto ya se respondió en el mismo ticket
+  └─ HistoricalQARetrieverService.retrieve()
+      ├─ genera embedding de enrichedQuery/HyDE/mensaje literal
+      ├─ busca en AIHistoricalQA por companyId
+      ├─ combina similitud vectorial + pg_trgm + frescura
+      └─ filtra por language/channel/productKey/intent/tags
+  ↓
+MemoryJudgeAgent.evaluate()
+  ├─ fast path si el score es muy alto
+  └─ LLM mini si necesita decidir entre candidatos
+  ↓
+reuse o dispatch normal a RAG/tools/agente
+```
+
+`AIHistoricalQA` se alimenta después del gatekeeper con `QAExtractorService.extractAndStore()`. Las respuestas verificadas (`verified=true`) tienen prioridad. Desde mayo 2026 el planner también puede considerar Q&A automáticas no verificadas cuando son recientes y tienen score alto, para evitar que la memoria quede inútil mientras no exista un loop completo de feedback positivo.
+
 ### 6.1 Carga de Historial
 
 **Archivo:** `services/MessageServices/ListMessagesService.ts`
@@ -844,6 +865,44 @@ ${parts.join(' | ')}
 ---
 
 ## 8. BÚSQUEDA HÍBRIDA (VECTOR + BM25)
+
+Hay dos búsquedas híbridas relevantes:
+
+- **KB documental**: `RAGAgentService` / servicios RAG sobre `AIChunks` y `AIDocuments`.
+- **Q&A histórica de tickets**: `HistoricalQARetrieverService` sobre `AIHistoricalQA`, usando `pgvector` + `pg_trgm`.
+
+Para responder clientes con información ya contestada en conversaciones previas, la prioridad es `AIHistoricalQA`, no la búsqueda documental. Si no hay match confiable, el flujo cae a RAG documental o a agentes con tools.
+
+### 8.0 AIHistoricalQA — Búsqueda Histórica de Respuestas
+
+**Archivos clave:**
+
+| Archivo | Rol |
+|---------|-----|
+| `models/AIHistoricalQA.ts` | Modelo Sequelize de memoria histórica |
+| `database/migrations/20260519000001-create-ai-historical-qa.ts` | Crea tabla, extensiones e índices |
+| `services/AIAgentServices/HistoricalQARetrieverService.ts` | Recupera candidatos por vector + trigrama |
+| `services/AIAgentServices/QAExtractorService.ts` | Inserta Q&A después del gatekeeper |
+| `services/AIAgentServices/MemoryJudgeAgent.ts` | Decide si el candidato aplica |
+| `services/AIAgentServices/ResponsePlannerService.ts` | Orquesta búsqueda antes de llamar agentes |
+
+Campos importantes:
+
+```sql
+"companyId"        -- aislamiento multi-tenant obligatorio
+"sourceTicketId"   -- ticket de origen
+"sourceMessageId"  -- mensaje de origen si está disponible
+question
+"normalizedQuestion"
+answer
+"answerType"       -- human | ai_verified | kb_backed | tool_backed
+embedding vector(1536)
+verified
+superseded
+metadata
+```
+
+Regla práctica: si el usuario pregunta algo factual y corto ("¿tienen GPS?", "¿cuánto cuesta?", "¿incluye instalación?"), el planner consulta `AIHistoricalQA` antes del RAG documental. Si encuentra una respuesta aplicable, responde con `agentUsed=memory_reuse_historical_qa` y `responseSource=historical_qa`.
 
 ### 8.1 Reciprocal Rank Fusion (RRF)
 

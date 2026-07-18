@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import CompaniesSettings from "../../models/CompaniesSettings";
 import Whatsapp from "../../models/Whatsapp";
 import logger from "../../utils/logger";

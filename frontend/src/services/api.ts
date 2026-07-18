@@ -29,9 +29,21 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`
     }
 
+    // Identifica el canal para la política de sesión por canal.
+    if (config.headers && !config.headers['x-client-type']) {
+      config.headers['x-client-type'] = 'web'
+    }
+
     // ✅ NO forzar Content-Type cuando es FormData (Axios lo maneja automáticamente con el boundary)
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type']
+      // Las subidas de archivos (videos/PDF/audio) pueden tardar más que el timeout
+      // global de 30s. Un video de ~38MB en una conexión típica supera los 30s y axios
+      // abortaba la petición antes de completar (síntoma: archivos grandes "no avanzan",
+      // los pequeños sí). Damos 5 min a los uploads multipart salvo override explícito.
+      if (config.timeout == null || config.timeout === 30000) {
+        config.timeout = 300000
+      }
     }
 
     // Log en desarrollo
@@ -117,6 +129,23 @@ api.interceptors.response.use(
         return Promise.reject(error)
       }
 
+      // Si el backend indica que la sesión fue revocada (login en otro
+      // dispositivo o logout forzado), no tiene sentido refrescar:
+      // limpiamos local y mandamos a login con mensaje específico.
+      const errCode = (error.response?.data as any)?.error
+      if (errCode === 'session_revoked') {
+        processQueue(error, null)
+        isRefreshing = false
+        localStorage.removeItem('token')
+        localStorage.removeItem('refreshToken')
+        localStorage.removeItem('sid')
+        try {
+          toast.info('Tu sesión fue iniciada en otro dispositivo.')
+        } catch {/* noop */}
+        window.location.href = '/login?reason=session_revoked'
+        return Promise.reject(error)
+      }
+
       if (isRefreshing) {
         // Si ya hay un refresh en progreso, agregar esta request a la cola
         return new Promise((resolve, reject) => {
@@ -136,21 +165,17 @@ api.interceptors.response.use(
       originalRequest._retry = true
       isRefreshing = true
 
-      // Intentar refrescar el token
+      // Intentar refrescar el token (web: cookie HTTPOnly jrt)
       try {
-        // Para web clients, el refresh token viene en la cookie HTTPOnly
-        // Para app clients, viene en localStorage
-        const refreshTokenFromStorage = localStorage.getItem('refreshToken')
-        const isAppClient = !!refreshTokenFromStorage
-
         console.log('[API] Attempting token refresh...')
 
         const response = await axios.post(
           `${API_URL}/api/auth/refresh_token`,
-          isAppClient ? { refreshToken: refreshTokenFromStorage } : {},
+          {},
           {
             baseURL: API_URL,
-            withCredentials: true  // Envía cookie con refresh token para web clients
+            withCredentials: true,
+            headers: { 'x-client-type': 'web' }
           }
         )
 
@@ -160,11 +185,6 @@ api.interceptors.response.use(
 
         // Guardar nuevo token
         localStorage.setItem('token', newToken)
-
-        // Si es app client y viene nuevo refresh token, guardarlo
-        if (response.data.refreshToken) {
-          localStorage.setItem('refreshToken', response.data.refreshToken)
-        }
 
         // Procesar la cola de requests pendientes
         processQueue(null, newToken)
@@ -176,7 +196,7 @@ api.interceptors.response.use(
 
         isRefreshing = false
         return api(originalRequest)
-      } catch (refreshError) {
+      } catch (refreshError: any) {
         // Si falla el refresh, limpiar tokens y redirigir a login
         console.error('[API] Token refresh failed:', refreshError)
 
@@ -185,8 +205,16 @@ api.interceptors.response.use(
 
         localStorage.removeItem('token')
         localStorage.removeItem('refreshToken')
-        window.location.href = '/login'
-        toast.error('Sesión expirada. Por favor inicia sesión nuevamente.')
+        localStorage.removeItem('sid')
+
+        const refreshErrCode = refreshError?.response?.data?.error
+        if (refreshErrCode === 'session_revoked') {
+          try { toast.info('Tu sesión fue iniciada en otro dispositivo.') } catch {/* noop */}
+          window.location.href = '/login?reason=session_revoked'
+        } else {
+          toast.error('Sesión expirada. Por favor inicia sesión nuevamente.')
+          window.location.href = '/login'
+        }
         return Promise.reject(refreshError)
       }
     }
@@ -200,11 +228,16 @@ api.interceptors.response.use(
     } else if (error.response?.status === 429) {
       toast.error('Demasiadas solicitudes. Por favor, espera un momento.')
     } else if (error.response?.status && error.response.status >= 500) {
-      toast.error('Error del servidor. Por favor, intenta más tarde.')
+      // toastId evita apilamiento cuando varias requests fallan a la vez (p.ej. reinicio backend).
+      toast.error('Error del servidor. Por favor, intenta más tarde.', { toastId: 'server-error' })
     } else if (!error.response) {
-      // No mostrar si no hay token (usuario cerró sesión)
-      if (localStorage.getItem('token')) {
-        toast.error('Error de conexión. Verifica tu conexión a internet.')
+      // No mostrar si no hay token (usuario cerró sesión). Silenciar pollers de fondo (no son
+      // acción del usuario) y deduplicar el resto: 3 pollers no deben apilar 3 toasts idénticos.
+      const bgPoller = /chats-total-unreads|total-unreads|notifications|heartbeat/i.test(
+        originalRequest?.url || ''
+      )
+      if (localStorage.getItem('token') && !bgPoller) {
+        toast.error('Error de conexión. Verifica tu conexión a internet.', { toastId: 'net-error' })
       }
     }
 

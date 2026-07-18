@@ -1,6 +1,7 @@
 import { Sequelize, Op } from "sequelize";
 import Receipt from "../../models/Receipt";
 import Company from "../../models/Company";
+import AISubplan from "../../models/AISubplan";
 interface Request {
   searchParam?: string;
   pageNumber?: string;
@@ -19,13 +20,11 @@ const ListReceiptsService = async ({
   const whereCondition = searchParam
     ? {
         [Op.or]: [
-          {
-            description: Sequelize.where(
-              Sequelize.fn("LOWER", Sequelize.col("description")),
-              "LIKE",
-              `%${searchParam.toLowerCase().trim()}%`
-            )
-          }
+          Sequelize.where(
+            Sequelize.fn("LOWER", Sequelize.col("descripcion")),
+            "LIKE",
+            `%${searchParam.toLowerCase().trim()}%`
+          )
         ]
       }
     : {}; // Sin filtro si no hay `searchParam`
@@ -37,12 +36,17 @@ const ListReceiptsService = async ({
     where: whereCondition,
     limit,
     offset,
-    order: [["id", "ASC"]],
+    order: [["id", "DESC"]],
     include: [
       {
         model: Company,
         as: "company",
         attributes: ["id", "name"],
+      },
+      {
+        model: AISubplan,
+        as: "aiSubplan",
+        attributes: ["id", "name", "tokens", "priceUsd"],
       },
     ],
   });

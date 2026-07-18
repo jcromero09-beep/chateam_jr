@@ -1,9 +1,11 @@
 import axios from "axios";
 import CompaniesSettings from "../../models/CompaniesSettings";
 import logger from "../../utils/logger";
+import { GRAPH_API_VERSION, GRAPH_BASE_URL } from "../../config/metaGraph"; // [Fase2·A2.1]
+import { encryptSecret } from "../../helpers/secretCrypto"; // [Fase2·A3.1]
 
-const FB_GRAPH_VERSION = process.env.FB_GRAPH_VERSION || "v23.0";
-const FB_GRAPH_URL = `https://graph.facebook.com/${FB_GRAPH_VERSION}`;
+const FB_GRAPH_VERSION = GRAPH_API_VERSION;
+const FB_GRAPH_URL = GRAPH_BASE_URL;
 
 // Token expira en ~60 días, renovamos cuando quedan menos de 7 días
 const TOKEN_REFRESH_THRESHOLD_DAYS = 7;
@@ -43,7 +45,7 @@ export class TokenManager {
    */
   static async debugToken(accessToken: string): Promise<TokenDebugResponse["data"] | null> {
     try {
-      logger.info(`[TokenManager] 🔍 Debugging token: ${accessToken.substring(0, 20)}...${accessToken.slice(-10)}`);
+      logger.info({ len: accessToken?.length }, "[TokenManager] debugging token");
       logger.info(`[TokenManager] 📡 Calling: ${FB_GRAPH_URL}/debug_token`);
 
       const response = await axios.get<TokenDebugResponse>(`${FB_GRAPH_URL}/debug_token`, {
@@ -53,11 +55,11 @@ export class TokenManager {
         }
       });
 
-      logger.info(`[TokenManager] ✅ Token debug response: ${JSON.stringify(response.data.data, null, 2)}`);
+      logger.info({ is_valid: response.data?.data?.is_valid, expires_at: response.data?.data?.expires_at, app_id: response.data?.data?.app_id }, "[TokenManager] token debug");
       return response.data.data;
     } catch (error: any) {
       logger.error(`[TokenManager] ❌ Error debugging token: ${error.message}`);
-      logger.error(`[TokenManager] ❌ Response data: ${JSON.stringify(error.response?.data || "No response data")}`);
+      logger.error({ status: error?.response?.status, msg: error?.response?.data?.error?.message }, "[TokenManager] error response");
       return null;
     }
   }
@@ -153,7 +155,7 @@ export class TokenManager {
     }
 
     const token = settings.facebookSystemUserToken;
-    logger.info(`[TokenManager] ✅ Token found: ${token.substring(0, 20)}...${token.slice(-10)}`);
+    logger.info({ len: token?.length }, "[TokenManager] token encontrado");
 
     // Verificar si el token está por expirar
     logger.info(`[TokenManager] 🔍 Checking if token is expiring soon...`);
@@ -173,10 +175,11 @@ export class TokenManager {
         );
 
         if (newTokenInfo) {
-          // Guardar el nuevo token
+          // Guardar el nuevo token. [Fase2·A3.1] Este es un update ESTÁTICO → el
+          // setter del modelo NO corre; ciframos explícitamente aquí.
           await CompaniesSettings.update(
             {
-              facebookSystemUserToken: newTokenInfo.accessToken
+              facebookSystemUserToken: encryptSecret(newTokenInfo.accessToken) as any
             },
             { where: { companyId } }
           );

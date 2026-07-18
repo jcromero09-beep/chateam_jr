@@ -25,7 +25,7 @@ const GetFlowBuilderService = async ({
             id: idFlow
           }
         });
-        let flow = rows[0]
+        const flow = rows[0]
 
         return {
             flow: flow

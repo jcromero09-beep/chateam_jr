@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import fs, { writeFileSync } from "fs";
 import axios from "axios";
 import { join } from "path";
@@ -14,6 +18,9 @@ import CompaniesSettings from "../../models/CompaniesSettings";
 import TicketTag from "../../models/TicketTag";
 import Tag from "../../models/Tag";
 import Prompt from "../../models/Prompt";
+import ApiFailedMessage from "../../models/ApiFailedMessage";
+import ApiUsages from "../../models/ApiUsages";
+import { useDate } from "../../utils/useDate";
 // Si tu Webhook Meta está en otra ruta, ajusta este import:
 import { ActionsWebhookMetaService } from "../WebhookService/ActionsWebhookMetaService";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
@@ -38,8 +45,10 @@ import {
 
 import { getIO } from "../../libs/socket";
 import formatBody from "../../helpers/Mustache";
-import { head, isNil, isNull } from "lodash";
+import lodash from "lodash";
+const { head, isNil, isNull } = lodash;
 import { logInfo, logError, logWarn } from "../../config/logger";
+import { normalizeSupervisorAIText } from "../AIAgentServices/AIInputGuardService";
 
 // ENVÍO por Meta (Cloud API)
 import { sendText as metaSendText, sendTextDynamic } from "./metaSendService";
@@ -48,10 +57,14 @@ import { createMetaClient } from "./metaClient";
 
 import handleOpenAiMeta from "../IntegrationsServices/OpenAiMetaService";
 import CreateCampaignMessageService from "../CampaignMessageServices/CreateCampaignMessageService";
+import logCampaignMessageFlow from "../CampaignMessageServices/CampaignMessageFlowLogger";
+import MetaMarketingService from "../MetaMarketingService";
 
 // Handlers de coexistencia (ya existen, solo faltaba importarlos)
 import { handleSmbMessageEchoes } from "./metaSmbMessageEchoesService";
 import { handleSmbAppStateSync } from "./metaSmbAppStateSyncService";
+// Handler de mensajes editados (type: "edit")
+import { processMetaMessageEdit } from "./processMetaMessageEdit";
 import { sendButtonResponseWebhook } from "./sendButtonResponseWebhook";
 
 // FASE 1 Coexistencia — trazabilidad estructurada
@@ -100,6 +113,15 @@ const getTextFromMetaMessage = (message: any): string => {
     case "video":
     case "sticker":
       return `[${message.type}]`;
+    case "edit":
+      // Mensajes editados: extraer el body desde edit.message
+      return (
+        message?.edit?.message?.text?.body ||
+        message?.edit?.message?.image?.caption ||
+        message?.edit?.message?.video?.caption ||
+        message?.edit?.message?.document?.caption ||
+        ""
+      );
     default:
       return "";
   }
@@ -111,6 +133,25 @@ const normalizeText = (text: string): string =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+
+const buildMetaCampaignDebug = (message: any) => {
+  const referral = message?.referral || message?.context?.referral || null;
+
+  return {
+    messageId: message?.id || null,
+    from: message?.from || null,
+    timestamp: message?.timestamp || null,
+    type: message?.type || null,
+    hasContext: Boolean(message?.context),
+    hasTopLevelReferral: Boolean(message?.referral),
+    hasContextReferral: Boolean(message?.context?.referral),
+    hasReferral: Boolean(referral),
+    referralSourceId: referral?.source_id || null,
+    referralSourceType: referral?.source_type || null,
+    referralCtwaClid: referral?.ctwa_clid || null,
+    referralHeadline: referral?.headline || null
+  };
+};
 
 // Descargar media de Meta (2 pasos: info → url firmada → bytes)
 const downloadMetaMedia = async (
@@ -248,7 +289,9 @@ const verifyMessageMetaText = async (
     quotedMsgId: quotedMsg?.id,
     ack: 3,
     dataJson: JSON.stringify(dataJson || metaMsg),
-    channel: "meta"
+    channel: "meta",
+    provider: "meta",
+    sourceChannel: "cloud_api"
   };
 logInfo('[META-BUTTON] creando msj')
   const createdMessage = await CreateMessageService({ messageData, companyId: ticket.companyId });
@@ -299,17 +342,22 @@ logInfo('[META-BUTTON] creando msj')
       // ===== BÚSQUEDA SECUNDARIA: por metaMessageId en dataJson =====
       // Esto es más robusto - busca en el campo dataJson que guardamos después del envío exitoso
       if (!templateMessage) {
-        const { Op } = require('sequelize');
+        // Fix: antes se hacía require('sequelize').escape(...) — pero eso devuelve el MÓDULO,
+        // no la instancia; el módulo NO tiene .escape() → "sequelize.escape is not a function"
+        // (rompía el procesamiento de la respuesta de botón). Ahora usamos un placeholder con
+        // replacements, que Sequelize escapa de forma segura (anti-inyección SQL).
+        const { Op, literal } = require('sequelize');
         templateMessage = await Message.findOne({
           where: {
             mediaType: "template",
             fromMe: true,
             companyId: ticket.companyId,
             [Op.and]: [
-              require('sequelize').literal(`data_json::text LIKE '%${contextId}%'`)
+              literal(`"dataJson"::text LIKE :ctxLike`)
             ]
-          }
-        });
+          },
+          replacements: { ctxLike: `%${contextId}%` }
+        } as any);
         if (templateMessage) {
           logInfo(`[META-BUTTON] 🔍 Busqueda secondary por dataJson conteniendo ${contextId} | encontrado msg ${templateMessage.id}`);
         }
@@ -484,11 +532,37 @@ const verifyMessageMetaMedia = async (
     return verifyMessageMetaText(metaMsg, ticket, contact, fromMe);
   }
 
-  const { fileName, mediaType } = await downloadMetaMedia(
-    mediaId,
-    accessToken,
-    ticket.companyId
-  );
+  // Descarga resiliente: si Meta responde 401 (tokenMeta inválido/expirado) u otro error,
+  // NO tumbamos el procesamiento del mensaje entero (antes el throw subía hasta
+  // receiveMetaWebhook y el mensaje entrante se perdía). Guardamos el mensaje como texto,
+  // con el caption si lo trae, para no perder el mensaje del cliente.
+  let fileName: string;
+  let mediaType: string;
+  try {
+    ({ fileName, mediaType } = await downloadMetaMedia(
+      mediaId,
+      accessToken,
+      ticket.companyId
+    ));
+  } catch (mediaErr: any) {
+    const status = mediaErr?.response?.status;
+    logWarn(
+      `[META-MEDIA] No se pudo descargar media ${mediaId} (status=${status ?? 'n/a'}; ` +
+      `posible tokenMeta inválido/expirado en companyId=${ticket.companyId}): ${mediaErr?.message}. ` +
+      `Se guarda el mensaje sin adjunto para no perderlo.`
+    );
+    const caption =
+      metaMsg?.image?.caption ||
+      metaMsg?.video?.caption ||
+      metaMsg?.document?.caption ||
+      "";
+    const fallbackMsg = {
+      id: metaMsg?.id,
+      type: "text",
+      text: { body: caption || "[archivo adjunto no disponible — pídele al cliente reenviarlo]" }
+    };
+    return verifyMessageMetaText(fallbackMsg, ticket, contact, fromMe);
+  }
 
   const messageData = {
     wid: metaMsg.id,
@@ -502,7 +576,9 @@ const verifyMessageMetaMedia = async (
     quotedMsgId: null,
     ack: 3,
     dataJson: JSON.stringify(metaMsg),
-    channel: "meta"
+    channel: "meta",
+    provider: "meta",
+    sourceChannel: "cloud_api"
   };
 
   await CreateMessageService({ messageData, companyId: ticket.companyId });
@@ -519,7 +595,7 @@ const flowBuilderQueue = async (
   isFirstMsg: Ticket
 ) => {
   const flow = await FlowBuilderModel.findOne({
-    where: { id: ticket.flowStopped }
+    where: { id: ticket.flowStopped, active: true }
   });
   if (!flow || !ticket.lastFlowId) return;
   if (["closed", "interrupted", "open"].includes(ticket.status)) return;
@@ -581,7 +657,7 @@ const flowbuilderIntegration = async (
   );
 
   if (flowDispar) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId, active: true } });
     if (flow) {
       console.log("[FlowBuilder-Meta] Prioridad 1: Palabra clave →", flowDispar.phrase);
       await ActionsWebhookMetaService(
@@ -596,7 +672,7 @@ const flowbuilderIntegration = async (
 
   // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
   if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
     if (flow) {
       console.log("[FlowBuilder-Meta] Prioridad 2: Continuación flujo activo");
       await ActionsWebhookMetaService(
@@ -612,7 +688,7 @@ const flowbuilderIntegration = async (
   // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
   // isFirstMsg = Ticket object (existe ticket previo) en Meta/FB
   if (isFirstMsg && whatsapp.flowIdWelcome) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdWelcome } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdWelcome, active: true } });
     if (flow) {
       console.log("[FlowBuilder-Meta] Prioridad 3: Contacto con ticket → flowIdWelcome");
       await ActionsWebhookMetaService(
@@ -627,7 +703,7 @@ const flowbuilderIntegration = async (
 
   // ─── PRIORIDAD 4: CONTACTO SIN TICKET PREVIO → flowIdNotPhrase ───
   if (!isFirstMsg && whatsapp.flowIdNotPhrase) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdNotPhrase } });
+    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdNotPhrase, active: true } });
     if (flow) {
       console.log("[FlowBuilder-Meta] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
       await ActionsWebhookMetaService(
@@ -725,7 +801,6 @@ export const handleMetaWebhookMessage = async (body: any) => {
   try {
 
     if (body?.object !== "whatsapp_business_account") {
-      // console.warn("🔶 Webhook ignorado: object distinto a whatsapp_business_account");
       return;
     }
 
@@ -765,7 +840,6 @@ export const handleMetaWebhookMessage = async (body: any) => {
 
         const phoneNumberId = value?.metadata?.phone_number_id;
         if (!phoneNumberId) {
-          // console.warn("⚠️ Sin phone_number_id en value.metadata");
           continue;
         }
 
@@ -863,102 +937,347 @@ export const handleMetaWebhookMessage = async (body: any) => {
         const statuses = value?.statuses || [];
 
         // ═══════════════════════════════════════════════════════════════════
-        // 🔗 PROCESAR STATUSES (confirmaciones de envío) CON REDIS COORDINATION
+        // 🔗 PROCESAR STATUSES (confirmaciones de Meta) — IDEMPOTENTE
+        // ───────────────────────────────────────────────────────────────────
+        // Meta envía status updates por webhook: sent | delivered | read |
+        // failed. Convención local:
+        //   ack=1 → accepted/sent  ack=2 → delivered  ack=3 → read
+        //   ack=4 → failed
+        // Idempotencia:
+        //   - Búsqueda primaria por wid=wamid (si ya está actualizado, skip)
+        //   - Búsqueda por dataJson conteniendo wamid
+        //   - Fallback PENDING_% + recipientPhone + ventana 24h
+        //   - msg.update({ wid }) protegido contra UniqueConstraintError
         // ═══════════════════════════════════════════════════════════════════
         if (statuses.length > 0) {
           logInfo(`[META] ℹ️ Procesando ${statuses.length} statuses de Meta`);
+          const { Op } = require('sequelize');
+          const { dateForPostgres } = useDate();
+
+          // Jerarquía de estados (mayor = más avanzado).
+          // failed se procesa siempre (puede llegar tras sent/delivered)
+          const STATUS_RANK: Record<string, number> = {
+            accepted: 1,
+            sent: 2,
+            delivered: 3,
+            read: 4
+          };
+          const ACK_MAP: Record<string, number> = {
+            sent: 1,
+            delivered: 2,
+            read: 3,
+            failed: 4
+          };
+
           for (const status of statuses) {
             try {
-              const wamid = status.id; // El message_id de Meta
-              const statusType = status.status; // "sent", "delivered", "failed", etc.
-              const recipientPhone = status.recipient_id;
+              const wamid: string = status?.id;
+              const statusType: string = status?.status; // sent | delivered | read | failed
+              const recipientPhone: string = status?.recipient_id;
+              const errorObj = Array.isArray(status?.errors) && status.errors.length > 0 ? status.errors[0] : null;
 
-              logInfo(`[META] 📊 Status update: wamid=${wamid}, status=${statusType}, recipient=${recipientPhone}`);
+              logInfo(`[META] 📊 Status update: wamid=${wamid}, status=${statusType}, recipient=${recipientPhone}${errorObj ? `, error_code=${errorObj.code}` : ''}`);
 
-              if (statusType === 'sent' || statusType === 'delivered' || statusType === 'read') {
-                const { Op } = require('sequelize');
+              if (!wamid || !statusType) {
+                logWarn(`[META] ⚠️ Status sin wamid o tipo, skip: ${JSON.stringify(status).substring(0, 200)}`);
+                continue;
+              }
 
-                // ═══════════════════════════════════════════════════════════
-                // ESTRATEGIA: Primero buscar por wamid en Redis
-                // Si no está en Redis, buscar por PENDING en BD (compatibilidad hacia atrás)
-                // ═══════════════════════════════════════════════════════════
+              if (!['sent', 'delivered', 'read', 'failed'].includes(statusType)) {
+                logInfo(`[META] ℹ️ statusType=${statusType} no manejado, skip`);
+                continue;
+              }
 
-                // 1) Buscar mensaje PENDING por número de teléfono en Redis
-                const pendingMessages = await Message.findAll({
+              // 1) Búsqueda primaria: por wid = wamid (idempotencia)
+              let msg = await Message.findOne({
+                where: {
+                  wid: wamid,
+                  companyId: whatsapp.companyId
+                }
+              });
+
+              // 2) Búsqueda secundaria: por dataJson conteniendo wamid (cuando el
+              //    Message tiene wid=PENDING_% pero ya guardó metaMessageId en dataJson)
+              if (!msg) {
+                const safeWamid = wamid.replace(/'/g, "''"); // anti-injection en LIKE
+                msg = await Message.findOne({
+                  where: {
+                    companyId: whatsapp.companyId,
+                    fromMe: true,
+                    [Op.and]: [
+                      require('sequelize').literal(`"dataJson" LIKE '%${safeWamid}%'`)
+                    ]
+                  } as any
+                }).catch(() => null);
+              }
+
+              // 3) Fallback conservador: PENDING_% + recipientPhone + ventana 24h
+              if (!msg && recipientPhone) {
+                const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                const normalizedPhone = recipientPhone.replace(/\D/g, '');
+                const candidates = await Message.findAll({
                   where: {
                     mediaType: "template",
                     fromMe: true,
                     companyId: whatsapp.companyId,
                     wid: { [Op.like]: 'PENDING_%' },
+                    createdAt: { [Op.gte]: oneDayAgo }
                   },
+                  include: [{
+                    model: Contact,
+                    as: 'contact',
+                    where: {
+                      number: { [Op.like]: `%${normalizedPhone}%` }
+                    },
+                    required: true,
+                    attributes: ['id', 'number']
+                  }],
                   order: [['createdAt', 'DESC']],
-                  limit: 1
+                  limit: 5
                 });
 
-                if (pendingMessages.length > 0) {
-                  const msg = pendingMessages[0];
-                  const pendingWid = msg.wid;
-                  const oldWid = msg.wid;
-
-                  // ═══════════════════════════════════════════════════════════
-                  // Verificar si este nodo es el propietario del mensaje en Redis
-                  // ═══════════════════════════════════════════════════════════
-                  const msgRegistry = await getPendingMessage(pendingWid);
-                  const currentNode = getCurrentNodeId();
-
-                  if (msgRegistry && msgRegistry.nodeId !== currentNode) {
-                    // ═══════════════════════════════════════════════════════════
-                    // 🔀 ROUTING: El mensaje pertenece a OTRO nodo
-                    // Enviar HTTP POST al nodo correcto
-                    // ═══════════════════════════════════════════════════════════
-                    const targetPort = getNodePort(msgRegistry.nodeId);
-                    if (targetPort) {
-                      logInfo(`[META] 🔀 Routing: wid=${pendingWid} pertenece a ${msgRegistry.nodeId}, enviando a localhost:${targetPort}`);
-
-                      try {
-                        const routeResponse = await axios.post(
-                          `http://localhost:${targetPort}/internal/msg-status`,
-                          { wid: pendingWid, status: statusType, wamid, metadata: status },
-                          { timeout: 5000 }
-                        );
-
-                        logInfo(`[META] ✅ Routing exitoso a ${msgRegistry.nodeId}: ${routeResponse.data}`);
-                        continue; // Ir al siguiente status
-                      } catch (routeErr: any) {
-                        logError(`[META] ❌ Routing falló a ${msgRegistry.nodeId}: ${routeErr.message}`);
-                        // Continuar con procesamiento local como fallback
-                      }
-                    } else {
-                      logWarn(`[META] ⚠️ Nodo ${msgRegistry.nodeId} no tiene puerto registrado, procesando localmente`);
-                    }
-                  }
-
-                  // ═══════════════════════════════════════════════════════════
-                  // 🖥️ PROCESAMIENTO LOCAL: Este nodo tiene el mensaje
-                  // ═══════════════════════════════════════════════════════════
-
-                  // Actualizar wid del mensaje
-                  await msg.update({ wid: wamid });
-
-                  // Actualizar dataJson con el nuevo wid y status
-                  const dataJson = JSON.parse(msg.dataJson || '{}');
-                  dataJson.metaMessageId = wamid;
-                  dataJson.status = statusType;
-                  dataJson.statusUpdatedAt = new Date().toISOString();
-                  await msg.update({ dataJson: JSON.stringify(dataJson) });
-
-                  logInfo(`[META] ✅ Message ${msg.id} updated: wid=${oldWid} -> ${wamid} (status: ${statusType}) | nodo=${currentNode}`);
-
-                  // Eliminar del registry
-                  await unregisterPendingMessage(pendingWid);
-                } else {
-                  logInfo(`[META] ℹ️ No se encontró mensaje PENDING para phone=${recipientPhone} (puede que ya haya sido actualizado)`);
+                if (candidates.length > 1) {
+                  logWarn(`[META] ⚠️ Fallback: ${candidates.length} PENDING_% candidatos para phone=${recipientPhone}. Usando el más reciente — verifique correlación.`);
+                }
+                if (candidates.length >= 1) {
+                  msg = candidates[0];
+                  logInfo(`[META] 🔍 Fallback match: msgId=${msg.id} wid=${msg.wid} para wamid=${wamid}`);
                 }
               }
-            } catch (statusErr) {
-              logError(`❌ Error procesando status: ${statusErr}`);
+
+              if (!msg) {
+                logInfo(`[META] ℹ️ No se encontró Message para wamid=${wamid} (status=${statusType}). Probablemente status duplicado tras limpieza o mensaje no originado aquí.`);
+                continue;
+              }
+
+              // ════ ROUTING multi-nodo (solo si todavía es PENDING_) ════
+              const wasPending = typeof msg.wid === 'string' && msg.wid.startsWith('PENDING_');
+              const pendingWid = wasPending ? msg.wid : null;
+
+              if (wasPending) {
+                const msgRegistry = await getPendingMessage(pendingWid!);
+                const currentNode = getCurrentNodeId();
+                if (msgRegistry && msgRegistry.nodeId !== currentNode) {
+                  const targetPort = getNodePort(msgRegistry.nodeId);
+                  if (targetPort) {
+                    logInfo(`[META] 🔀 Routing: wid=${pendingWid} pertenece a ${msgRegistry.nodeId}, enviando a localhost:${targetPort}`);
+                    try {
+                      const routeResponse = await axios.post(
+                        `http://localhost:${targetPort}/internal/msg-status`,
+                        { wid: pendingWid, status: statusType, wamid, metadata: status },
+                        { timeout: 5000 }
+                      );
+                      logInfo(`[META] ✅ Routing exitoso a ${msgRegistry.nodeId}: ${routeResponse.data}`);
+                      continue;
+                    } catch (routeErr: any) {
+                      logError(`[META] ❌ Routing falló a ${msgRegistry.nodeId}: ${routeErr.message}. Procesando local como fallback.`);
+                    }
+                  } else {
+                    logWarn(`[META] ⚠️ Nodo ${msgRegistry.nodeId} no tiene puerto registrado, procesando localmente`);
+                  }
+                }
+              }
+
+              // ════ IDEMPOTENCIA: estado ya alcanzado o regresivo ════
+              let dataJson: any = {};
+              try { dataJson = JSON.parse(msg.dataJson || '{}'); } catch { dataJson = {}; }
+              const oldStatus: string = dataJson.status || 'accepted';
+              const oldRank = STATUS_RANK[oldStatus] || 0;
+              const newRank = STATUS_RANK[statusType] || 0;
+
+              if (statusType !== 'failed' && newRank > 0 && newRank <= oldRank) {
+                logInfo(`[META] ⏭️ Status ${statusType} duplicado/regresivo para msg ${msg.id} (actual=${oldStatus}). Ignorando — idempotente.`);
+                // Si era pendiente en registry, limpiarlo igual
+                if (wasPending) {
+                  try { await unregisterPendingMessage(pendingWid!); } catch { /* noop */ }
+                }
+                continue;
+              }
+              if (statusType === 'failed' && dataJson.deliveryStatus === 'failed' && dataJson.error?.code === errorObj?.code) {
+                logInfo(`[META] ⏭️ Status failed duplicado para msg ${msg.id} (code=${errorObj?.code}). Ignorando.`);
+                continue;
+              }
+
+              // ════ Actualizar wid si difiere — protección UNIQUE ════
+              const oldWid = msg.wid;
+              const updateFields: any = {};
+              if (oldWid !== wamid) {
+                try {
+                  const conflict = await Message.findOne({
+                    where: {
+                      wid: wamid,
+                      companyId: whatsapp.companyId,
+                      id: { [Op.ne]: msg.id }
+                    }
+                  });
+                  if (conflict) {
+                    logWarn(`[META] ⚠️ wamid=${wamid} ya existe en otro Message id=${conflict.id}. No piso wid del msg ${msg.id}; solo actualizo dataJson.`);
+                  } else {
+                    updateFields.wid = wamid;
+                  }
+                } catch (chkErr: any) {
+                  logWarn(`[META] ⚠️ Error verificando conflicto wid: ${chkErr?.message}. No piso wid.`);
+                }
+              }
+
+              // ════ Construir dataJson actualizado ════
+              dataJson.metaMessageId = wamid;
+              dataJson.status = statusType;
+              dataJson.statusUpdatedAt = new Date().toISOString();
+
+              if (statusType === 'sent') {
+                dataJson.deliveryStatus = 'sent';
+                dataJson.sentAtMeta = new Date().toISOString();
+              } else if (statusType === 'delivered') {
+                dataJson.deliveryStatus = 'delivered';
+                dataJson.deliveredAt = new Date().toISOString();
+              } else if (statusType === 'read') {
+                dataJson.deliveryStatus = 'read';
+                dataJson.readAt = new Date().toISOString();
+              } else if (statusType === 'failed') {
+                dataJson.deliveryStatus = 'failed';
+                dataJson.failedAt = new Date().toISOString();
+                if (errorObj) {
+                  dataJson.error = {
+                    code: errorObj.code ?? null,
+                    title: errorObj.title ?? null,
+                    message: errorObj.message ?? null,
+                    details: errorObj.error_data?.details ?? null,
+                    fbtraceId: errorObj.href ?? errorObj.fbtrace_id ?? null
+                  };
+                }
+              }
+
+              updateFields.dataJson = JSON.stringify(dataJson);
+
+              const newAck = ACK_MAP[statusType];
+              if (newAck !== undefined) {
+                // Para no-failed: solo avanzar ack
+                if (statusType === 'failed' || newAck > (msg.ack || 0)) {
+                  updateFields.ack = newAck;
+                }
+              }
+
+              // messageStatus (cola offline) — sin retroceder
+              if (statusType === 'failed') {
+                updateFields.messageStatus = 'failed';
+              } else if (msg.messageStatus !== 'sent') {
+                updateFields.messageStatus = 'sent';
+              }
+
+              try {
+                await msg.update(updateFields);
+                logInfo(`[META] ✅ Message ${msg.id} actualizado: wid=${oldWid}${updateFields.wid && updateFields.wid !== oldWid ? `→${updateFields.wid}` : ''}, status=${statusType}, deliveryStatus=${dataJson.deliveryStatus}, ack=${updateFields.ack ?? msg.ack}`);
+              } catch (updErr: any) {
+                if (updErr?.name === 'SequelizeUniqueConstraintError') {
+                  logWarn(`[META] ⚠️ UniqueConstraintError actualizando msg ${msg.id} (wid race). Reintentando sin wid.`);
+                  const safeFields = { ...updateFields };
+                  delete safeFields.wid;
+                  await msg.update(safeFields);
+                  logInfo(`[META] ✅ Message ${msg.id} actualizado SIN wid (idempotente)`);
+                } else {
+                  throw updErr;
+                }
+              }
+
+              // ════ Limpiar Redis registry si era PENDING ════
+              if (wasPending && pendingWid) {
+                try { await unregisterPendingMessage(pendingWid); } catch { /* noop */ }
+              }
+
+              // ════ ApiFailedMessage + ApiUsages para 'failed' ════
+              if (statusType === 'failed' && errorObj) {
+                try {
+                  const fbtraceId = errorObj.href ?? errorObj.fbtrace_id ?? null;
+                  // Idempotencia: no duplicar el mismo Message. No deduplicar
+                  // por teléfono+código: Meta puede bloquear varios templates
+                  // distintos al mismo contacto con el mismo 131049.
+                  const dup = await ApiFailedMessage.findOne({
+                    where: {
+                      companyId: whatsapp.companyId,
+                      endpoint: 'send-template',
+                      [Op.and]: [
+                        require('sequelize').literal(`"metadata"->>'messageId' = '${msg.id}'`)
+                      ]
+                    }
+                  });
+                  if (!dup) {
+                    await ApiFailedMessage.create({
+                      companyId: whatsapp.companyId,
+                      whatsappId: whatsapp.id,
+                      number: recipientPhone || '',
+                      message: msg.body?.substring(0, 1000) || '',
+                      error: errorObj.message || errorObj.title || 'Error reportado por Meta',
+                      errorCode: errorObj.code != null ? String(errorObj.code) : null,
+                      errorSubcode: errorObj.error_data?.subcode != null ? String(errorObj.error_data.subcode) : null,
+                      fbtraceId,
+                      status: 'failed',
+                      retryCount: 0,
+                      ticketId: msg.ticketId || null,
+                      endpoint: 'send-template',
+                      metadata: {
+                        source: 'meta_webhook_status',
+                        wamid,
+                        statusType,
+                        messageId: msg.id,
+                        fullError: errorObj
+                      }
+                    });
+                    logInfo(`[META] ✅ ApiFailedMessage registrado para wamid=${wamid} code=${errorObj.code}`);
+                  } else {
+                    logInfo(`[META] ⏭️ ApiFailedMessage ya existe para code=${errorObj.code} phone=${recipientPhone}. No duplicar.`);
+                  }
+                } catch (apiFailErr: any) {
+                  logError(`[META] ❌ Error registrando ApiFailedMessage: ${apiFailErr?.message || apiFailErr}`);
+                }
+              }
+
+              // ════ Actualizar contadores ApiUsages ════
+              // delivered → +1 successCount (única entrega real)
+              // failed    → +1 failedCount
+              try {
+                if (statusType === 'delivered' || statusType === 'failed') {
+                  const hoje = dateForPostgres();
+                  let apiUsage = await ApiUsages.findOne({
+                    where: { dateUsed: hoje, companyId: whatsapp.companyId }
+                  });
+                  if (!apiUsage) {
+                    apiUsage = await ApiUsages.create({ companyId: whatsapp.companyId, dateUsed: hoje });
+                  }
+                  if (statusType === 'delivered') {
+                    // Solo incrementar si aún no se contó como delivered/read
+                    if (oldStatus !== 'delivered' && oldStatus !== 'read') {
+                      await apiUsage.update({
+                        successCount: (apiUsage.dataValues['successCount'] || 0) + 1,
+                        updatedAt: new Date()
+                      });
+                    }
+                  } else if (statusType === 'failed') {
+                    await apiUsage.update({
+                      failedCount: (apiUsage.dataValues['failedCount'] || 0) + 1,
+                      updatedAt: new Date()
+                    });
+                  }
+                }
+              } catch (apiUsageErr: any) {
+                logError(`[META] ⚠️ Error actualizando ApiUsages: ${apiUsageErr?.message || apiUsageErr}`);
+              }
+
+            } catch (statusErr: any) {
+              logError(`❌ Error procesando status: ${statusErr?.name || ''} ${statusErr?.message || statusErr}`);
             }
           }
+        }
+
+        if (
+          messages.length > 0 &&
+          whatsapp.coexistenceEnabled &&
+          whatsapp.receiveChannel === "baileys"
+        ) {
+          logWarn(
+            `[META-COEX] ⛔ Ignorando ${messages.length} mensaje(s) Meta: receiveChannel=baileys para whatsappId=${whatsapp.id}`
+          );
+          continue;
         }
 
         if (!messages.length) {
@@ -968,10 +1287,26 @@ export const handleMetaWebhookMessage = async (body: any) => {
         logInfo(`[META] 🔍 Procesando ${messages.length} mensaje(s)`);
         // Procesar cada mensaje
         for (const message of messages) {
+          // ═══ DETECCIÓN DE MENSAJES EDITADOS (type: "edit") ═══
+          // Meta envía mensajes editados con type="edit" + edit.original_message_id.
+          // Procesar la edición y SKIP el flujo normal para no crear duplicados.
+          if (message?.type === "edit") {
+            logInfo(`[META] ✏️ Detectado type=edit, delegando a processMetaMessageEdit`);
+            try {
+              const earlyCompanyIdForEdit = (effectiveWhatsapp as any)?.companyId || whatsapp.companyId;
+              await processMetaMessageEdit(message, earlyCompanyIdForEdit);
+            } catch (editErr: any) {
+              logError(`[META] ❌ Error en processMetaMessageEdit: ${editErr.message}`);
+            }
+            continue;
+          }
+
           // ═══ FASE 2 Coexistencia — DEDUPE PRE-PROCESAMIENTO ═══
           // Resolver companyId temprano a través de effectiveWhatsapp.
           const earlyCompanyId = (effectiveWhatsapp as any)?.companyId;
           let ledgerEntryId: number | null = null;
+          let processedTicketId: number | null = null;
+          let processedMessageId: number | null = null;
           if (earlyCompanyId && message?.id) {
             const ledger = await InboundEventLedgerService.registerOrDrop({
               companyId: earlyCompanyId,
@@ -1031,6 +1366,55 @@ export const handleMetaWebhookMessage = async (body: any) => {
             const companyId = contact.companyId;
             logInfo(`[META] ✅ Paso 1/4 completo: contactId=${contact.id}, companyId=${companyId}`);
 
+            if (whatsapp.coexistenceEnabled && whatsapp.receiveChannel !== "meta" && whatsapp.linkedWhatsappId && !fromMe) {
+              try {
+                const textBody = (getTextFromMetaMessage(message) || "").trim();
+                const recentCutoff = new Date(Date.now() - 120 * 1000);
+                const { Op } = require("sequelize");
+
+                const recentBaileysMessage = textBody
+                  ? await Message.findOne({
+                      where: {
+                        companyId,
+                        contactId: contact.id,
+                        fromMe: false,
+                        body: textBody,
+                        wid: { [Op.notLike]: "wamid.%" },
+                        createdAt: { [Op.gte]: recentCutoff }
+                      },
+                      order: [["createdAt", "DESC"]]
+                    })
+                  : null;
+
+                if (recentBaileysMessage) {
+                  logWarn(
+                    `[META-COEX] ⛔ Ignorando duplicado Meta: Baileys fallback ya guardó msgId=${(recentBaileysMessage as any).id} para contactId=${contact.id}, linkedWhatsappId=${whatsapp.linkedWhatsappId}`
+                  );
+                  coexLogInbound({
+                    provider: "meta",
+                    companyId,
+                    wid: message?.id || null,
+                    phoneNumberId,
+                    fromMe: false,
+                    sourceChannel: "cloud_api",
+                    outcome: "duplicate",
+                    reason: "cross_provider.baileys_fallback_recent"
+                  });
+                  await InboundEventLedgerService.markDropped(
+                    ledgerEntryId,
+                    "cross_provider.baileys_fallback_recent",
+                    { provider: "meta", companyId, wid: message?.id || null }
+                  );
+                  if (metaLock?.acquired) await coexReleaseLock(metaLock);
+                  continue;
+                }
+              } catch (coexDupErr: any) {
+                logWarn(
+                  `[META-COEX] No se pudo verificar duplicado Baileys fallback (${coexDupErr?.message}); continuando Meta.`
+                );
+              }
+            }
+
             // FASE 3 Coexistencia — resolver conversación unificada + binding
             let coexConversationId: string | null = null;
             try {
@@ -1074,7 +1458,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
             logInfo(`[META] 🔍 Paso 3/4: FindOrCreateTicketService...`);
             const unread = fromMe ? 0 : 1;
             const isFirstMsg = await Ticket.findOne({
-              where: { contactId: contact.id, companyId },
+              where: { contactId: contact.id, companyId, whatsappId: effectiveWhatsapp.id },
               order: [["id", "DESC"]]
             });
 
@@ -1089,9 +1473,13 @@ export const handleMetaWebhookMessage = async (body: any) => {
               effectiveChannel,
               null,
               false,
-              settings
+              settings,
+              false,
+              false,
+              { conversationId: coexConversationId ?? null, inboundChannelHint: "meta" }
             );
             logInfo(`[META] ✅ Paso 3/4: ticketId=${ticket.id}, status=${ticket.status}, isBot=${ticket.isBot}`);
+            processedTicketId = ticket.id;
 
             // FASE 3 Coexistencia — enlazar ticket con conversationId (si resuelto)
             if (coexConversationId && !(ticket as any).conversationId) {
@@ -1120,6 +1508,33 @@ export const handleMetaWebhookMessage = async (body: any) => {
               outcome: "accepted"
             });
 
+            logInfo(
+              `[META-CAMPAIGN-AUDIT] Inbound Meta recibido: ${JSON.stringify({
+                ...buildMetaCampaignDebug(message),
+                companyId,
+                ticketId: ticket.id,
+                contactId: contact.id,
+                whatsappId: whatsapp.id,
+                phoneNumberId,
+                coexConversationId
+              })}`
+            );
+
+            await logCampaignMessageFlow("meta.raw_message_received", {
+              companyId,
+              ticketId: ticket.id,
+              contactId: contact.id,
+              whatsappId: whatsapp.id,
+              phoneNumberId,
+              coexConversationId,
+              wid: message?.id || null,
+              fromMe,
+              messageType: message?.type || null,
+              hasTopLevelReferral: Boolean(message?.referral),
+              hasContextReferral: Boolean(message?.context?.referral),
+              rawMessage: message
+            });
+
             // 4) Guardar mensaje (texto o media)
             logInfo(`[META] 🔍 Paso 4/4: Guardar mensaje (tipo=${message?.type})...`);
             if (["image", "audio", "video", "document", "sticker"].includes(message?.type)) {
@@ -1129,39 +1544,134 @@ export const handleMetaWebhookMessage = async (body: any) => {
             }
             logInfo(`[META] ✅ Paso 4/4: Mensaje guardado`);
 
+            const savedMessage = message?.id
+              ? await Message.findOne({
+                  where: {
+                    wid: message.id,
+                    companyId
+                  },
+                  order: [["createdAt", "DESC"]]
+                })
+              : null;
+            processedMessageId = savedMessage?.id ?? null;
+
+            if (!savedMessage) {
+              logWarn(
+                `[META-CAMPAIGN-AUDIT] Mensaje Meta procesado pero no se encontró en Messages por wid=${message?.id || "null"}, companyId=${companyId}, ticketId=${ticket.id}`
+              );
+            }
+
+            await logCampaignMessageFlow("meta.message_saved_lookup", {
+              companyId,
+              ticketId: ticket.id,
+              contactId: contact.id,
+              whatsappId: whatsapp.id,
+              wid: message?.id || null,
+              savedMessageId: savedMessage?.id || null,
+              savedMessageBody: savedMessage?.body || null,
+              savedMessageFromMe: savedMessage?.fromMe ?? null,
+              savedMessageCreatedAt: savedMessage?.createdAt || null
+            });
+
             // ================= Detectar mensaje de campaña publicitaria (Click-to-WhatsApp) =================
-            const referral = message?.context?.referral;
+            const referral = message?.referral || message?.context?.referral;
             if (referral && !fromMe) {
               logInfo(`[CampaignMessage] Detectado mensaje de campaña Meta (CTWA)`);
               logInfo(`[CampaignMessage] Referral data: ${JSON.stringify(referral)}`);
 
-              // Buscar el mensaje recién creado para obtener su ID
-              const lastMessage = await Message.findOne({
-                where: {
-                  wid: message.id,
-                  companyId
-                },
-                order: [["createdAt", "DESC"]]
+              await logCampaignMessageFlow("meta.campaign_metadata_detected", {
+                companyId,
+                ticketId: ticket.id,
+                contactId: contact.id,
+                whatsappId: whatsapp.id,
+                wid: message?.id || null,
+                detector: message?.referral ? "message.referral" : "message.context.referral",
+                savedMessageId: savedMessage?.id || null,
+                referral,
+                rawMessage: message
               });
 
-              await CreateCampaignMessageService({
+              const adAttribution = referral.source_id
+                ? await MetaMarketingService.resolveAdAttributionById(
+                    companyId,
+                    String(referral.source_id),
+                    whatsapp.id
+                  )
+                : null;
+
+              const enrichedReferral = {
+                ...referral,
+                adId: adAttribution?.adId || referral.source_id,
+                adName: adAttribution?.adName || referral.headline,
+                adSetId: adAttribution?.adSetId,
+                adSetName: adAttribution?.adSetName,
+                campaignId: adAttribution?.campaignId,
+                campaignName: adAttribution?.campaignName,
+                campaign_id: adAttribution?.campaignId,
+                campaign_name: adAttribution?.campaignName,
+                attributionResolvedAt: adAttribution ? new Date().toISOString() : undefined
+              };
+
+              const campaignMessage = await CreateCampaignMessageService({
                 data: {
                   companyId,
                   contactId: contact.id,
-                  messageId: lastMessage?.id,
+                  messageId: savedMessage?.id,
                   ticketId: ticket.id,
                   whatsappId: whatsapp.id,
                   sourceId: referral.source_id,
                   sourceType: referral.source_type || "AD",
                   sourceUrl: referral.source_url,
-                  headline: referral.headline,
+                  headline: referral.headline || adAttribution?.adName,
                   body: referral.body,
                   ctwaClid: referral.ctwa_clid,
                   thumbnail: referral.image_url || referral.thumbnail_url,
                   channel: "meta",
-                  rawData: referral
+                  rawData: enrichedReferral
                 }
               });
+
+              logInfo(
+                `[META-CAMPAIGN-AUDIT] Resultado CampaignMessage Meta: ${JSON.stringify({
+                  created: Boolean(campaignMessage),
+                  campaignMessageId: campaignMessage?.id || null,
+                  companyId,
+                  ticketId: ticket.id,
+                  contactId: contact.id,
+                  messageId: savedMessage?.id || null,
+                  wid: message?.id || null,
+                  sourceId: referral.source_id || null,
+                  campaignName: adAttribution?.campaignName || null,
+                  ctwaClid: referral.ctwa_clid || null
+                })}`
+              );
+            } else {
+              await logCampaignMessageFlow("meta.campaign_metadata_missing", {
+                companyId,
+                ticketId: ticket.id,
+                contactId: contact.id,
+                whatsappId: whatsapp.id,
+                wid: message?.id || null,
+                fromMe,
+                messageType: message?.type || null,
+                hasTopLevelReferral: Boolean(message?.referral),
+                hasContextReferral: Boolean(message?.context?.referral),
+                rawMessage: message
+              });
+
+              logInfo(
+                `[META-CAMPAIGN-AUDIT] Inbound Meta sin referral CTWA: ${JSON.stringify({
+                  companyId,
+                  ticketId: ticket.id,
+                  contactId: contact.id,
+                  messageId: savedMessage?.id || null,
+                  wid: message?.id || null,
+                  type: message?.type || null,
+                  hasContext: Boolean(message?.context),
+                  hasTopLevelReferral: Boolean(message?.referral),
+                  hasContextReferral: Boolean(message?.context?.referral)
+                })}`
+              );
             }
             // ================= Fin detección de campaña =================
 
@@ -1207,10 +1717,65 @@ export const handleMetaWebhookMessage = async (body: any) => {
             // ═══════════════════════════════════════════════════════════════
 
             // 1. SUPERVISOR AI: Si promptId === 999 → ejecutar orquestador
-            const hasSupervisorAI = whatsapp.useAIOrchestrator === true;
+            const aiWhatsapp = effectiveWhatsapp || whatsapp;
+            const hasSupervisorAI = aiWhatsapp.useAIOrchestrator === true;
 
             if (hasSupervisorAI) {
-              logInfo(`[SupervisorAI] 🔍 INICIO - promptId=${whatsapp.promptId}, ticketId=${ticket.id}, isBot=${ticket.isBot}, status=${ticket.status}, userId=${ticket.userId}`);
+              logInfo(`[SupervisorAI] 🔍 INICIO - promptId=${aiWhatsapp.promptId}, ticketId=${ticket.id}, isBot=${ticket.isBot}, status=${ticket.status}, userId=${ticket.userId}`);
+
+              const AITurnLedgerService = require("../AIAgentServices/AITurnLedgerService").default;
+              const aiTurnId = AITurnLedgerService.createTurnId();
+              const logAITurn = (event: Record<string, any>) => {
+                void AITurnLedgerService.logEvent({
+                  turnId: aiTurnId,
+                  companyId,
+                  ticketId: ticket.id,
+                  contactId: contact?.id,
+                  whatsappId: aiWhatsapp?.id,
+                  channel: effectiveChannel || "meta",
+                  ...event
+                });
+              };
+              logAITurn({
+                eventType: "turn_started",
+                metadata: {
+                  source: "supervisor_ai_meta",
+                  providerMessageId: message?.id || null,
+                  effectiveChannel,
+                  ticketStatus: ticket.status,
+                  aiStatus: ticket.aiStatus,
+                  isBot: ticket.isBot
+                }
+              });
+
+              const AIExecutionGuardService = require("../AIAgentServices/AIExecutionGuardService").default;
+              const aiGuard = await AIExecutionGuardService.canRunSupervisorAI({
+                companyId,
+                ticketId: ticket.id,
+                whatsapp: aiWhatsapp,
+                whatsappId: aiWhatsapp?.id,
+                source: "supervisor_ai_meta"
+              });
+
+              if (!aiGuard.allowed) {
+                logInfo(
+                  `[SupervisorAI] ⛔ Bloqueado por guard: ticket=${ticket.id}, reason=${aiGuard.reason}`
+                );
+                logAITurn({
+                  eventType: "eligibility_checked",
+                  eventStatus: "blocked",
+                  reason: aiGuard.reason,
+                  metadata: { source: "AIExecutionGuardService" }
+                });
+                return;
+              }
+
+              logAITurn({
+                eventType: "eligibility_checked",
+                eventStatus: "ok",
+                reason: "guard_allowed",
+                metadata: { source: "AIExecutionGuardService" }
+              });
 
               // ✅ CONDICIONES PARA NO RESPONDER
               // ✅ CONDICIONES PARA NO RESPONDER
@@ -1219,6 +1784,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
               // 1. Si está desactivado manualmente (isBot = false)
               if (ticket.isBot === false) {
                 logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
+                logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "ticket_isbot_false" });
                 return;
               }
 
@@ -1227,30 +1793,40 @@ export const handleMetaWebhookMessage = async (body: any) => {
               // 2. Si tiene usuario asignado Y el bot NO está activo manualmente
               if (ticket.userId && !isBotActivo) {
                 logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} tiene usuario asignado - no responde`);
+                logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "human_assigned", metadata: { userId: ticket.userId } });
                 return;
               }
               // 3. Si está abierto Y el bot NO está activo manualmente
               if (ticket.status === 'open' && !isBotActivo) {
                 logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} está en estado open - no responde`);
+                logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "ticket_open_without_bot_override" });
                 return;
               }
               // 4. Si está cerrado
               if (ticket.status === 'closed') {
                 logInfo(`[SupervisorAI] ⛔ Ticket ${ticket.id} está cerrado - no responde`);
+                logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "ticket_closed" });
                 return;
               }
 
-              // console.log(`[SupervisorAI] 🤖 Iniciando agente IA para ticket=${ticket.id}`);
               try {
-                const body = getTextFromMetaMessage(message);
-                if (!body || body.trim().length === 0) {
-                  logInfo(`[SupervisorAI] ⛔ Mensaje vacío - no se procesa`);
+                const rawBody = getTextFromMetaMessage(message);
+                const aiInput = normalizeSupervisorAIText(rawBody);
+                if (!aiInput.text) {
+                  logInfo(`[SupervisorAI] ⛔ Entrada no textual omitida: ticket=${ticket.id}, reason=${aiInput.reason}, chars=${aiInput.originalChars}`);
+                  logAITurn({
+                    eventType: "prefilter_checked",
+                    eventStatus: "skipped",
+                    reason: aiInput.reason || "non_text_input",
+                    metadata: { originalBodyChars: aiInput.originalChars, sanitized: aiInput.wasSanitized }
+                  });
                   return;
                 }
 
+                const body = aiInput.text;
                 logInfo(`[SupervisorAI] 🔄 Cargando servicios IA...`);
-                const SupervisorService = require("../AIAgentServices/SupervisorService").default;
-                const SupervisorActionsService = require("../AIAgentServices/SupervisorActionsService").default;
+                const SupervisorService = (await import("../AIAgentServices/SupervisorService")).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge
+                const SupervisorActionsService = (await import("../AIAgentServices/SupervisorActionsService")).default; // fix 2026-07-10: idem
 
                 logInfo(`[SupervisorAI] 🔄 Obteniendo historial del ticket...`);
                 const Message = require("../../models/Message").default;
@@ -1261,19 +1837,43 @@ export const handleMetaWebhookMessage = async (body: any) => {
                 });
                 const ticketHistory = recentMessages.reverse().map((m: any) => ({
                   role: m.fromMe ? "assistant" : "user",
-                  content: m.body || ""
+                  content: normalizeSupervisorAIText(m.body || "").text || ""
                 }));
 
                 logInfo(`[SupervisorAI] 🔄 Ejecutando processMessage con: "${body.substring(0, 50)}..."`);
+                logAITurn({
+                  eventType: "prefilter_checked",
+                  eventStatus: "ok",
+                  reason: aiInput.wasSanitized ? (aiInput.reason || "body_sanitized") : "body_present",
+                  metadata: { bodyChars: body.length, originalBodyChars: aiInput.originalChars, sanitized: aiInput.wasSanitized }
+                });
                 const aiResponse = await SupervisorService.processMessage({
                   message: body,
                   companyId,
                   ticketId: ticket.id,
                   contactId: contact?.id,
-                  whatsappId: whatsapp?.id,
-                  ticketHistory
+                  whatsappId: aiWhatsapp?.id,
+                  ticketHistory,
+                  channel: effectiveChannel || "meta",
+                  turnId: aiTurnId
                 });
                 logInfo(`[SupervisorAI] ✅ processMessage completado: agent=${aiResponse.agentUsed}, intent=${aiResponse.intent}`);
+
+                if (aiResponse.skipSend) {
+                  logInfo(
+                    `[SupervisorAI] ⛔ skipSend=true, no se envía respuesta IA: ticket=${ticket.id}`
+                  );
+                  if (ticket.aiStatus !== 'passive') {
+                    await ticket.update({ aiStatus: 'passive' });
+                  }
+                  logAITurn({
+                    eventType: "send_result",
+                    eventStatus: "skipped",
+                    reason: "gatekeeper_skip_send",
+                    metadata: { gatekeeperDecision: aiResponse.gatekeeperDecision || null }
+                  });
+                  return;
+                }
 
                 if (aiResponse.shouldEscalate) {
                   logInfo(`[SupervisorAI] 🔄 Escalando a humano...`);
@@ -1289,7 +1889,7 @@ export const handleMetaWebhookMessage = async (body: any) => {
                   await SupervisorActionsService.escalateToHuman(
                     ticket.id,
                     companyId,
-                    whatsapp?.id,
+                    aiWhatsapp?.id,
                     aiResponse.escalationReason
                   );
 
@@ -1299,6 +1899,12 @@ export const handleMetaWebhookMessage = async (body: any) => {
                     ticket,
                     contact.number
                   );
+                  logAITurn({
+                    eventType: "send_result",
+                    eventStatus: "ok",
+                    reason: "escalated_to_human",
+                    metadata: { agentUsed: aiResponse.agentUsed, escalationReason: aiResponse.escalationReason }
+                  });
                 } else {
                   await SupervisorActionsService.saveAgentMessage({
                     ticketId: ticket.id,
@@ -1313,13 +1919,6 @@ export const handleMetaWebhookMessage = async (body: any) => {
                     shouldCreateAIAgentLog: true
                   });
 
-                  await SupervisorActionsService.classifyTicketStage(
-                    ticket.id,
-                    companyId,
-                    aiResponse.intent,
-                    aiResponse.agentUsed
-                  );
-
                   logInfo(`[SupervisorAI] Enviando respuesta: "${aiResponse.message.substring(0, 50)}..."`);
                   logInfo(`[SupervisorAI] Destinatario: ${contact.number.replace("+","")}, canal: ${effectiveChannel}`);
                   // Delay para evitar rate limit
@@ -1327,8 +1926,45 @@ export const handleMetaWebhookMessage = async (body: any) => {
                   try {
                     await sendByConfiguredChannel(aiResponse.message, ticket, contact.number);
                     logInfo(`[SupervisorAI] ✅ Respuesta enviada por ${effectiveChannel}`);
+                    logAITurn({
+                      eventType: "send_result",
+                      eventStatus: "ok",
+                      reason: "ai_response_sent",
+                      inputTokens: aiResponse.totalTokens?.input || 0,
+                      outputTokens: aiResponse.totalTokens?.output || 0,
+                      metadata: { agentUsed: aiResponse.agentUsed, intent: aiResponse.intent, effectiveChannel }
+                    });
+                    try {
+                      await SupervisorActionsService.classifyTicketStageAfterReplySent(
+                        ticket.id,
+                        companyId,
+                        aiResponse.intent,
+                        aiResponse.agentUsed,
+                        { conversionSource: `orchestrator_reply_sent_${effectiveChannel || "meta"}` }
+                      );
+                    } catch (stageError: any) {
+                      logWarn(`[SupervisorAI] Error clasificando Kanban post-envio: ${stageError.message}`);
+                    }
+                    try {
+                      const ZepMemoryService = require("../AIAgentServices/ZepMemoryService").default;
+                      ZepMemoryService.addConversationTurnAsync({
+                        companyId,
+                        ticketId: ticket.id,
+                        contactId: contact?.id,
+                        contactName: contact?.name,
+                        contactEmail: contact?.email,
+                        channel: effectiveChannel || "meta",
+                        userMessage: body,
+                        assistantMessage: aiResponse.message,
+                        agentUsed: aiResponse.agentUsed,
+                        intent: aiResponse.intent
+                      });
+                    } catch (zepError: any) {
+                      logWarn(`[SupervisorAI] Zep post-envio omitido: ${zepError.message}`);
+                    }
                   } catch (sendErr: any) {
                     logError(`[SupervisorAI] ❌ Error envío: ${sendErr.message}`);
+                    logAITurn({ eventType: "send_result", eventStatus: "error", reason: sendErr?.message || "send_error" });
                   }
                 }
 
@@ -1340,6 +1976,14 @@ export const handleMetaWebhookMessage = async (body: any) => {
                 return;
               } catch (err: any) {
                 logError(`[SupervisorAI] ❌ Error: ${err.message}`);
+                logAITurn({ eventType: "turn_failed", eventStatus: "error", reason: err?.message || "unknown_error" });
+                if (AIExecutionGuardService.isAIExecutionBillingError(err)) {
+                  logWarn(
+                    `[SupervisorAI] Error de saldo/créditos, no se envía fallback al cliente: ticket=${ticket.id}, error=${err.message}`
+                  );
+                  await ticket.update({ aiStatus: 'handoff', status: "pending" });
+                  return;
+                }
                 await new Promise(resolve => setTimeout(resolve, 2500));
                 await sendByConfiguredChannel("Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏", ticket, contact.number);
                 await ticket.update({ aiStatus: 'handoff', status: "pending" });
@@ -1356,7 +2000,7 @@ if (
   !!ticket.useIntegration
 ) {
   // 6) Flow / Integraciones (MISMA LÓGICA QUE TENÍAS)
-  const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped } });
+  const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
 
   let isMenu = false;
 
@@ -1435,7 +2079,10 @@ if (
             continue;
           }
           // FASE 2 Coexistencia — marcar ledger como procesado
-          await InboundEventLedgerService.markProcessed(ledgerEntryId);
+          await InboundEventLedgerService.markProcessed(ledgerEntryId, {
+            ticketId: processedTicketId,
+            messageId: processedMessageId
+          });
           // FASE 2 Coexistencia — liberar mutex distribuido
           if (metaLock?.acquired) await coexReleaseLock(metaLock);
         }
@@ -1465,7 +2112,6 @@ if (
 //   // 1) Contacto
 //   const contact = await verifyContactMeta(value);
 // const companyId = contact.companyId
-// console.log('contacto creado')
 //   // 2) Conexión (session)
 //   const whatsapp = await Whatsapp.findOne({
 //     where: {
@@ -1485,9 +2131,7 @@ if (
 //       ["queues", "chatbots", "id", "ASC"]
 //     ]
 //   });
-//   console.log('ws')
 //   const settings = await CompaniesSettings.findOne({ where: { companyId } });
-//   console.log('settinhs')
 //   // 3) Ticket (posicional, como pediste)
 //   const unreadCount = fromMe ? 0 : 1;
 //   const isFirstMsg = await Ticket.findOne({
@@ -1508,14 +2152,12 @@ if (
 //     false,
 //     settings
 //   );
-//   console.log('ticket creado')
 
 //   // 4) Guardar mensaje (texto o media)
 //   if (["image","audio","video","document","sticker"].includes(message?.type)) {
 //     await verifyMessageMetaMedia(message, ticket, contact, whatsapp!.tokenMeta, fromMe);
 //   } else {
 //     await verifyMessageMetaText(message, ticket, contact, fromMe);
-//     console.log('msg creado')
 //   }
 
 //   // 5) Reglas de LGPD/NPS/etc. (si aplican igual que FB, puedes copiar aquí tus bloques exactos)
@@ -1557,7 +2199,7 @@ if (
 
 //   // 7) Flow/Integraciones (idéntico a FB)
 //   const flow = await FlowBuilderModel.findOne({
-//     where: { id: ticket.flowStopped }
+//     where: { id: ticket.flowStopped, active: true }
 //   });
 
 //   let isMenu = false;

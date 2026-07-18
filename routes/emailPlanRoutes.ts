@@ -20,16 +20,23 @@ import * as EmailPlanController from "../controllers/EmailPlanController";
 const emailPlanRoutes = Router();
 
 // ============================================================
-// PÚBLICO - Planes disponibles
+// PÚBLICO - Listado de planes disponibles
 // ============================================================
 emailPlanRoutes.get("/email-plans", EmailPlanController.listEmailPlans);
-emailPlanRoutes.get("/email-plans/:id", EmailPlanController.getEmailPlan);
 
 // ============================================================
 // AUTH - Company
+// IMPORTANTE: estas rutas fijas ("balance"/"usage") DEBEN declararse
+// ANTES de la paramétrica "/:id"; de lo contrario Express captura
+// "balance"/"usage" como :id (Number("balance")=NaN) y responde 400.
 // ============================================================
 emailPlanRoutes.get("/email-plans/balance", isAuth, EmailPlanController.getEmailBalance);
 emailPlanRoutes.get("/email-plans/usage", isAuth, EmailPlanController.getEmailUsage);
+
+// ============================================================
+// PÚBLICO - Plan específico (paramétrica: va DESPUÉS de las rutas fijas)
+// ============================================================
+emailPlanRoutes.get("/email-plans/:id", EmailPlanController.getEmailPlan);
 
 // ============================================================
 // SUPERADMIN - CRUD de planes

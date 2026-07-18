@@ -6,7 +6,16 @@ import UpdateWebChatWidgetService from "../services/WebChatWidgetServices/Update
 import DeleteWebChatWidgetService from "../services/WebChatWidgetServices/DeleteWebChatWidgetService";
 import GetWidgetByApiKeyService from "../services/WebChatWidgetServices/GetWidgetByApiKeyService";
 import GetWebChatAnalyticsService from "../services/WebChatWidgetServices/GetWebChatAnalyticsService";
-import ProcessWebChatMessageService from "../services/WebChatWidgetServices/ProcessWebChatMessageService";
+import {
+  createAgentMessage,
+  createPublicMessage,
+  getPublicMessages,
+  isWebChatOriginAllowed,
+  listConversations,
+  listMessages,
+  markConversationAsRead,
+  updateConversationStatus
+} from "../services/WebChatWidgetServices/WebChatConversationService";
 
 // Crear widget
 export const store = async (req: Request, res: Response): Promise<Response> => {
@@ -176,32 +185,12 @@ export const getPublicConfig = async (req: Request, res: Response): Promise<Resp
   try {
     const widget = await GetWidgetByApiKeyService({ apiKey });
 
-    // Parsear allowedDomains si existe
-    let allowedDomains: string[] = [];
-    if (widget.allowedDomains) {
-      try {
-        let parsed = JSON.parse(widget.allowedDomains);
-        // Si el resultado es un string (doble serialización), parsear de nuevo
-        if (typeof parsed === 'string') {
-          parsed = JSON.parse(parsed);
-        }
-        // Verificar que sea un array
-        allowedDomains = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        allowedDomains = [];
-      }
-    }
-
-    // Validar dominio de origen si hay restricciones
-    const origin = req.headers.origin || req.headers.referer || "";
-    if (allowedDomains.length > 0) {
-      const originHost = new URL(origin || "http://localhost").hostname;
-      const isAllowed = allowedDomains.some(domain =>
-        originHost === domain || originHost.endsWith(`.${domain}`)
-      );
-      if (!isAllowed) {
-        return res.status(403).json({ error: "Domain not allowed" });
-      }
+    if (!isWebChatOriginAllowed(
+      widget,
+      String(req.headers.origin || ""),
+      String(req.headers.referer || "")
+    )) {
+      return res.status(403).json({ error: "Domain not allowed" });
     }
 
     // Retornar solo configuración pública (sin apiKey ni datos sensibles)
@@ -255,30 +244,118 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
 
 // Procesar mensaje entrante del widget (sin auth - público)
 export const processPublicMessage = async (req: Request, res: Response): Promise<Response> => {
-  const { widgetApiKey, sessionId, contactName, contactEmail, contactPhone, message } = req.body;
+  const { widgetApiKey, sessionId, message, pageUrl } = req.body;
 
   if (!widgetApiKey || !message) {
     return res.status(400).json({ error: "widgetApiKey and message are required" });
   }
 
   try {
-    const result = await ProcessWebChatMessageService({
+    const result = await createPublicMessage({
       widgetApiKey,
       sessionId: sessionId || `wc_${Date.now()}`,
-      contactName: contactName || "Visitante Web",
-      contactEmail,
-      contactPhone,
-      message
+      message,
+      origin: String(req.headers.origin || ""),
+      referer: String(req.headers.referer || ""),
+      pageUrl,
+      userAgent: String(req.headers["user-agent"] || ""),
+      ipAddress: req.ip
     });
 
     return res.status(200).json({
       success: true,
-      ticketId: result.ticket.id,
-      messageId: result.message.id,
-      contactId: result.contact.id
+      conversationId: result.conversation.id,
+      messageId: result.message.id
     });
   } catch (error: any) {
     console.error("Error processing webchat message:", error);
-    return res.status(400).json({ error: error.message || "Error processing message" });
+    return res.status(error.statusCode || 400).json({ error: error.message || "Error processing message" });
   }
+};
+
+export const publicMessages = async (req: Request, res: Response): Promise<Response> => {
+  const { apiKey, sessionId } = req.params;
+  const afterId = req.query.afterId ? Number(req.query.afterId) : undefined;
+
+  try {
+    const result = await getPublicMessages({
+      widgetApiKey: apiKey,
+      sessionId,
+      afterId,
+      origin: String(req.headers.origin || ""),
+      referer: String(req.headers.referer || "")
+    });
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    return res.status(error.statusCode || 400).json({ error: error.message });
+  }
+};
+
+export const conversations = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { status, search, startDate, endDate } = req.query;
+
+  const records = await listConversations({
+    companyId,
+    status: status as string,
+    search: search as string,
+    startDate: startDate as string,
+    endDate: endDate as string
+  });
+
+  return res.status(200).json({ records, count: records.length });
+};
+
+export const conversationMessages = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { id } = req.params;
+
+  const records = await listMessages({
+    conversationId: Number(id),
+    companyId
+  });
+
+  return res.status(200).json({ records, count: records.length });
+};
+
+export const sendConversationMessage = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId, id: userId } = req.user;
+  const { id } = req.params;
+  const { message } = req.body;
+
+  const record = await createAgentMessage({
+    conversationId: Number(id),
+    companyId,
+    senderId: Number(userId),
+    message
+  });
+
+  return res.status(201).json(record);
+};
+
+export const readConversation = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { id } = req.params;
+
+  const record = await markConversationAsRead({
+    conversationId: Number(id),
+    companyId
+  });
+
+  return res.status(200).json(record);
+};
+
+export const setConversationStatus = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const record = await updateConversationStatus({
+    conversationId: Number(id),
+    companyId,
+    status
+  });
+
+  return res.status(200).json(record);
 };

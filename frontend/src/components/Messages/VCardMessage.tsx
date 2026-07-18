@@ -15,6 +15,20 @@ interface ParsedContact {
   waid?: string
 }
 
+function unescapeVCardText(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .replace(/\\\\/g, '\\')
+    .trim()
+}
+
+function parseStructuredName(value: string): string {
+  const [lastName = '', firstName = ''] = value.split(';')
+  return unescapeVCardText(`${firstName} ${lastName}`.trim()) || 'Contacto'
+}
+
 function parseVCards(body: string): ParsedContact[] {
   // Split múltiples vCards
   const vcardBlocks = body.split(/(?=BEGIN:VCARD)/)
@@ -24,8 +38,13 @@ function parseVCards(body: string): ParsedContact[] {
     if (!block.includes('BEGIN:VCARD')) continue
 
     // Extraer FN (full name)
-    const fnMatch = block.match(/(?:FN|N):(.+)/)
-    const fullName = fnMatch ? fnMatch[1].trim() : 'Contacto'
+    const fnMatch = block.match(/^FN(?:;[^:]*)?:(.+)$/m)
+    const nMatch = block.match(/^N(?:;[^:]*)?:(.+)$/m)
+    const fullName = fnMatch
+      ? unescapeVCardText(fnMatch[1])
+      : nMatch
+        ? parseStructuredName(nMatch[1])
+        : 'Contacto'
 
     // Extraer TEL con waid opcional
     const telMatch = block.match(/TEL[^:]*:([+]?[0-9 ]+)/)

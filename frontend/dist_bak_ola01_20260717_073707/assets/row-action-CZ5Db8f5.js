@@ -1,0 +1,1 @@
+import{j as r}from"./mui-joy-Cm1uuCLm.js";import{c as n}from"./index-WLJDo6y_.js";function i({label:t,className:e,children:o}){return r.jsx("button",{type:"button","aria-label":t,title:t,className:n("flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",e),children:o})}export{i as R};

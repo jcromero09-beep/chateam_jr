@@ -72,6 +72,10 @@ class QuickMessage extends Model<QuickMessage> {
   @Column(DataType.STRING(100))
   intent: string;
 
+  /** Key estable para clasificar cuándo debe usarse (ej: location_question) */
+  @Column(DataType.STRING(80))
+  intentKey: string;
+
   /** Embedding vectorial del campo intent (para búsqueda semántica pgvector) */
   @Column(DataType.ARRAY(DataType.FLOAT))
   intentEmbedding: number[];

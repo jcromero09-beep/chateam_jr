@@ -14,6 +14,7 @@ import {
   Index
 } from "sequelize-typescript";
 import Company from "./Company";
+import AITeamMember from "./AITeamMember";
 
 @Table({
   tableName: "AITeams",
@@ -74,7 +75,7 @@ class AITeam extends Model<AITeam> {
   @BelongsTo(() => Company)
   company!: Company;
 
-  @HasMany(() => require("./AITeamMember").default)
+  @HasMany(() => AITeamMember)
   members!: any[];
 }
 

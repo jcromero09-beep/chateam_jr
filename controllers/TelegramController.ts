@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
 import Whatsapp from "../models/Whatsapp";
@@ -508,7 +512,7 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
         // });
 
         // Buscar primero en modelo WhatsApp (para cuando se migre)
-        let whatsapp = await Whatsapp.findOne({
+        const whatsapp = await Whatsapp.findOne({
             where: {
                 id: telegramId,
                 channel: "telegram"

@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { maskPhone } from "../utils/redact";
 
 const require = createRequire(import.meta.url);
 
@@ -561,14 +562,9 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 
   if (image_url) {
     // 1) Debug inicial
-    //console.log("🚀 [Debug] entrando en image_url block");
-    //console.log("   image_url:", image_url);
-    //console.log("   image_caption:", image_caption);
-    //console.log("   image_name:", image_name);
 
     const jid = `${newContact.number}@${newContact.number.length > 17 ? "g.us" : "s.whatsapp.net"
       }`;
-    //console.log("   target jid:", jid);
 
     // 2) Construye opciones y comprueba
     const imgOptions: any = {
@@ -576,12 +572,10 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
       caption: image_caption ? `\u200e ${image_caption.trim()}` : undefined,
       ...(image_name ? { fileName: image_name } : {}),
     };
-    //console.log("   imgOptions:", imgOptions);
 
     // 3) Intenta enviar y captura errores
     try {
       const sent = await wbot.sendMessage(jid, imgOptions);
-      //console.log("✅ [Debug] imagen enviada OK:", sent);
       return res.send({ status: "SUCCESS", via: "image_url" });
     } catch (err: any) {
       console.error("❌ [Debug] fallo al enviar imagen:", err);
@@ -651,7 +645,6 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
           })
         )
       } catch (error) {
-        ////console.log(medias)
         throw new AppError("Error al enviar medios API: " + error.message);
       }
     } else {
@@ -1435,7 +1428,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
   const { number, template_id, params = [], button_params = [], webhookUrl, externalId } = req.body;
 
   logInfo("📥 [API-TEMPLATE] Datos extraídos del body:");
-  console.log("   - number:", number, `(tipo: ${typeof number})`);
+  console.log("   - number:", maskPhone(number), `(tipo: ${typeof number})`);
   console.log("   - template_id:", template_id, `(tipo: ${typeof template_id})`);
   console.log("   - params:", JSON.stringify(params), `(tipo: ${typeof params}, es array: ${Array.isArray(params)}, length: ${params?.length || 0})`);
   console.log("   - button_params:", JSON.stringify(button_params), `(tipo: ${typeof button_params}, es array: ${Array.isArray(button_params)}, length: ${button_params?.length || 0})`);

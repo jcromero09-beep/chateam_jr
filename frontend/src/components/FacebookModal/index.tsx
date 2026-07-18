@@ -88,35 +88,55 @@ export default function FacebookModal({ open, onClose, onSuccess }: FacebookModa
       return
     }
 
+    const loginOptions = {
+      // [Fase2·A1.1] ads_read/ads_management (autorizado por JC): sin ellos hay que pegar
+      // un System User Token a mano para leer campañas/gasto (ROAS), la Dataset Quality
+      // API (EMQ) y para crear/editar/pausar campañas desde la app.
+      scope: 'public_profile,pages_messaging,pages_show_list,pages_manage_metadata,pages_read_engagement,business_management,ads_read,ads_management',
+    }
+
+    console.log('[FacebookModal] FB.login start', {
+      facebookAppId,
+      scope: loginOptions.scope,
+    })
+
     setLoading(true)
 
     window.FB.login(
-      async (response: any) => {
+      (response: any) => {
+        console.log('[FacebookModal] FB.login response', {
+          status: response?.status,
+          hasAuthResponse: Boolean(response?.authResponse),
+          hasAccessToken: Boolean(response?.authResponse?.accessToken),
+          grantedScopes: response?.authResponse?.grantedScopes,
+        })
+
         if (response.authResponse) {
           const { accessToken, userID } = response.authResponse
 
-          try {
-            await api.post('/facebook', {
+          api.post('/facebook', {
               facebookUserId: userID,
               facebookUserToken: accessToken,
             })
-
-            toast.success('Facebook conectado exitosamente')
-            onClose()
-            onSuccess?.()
-          } catch (error: any) {
-            console.error('Error connecting Facebook:', error)
-            const message = error.response?.data?.error || 'Error al conectar Facebook'
-            toast.error(message)
-          }
+            .then(() => {
+              toast.success('Facebook conectado exitosamente')
+              onClose()
+              onSuccess?.()
+            })
+            .catch((error: any) => {
+              console.error('Error connecting Facebook:', error)
+              const message = error.response?.data?.error || 'Error al conectar Facebook'
+              toast.error(message)
+            })
+            .finally(() => {
+              setLoading(false)
+            })
         } else {
           toast.error('Inicio de sesion cancelado')
+          setLoading(false)
         }
-        setLoading(false)
       },
-      {
-        scope: 'public_profile,pages_messaging,pages_show_list,pages_manage_metadata,pages_read_engagement,business_management',
-      }
+      loginOptions
     )
   }
 

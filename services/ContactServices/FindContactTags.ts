@@ -7,7 +7,7 @@ type Param = {
 const FindContactTags = async ({
     contactId
   }: Param): Promise<ContactTag[]> => {
-    let where: any = {
+    const where: any = {
         contactId
       };
   const contactsTags = await ContactTag.findAll({

@@ -1,36 +1,133 @@
 import { useState } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Switch,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Select,
-  Option,
-  Textarea,
-  Divider,
-  Alert,
-  Chip,
-} from '@mui/joy'
+  Gear,
+  FloppyDisk,
+  ShieldCheck,
+  Bell,
+  ArrowCounterClockwise,
+  CheckCircle,
+  XCircle,
+  Lock,
+  Key,
+  Warning,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
-  Settings as SettingsIcon,
-  Save as SaveIcon,
-  Security as SecurityIcon,
-  Notifications as NotificationsIcon,
-  RestartAlt as ResetIcon,
-  CheckCircle as CheckCircleIcon,
-  Lock as LockIcon,
-  VpnKey as KeyIcon,
-} from '@mui/icons-material'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+
+// [Fase2·G] Interruptor accesible (role=switch) — el design system no expone un Switch.
+function Toggle({
+  checked,
+  onCheckedChange,
+  label,
+  size = 'md',
+  id,
+  disabled,
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  label: string
+  size?: 'sm' | 'md'
+  id?: string
+  disabled?: boolean
+}) {
+  const sm = size === 'sm'
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        'relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 p-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55',
+        sm ? 'h-6 w-11' : 'h-6 w-11',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'inline-block rounded-full bg-card shadow-sm transition-transform',
+          sm ? 'size-4' : 'size-5',
+          checked ? (sm ? 'translate-x-[22px]' : 'translate-x-[22px]') : 'translate-x-0.5',
+        )}
+      />
+    </button>
+  )
+}
+
+// Encabezado de sección + separador (reemplaza Typography level="title-md" + Divider).
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="col-span-12">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        {children}
+      </h3>
+      <div className="mt-2 border-t border-border" />
+    </div>
+  )
+}
+
+// Fila etiqueta (+ descripción) con interruptor a la derecha.
+function ToggleRow({
+  id,
+  label,
+  description,
+  checked,
+  onCheckedChange,
+  disabled,
+}: {
+  id: string
+  label: string
+  description?: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-4 rounded-lg border border-border bg-background/40 px-3.5 py-3',
+        disabled && 'opacity-55',
+      )}
+    >
+      <div className="min-w-0">
+        <Label htmlFor={id}>{label}</Label>
+        {description && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+      <Toggle
+        id={id}
+        label={label}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
+    </div>
+  )
+}
+
+// Texto de ayuda bajo un campo (reemplaza Typography level="body-xs").
+function Hint({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs text-muted-foreground">{children}</p>
+}
+
+const textareaClass =
+  'w-full rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-55'
 
 export default function IntegrationsSettings() {
   const [generalConfig, setGeneralConfig] = useState({
@@ -98,777 +195,765 @@ export default function IntegrationsSettings() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SettingsIcon sx={{ fontSize: 32 }} />
-            Configuración Global de Integraciones
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Configuración centralizada para todas las integraciones empresariales
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<ResetIcon />} onClick={handleResetDefaults}>
-            Restaurar Defaults
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Gear className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Configuración Global de Integraciones
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Configuración centralizada para todas las integraciones empresariales
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleResetDefaults}>
+              <ArrowCounterClockwise className="size-4" aria-hidden />
+              Restaurar Defaults
+            </Button>
+          </div>
+        </div>
 
-      {/* Estado General */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Typography level="title-lg" sx={{ mb: 0.5 }}>
+        {/* Estado General */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">
                 Estado del Sistema de Integraciones
-              </Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
                 Control maestro para habilitar o deshabilitar todas las integraciones
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Chip
-                color={generalConfig.globalEnabled ? 'success' : 'danger'}
-                size="lg"
-                startDecorator={<CheckCircleIcon />}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge
+                variant={generalConfig.globalEnabled ? 'success' : 'destructive'}
+                className="px-3 py-1.5 text-sm"
               >
+                {generalConfig.globalEnabled ? (
+                  <CheckCircle className="size-4" weight="fill" aria-hidden />
+                ) : (
+                  <XCircle className="size-4" weight="fill" aria-hidden />
+                )}
                 {generalConfig.globalEnabled ? 'Sistema Activo' : 'Sistema Deshabilitado'}
-              </Chip>
-              <Switch
+              </Badge>
+              <Toggle
+                label="Habilitar todas las integraciones"
                 checked={generalConfig.globalEnabled}
-                onChange={(e) => setGeneralConfig({ ...generalConfig, globalEnabled: e.target.checked })}
-                size="lg"
+                onCheckedChange={(checked) =>
+                  setGeneralConfig({ ...generalConfig, globalEnabled: checked })
+                }
               />
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
+            </div>
+          </div>
+        </div>
 
-      {/* Tabs de Configuración */}
-      <Tabs defaultValue={0}>
-        <TabList>
-          <Tab>General</Tab>
-          <Tab>Seguridad</Tab>
-          <Tab>Notificaciones</Tab>
-        </TabList>
+        {/* Tabs de Configuración */}
+        <Tabs defaultValue="general">
+          <TabsList>
+            <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="security">Seguridad</TabsTrigger>
+            <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
+          </TabsList>
 
-        {/* Tab General */}
-        <TabPanel value={0}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" sx={{ mb: 3 }}>
+          {/* Tab General */}
+          <TabsContent value="general" className="mt-4">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+              <h2 className="mb-5 text-base font-semibold text-foreground">
                 Configuración General
-              </Typography>
+              </h2>
 
-              <Grid container spacing={3}>
+              <div className="grid grid-cols-12 gap-x-4 gap-y-5">
                 {/* Retry Policy */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2 }}>
-                    Política de Reintentos
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Política de Reintentos</SectionTitle>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Estrategia de Reintentos</FormLabel>
-                    <Select
-                      value={generalConfig.retryPolicy}
-                      onChange={(_, value) => setGeneralConfig({ ...generalConfig, retryPolicy: value as string })}
-                    >
-                      <Option value="none">Sin reintentos</Option>
-                      <Option value="linear">Lineal (intervalo fijo)</Option>
-                      <Option value="exponential">Exponencial (backoff)</Option>
-                      <Option value="fibonacci">Fibonacci</Option>
-                    </Select>
-                    <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                      Estrategia de reintentos ante fallos
-                    </Typography>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="retry-policy">Estrategia de Reintentos</Label>
+                  <Select
+                    value={generalConfig.retryPolicy}
+                    onValueChange={(value) =>
+                      setGeneralConfig({ ...generalConfig, retryPolicy: value })
+                    }
+                  >
+                    <SelectTrigger id="retry-policy" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin reintentos</SelectItem>
+                      <SelectItem value="linear">Lineal (intervalo fijo)</SelectItem>
+                      <SelectItem value="exponential">Exponencial (backoff)</SelectItem>
+                      <SelectItem value="fibonacci">Fibonacci</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Hint>Estrategia de reintentos ante fallos</Hint>
+                </div>
 
-                <Grid xs={12} md={3}>
-                  <FormControl>
-                    <FormLabel>Máximo de Reintentos</FormLabel>
-                    <Input
-                      type="number"
-                      value={generalConfig.maxRetries}
-                      onChange={(e) => setGeneralConfig({ ...generalConfig, maxRetries: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 0, max: 10 } }}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-3">
+                  <Label htmlFor="max-retries">Máximo de Reintentos</Label>
+                  <Input
+                    id="max-retries"
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={generalConfig.maxRetries}
+                    onChange={(e) =>
+                      setGeneralConfig({ ...generalConfig, maxRetries: parseInt(e.target.value) })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12} md={3}>
-                  <FormControl>
-                    <FormLabel>Retraso Inicial (segundos)</FormLabel>
-                    <Input
-                      type="number"
-                      value={generalConfig.retryDelay}
-                      onChange={(e) => setGeneralConfig({ ...generalConfig, retryDelay: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 1, max: 60 } }}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-3">
+                  <Label htmlFor="retry-delay">Retraso Inicial (segundos)</Label>
+                  <Input
+                    id="retry-delay"
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={generalConfig.retryDelay}
+                    onChange={(e) =>
+                      setGeneralConfig({ ...generalConfig, retryDelay: parseInt(e.target.value) })
+                    }
+                  />
+                </div>
 
                 {/* Timeouts y Conexiones */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Timeouts y Conexiones
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Timeouts y Conexiones</SectionTitle>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Timeout Global (segundos)</FormLabel>
-                    <Input
-                      type="number"
-                      value={generalConfig.timeout}
-                      onChange={(e) => setGeneralConfig({ ...generalConfig, timeout: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 5, max: 300 } }}
-                    />
-                    <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                      Tiempo máximo de espera para todas las peticiones
-                    </Typography>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="timeout">Timeout Global (segundos)</Label>
+                  <Input
+                    id="timeout"
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={generalConfig.timeout}
+                    onChange={(e) =>
+                      setGeneralConfig({ ...generalConfig, timeout: parseInt(e.target.value) })
+                    }
+                  />
+                  <Hint>Tiempo máximo de espera para todas las peticiones</Hint>
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Máximo de Conexiones Simultáneas</FormLabel>
-                    <Input
-                      type="number"
-                      value={generalConfig.maxConnections}
-                      onChange={(e) => setGeneralConfig({ ...generalConfig, maxConnections: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 1, max: 100 } }}
-                    />
-                    <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                      Número máximo de conexiones concurrentes por integración
-                    </Typography>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="max-connections">Máximo de Conexiones Simultáneas</Label>
+                  <Input
+                    id="max-connections"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={generalConfig.maxConnections}
+                    onChange={(e) =>
+                      setGeneralConfig({
+                        ...generalConfig,
+                        maxConnections: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                  <Hint>Número máximo de conexiones concurrentes por integración</Hint>
+                </div>
 
                 {/* Rate Limiting */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Rate Limiting
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Rate Limiting</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Rate Limiting</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Limita el número de peticiones por ventana de tiempo
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={generalConfig.rateLimitEnabled}
-                        onChange={(e) => setGeneralConfig({ ...generalConfig, rateLimitEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="rate-limit-enabled"
+                    label="Habilitar Rate Limiting"
+                    description="Limita el número de peticiones por ventana de tiempo"
+                    checked={generalConfig.rateLimitEnabled}
+                    onCheckedChange={(checked) =>
+                      setGeneralConfig({ ...generalConfig, rateLimitEnabled: checked })
+                    }
+                  />
+                </div>
 
                 {generalConfig.rateLimitEnabled && (
                   <>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Máximo de Peticiones</FormLabel>
-                        <Input
-                          type="number"
-                          value={generalConfig.rateLimitRequests}
-                          onChange={(e) => setGeneralConfig({ ...generalConfig, rateLimitRequests: parseInt(e.target.value) })}
-                          slotProps={{ input: { min: 1, max: 10000 } }}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="col-span-12 space-y-1.5 md:col-span-6">
+                      <Label htmlFor="rate-limit-requests">Máximo de Peticiones</Label>
+                      <Input
+                        id="rate-limit-requests"
+                        type="number"
+                        min={1}
+                        max={10000}
+                        value={generalConfig.rateLimitRequests}
+                        onChange={(e) =>
+                          setGeneralConfig({
+                            ...generalConfig,
+                            rateLimitRequests: parseInt(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
 
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Ventana de Tiempo (segundos)</FormLabel>
-                        <Input
-                          type="number"
-                          value={generalConfig.rateLimitWindow}
-                          onChange={(e) => setGeneralConfig({ ...generalConfig, rateLimitWindow: parseInt(e.target.value) })}
-                          slotProps={{ input: { min: 1, max: 3600 } }}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="col-span-12 space-y-1.5 md:col-span-6">
+                      <Label htmlFor="rate-limit-window">Ventana de Tiempo (segundos)</Label>
+                      <Input
+                        id="rate-limit-window"
+                        type="number"
+                        min={1}
+                        max={3600}
+                        value={generalConfig.rateLimitWindow}
+                        onChange={(e) =>
+                          setGeneralConfig({
+                            ...generalConfig,
+                            rateLimitWindow: parseInt(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
                   </>
                 )}
 
                 {/* Logging y Monitoring */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Logging y Monitoreo
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Logging y Monitoreo</SectionTitle>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Nivel de Log</FormLabel>
-                    <Select
-                      value={generalConfig.logLevel}
-                      onChange={(_, value) => setGeneralConfig({ ...generalConfig, logLevel: value as string })}
-                    >
-                      <Option value="error">Error</Option>
-                      <Option value="warn">Warning</Option>
-                      <Option value="info">Info</Option>
-                      <Option value="debug">Debug</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="log-level">Nivel de Log</Label>
+                  <Select
+                    value={generalConfig.logLevel}
+                    onValueChange={(value) =>
+                      setGeneralConfig({ ...generalConfig, logLevel: value })
+                    }
+                  >
+                    <SelectTrigger id="log-level" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="error">Error</SelectItem>
+                      <SelectItem value="warn">Warning</SelectItem>
+                      <SelectItem value="info">Info</SelectItem>
+                      <SelectItem value="debug">Debug</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Intervalo Health Check (minutos)</FormLabel>
-                    <Input
-                      type="number"
-                      value={generalConfig.healthCheckInterval}
-                      onChange={(e) => setGeneralConfig({ ...generalConfig, healthCheckInterval: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 1, max: 60 } }}
-                      disabled={!generalConfig.enableHealthCheck}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="health-check-interval">Intervalo Health Check (minutos)</Label>
+                  <Input
+                    id="health-check-interval"
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={generalConfig.healthCheckInterval}
+                    disabled={!generalConfig.enableHealthCheck}
+                    onChange={(e) =>
+                      setGeneralConfig({
+                        ...generalConfig,
+                        healthCheckInterval: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Habilitar Métricas de Performance</FormLabel>
-                      <Switch
-                        checked={generalConfig.enableMetrics}
-                        onChange={(e) => setGeneralConfig({ ...generalConfig, enableMetrics: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="enable-metrics"
+                    label="Habilitar Métricas de Performance"
+                    checked={generalConfig.enableMetrics}
+                    onCheckedChange={(checked) =>
+                      setGeneralConfig({ ...generalConfig, enableMetrics: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Habilitar Health Check Automático</FormLabel>
-                      <Switch
-                        checked={generalConfig.enableHealthCheck}
-                        onChange={(e) => setGeneralConfig({ ...generalConfig, enableHealthCheck: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="enable-health-check"
+                    label="Habilitar Health Check Automático"
+                    checked={generalConfig.enableHealthCheck}
+                    onCheckedChange={(checked) =>
+                      setGeneralConfig({ ...generalConfig, enableHealthCheck: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-                    <Button variant="outlined" onClick={handleResetDefaults}>
-                      Restablecer
-                    </Button>
-                    <Button startDecorator={<SaveIcon />} onClick={handleSaveGeneral}>
-                      Guardar Configuración
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </TabPanel>
+                <div className="col-span-12 flex justify-end gap-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={handleResetDefaults}>
+                    Restablecer
+                  </Button>
+                  <Button size="sm" onClick={handleSaveGeneral}>
+                    <FloppyDisk className="size-4" aria-hidden />
+                    Guardar Configuración
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
 
-        {/* Tab Seguridad */}
-        <TabPanel value={1}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" startDecorator={<SecurityIcon />} sx={{ mb: 3 }}>
+          {/* Tab Seguridad */}
+          <TabsContent value="security" className="mt-4">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+              <h2 className="mb-5 flex items-center gap-2 text-base font-semibold text-foreground">
+                <ShieldCheck className="size-5 text-muted-foreground" aria-hidden />
                 Configuración de Seguridad
-              </Typography>
+              </h2>
 
-              <Alert color="warning" sx={{ mb: 3 }}>
-                <Typography level="body-sm" fontWeight="lg">
-                  Advertencia de Seguridad
-                </Typography>
-                <Typography level="body-xs">
-                  Los cambios en la configuración de seguridad pueden afectar todas las integraciones activas.
-                  Asegúrese de probar en un ambiente de desarrollo antes de aplicar en producción.
-                </Typography>
-              </Alert>
+              <div
+                role="alert"
+                className="mb-6 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/14 px-4 py-3 text-warning-text"
+              >
+                <Warning className="mt-0.5 size-[18px] shrink-0" aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold">Advertencia de Seguridad</p>
+                  <p className="mt-0.5 text-xs">
+                    Los cambios en la configuración de seguridad pueden afectar todas las
+                    integraciones activas. Asegúrese de probar en un ambiente de desarrollo antes
+                    de aplicar en producción.
+                  </p>
+                </div>
+              </div>
 
-              <Grid container spacing={3}>
+              <div className="grid grid-cols-12 gap-x-4 gap-y-5">
                 {/* Encriptación */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2 }}>
-                    Encriptación
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Encriptación</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Encriptación de Datos</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Encripta datos sensibles en tránsito y almacenamiento
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={securityConfig.encryptionEnabled}
-                        onChange={(e) => setSecurityConfig({ ...securityConfig, encryptionEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="encryption-enabled"
+                    label="Habilitar Encriptación de Datos"
+                    description="Encripta datos sensibles en tránsito y almacenamiento"
+                    checked={securityConfig.encryptionEnabled}
+                    onCheckedChange={(checked) =>
+                      setSecurityConfig({ ...securityConfig, encryptionEnabled: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Algoritmo de Encriptación</FormLabel>
-                    <Select
-                      value={securityConfig.encryptionAlgorithm}
-                      onChange={(_, value) => setSecurityConfig({ ...securityConfig, encryptionAlgorithm: value as string })}
-                      disabled={!securityConfig.encryptionEnabled}
-                      startDecorator={<LockIcon />}
-                    >
-                      <Option value="AES-128">AES-128</Option>
-                      <Option value="AES-256">AES-256 (Recomendado)</Option>
-                      <Option value="RSA-2048">RSA-2048</Option>
-                      <Option value="RSA-4096">RSA-4096</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="encryption-algorithm">Algoritmo de Encriptación</Label>
+                  <Select
+                    value={securityConfig.encryptionAlgorithm}
+                    onValueChange={(value) =>
+                      setSecurityConfig({ ...securityConfig, encryptionAlgorithm: value })
+                    }
+                    disabled={!securityConfig.encryptionEnabled}
+                  >
+                    <SelectTrigger id="encryption-algorithm" className="h-11">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Lock className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                        <SelectValue />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="AES-128">AES-128</SelectItem>
+                      <SelectItem value="AES-256">AES-256 (Recomendado)</SelectItem>
+                      <SelectItem value="RSA-2048">RSA-2048</SelectItem>
+                      <SelectItem value="RSA-4096">RSA-4096</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Versión TLS</FormLabel>
-                    <Select
-                      value={securityConfig.tlsVersion}
-                      onChange={(_, value) => setSecurityConfig({ ...securityConfig, tlsVersion: value as string })}
-                    >
-                      <Option value="1.2">TLS 1.2</Option>
-                      <Option value="1.3">TLS 1.3 (Recomendado)</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="tls-version">Versión TLS</Label>
+                  <Select
+                    value={securityConfig.tlsVersion}
+                    onValueChange={(value) =>
+                      setSecurityConfig({ ...securityConfig, tlsVersion: value })
+                    }
+                  >
+                    <SelectTrigger id="tls-version" className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1.2">TLS 1.2</SelectItem>
+                      <SelectItem value="1.3">TLS 1.3 (Recomendado)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 {/* Autenticación */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Autenticación
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Autenticación</SectionTitle>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Método de Autenticación</FormLabel>
-                    <Select
-                      value={securityConfig.authMethod}
-                      onChange={(_, value) => setSecurityConfig({ ...securityConfig, authMethod: value as string })}
-                      startDecorator={<KeyIcon />}
-                    >
-                      <Option value="api-key">API Key</Option>
-                      <Option value="oauth2">OAuth 2.0</Option>
-                      <Option value="jwt">JWT Token</Option>
-                      <Option value="basic">Basic Auth</Option>
-                    </Select>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="auth-method">Método de Autenticación</Label>
+                  <Select
+                    value={securityConfig.authMethod}
+                    onValueChange={(value) =>
+                      setSecurityConfig({ ...securityConfig, authMethod: value })
+                    }
+                  >
+                    <SelectTrigger id="auth-method" className="h-11">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Key className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                        <SelectValue />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="api-key">API Key</SelectItem>
+                      <SelectItem value="oauth2">OAuth 2.0</SelectItem>
+                      <SelectItem value="jwt">JWT Token</SelectItem>
+                      <SelectItem value="basic">Basic Auth</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Rotación de Tokens (días)</FormLabel>
-                    <Input
-                      type="number"
-                      value={securityConfig.tokenRotationDays}
-                      onChange={(e) => setSecurityConfig({ ...securityConfig, tokenRotationDays: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 30, max: 365 } }}
-                      disabled={!securityConfig.tokenRotationEnabled}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="token-rotation-days">Rotación de Tokens (días)</Label>
+                  <Input
+                    id="token-rotation-days"
+                    type="number"
+                    min={30}
+                    max={365}
+                    value={securityConfig.tokenRotationDays}
+                    disabled={!securityConfig.tokenRotationEnabled}
+                    onChange={(e) =>
+                      setSecurityConfig({
+                        ...securityConfig,
+                        tokenRotationDays: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Rotación Automática de Tokens</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Los tokens se renovarán automáticamente según el intervalo configurado
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={securityConfig.tokenRotationEnabled}
-                        onChange={(e) => setSecurityConfig({ ...securityConfig, tokenRotationEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="token-rotation-enabled"
+                    label="Habilitar Rotación Automática de Tokens"
+                    description="Los tokens se renovarán automáticamente según el intervalo configurado"
+                    checked={securityConfig.tokenRotationEnabled}
+                    onCheckedChange={(checked) =>
+                      setSecurityConfig({ ...securityConfig, tokenRotationEnabled: checked })
+                    }
+                  />
+                </div>
 
                 {/* IP Whitelist */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Control de Acceso
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Control de Acceso</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar IP Whitelist</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Solo permite conexiones desde IPs autorizadas
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={securityConfig.ipWhitelistEnabled}
-                        onChange={(e) => setSecurityConfig({ ...securityConfig, ipWhitelistEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="ip-whitelist-enabled"
+                    label="Habilitar IP Whitelist"
+                    description="Solo permite conexiones desde IPs autorizadas"
+                    checked={securityConfig.ipWhitelistEnabled}
+                    onCheckedChange={(checked) =>
+                      setSecurityConfig({ ...securityConfig, ipWhitelistEnabled: checked })
+                    }
+                  />
+                </div>
 
                 {securityConfig.ipWhitelistEnabled && (
-                  <Grid xs={12}>
-                    <FormControl>
-                      <FormLabel>IPs Permitidas (una por línea)</FormLabel>
-                      <Textarea
-                        value={securityConfig.allowedIPs}
-                        onChange={(e) => setSecurityConfig({ ...securityConfig, allowedIPs: e.target.value })}
-                        placeholder="192.168.1.1&#10;10.0.0.0/8&#10;172.16.0.0/12"
-                        minRows={4}
-                      />
-                      <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                        Soporta IPs individuales y rangos CIDR
-                      </Typography>
-                    </FormControl>
-                  </Grid>
+                  <div className="col-span-12 space-y-1.5">
+                    <Label htmlFor="allowed-ips">IPs Permitidas (una por línea)</Label>
+                    <textarea
+                      id="allowed-ips"
+                      rows={4}
+                      value={securityConfig.allowedIPs}
+                      onChange={(e) =>
+                        setSecurityConfig({ ...securityConfig, allowedIPs: e.target.value })
+                      }
+                      placeholder={'192.168.1.1\n10.0.0.0/8\n172.16.0.0/12'}
+                      className={textareaClass}
+                    />
+                    <Hint>Soporta IPs individuales y rangos CIDR</Hint>
+                  </div>
                 )}
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Validar Certificados SSL</FormLabel>
-                      <Switch
-                        checked={securityConfig.validateCertificates}
-                        onChange={(e) => setSecurityConfig({ ...securityConfig, validateCertificates: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="validate-certificates"
+                    label="Validar Certificados SSL"
+                    checked={securityConfig.validateCertificates}
+                    onCheckedChange={(checked) =>
+                      setSecurityConfig({ ...securityConfig, validateCertificates: checked })
+                    }
+                  />
+                </div>
 
                 {/* Audit Logs */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Auditoría
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Auditoría</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Logs de Auditoría</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Registra todas las operaciones sensibles para compliance
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={securityConfig.auditLogsEnabled}
-                        onChange={(e) => setSecurityConfig({ ...securityConfig, auditLogsEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="audit-logs-enabled"
+                    label="Habilitar Logs de Auditoría"
+                    description="Registra todas las operaciones sensibles para compliance"
+                    checked={securityConfig.auditLogsEnabled}
+                    onCheckedChange={(checked) =>
+                      setSecurityConfig({ ...securityConfig, auditLogsEnabled: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Retención de Logs de Auditoría (días)</FormLabel>
-                    <Input
-                      type="number"
-                      value={securityConfig.auditRetentionDays}
-                      onChange={(e) => setSecurityConfig({ ...securityConfig, auditRetentionDays: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 90, max: 3650 } }}
-                      disabled={!securityConfig.auditLogsEnabled}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="audit-retention-days">
+                    Retención de Logs de Auditoría (días)
+                  </Label>
+                  <Input
+                    id="audit-retention-days"
+                    type="number"
+                    min={90}
+                    max={3650}
+                    value={securityConfig.auditRetentionDays}
+                    disabled={!securityConfig.auditLogsEnabled}
+                    onChange={(e) =>
+                      setSecurityConfig({
+                        ...securityConfig,
+                        auditRetentionDays: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-                    <Button variant="outlined" onClick={handleResetDefaults}>
-                      Restablecer
-                    </Button>
-                    <Button startDecorator={<SaveIcon />} onClick={handleSaveSecurity}>
-                      Guardar Configuración
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </TabPanel>
+                <div className="col-span-12 flex justify-end gap-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={handleResetDefaults}>
+                    Restablecer
+                  </Button>
+                  <Button size="sm" onClick={handleSaveSecurity}>
+                    <FloppyDisk className="size-4" aria-hidden />
+                    Guardar Configuración
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
 
-        {/* Tab Notificaciones */}
-        <TabPanel value={2}>
-          <Card>
-            <CardContent>
-              <Typography level="title-lg" startDecorator={<NotificationsIcon />} sx={{ mb: 3 }}>
+          {/* Tab Notificaciones */}
+          <TabsContent value="notifications" className="mt-4">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+              <h2 className="mb-5 flex items-center gap-2 text-base font-semibold text-foreground">
+                <Bell className="size-5 text-muted-foreground" aria-hidden />
                 Configuración de Notificaciones
-              </Typography>
+              </h2>
 
-              <Grid container spacing={3}>
+              <div className="grid grid-cols-12 gap-x-4 gap-y-5">
                 {/* Email */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2 }}>
-                    Notificaciones por Email
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Notificaciones por Email</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Notificaciones por Email</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Envía alertas por correo electrónico
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={notificationConfig.emailEnabled}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, emailEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="email-enabled"
+                    label="Habilitar Notificaciones por Email"
+                    description="Envía alertas por correo electrónico"
+                    checked={notificationConfig.emailEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, emailEnabled: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <FormLabel>Destinatarios (separados por coma)</FormLabel>
-                    <Textarea
-                      value={notificationConfig.emailRecipients}
-                      onChange={(e) => setNotificationConfig({ ...notificationConfig, emailRecipients: e.target.value })}
-                      disabled={!notificationConfig.emailEnabled}
-                      minRows={2}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5">
+                  <Label htmlFor="email-recipients">Destinatarios (separados por coma)</Label>
+                  <textarea
+                    id="email-recipients"
+                    rows={2}
+                    value={notificationConfig.emailRecipients}
+                    disabled={!notificationConfig.emailEnabled}
+                    onChange={(e) =>
+                      setNotificationConfig({
+                        ...notificationConfig,
+                        emailRecipients: e.target.value,
+                      })
+                    }
+                    className={textareaClass}
+                  />
+                </div>
 
-                <Grid xs={12} md={4}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Notificar Errores</FormLabel>
-                      <Switch
-                        checked={notificationConfig.notifyOnError}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, notifyOnError: e.target.checked })}
-                        disabled={!notificationConfig.emailEnabled}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 md:col-span-4">
+                  <ToggleRow
+                    id="notify-on-error"
+                    label="Notificar Errores"
+                    checked={notificationConfig.notifyOnError}
+                    disabled={!notificationConfig.emailEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, notifyOnError: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12} md={4}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Notificar Warnings</FormLabel>
-                      <Switch
-                        checked={notificationConfig.notifyOnWarning}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, notifyOnWarning: e.target.checked })}
-                        disabled={!notificationConfig.emailEnabled}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 md:col-span-4">
+                  <ToggleRow
+                    id="notify-on-warning"
+                    label="Notificar Warnings"
+                    checked={notificationConfig.notifyOnWarning}
+                    disabled={!notificationConfig.emailEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, notifyOnWarning: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12} md={4}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <FormLabel>Notificar Sync</FormLabel>
-                      <Switch
-                        checked={notificationConfig.emailOnSync}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, emailOnSync: e.target.checked })}
-                        disabled={!notificationConfig.emailEnabled}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 md:col-span-4">
+                  <ToggleRow
+                    id="email-on-sync"
+                    label="Notificar Sync"
+                    checked={notificationConfig.emailOnSync}
+                    disabled={!notificationConfig.emailEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, emailOnSync: checked })
+                    }
+                  />
+                </div>
 
                 {/* Slack */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Notificaciones por Slack
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Notificaciones por Slack</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Notificaciones por Slack</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Envía alertas a un canal de Slack
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={notificationConfig.slackEnabled}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, slackEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="slack-enabled"
+                    label="Habilitar Notificaciones por Slack"
+                    description="Envía alertas a un canal de Slack"
+                    checked={notificationConfig.slackEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, slackEnabled: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <FormLabel>Slack Webhook URL</FormLabel>
-                    <Input
-                      value={notificationConfig.slackWebhook}
-                      onChange={(e) => setNotificationConfig({ ...notificationConfig, slackWebhook: e.target.value })}
-                      placeholder="https://hooks.slack.com/services/..."
-                      disabled={!notificationConfig.slackEnabled}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5">
+                  <Label htmlFor="slack-webhook">Slack Webhook URL</Label>
+                  <Input
+                    id="slack-webhook"
+                    value={notificationConfig.slackWebhook}
+                    placeholder="https://hooks.slack.com/services/..."
+                    disabled={!notificationConfig.slackEnabled}
+                    onChange={(e) =>
+                      setNotificationConfig({
+                        ...notificationConfig,
+                        slackWebhook: e.target.value,
+                      })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <FormLabel>Canal de Slack</FormLabel>
-                    <Input
-                      value={notificationConfig.slackChannel}
-                      onChange={(e) => setNotificationConfig({ ...notificationConfig, slackChannel: e.target.value })}
-                      placeholder="#integrations"
-                      disabled={!notificationConfig.slackEnabled}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5">
+                  <Label htmlFor="slack-channel">Canal de Slack</Label>
+                  <Input
+                    id="slack-channel"
+                    value={notificationConfig.slackChannel}
+                    placeholder="#integrations"
+                    disabled={!notificationConfig.slackEnabled}
+                    onChange={(e) =>
+                      setNotificationConfig({
+                        ...notificationConfig,
+                        slackChannel: e.target.value,
+                      })
+                    }
+                  />
+                </div>
 
                 {/* Webhook */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Notificaciones por Webhook
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Notificaciones por Webhook</SectionTitle>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Webhook de Alertas</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Envía alertas a un endpoint HTTP personalizado
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={notificationConfig.webhookEnabled}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, webhookEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="webhook-enabled"
+                    label="Habilitar Webhook de Alertas"
+                    description="Envía alertas a un endpoint HTTP personalizado"
+                    checked={notificationConfig.webhookEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, webhookEnabled: checked })
+                    }
+                  />
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <FormLabel>Webhook URL</FormLabel>
-                    <Input
-                      value={notificationConfig.webhookUrl}
-                      onChange={(e) => setNotificationConfig({ ...notificationConfig, webhookUrl: e.target.value })}
-                      placeholder="https://api.example.com/alerts"
-                      disabled={!notificationConfig.webhookEnabled}
-                    />
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5">
+                  <Label htmlFor="webhook-url">Webhook URL</Label>
+                  <Input
+                    id="webhook-url"
+                    value={notificationConfig.webhookUrl}
+                    placeholder="https://api.example.com/alerts"
+                    disabled={!notificationConfig.webhookEnabled}
+                    onChange={(e) =>
+                      setNotificationConfig({ ...notificationConfig, webhookUrl: e.target.value })
+                    }
+                  />
+                </div>
 
                 {/* Configuración Avanzada */}
-                <Grid xs={12}>
-                  <Typography level="title-md" sx={{ mb: 2, mt: 2 }}>
-                    Configuración Avanzada
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                </Grid>
+                <SectionTitle>Configuración Avanzada</SectionTitle>
 
-                <Grid xs={12} md={6}>
-                  <FormControl>
-                    <FormLabel>Umbral de Notificación (errores consecutivos)</FormLabel>
-                    <Input
-                      type="number"
-                      value={notificationConfig.notifyThreshold}
-                      onChange={(e) => setNotificationConfig({ ...notificationConfig, notifyThreshold: parseInt(e.target.value) })}
-                      slotProps={{ input: { min: 1, max: 100 } }}
-                    />
-                    <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-                      Número de errores antes de enviar notificación
-                    </Typography>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12 space-y-1.5 md:col-span-6">
+                  <Label htmlFor="notify-threshold">
+                    Umbral de Notificación (errores consecutivos)
+                  </Label>
+                  <Input
+                    id="notify-threshold"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={notificationConfig.notifyThreshold}
+                    onChange={(e) =>
+                      setNotificationConfig({
+                        ...notificationConfig,
+                        notifyThreshold: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                  <Hint>Número de errores antes de enviar notificación</Hint>
+                </div>
 
-                <Grid xs={12}>
-                  <FormControl>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <FormLabel>Habilitar Resumen Diario</FormLabel>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          Envía un resumen consolidado de todas las integraciones
-                        </Typography>
-                      </Box>
-                      <Switch
-                        checked={notificationConfig.digestEnabled}
-                        onChange={(e) => setNotificationConfig({ ...notificationConfig, digestEnabled: e.target.checked })}
-                      />
-                    </Box>
-                  </FormControl>
-                </Grid>
+                <div className="col-span-12">
+                  <ToggleRow
+                    id="digest-enabled"
+                    label="Habilitar Resumen Diario"
+                    description="Envía un resumen consolidado de todas las integraciones"
+                    checked={notificationConfig.digestEnabled}
+                    onCheckedChange={(checked) =>
+                      setNotificationConfig({ ...notificationConfig, digestEnabled: checked })
+                    }
+                  />
+                </div>
 
                 {notificationConfig.digestEnabled && (
                   <>
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Frecuencia del Resumen</FormLabel>
-                        <Select
-                          value={notificationConfig.digestFrequency}
-                          onChange={(_, value) => setNotificationConfig({ ...notificationConfig, digestFrequency: value as string })}
-                        >
-                          <Option value="daily">Diario</Option>
-                          <Option value="weekly">Semanal</Option>
-                          <Option value="monthly">Mensual</Option>
-                        </Select>
-                      </FormControl>
-                    </Grid>
+                    <div className="col-span-12 space-y-1.5 md:col-span-6">
+                      <Label htmlFor="digest-frequency">Frecuencia del Resumen</Label>
+                      <Select
+                        value={notificationConfig.digestFrequency}
+                        onValueChange={(value) =>
+                          setNotificationConfig({ ...notificationConfig, digestFrequency: value })
+                        }
+                      >
+                        <SelectTrigger id="digest-frequency" className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">Diario</SelectItem>
+                          <SelectItem value="weekly">Semanal</SelectItem>
+                          <SelectItem value="monthly">Mensual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>Hora de Envío</FormLabel>
-                        <Input
-                          type="time"
-                          value={notificationConfig.digestTime}
-                          onChange={(e) => setNotificationConfig({ ...notificationConfig, digestTime: e.target.value })}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="col-span-12 space-y-1.5 md:col-span-6">
+                      <Label htmlFor="digest-time">Hora de Envío</Label>
+                      <Input
+                        id="digest-time"
+                        type="time"
+                        value={notificationConfig.digestTime}
+                        onChange={(e) =>
+                          setNotificationConfig({
+                            ...notificationConfig,
+                            digestTime: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
                   </>
                 )}
 
-                <Grid xs={12}>
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-                    <Button variant="outlined" onClick={handleResetDefaults}>
-                      Restablecer
-                    </Button>
-                    <Button startDecorator={<SaveIcon />} onClick={handleSaveNotifications}>
-                      Guardar Configuración
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </TabPanel>
-      </Tabs>
-    </Box>
+                <div className="col-span-12 flex justify-end gap-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={handleResetDefaults}>
+                    Restablecer
+                  </Button>
+                  <Button size="sm" onClick={handleSaveNotifications}>
+                    <FloppyDisk className="size-4" aria-hidden />
+                    Guardar Configuración
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
   )
 }

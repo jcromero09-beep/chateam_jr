@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const getCompanyId = (req: Request): number => {
-  return Number((req.user as any)?.companyId || (req.user as any)?.company?.id || 0);
+  return Number(req.user?.companyId || req.user?.company?.id || 0);
 };
 
 const getBaseUrl = (req: Request): string => {

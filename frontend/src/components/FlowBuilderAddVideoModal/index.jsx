@@ -1,187 +1,201 @@
 import React, { useState, useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 
-import { makeStyles } from "@material-ui/core/styles";
-import Button from "@material-ui/core/Button";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import Typography from "@material-ui/core/Typography";
-import IconButton from "@material-ui/core/IconButton";
-import CircularProgress from "@material-ui/core/CircularProgress";
+import { styled } from "@mui/material/styles";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import CircularProgress from "@mui/material/CircularProgress";
 import Compressor from "compressorjs";
-import CloseIcon from "@material-ui/icons/Close";
-import VideocamOutlinedIcon from "@material-ui/icons/VideocamOutlined";
-import CloudUploadOutlinedIcon from "@material-ui/icons/CloudUploadOutlined";
-import MovieOutlinedIcon from "@material-ui/icons/MovieOutlined";
-import DeleteOutlineIcon from "@material-ui/icons/DeleteOutline";
+import CloseIcon from "@mui/icons-material/Close";
+import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 
-const useStyles = makeStyles(theme => ({
-  dialog: {
-    "& .MuiDialog-paper": {
-      borderRadius: 16,
-      overflow: "hidden",
-      maxWidth: 520,
-    },
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 24px 12px",
-    borderBottom: "none",
-  },
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    "& svg": { fontSize: 22 },
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#fff" : "#1a1a2e",
-    lineHeight: 1.3,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#aaa" : "#888",
-    marginTop: 2,
-  },
-  closeBtn: {
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
-    padding: 8,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
-    },
-  },
-  content: {
-    padding: "16px 24px 20px",
-  },
-  uploadZone: {
-    border: `2px dashed ${theme.palette.type === "dark" ? "#555" : "#d0d5dd"}`,
-    borderRadius: 12,
-    padding: "36px 24px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    background: theme.palette.type === "dark" ? "rgba(255,255,255,0.02)" : "#fafbfc",
-    "&:hover": {
-      borderColor: "#667eea",
-      background: theme.palette.type === "dark" ? "rgba(102,126,234,0.08)" : "rgba(102,126,234,0.04)",
-    },
-  },
-  uploadIconWrapper: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    background: theme.palette.type === "dark" ? "rgba(102,126,234,0.15)" : "rgba(102,126,234,0.08)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-    "& svg": { fontSize: 28, color: "#667eea" },
-  },
-  uploadText: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#e0e0e0" : "#344054",
-    marginBottom: 4,
-  },
-  uploadHint: {
-    fontSize: 12,
-    color: theme.palette.type === "dark" ? "#999" : "#98a2b3",
-  },
-  previewContainer: {
-    borderRadius: 12,
+const StyledDialog = styled(Dialog)({
+  "& .MuiDialog-paper": {
+    borderRadius: 16,
     overflow: "hidden",
-    background: "#000",
-    position: "relative",
-    "& video": {
-      width: "100%",
-      maxHeight: 300,
-      display: "block",
-    },
+    maxWidth: 520,
   },
-  removeBtn: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    background: "rgba(0,0,0,0.6)",
-    color: "#fff",
-    padding: 6,
-    "&:hover": { background: "rgba(0,0,0,0.8)" },
-    "& svg": { fontSize: 18 },
-  },
-  actions: {
-    padding: "12px 24px 20px",
-    display: "flex",
-    gap: 10,
-    justifyContent: "flex-end",
-    borderTop: "none",
-  },
-  cancelBtn: {
-    borderRadius: 10,
-    padding: "8px 20px",
-    textTransform: "none",
-    fontWeight: 500,
-    fontSize: 14,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#d0d5dd"}`,
-    "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
-    },
-  },
-  saveBtn: {
-    borderRadius: 10,
-    padding: "8px 24px",
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: 14,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(102,126,234,0.3)",
-    "&:hover": {
-      background: "linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)",
-      boxShadow: "0 4px 12px rgba(102,126,234,0.4)",
-    },
-    "&:disabled": {
-      background: theme.palette.type === "dark" ? "#444" : "#e0e0e0",
-      color: theme.palette.type === "dark" ? "#777" : "#999",
-      boxShadow: "none",
-    },
-  },
-  loadingBox: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 12,
-    padding: "24px 0",
-  },
-  loadingText: {
-    fontSize: 13,
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
+});
+
+const Header = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "20px 24px 12px",
+  borderBottom: "none",
+});
+
+const HeaderLeft = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+});
+
+const HeaderIcon = styled("div")({
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#fff",
+  "& svg": { fontSize: 22 },
+});
+
+const HeaderTitle = styled(Typography)(({ theme }) => ({
+  fontSize: 18,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#fff" : "#1a1a2e",
+  lineHeight: 1.3,
+}));
+
+const HeaderSubtitle = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#888",
+  marginTop: 2,
+}));
+
+const CloseBtn = styled(IconButton)(({ theme }) => ({
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
+  padding: 8,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
   },
 }));
 
+const Content = styled(DialogContent)({
+  padding: "16px 24px 20px",
+});
+
+const UploadZone = styled("label")(({ theme }) => ({
+  border: `2px dashed ${theme.palette.mode === "dark" ? "#555" : "#d0d5dd"}`,
+  borderRadius: 12,
+  padding: "36px 24px",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  transition: "all 0.2s ease",
+  background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "#fafbfc",
+  "&:hover": {
+    borderColor: "#667eea",
+    background: theme.palette.mode === "dark" ? "rgba(102,126,234,0.08)" : "rgba(102,126,234,0.04)",
+  },
+}));
+
+const UploadIconWrapper = styled("div")(({ theme }) => ({
+  width: 56,
+  height: 56,
+  borderRadius: 14,
+  background: theme.palette.mode === "dark" ? "rgba(102,126,234,0.15)" : "rgba(102,126,234,0.08)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 14,
+  "& svg": { fontSize: 28, color: "#667eea" },
+}));
+
+const UploadText = styled(Typography)(({ theme }) => ({
+  fontSize: 14,
+  fontWeight: 600,
+  color: theme.palette.mode === "dark" ? "#e0e0e0" : "#344054",
+  marginBottom: 4,
+}));
+
+const UploadHint = styled(Typography)(({ theme }) => ({
+  fontSize: 12,
+  color: theme.palette.mode === "dark" ? "#999" : "#98a2b3",
+}));
+
+const PreviewContainer = styled("div")({
+  borderRadius: 12,
+  overflow: "hidden",
+  background: "#000",
+  position: "relative",
+  "& video": {
+    width: "100%",
+    maxHeight: 300,
+    display: "block",
+  },
+});
+
+const RemoveBtn = styled(IconButton)({
+  position: "absolute",
+  top: 8,
+  right: 8,
+  background: "rgba(0,0,0,0.6)",
+  color: "#fff",
+  padding: 6,
+  "&:hover": { background: "rgba(0,0,0,0.8)" },
+  "& svg": { fontSize: 18 },
+});
+
+const Actions = styled(DialogActions)({
+  padding: "12px 24px 20px",
+  display: "flex",
+  gap: 10,
+  justifyContent: "flex-end",
+  borderTop: "none",
+});
+
+const CancelBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 20px",
+  textTransform: "none",
+  fontWeight: 500,
+  fontSize: 14,
+  color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+  border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#d0d5dd"}`,
+  "&:hover": {
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
+  },
+}));
+
+const SaveBtn = styled(Button)(({ theme }) => ({
+  borderRadius: 10,
+  padding: "8px 24px",
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: 14,
+  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  color: "#fff",
+  boxShadow: "0 2px 8px rgba(102,126,234,0.3)",
+  "&:hover": {
+    background: "linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)",
+    boxShadow: "0 4px 12px rgba(102,126,234,0.4)",
+  },
+  "&:disabled": {
+    background: theme.palette.mode === "dark" ? "#444" : "#e0e0e0",
+    color: theme.palette.mode === "dark" ? "#777" : "#999",
+    boxShadow: "none",
+  },
+}));
+
+const LoadingBox = styled("div")({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 12,
+  padding: "24px 0",
+});
+
+const LoadingText = styled(Typography)(({ theme }) => ({
+  fontSize: 13,
+  color: theme.palette.mode === "dark" ? "#aaa" : "#666",
+}));
+
 const FlowBuilderAddVideoModal = ({ open, onSave, onUpdate, data, close }) => {
-  const classes = useStyles();
   const isMounted = useRef(true);
   const { user } = useAuth();
   const companyId = user?.companyId;
@@ -286,89 +300,86 @@ const FlowBuilderAddVideoModal = ({ open, onSave, onUpdate, data, close }) => {
   };
 
   return (
-    <Dialog
+    <StyledDialog
       open={activeModal}
       onClose={handleClose}
-      className={classes.dialog}
       fullWidth
       maxWidth="sm"
     >
       {/* Header */}
-      <div className={classes.header}>
-        <div className={classes.headerLeft}>
-          <div className={classes.headerIcon}>
+      <Header>
+        <HeaderLeft>
+          <HeaderIcon>
             <VideocamOutlinedIcon />
-          </div>
+          </HeaderIcon>
           <div>
-            <Typography className={classes.headerTitle}>{labels.title}</Typography>
-            <Typography className={classes.headerSubtitle}>Formato MP4 · Máximo 20 MB</Typography>
+            <HeaderTitle>{labels.title}</HeaderTitle>
+            <HeaderSubtitle>Formato MP4 · Máximo 20 MB</HeaderSubtitle>
           </div>
-        </div>
-        <IconButton className={classes.closeBtn} onClick={handleClose} size="small">
+        </HeaderLeft>
+        <CloseBtn onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
-        </IconButton>
-      </div>
+        </CloseBtn>
+      </Header>
 
       {/* Content */}
-      <DialogContent className={classes.content}>
+      <Content>
         {loading ? (
-          <div className={classes.loadingBox}>
+          <LoadingBox>
             <CircularProgress size={40} style={{ color: "#667eea" }} />
-            <Typography className={classes.loadingText}>Subiendo vídeo...</Typography>
-          </div>
+            <LoadingText>Subiendo vídeo...</LoadingText>
+          </LoadingBox>
         ) : preview ? (
-          <div className={classes.previewContainer}>
+          <PreviewContainer>
             <video controls>
               <source src={preview} type="video/mp4" />
               Tu navegador no soporta HTML5
             </video>
             {open !== "edit" && (
-              <IconButton
-                className={classes.removeBtn}
+              <RemoveBtn
                 onClick={() => { setPreview(); setMedias([]); }}
                 size="small"
               >
                 <DeleteOutlineIcon />
-              </IconButton>
+              </RemoveBtn>
             )}
-          </div>
+          </PreviewContainer>
         ) : (
-          <label className={classes.uploadZone}>
-            <div className={classes.uploadIconWrapper}>
+          <UploadZone>
+            <UploadIconWrapper>
               <CloudUploadOutlinedIcon />
-            </div>
-            <Typography className={classes.uploadText}>
+            </UploadIconWrapper>
+            <UploadText>
               Haz clic para seleccionar un vídeo
-            </Typography>
-            <Typography className={classes.uploadHint}>
+            </UploadText>
+            <UploadHint>
               Solo archivos MP4 · Máximo 20 MB
-            </Typography>
+            </UploadHint>
             <input
               type="file"
               accept="video/mp4"
               hidden
               onChange={handleChangeMedias}
             />
-          </label>
+          </UploadZone>
         )}
-      </DialogContent>
+      </Content>
 
       {/* Actions */}
       {!loading && (
-        <DialogActions className={classes.actions}>
-          <Button className={classes.cancelBtn} onClick={handleClose}>
+        <Actions>
+          <CancelBtn onClick={handleClose}>
             Cancelar
-          </Button>
-          <Button
-            className={classes.saveBtn}
+          </CancelBtn>
+          <SaveBtn
             onClick={handleSaveContact}
             disabled={!preview && open !== "edit"}
           >
             {labels.btn}
-          </Button>
-        </DialogActions>
+          </SaveBtn>
+        </Actions>
       )}
-    </Dialog>
+    </StyledDialog>
   );
 };
 

@@ -1,11 +1,11 @@
-import { proto } from "@whiskeysockets/baileys";
+import { proto } from "baileys";
 import {
   AuthenticationCreds,
   AuthenticationState,
   SignalDataTypeMap
-} from "@whiskeysockets/baileys";
-import { initAuthCreds } from "@whiskeysockets/baileys";
-import { BufferJSON } from "@whiskeysockets/baileys";
+} from "baileys";
+import { initAuthCreds } from "baileys";
+import { BufferJSON } from "baileys";
 import cacheLayer from "../libs/cache";
 import Whatsapp from "../models/Whatsapp";
 
@@ -19,8 +19,8 @@ export const useMultiFileAuthState = async (
         JSON.stringify(data, BufferJSON.replacer)
       );
     } catch (error) {
-      console.log("writeData error", error);
-      return null;
+      console.error("writeData error", error);
+      throw error;
     }
   };
 
@@ -36,7 +36,10 @@ export const useMultiFileAuthState = async (
   const removeData = async (file: string) => {
     try {
       await cacheLayer.del(`sessions:${whatsapp.id}:${file}`);
-    } catch {}
+    } catch (error) {
+      console.error("removeData error", error);
+      throw error;
+    }
   };
 
   const creds: AuthenticationCreds =

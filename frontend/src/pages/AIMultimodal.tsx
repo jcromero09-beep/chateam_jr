@@ -5,32 +5,20 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useContext } from 'react';
+// [migración] CircularProgress se conserva como MUI (no hay equivalente en el design system).
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  Textarea,
-  IconButton,
-  Chip,
-  Divider,
-  AspectRatio,
-} from '@mui/joy';
-import {
-  ImageIcon,
-  Upload,
+  ImageSquare,
   Scan,
-  History,
+  ClockCounterClockwise,
   X,
-  RefreshCw,
+  ArrowClockwise,
   Coins,
   Clock,
   Eye,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import api from '../services/api';
 import { AuthContext } from '../context/Auth/AuthContext';
 
@@ -91,11 +79,18 @@ export default function AIMultimodal() {
   const loadCredits = useCallback(async () => {
     try {
       setLoadingCredits(true);
-      // Usar endpoint de token-info que devuelve el balance general de tokens de la compañía
-      const res = await api.get('/ai/subplan-purchase/token-info');
-      const raw = res.data as Record<string, unknown>;
-      const tokenBalance = typeof raw.tokenBalance === 'number' ? raw.tokenBalance : 0;
-      setCredits({ balance: tokenBalance, totalUsed: 0 });
+      // Endpoint UNIFICADO: balance real del sistema AICreditBalance.
+      // AIMultimodal cobra principalmente "vision_analysis" + "pdf_processing".
+      // Mostramos el balance combinado de ambos.
+      const res = await api.get('/ai/credits/summary?keys=vision_analysis,pdf_processing');
+      const raw = res.data as {
+        byKey?: Record<string, { remaining?: number; usedCredits?: number }>;
+        totalRemaining?: number;
+        totalUsed?: number;
+      };
+      const remaining = Number(raw?.totalRemaining ?? 0);
+      const used = Number(raw?.totalUsed ?? 0);
+      setCredits({ balance: remaining, totalUsed: used });
     } catch (err: unknown) {
       devError('[AIMultimodal] Error cargando créditos:', err);
     } finally {
@@ -216,7 +211,7 @@ export default function AIMultimodal() {
     return text.split('\n').map((line, i) => {
       const parts = line.split(/\*\*(.*?)\*\*/g);
       return (
-        <Typography key={i} level="body-sm" sx={{ mb: line === '' ? 1 : 0 }}>
+        <p key={i} className={line === '' ? 'mb-2 text-sm text-foreground' : 'text-sm text-foreground'}>
           {parts.map((part, j) =>
             j % 2 === 1 ? (
               <strong key={j}>{part}</strong>
@@ -224,128 +219,128 @@ export default function AIMultimodal() {
               <span key={j}>{part}</span>
             )
           )}
-        </Typography>
+        </p>
       );
     });
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Eye size={28} color="var(--joy-palette-primary-500)" />
-            Análisis Multimodal
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Analiza imágenes y extrae información con visión artificial
-          </Typography>
-        </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Eye className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Análisis Multimodal
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Analiza imágenes y extrae información con visión artificial
+              </p>
+            </div>
+          </div>
 
-        <Card variant="soft" sx={{ minWidth: 180 }}>
-          <CardContent sx={{ py: 1, px: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Coins size={16} />
-              <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                Créditos disponibles
-              </Typography>
-            </Box>
+          {/* Créditos disponibles */}
+          <div className="min-w-[220px] rounded-lg border border-border bg-muted/40 px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <Coins className="size-4 text-muted-foreground" aria-hidden />
+              <span className="text-xs text-muted-foreground">
+                Créditos disponibles (visión + PDF)
+              </span>
+            </div>
             {loadingCredits ? (
               <CircularProgress size="sm" sx={{ mt: 0.5 }} />
             ) : (
-              <Typography level="h4" sx={{ color: 'primary.500' }}>
-                {isSuperAdmin ? '∞ Ilimitado' : credits?.balance?.toLocaleString('es-ES') ?? '—'}
-              </Typography>
+              <div className="mt-0.5">
+                <p className="text-xl font-semibold text-primary">
+                  {isSuperAdmin ? '∞ Ilimitado' : credits?.balance?.toLocaleString('es-ES') ?? '—'}
+                </p>
+                {!isSuperAdmin && (credits?.totalUsed ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Usados: {credits?.totalUsed?.toLocaleString('es-ES')}
+                  </p>
+                )}
+              </div>
             )}
-          </CardContent>
-        </Card>
-      </Box>
+          </div>
+        </div>
 
-      {/* Error global */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 3 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
+        {/* Error global */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => setError(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/12"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
-      {/* ── Zona principal ─────────────────────────────────────────────────── */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        {/* Panel izquierdo: Upload + prompt */}
-        <Grid xs={12} md={5}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>
+        {/* ── Zona principal ─────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-12">
+          {/* Panel izquierdo: Upload + prompt */}
+          <div className="md:col-span-5">
+            <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-base font-semibold text-foreground">
                 Imagen a analizar
-              </Typography>
+              </h2>
 
               {!imagePreview ? (
-                <Box
+                <div
                   onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
                   onDragLeave={() => setIsDragOver(false)}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  sx={{
-                    border: '2px dashed',
-                    borderColor: isDragOver ? 'primary.500' : 'neutral.300',
-                    borderRadius: 'lg',
-                    p: 5,
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    bgcolor: isDragOver ? 'primary.softBg' : 'background.level1',
-                    transition: 'all 0.2s',
-                    '&:hover': { borderColor: 'primary.400', bgcolor: 'primary.softBg' },
-                  }}
+                  className={
+                    'cursor-pointer rounded-lg border-2 border-dashed p-10 text-center transition-colors ' +
+                    (isDragOver
+                      ? 'border-primary bg-accent/60'
+                      : 'border-input bg-muted/40 hover:border-primary/60 hover:bg-accent/40')
+                  }
                 >
-                  <ImageIcon size={40} color="var(--joy-palette-neutral-400)" />
-                  <Typography level="body-sm" sx={{ mt: 1.5, color: 'text.secondary' }}>
+                  <ImageSquare className="mx-auto size-10 text-muted-foreground" aria-hidden />
+                  <p className="mt-3 text-sm text-muted-foreground">
                     Arrastra una imagen aquí
-                  </Typography>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     o haz clic para seleccionar (JPG, PNG, WebP, GIF)
-                  </Typography>
-                </Box>
+                  </p>
+                </div>
               ) : (
-                <Box sx={{ position: 'relative' }}>
-                  <AspectRatio ratio="16/9" sx={{ borderRadius: 'md', overflow: 'hidden' }}>
+                <div className="relative">
+                  <div className="aspect-video overflow-hidden rounded-md bg-muted/40">
                     <img
                       src={imagePreview}
                       alt="Imagen seleccionada"
-                      style={{ objectFit: 'contain', width: '100%', height: '100%' }}
+                      width={640}
+                      height={360}
+                      className="size-full object-contain"
                     />
-                  </AspectRatio>
-                  <IconButton
-                    size="sm"
-                    color="danger"
-                    variant="solid"
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Quitar imagen"
                     onClick={clearImage}
-                    sx={{ position: 'absolute', top: 8, right: 8 }}
+                    className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-destructive text-destructive-foreground shadow-sm transition-colors hover:bg-destructive/90"
                   >
-                    <X size={14} />
-                  </IconButton>
+                    <X className="size-3.5" aria-hidden />
+                  </button>
                   {imageFile && (
-                    <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary', textAlign: 'right' }}>
+                    <p className="mt-1 text-right text-xs text-muted-foreground">
                       {imageFile.name}
-                    </Typography>
+                    </p>
                   )}
-                </Box>
+                </div>
               )}
 
               <input
@@ -356,196 +351,166 @@ export default function AIMultimodal() {
                 onChange={handleFileInput}
               />
 
-              <Box sx={{ mt: 2 }}>
-                <Typography level="body-sm" sx={{ mb: 0.5, fontWeight: 'md' }}>
+              <div className="mt-4">
+                <label
+                  htmlFor="ai-multimodal-prompt"
+                  className="mb-1.5 block text-sm font-medium text-foreground"
+                >
                   Instrucción / Pregunta (opcional)
-                </Typography>
-                <Textarea
+                </label>
+                <textarea
+                  id="ai-multimodal-prompt"
                   placeholder="¿Qué quieres saber sobre esta imagen? Ej: Describe el contenido, identifica objetos, extrae texto..."
-                  minRows={3}
-                  maxRows={6}
+                  rows={3}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
+                  className="min-h-[80px] w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                 />
-              </Box>
+              </div>
 
               <Button
-                fullWidth
-                sx={{ mt: 2 }}
-                startDecorator={analyzing ? <CircularProgress size="sm" /> : <Scan size={16} />}
+                className="mt-4 w-full"
                 disabled={!imageFile || analyzing}
                 loading={analyzing}
                 onClick={handleAnalyze}
               >
+                {!analyzing && <Scan className="size-4" aria-hidden />}
                 Analizar imagen
               </Button>
-            </CardContent>
-          </Card>
-        </Grid>
+            </div>
+          </div>
 
-        {/* Panel derecho: Resultado */}
-        <Grid xs={12} md={7}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>
+          {/* Panel derecho: Resultado */}
+          <div className="md:col-span-7">
+            <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-base font-semibold text-foreground">
                 Resultado del análisis
-              </Typography>
+              </h2>
 
               {analyzing ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
+                <div className="flex flex-col items-center py-16">
                   <CircularProgress size="lg" />
-                  <Typography level="body-sm" sx={{ mt: 2, color: 'text.secondary' }}>
+                  <p className="mt-4 text-sm text-muted-foreground">
                     Analizando imagen con IA...
-                  </Typography>
-                </Box>
+                  </p>
+                </div>
               ) : !result ? (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    py: 8,
-                    color: 'text.tertiary',
-                  }}
-                >
-                  <Eye size={48} />
-                  <Typography level="body-sm" sx={{ mt: 1.5 }}>
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                  <Eye className="size-12" aria-hidden />
+                  <p className="mt-3 text-sm">
                     Sube una imagen y presiona "Analizar"
-                  </Typography>
-                </Box>
+                  </p>
+                </div>
               ) : (
-                <Box>
+                <div>
                   {result.prompt && (
-                    <Box sx={{ mb: 2, p: 1.5, bgcolor: 'primary.softBg', borderRadius: 'sm' }}>
-                      <Typography level="body-xs" sx={{ color: 'primary.700', fontStyle: 'italic' }}>
+                    <div className="mb-4 rounded-md bg-accent/60 p-3">
+                      <p className="text-xs italic text-accent-foreground">
                         "{result.prompt}"
-                      </Typography>
-                    </Box>
+                      </p>
+                    </div>
                   )}
-                  <Box
-                    sx={{
-                      p: 2,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'md',
-                      maxHeight: 400,
-                      overflow: 'auto',
-                    }}
-                  >
+                  <div className="max-h-[400px] space-y-1 overflow-auto rounded-md bg-muted/40 p-4">
                     {renderAnalysis(result.analysis)}
-                  </Box>
-                  <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {result.creditsUsed && (
-                      <Chip size="sm" color="warning" variant="soft" startDecorator={<Coins size={12} />}>
+                      <Badge variant="warning">
+                        <Coins className="size-3" aria-hidden />
                         {result.creditsUsed} créditos
-                      </Chip>
+                      </Badge>
                     )}
                     {result.model && (
-                      <Chip size="sm" color="neutral" variant="soft">
-                        {result.model}
-                      </Chip>
+                      <Badge variant="neutral">{result.model}</Badge>
                     )}
-                  </Box>
-                </Box>
+                  </div>
+                </div>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+            </div>
+          </div>
+        </div>
 
-      {/* ── Historial ──────────────────────────────────────────────────────── */}
-      <Card>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography level="title-md" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <History size={18} />
+        {/* ── Historial ──────────────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <ClockCounterClockwise className="size-5" aria-hidden />
               Historial de análisis
-            </Typography>
+            </h2>
             <Button
-              variant="outlined"
+              variant="outline"
               size="sm"
-              startDecorator={<RefreshCw size={14} />}
               onClick={loadHistory}
               loading={loadingHistory}
             >
+              {!loadingHistory && <ArrowClockwise className="size-3.5" aria-hidden />}
               Actualizar
             </Button>
-          </Box>
+          </div>
 
           {historyError && (
-            <Alert color="warning" sx={{ mb: 2 }} size="sm">
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-warning/30 bg-warning/16 px-4 py-2.5 text-sm text-warning-text"
+            >
               {historyError}
-            </Alert>
+            </div>
           )}
 
           {loadingHistory ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <div className="flex justify-center py-8">
               <CircularProgress size="md" />
-            </Box>
+            </div>
           ) : history.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 5, color: 'text.tertiary' }}>
-              <History size={36} />
-              <Typography level="body-sm" sx={{ mt: 1 }}>
+            <div className="py-10 text-center text-muted-foreground">
+              <ClockCounterClockwise className="mx-auto size-9" aria-hidden />
+              <p className="mt-2 text-sm">
                 No hay análisis recientes
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <div className="divide-y divide-border">
               {history.map((item, idx) => (
-                <Box key={item.id ?? idx}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      gap: 2,
-                      p: 1.5,
-                      bgcolor: 'background.level1',
-                      borderRadius: 'sm',
-                      alignItems: 'flex-start',
-                    }}
-                  >
-                    {item.imageUrl && (
-                      <Box
-                        component="img"
-                        src={item.imageUrl}
-                        alt="Imagen analizada"
-                        sx={{
-                          width: 60,
-                          height: 60,
-                          objectFit: 'cover',
-                          borderRadius: 'xs',
-                          flexShrink: 0,
-                        }}
-                      />
+                <div
+                  key={item.id ?? idx}
+                  className="flex items-start gap-3 rounded-md py-3 first:pt-0 last:pb-0"
+                >
+                  {item.imageUrl && (
+                    <img
+                      src={item.imageUrl}
+                      alt="Imagen analizada"
+                      width={60}
+                      height={60}
+                      className="size-[60px] shrink-0 rounded-sm object-cover"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {item.prompt && (
+                      <p className="mb-0.5 truncate text-xs italic text-primary">
+                        "{item.prompt.substring(0, 80)}{item.prompt.length > 80 ? '...' : ''}"
+                      </p>
                     )}
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      {item.prompt && (
-                        <Typography level="body-xs" sx={{ color: 'primary.600', mb: 0.5, fontStyle: 'italic' }}>
-                          "{item.prompt.substring(0, 80)}{item.prompt.length > 80 ? '...' : ''}"
-                        </Typography>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {item.analysis.substring(0, 120)}{item.analysis.length > 120 ? '...' : ''}
+                    </p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <Clock className="size-3 text-muted-foreground" aria-hidden />
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(item.createdAt)}
+                      </span>
+                      {item.creditsUsed && (
+                        <Badge variant="warning" className="px-1.5 py-0 text-[10px]">
+                          {item.creditsUsed} créditos
+                        </Badge>
                       )}
-                      <Typography level="body-sm" sx={{ color: 'text.secondary' }} noWrap>
-                        {item.analysis.substring(0, 120)}{item.analysis.length > 120 ? '...' : ''}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                        <Clock size={12} color="var(--joy-palette-text-tertiary)" />
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {formatDate(item.createdAt)}
-                        </Typography>
-                        {item.creditsUsed && (
-                          <Chip size="sm" color="warning" variant="plain" sx={{ fontSize: '10px', py: 0 }}>
-                            {item.creditsUsed} créditos
-                          </Chip>
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                  {idx < history.length - 1 && <Divider sx={{ mt: 1.5 }} />}
-                </Box>
+                    </div>
+                  </div>
+                </div>
               ))}
-            </Box>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 }

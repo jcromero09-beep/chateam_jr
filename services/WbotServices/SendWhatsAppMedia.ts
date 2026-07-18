@@ -1,5 +1,16 @@
-import { WAMessage, AnyMessageContent } from "@whiskeysockets/baileys";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
+import { WAMessage, AnyMessageContent } from "baileys";
 import * as Sentry from "@sentry/node";
+import axios from "axios";
 import fs, { unlink, unlinkSync } from "fs";
 import { exec } from "child_process";
 import path from "path";
@@ -9,9 +20,11 @@ import AppError from "../../errors/AppError";
 import Ticket from "../../models/Ticket";
 import mime from "mime-types";
 import Contact from "../../models/Contact";
-import { getWbot } from "../../libs/wbot";
+import GetTicketWbot from "../../helpers/GetTicketWbot";
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import formatBody from "../../helpers/Mustache";
+import ResolveOutboundJid from "./ResolveOutboundJid";
+import generateVideoThumbnail, { buildVideoExtras } from "../../helpers/GenerateVideoThumbnail";
 interface Request {
   media: Express.Multer.File;
   ticket: Ticket;
@@ -19,6 +32,7 @@ interface Request {
   body?: string;
   isPrivate?: boolean;
   isForwarded?: boolean;
+  wbot?: any;
 }
 const os = require("os");
 
@@ -34,7 +48,7 @@ const os = require("os");
 //   ffmpegPath = "/usr/bin/ffmpeg"; // Substitua pelo caminho correto em sistemas Unix-like
 // }
 
-const publicFolder = path.resolve(__dirname, "..", "..", "public");
+const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
 const processAudio = async (audio: string, companyId: string): Promise<string> => {
   const outputAudio = `${publicFolder}/company${companyId}/${new Date().getTime()}.ogg`;
@@ -126,12 +140,14 @@ export const getMessageOptions = async (
     let options: AnyMessageContent;
 
     if (typeMessage === "video") {
+      const videoMeta = await generateVideoThumbnail(pathMedia);
       options = {
         video: fs.readFileSync(pathMedia),
         caption: body ? body : null,
-        fileName: fileName
+        fileName: fileName,
+        ...buildVideoExtras(videoMeta)
         // gifPlayback: true
-      };
+      } as AnyMessageContent;
     } else if (typeMessage === "audio") {
       const typeAudio = true; //fileName.includes("audio-record-site");
       const convert = await processAudio(pathMedia, companyId);
@@ -182,91 +198,19 @@ const SendWhatsAppMedia = async ({
   ticket,
   body = "",
   isPrivate = false,
-  isForwarded = false
-}: Request): Promise<WAMessage> => {
-  try {
-    const wbot = await getWbot(ticket.whatsappId);
-    const companyId = ticket.companyId.toString()
+  isForwarded = false,
+  wbot: resolvedWbot
+	}: Request): Promise<WAMessage> => {
+	  try {
+	    const wbot = resolvedWbot || await GetTicketWbot(ticket);
+	    const companyId = ticket.companyId.toString()
 
-    const pathMedia = media.path;
-    const typeMessage = media.mimetype.split("/")[0];
-    let options: AnyMessageContent;
-    let bodyTicket = "";
-    const bodyMedia = ticket ? formatBody(body, ticket) : body;
+	    const pathMedia = media.path;
+	    const typeMessage = media.mimetype.split("/")[0];
+	    const bodyMedia = ticket ? formatBody(body, ticket) : body;
 
-    // console.log(media.mimetype)
-    if (typeMessage === "video") {
-      options = {
-        video: fs.readFileSync(pathMedia),
-        caption: bodyMedia,
-        fileName: media.originalname.replace('/', '-'),
-        contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-      };
-      bodyTicket = "🎥 Arquivo de vídeo"
-    } else if (typeMessage === "audio") {
-      
-      const typeAudio = true; //media.originalname.includes("audio-record-site");
-      if (typeAudio) {
-        const convert = await processAudio(media.path, companyId);
-        options = {
-          audio: fs.readFileSync(convert),
-          mimetype: "audio/ogg; codecs=opus",
-          ptt: true,
-          caption: bodyMedia,
-          contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-        };
-        unlinkSync(convert);
-      } else {
-        const convert = await processAudio(media.path, companyId);
-        options = {
-          audio: fs.readFileSync(convert),
-          mimetype: "audio/ogg; codecs=opus",
-          ptt: true,
-          contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-        };
-        unlinkSync(convert);
-      }
-      bodyTicket = "🎵 Arquivo de áudio"
-    } else if (typeMessage === "document" || typeMessage === "text") {
-      options = {
-        document: fs.readFileSync(pathMedia),
-        caption: bodyMedia,
-        fileName: media.originalname.replace('/', '-'),
-        mimetype: media.mimetype,
-        contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-      };
-      bodyTicket = "📂 Documento"
-    } else if (typeMessage === "application") {
-      options = {
-        document: fs.readFileSync(pathMedia),
-        caption: bodyMedia,
-        fileName: media.originalname.replace('/', '-'),
-        mimetype: media.mimetype,
-        contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-      };
-      bodyTicket = "📎 Outros anexos"
-    } else {
-      if (media.mimetype.includes("gif")) {
-        options = {
-          image: fs.readFileSync(pathMedia),
-          caption: bodyMedia,
-          mimetype: "image/gif",
-          contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-          gifPlayback: true
-
-        };
-      } else {
-        options = {
-          image: fs.readFileSync(pathMedia),
-          caption: bodyMedia,
-          contextInfo: { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded },
-        };
-      }
-      bodyTicket = "📎 Outros anexos"
-    }
-
-    if (isPrivate === true) {
-      const messageData = {
+	    if (isPrivate === true) {
+	      const messageData = {
         wid: `PVT${companyId}${ticket.id}${body.substring(0, 6)}`,
         ticketId: ticket.id,
         contactId: undefined,
@@ -291,16 +235,114 @@ const SendWhatsAppMedia = async ({
 
     const contactNumber = await Contact.findByPk(ticket.contactId)
 
-    let number: string;
-
-    if (contactNumber.remoteJid && contactNumber.remoteJid !== "" && contactNumber.remoteJid.includes("@")) {
-      number = contactNumber.remoteJid;
-    } else {
-      number = `${contactNumber.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"
-        }`;
+    if (!contactNumber) {
+      throw new AppError("ERR_CONTACT_NOT_FOUND");
     }
 
-    const sentMessage = await wbot.sendMessage(
+	    const number = await ResolveOutboundJid({
+	      wbot,
+	      contact: contactNumber,
+	      isGroup: ticket.isGroup
+	    });
+
+	    const contextInfo = { forwardingScore: isForwarded ? 2 : 0, isForwarded: isForwarded };
+
+	    if ((wbot as any)?._isRemoteProxy && (wbot as any)?._remotePort) {
+	      const response = await axios.post(
+	        `http://127.0.0.1:${(wbot as any)._remotePort}/internal/send-media`,
+	        {
+	          whatsappId: ticket.whatsappId,
+	          to: number,
+	          mediaPath: pathMedia || media.filename,
+	          mediaName: media.originalname || media.filename,
+	          body: bodyMedia,
+	          companyId: ticket.companyId,
+	          contextInfo,
+	          gifPlayback: media.mimetype.includes("gif")
+	        },
+	        {
+	          timeout: 240000,
+	          maxBodyLength: Infinity,
+	          maxContentLength: Infinity,
+	          headers: { "Content-Type": "application/json" }
+	        }
+	      );
+
+	      await ticket.update({ lastMessage: body !== media.filename ? body : bodyMedia, imported: null });
+
+	      return response.data?.result;
+	    }
+
+	    let options: AnyMessageContent;
+
+	    if (typeMessage === "video") {
+	      const videoMeta = await generateVideoThumbnail(pathMedia);
+	      options = {
+	        video: fs.readFileSync(pathMedia),
+	        caption: bodyMedia,
+	        fileName: media.originalname.replace('/', '-'),
+	        contextInfo,
+	        ...buildVideoExtras(videoMeta)
+	      } as AnyMessageContent;
+	    } else if (typeMessage === "audio") {
+	      
+	      const typeAudio = true; //media.originalname.includes("audio-record-site");
+	      if (typeAudio) {
+	        const convert = await processAudio(media.path, companyId);
+	        options = {
+	          audio: fs.readFileSync(convert),
+	          mimetype: "audio/ogg; codecs=opus",
+	          ptt: true,
+	          caption: bodyMedia,
+	          contextInfo,
+	        };
+	        unlinkSync(convert);
+	      } else {
+	        const convert = await processAudio(media.path, companyId);
+	        options = {
+	          audio: fs.readFileSync(convert),
+	          mimetype: "audio/ogg; codecs=opus",
+	          ptt: true,
+	          contextInfo,
+	        };
+	        unlinkSync(convert);
+	      }
+	    } else if (typeMessage === "document" || typeMessage === "text") {
+	      options = {
+	        document: fs.readFileSync(pathMedia),
+	        caption: bodyMedia,
+	        fileName: media.originalname.replace('/', '-'),
+	        mimetype: media.mimetype,
+	        contextInfo,
+	      };
+	    } else if (typeMessage === "application") {
+	      options = {
+	        document: fs.readFileSync(pathMedia),
+	        caption: bodyMedia,
+	        fileName: media.originalname.replace('/', '-'),
+	        mimetype: media.mimetype,
+	        contextInfo,
+	      };
+	    } else {
+	      if (media.mimetype.includes("gif")) {
+	        options = {
+	          image: fs.readFileSync(pathMedia),
+	          caption: bodyMedia,
+	          mimetype: "image/gif",
+	          contextInfo,
+	          gifPlayback: true
+	
+	        };
+	      } else {
+	        options = {
+	          image: fs.readFileSync(pathMedia),
+	          caption: bodyMedia,
+	          contextInfo,
+	        };
+	      }
+	    }
+
+	    const sentMessage = await wbot.sendMessage(
       number,
       {
         ...options

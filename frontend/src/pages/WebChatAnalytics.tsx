@@ -1,36 +1,30 @@
 import { useState, useEffect, useCallback } from 'react'
+// [Fase2·G] Conservados como MUI Joy a propósito: no hay equivalente en el design
+// system (progress bars / spinner). El resto de la pantalla ya usa Tailwind + shadcn.
+import { LinearProgress, CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Select,
-  Option,
-  Chip,
-  LinearProgress,
-  CircularProgress,
-  Table,
-  IconButton,
-  Tooltip,
-  Stack,
-  Badge,
-} from '@mui/joy'
-import {
-  Analytics as AnalyticsIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  Widgets as WidgetsIcon,
-  Message as MessageIcon,
-  ConfirmationNumber as TicketIcon,
-  Business as BusinessIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as ActiveIcon,
-  Cancel as InactiveIcon,
-  ContentCopy as CopyIcon,
-  OpenInNew as OpenIcon,
-} from '@mui/icons-material'
+  ChartBar,
+  TrendUp,
+  SquaresFour,
+  ChatCircle,
+  Ticket as TicketIcon,
+  Buildings,
+  ArrowClockwise,
+  CheckCircle,
+  XCircle,
+  Copy,
+} from '@phosphor-icons/react'
 import { toast } from 'react-toastify'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import api from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 
@@ -156,9 +150,9 @@ export default function WhatsAppAnalytics() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+      <div className="flex h-[50vh] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     )
   }
 
@@ -171,174 +165,142 @@ export default function WhatsAppAnalytics() {
     avgTicketsPerWidget: 0
   }
 
+  const summaryCards = [
+    { icon: SquaresFour, iconClass: 'text-primary', label: 'Total Widgets', value: summary.totalWidgets, valueClass: 'text-foreground' },
+    { icon: CheckCircle, iconClass: 'text-success-text', label: 'Activos', value: summary.activeWidgets, valueClass: 'text-success-text' },
+    { icon: XCircle, iconClass: 'text-muted-foreground', label: 'Inactivos', value: summary.inactiveWidgets, valueClass: 'text-muted-foreground' },
+    { icon: TicketIcon, iconClass: 'text-warning-text', label: 'Tickets Creados', value: summary.totalTickets, valueClass: 'text-foreground' },
+    { icon: ChatCircle, iconClass: 'text-primary', label: 'Total Mensajes', value: summary.totalMessages, valueClass: 'text-foreground' },
+    { icon: TrendUp, iconClass: 'text-success-text', label: 'Prom. Tickets/Widget', value: summary.avgTicketsPerWidget, valueClass: 'text-foreground' },
+  ] as const
+
+  const columns = [
+    'Widget',
+    ...(isSuper ? ['Empresa'] : []),
+    'Conexión',
+    'Estado',
+    'Tickets',
+    'Mensajes',
+    'Última Actividad',
+    'API Key',
+  ]
+
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AnalyticsIcon sx={{ fontSize: 32 }} />
-            Analytics WebChat
-            {isSuper && (
-              <Chip size="sm" color="warning" variant="soft">
-                Super Admin - Todas las empresas
-              </Chip>
-            )}
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Control y métricas de widgets WebChat {isSuper ? 'de todas las empresas' : 'de tu empresa'}
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1}>
-          <IconButton
-            variant="outlined"
-            color="neutral"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            <RefreshIcon sx={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
-          </IconButton>
-          <Select
-            value={timeRange}
-            onChange={(_, val) => setTimeRange(val as string)}
-            sx={{ minWidth: 150 }}
-          >
-            <Option value="24h">Últimas 24 horas</Option>
-            <Option value="7d">Últimos 7 días</Option>
-            <Option value="30d">Últimos 30 días</Option>
-            <Option value="90d">Últimos 90 días</Option>
-          </Select>
-        </Stack>
-      </Box>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <ChartBar className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Analytics WebChat
+                  </h1>
+                  {isSuper && (
+                    <Badge variant="warning">Super Admin - Todas las empresas</Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Control y métricas de widgets WebChat {isSuper ? 'de todas las empresas' : 'de tu empresa'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Actualizar"
+                className="text-muted-foreground"
+                onClick={handleRefresh}
+                disabled={refreshing}
+              >
+                <ArrowClockwise className={refreshing ? 'size-5 animate-spin' : 'size-5'} aria-hidden />
+              </Button>
+              <Select value={timeRange} onValueChange={setTimeRange}>
+                <SelectTrigger className="w-[180px]" aria-label="Rango de tiempo">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="24h">Últimas 24 horas</SelectItem>
+                  <SelectItem value="7d">Últimos 7 días</SelectItem>
+                  <SelectItem value="30d">Últimos 30 días</SelectItem>
+                  <SelectItem value="90d">Últimos 90 días</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      {/* Tarjetas de resumen */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={2}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <WidgetsIcon sx={{ color: 'primary.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Total Widgets</Typography>
-              </Stack>
-              <Typography level="h2">{summary.totalWidgets}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+          {/* Tarjetas de resumen */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            {summaryCards.map((card) => {
+              const Icon = card.icon
+              return (
+                <div
+                  key={card.label}
+                  className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]"
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <Icon className={`size-5 ${card.iconClass}`} weight="fill" aria-hidden />
+                    <span className="text-sm text-muted-foreground">{card.label}</span>
+                  </div>
+                  <p className={`text-2xl font-semibold tracking-tight tabular-nums ${card.valueClass}`}>
+                    {card.value}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
 
-        <Grid xs={12} sm={6} md={2}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <ActiveIcon sx={{ color: 'success.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Activos</Typography>
-              </Stack>
-              <Typography level="h2" sx={{ color: 'success.500' }}>{summary.activeWidgets}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <InactiveIcon sx={{ color: 'neutral.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Inactivos</Typography>
-              </Stack>
-              <Typography level="h2" sx={{ color: 'neutral.500' }}>{summary.inactiveWidgets}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <TicketIcon sx={{ color: 'warning.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Tickets Creados</Typography>
-              </Stack>
-              <Typography level="h2">{summary.totalTickets}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <MessageIcon sx={{ color: 'primary.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Total Mensajes</Typography>
-              </Stack>
-              <Typography level="h2">{summary.totalMessages}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} sm={6} md={2}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <TrendingUpIcon sx={{ color: 'success.500' }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Prom. Tickets/Widget</Typography>
-              </Stack>
-              <Typography level="h2">{summary.avgTicketsPerWidget}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Gráficos de actividad */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>Tickets por Día (últimos 7 días)</Typography>
-              <Stack spacing={1}>
+          {/* Gráficos de actividad */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-sm font-semibold text-foreground">
+                Tickets por Día (últimos 7 días)
+              </h2>
+              <div className="space-y-3">
                 {analytics?.ticketsByDay.map((day) => {
                   const maxCount = Math.max(...(analytics?.ticketsByDay.map(d => d.count) || [1]))
                   const percentage = maxCount > 0 ? (day.count / maxCount) * 100 : 0
                   return (
-                    <Box key={day.date}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography level="body-xs">
+                    <div key={day.date}>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
                           {new Date(day.date).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}
-                        </Typography>
-                        <Typography level="body-xs" fontWeight="lg">{day.count}</Typography>
-                      </Box>
-                      <LinearProgress
-                        determinate
-                        value={percentage}
-                        color="warning"
-                        size="sm"
-                      />
-                    </Box>
+                        </span>
+                        <span className="text-xs font-semibold tabular-nums text-foreground">{day.count}</span>
+                      </div>
+                      <LinearProgress determinate value={percentage} color="warning" size="sm" />
+                    </div>
                   )
                 })}
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+              </div>
+            </div>
 
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>Mensajes por Día (últimos 7 días)</Typography>
-              <Stack spacing={1}>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <h2 className="mb-4 text-sm font-semibold text-foreground">
+                Mensajes por Día (últimos 7 días)
+              </h2>
+              <div className="space-y-3">
                 {analytics?.messagesByDay.map((day) => {
                   const maxSent = Math.max(...(analytics?.messagesByDay.map(d => d.sent) || [1]))
                   const maxReceived = Math.max(...(analytics?.messagesByDay.map(d => d.received) || [1]))
                   const maxTotal = Math.max(maxSent, maxReceived, 1)
                   return (
-                    <Box key={day.date}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography level="body-xs">
+                    <div key={day.date}>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
                           {new Date(day.date).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}
-                        </Typography>
-                        <Stack direction="row" spacing={1}>
-                          <Typography level="body-xs" sx={{ color: 'success.500' }}>↑{day.sent}</Typography>
-                          <Typography level="body-xs" sx={{ color: 'primary.500' }}>↓{day.received}</Typography>
-                        </Stack>
-                      </Box>
-                      <Stack direction="row" spacing={0.5}>
+                        </span>
+                        <div className="flex items-center gap-2 tabular-nums">
+                          <span className="text-xs text-success-text">↑{day.sent}</span>
+                          <span className="text-xs text-primary">↓{day.received}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
                         <LinearProgress
                           determinate
                           value={(day.sent / maxTotal) * 100}
@@ -353,147 +315,129 @@ export default function WhatsAppAnalytics() {
                           size="sm"
                           sx={{ flex: 1 }}
                         />
-                      </Stack>
-                    </Box>
+                      </div>
+                    </div>
                   )
                 })}
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+              </div>
+            </div>
+          </div>
 
-      {/* Tabla de widgets */}
-      <Card>
-        <CardContent>
-          <Typography level="title-md" sx={{ mb: 2 }}>
-            Detalle de Widgets ({analytics?.widgets.length || 0})
-          </Typography>
+          {/* Tabla de widgets */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="border-b border-border px-5 py-4">
+              <h2 className="text-sm font-semibold text-foreground">
+                Detalle de Widgets ({analytics?.widgets.length || 0})
+              </h2>
+            </div>
 
-          {analytics?.widgets.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <WidgetsIcon sx={{ fontSize: 48, color: 'neutral.300', mb: 1 }} />
-              <Typography level="body-md" sx={{ color: 'text.tertiary' }}>
-                No hay widgets creados
-              </Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Ve a WebChat Settings para crear tu primer widget
-              </Typography>
-            </Box>
-          ) : (
-            <Box sx={{ overflowX: 'auto' }}>
-              <Table sx={{ '& th': { fontWeight: 'lg' } }}>
-                <thead>
-                  <tr>
-                    <th>Widget</th>
-                    {isSuper && <th>Empresa</th>}
-                    <th>Conexión</th>
-                    <th>Estado</th>
-                    <th>Tickets</th>
-                    <th>Mensajes</th>
-                    <th>Última Actividad</th>
-                    <th>API Key</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {analytics?.widgets.map((widget) => (
-                    <tr key={widget.id}>
-                      <td>
-                        <Stack>
-                          <Typography level="body-sm" fontWeight="md">{widget.name}</Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {widget.channel}
-                          </Typography>
-                        </Stack>
-                      </td>
-                      {isSuper && (
-                        <td>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <BusinessIcon sx={{ fontSize: 16, color: 'neutral.500' }} />
-                            <Typography level="body-sm">{widget.companyName || `ID: ${widget.companyId}`}</Typography>
-                          </Stack>
-                        </td>
-                      )}
-                      <td>
-                        <Typography level="body-sm">{widget.whatsappName || 'N/A'}</Typography>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={widget.status ? 'success' : 'neutral'}
-                          variant="soft"
-                          startDecorator={widget.status ? <ActiveIcon sx={{ fontSize: 14 }} /> : <InactiveIcon sx={{ fontSize: 14 }} />}
+            {analytics?.widgets.length === 0 ? (
+              <div className="flex flex-col items-center gap-1 px-4 py-12 text-center">
+                <SquaresFour className="mb-2 size-12 text-muted-foreground/50" aria-hidden />
+                <p className="text-sm text-foreground">No hay widgets creados</p>
+                <p className="text-sm text-muted-foreground">
+                  Ve a WebChat Settings para crear tu primer widget
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                         >
-                          {widget.status ? 'Activo' : 'Inactivo'}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Badge
-                          badgeContent={widget.ticketsCreated}
-                          color="warning"
-                          max={999}
-                        >
-                          <TicketIcon sx={{ color: 'neutral.400' }} />
-                        </Badge>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={1}>
-                          <Tooltip title="Enviados">
-                            <Chip size="sm" color="success" variant="soft">↑{widget.messagesSent}</Chip>
-                          </Tooltip>
-                          <Tooltip title="Recibidos">
-                            <Chip size="sm" color="primary" variant="soft">↓{widget.messagesReceived}</Chip>
-                          </Tooltip>
-                        </Stack>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getActivityColor(widget.lastActivity)}
-                          variant="soft"
-                        >
-                          {formatDate(widget.lastActivity)}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Stack direction="row" spacing={0.5}>
-                          <Tooltip title="Copiar API Key">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              onClick={() => copyApiKey(widget.apiKey)}
-                            >
-                              <CopyIcon sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
-                          <Typography level="body-xs" sx={{
-                            fontFamily: 'monospace',
-                            bgcolor: 'neutral.100',
-                            px: 0.5,
-                            borderRadius: 'xs',
-                            maxWidth: 100,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                          }}>
-                            {widget.apiKey.substring(0, 12)}...
-                          </Typography>
-                        </Stack>
-                      </td>
+                          {c}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-    </Box>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {analytics?.widgets.map((widget) => {
+                      const actColor = getActivityColor(widget.lastActivity)
+                      const actVariant: BadgeProps['variant'] =
+                        actColor === 'danger' ? 'destructive' : actColor
+                      return (
+                        <tr key={widget.id} className="transition-colors hover:bg-accent/40">
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col">
+                              <span className="font-medium text-foreground">{widget.name}</span>
+                              <span className="text-xs text-muted-foreground">{widget.channel}</span>
+                            </div>
+                          </td>
+                          {isSuper && (
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1.5 text-muted-foreground">
+                                <Buildings className="size-4" aria-hidden />
+                                <span className="text-foreground">
+                                  {widget.companyName || `ID: ${widget.companyId}`}
+                                </span>
+                              </div>
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {widget.whatsappName || 'N/A'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={widget.status ? 'success' : 'neutral'}>
+                              {widget.status ? (
+                                <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                              ) : (
+                                <XCircle className="size-3.5" weight="fill" aria-hidden />
+                              )}
+                              {widget.status ? 'Activo' : 'Inactivo'}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <TicketIcon className="size-4" aria-hidden />
+                              <span className="font-medium tabular-nums text-foreground">
+                                {widget.ticketsCreated}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <Tooltip title="Enviados">
+                                <Badge variant="success">↑{widget.messagesSent}</Badge>
+                              </Tooltip>
+                              <Tooltip title="Recibidos">
+                                <Badge variant="primary">↓{widget.messagesReceived}</Badge>
+                              </Tooltip>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3">
+                            <Badge variant={actVariant}>{formatDate(widget.lastActivity)}</Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <Tooltip title="Copiar API Key">
+                                <button
+                                  type="button"
+                                  aria-label="Copiar API Key"
+                                  onClick={() => copyApiKey(widget.apiKey)}
+                                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                                >
+                                  <Copy className="size-[18px]" aria-hidden />
+                                </button>
+                              </Tooltip>
+                              <span className="max-w-[100px] truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                                {widget.apiKey.substring(0, 12)}...
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
   )
 }

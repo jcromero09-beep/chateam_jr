@@ -4,27 +4,20 @@ import * as Yup from "yup";
 import { Formik, FieldArray, Form, Field } from "formik";
 import { toast } from "react-toastify";
 
-import { makeStyles } from "@material-ui/core/styles";
-import { green } from "@material-ui/core/colors";
-import Button from "@material-ui/core/Button";
-import TextField from "@material-ui/core/TextField";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import DialogTitle from "@material-ui/core/DialogTitle";
-import IconButton from "@material-ui/core/IconButton";
-import DeleteOutlineIcon from "@material-ui/icons/DeleteOutline";
-import CircularProgress from "@material-ui/core/CircularProgress";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import IconButton from "@mui/material/IconButton";
+import CircularProgress from "@mui/material/CircularProgress";
 import Compressor from "compressorjs";
 
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import toastError from "../../errors/toastError";
 import {
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
+  Box,
+  Divider,
   Stack,
   Typography,
 } from "@mui/material";
@@ -40,12 +33,11 @@ import {
   MicNone,
   Videocam,
 } from "@mui/icons-material";
-import CloseIcon from "@material-ui/icons/Close";
-import DashboardOutlinedIcon from "@material-ui/icons/DashboardOutlined";
+import CloseIcon from "@mui/icons-material/Close";
+import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import { capitalize } from "../../utils/capitalize";
-import { Box, Divider } from "@material-ui/core";
 
-const useStyles = makeStyles((theme) => ({
+const styles = {
   dialog: {
     "& .MuiDialog-paper": {
       borderRadius: 16,
@@ -74,24 +66,24 @@ const useStyles = makeStyles((theme) => ({
     color: "#fff",
     "& svg": { fontSize: 22 },
   },
-  headerTitle: {
+  headerTitle: (theme) => ({
     fontSize: 18,
     fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#fff" : "#1a1a2e",
+    color: theme.palette.mode === "dark" ? "#fff" : "#1a1a2e",
     lineHeight: 1.3,
-  },
-  headerSubtitle: {
+  }),
+  headerSubtitle: (theme) => ({
     fontSize: 12,
-    color: theme.palette.type === "dark" ? "#aaa" : "#888",
+    color: theme.palette.mode === "dark" ? "#aaa" : "#888",
     marginTop: 2,
-  },
-  closeBtn: {
-    color: theme.palette.type === "dark" ? "#aaa" : "#666",
+  }),
+  closeBtn: (theme) => ({
+    color: theme.palette.mode === "dark" ? "#aaa" : "#666",
     padding: 8,
     "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
+      background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
     },
-  },
+  }),
   typeBtn: {
     borderRadius: 20,
     padding: "6px 16px",
@@ -107,30 +99,30 @@ const useStyles = makeStyles((theme) => ({
     },
     "& svg": { width: 16, height: 16, marginRight: 4 },
   },
-  elementCard: {
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#e0e5ec"}`,
+  elementCard: (theme) => ({
+    border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#e0e5ec"}`,
     borderRadius: 12,
     padding: 12,
     position: "relative",
-    background: theme.palette.type === "dark" ? "rgba(255,255,255,0.02)" : "#fafbfc",
+    background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "#fafbfc",
     transition: "border-color 0.2s",
     "&:hover": {
       borderColor: "#5BC2D2",
     },
-  },
-  elementTitle: {
+  }),
+  elementTitle: (theme) => ({
     textAlign: "center",
     fontSize: 13,
     fontWeight: 600,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
+    color: theme.palette.mode === "dark" ? "#ccc" : "#555",
     marginBottom: 8,
-  },
-  deleteIcon: {
+  }),
+  deleteIcon: (theme) => ({
     cursor: "pointer",
     fontSize: 20,
-    color: theme.palette.type === "dark" ? "#999" : "#bbb",
+    color: theme.palette.mode === "dark" ? "#999" : "#bbb",
     "&:hover": { color: "#f5576c" },
-  },
+  }),
   actions: {
     padding: "12px 24px 20px",
     display: "flex",
@@ -138,18 +130,18 @@ const useStyles = makeStyles((theme) => ({
     justifyContent: "flex-end",
     borderTop: "none",
   },
-  cancelBtn: {
+  cancelBtn: (theme) => ({
     borderRadius: 10,
     padding: "8px 20px",
     textTransform: "none",
     fontWeight: 500,
     fontSize: 14,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-    border: `1px solid ${theme.palette.type === "dark" ? "#444" : "#d0d5dd"}`,
+    color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+    border: `1px solid ${theme.palette.mode === "dark" ? "#444" : "#d0d5dd"}`,
     "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
+      background: theme.palette.mode === "dark" ? "rgba(255,255,255,0.05)" : "#f9fafb",
     },
-  },
+  }),
   saveBtn: {
     borderRadius: 10,
     padding: "8px 24px",
@@ -164,34 +156,27 @@ const useStyles = makeStyles((theme) => ({
       boxShadow: "0 4px 12px rgba(91,194,210,0.4)",
     },
   },
-  textField: {
-    marginRight: theme.spacing(1),
-    flex: 1,
-  },
-  btnWrapper: {
-    position: "relative",
-  },
-  uploadBtn: {
+  uploadBtn: (theme) => ({
     borderRadius: 10,
     padding: "8px 16px",
     textTransform: "none",
     fontWeight: 500,
     fontSize: 13,
-    background: theme.palette.type === "dark" ? "rgba(91,194,210,0.15)" : "rgba(91,194,210,0.08)",
+    background: theme.palette.mode === "dark" ? "rgba(91,194,210,0.15)" : "rgba(91,194,210,0.08)",
     color: "#5BC2D2",
     border: "1px dashed #5BC2D2",
     "&:hover": {
-      background: theme.palette.type === "dark" ? "rgba(91,194,210,0.25)" : "rgba(91,194,210,0.12)",
+      background: theme.palette.mode === "dark" ? "rgba(91,194,210,0.25)" : "rgba(91,194,210,0.12)",
     },
-  },
-  variablesSection: {
+  }),
+  variablesSection: (theme) => ({
     textAlign: "center",
     padding: "8px 0",
     "& .MuiTypography-root": {
       fontSize: 13,
-      color: theme.palette.type === "dark" ? "#aaa" : "#888",
+      color: theme.palette.mode === "dark" ? "#aaa" : "#888",
     },
-  },
+  }),
   loadingBox: {
     display: "flex",
     flexDirection: "column",
@@ -201,12 +186,12 @@ const useStyles = makeStyles((theme) => ({
     height: "70vh",
     padding: 16,
   },
-  loadingText: {
+  loadingText: (theme) => ({
     fontSize: 14,
     fontWeight: 500,
-    color: theme.palette.type === "dark" ? "#ccc" : "#555",
-  },
-}));
+    color: theme.palette.mode === "dark" ? "#ccc" : "#555",
+  }),
+};
 
 const FlowBuilderSingleBlockModal = ({
   open,
@@ -216,7 +201,6 @@ const FlowBuilderSingleBlockModal = ({
   close,
   type,
 }) => {
-  const classes = useStyles();
   const isMounted = useRef(true);
   const { user } = useAuth();
   const companyId = user?.companyId;
@@ -810,13 +794,14 @@ const FlowBuilderSingleBlockModal = ({
   const imgLayout = (number, valueDefault = "") => {
     return (
       <Stack
-        className={`stackImg${number} ${classes.elementCard}`}
+        className={`stackImg${number}`}
+        sx={styles.elementCard}
         key={`stackImg${number}`}
       >
         <Stack sx={{ position: "absolute", right: 8, top: 8 }}>
-          <Delete className={classes.deleteIcon} onClick={() => deleteElementsTypeOne(number, "img")} />
+          <Delete sx={styles.deleteIcon} onClick={() => deleteElementsTypeOne(number, "img")} />
         </Stack>
-        <Typography className={classes.elementTitle}>Imagen</Typography>
+        <Typography sx={styles.elementTitle}>Imagen</Typography>
         <Stack direction={"row"} justifyContent={"center"}>
           <img
             src={
@@ -831,7 +816,8 @@ const FlowBuilderSingleBlockModal = ({
         {valueDefault.length === 0 && (
           <Button
             component="label"
-            className={`btnImg${number} ${classes.uploadBtn}`}
+            className={`btnImg${number}`}
+            sx={styles.uploadBtn}
           >
             Subir imagen
             <input
@@ -849,13 +835,14 @@ const FlowBuilderSingleBlockModal = ({
   const pdfLayout = (number, valueDefault = "") => {
     return (
       <Stack
-        className={`stackPdf${number} ${classes.elementCard}`}
+        className={`stackPdf${number}`}
+        sx={styles.elementCard}
         key={`stackPdf${number}`}
       >
         <Stack sx={{ position: "absolute", right: 8, top: 8 }}>
-          <Delete className={classes.deleteIcon} onClick={() => deleteElementsTypeOne(number, "pdf")} />
+          <Delete sx={styles.deleteIcon} onClick={() => deleteElementsTypeOne(number, "pdf")} />
         </Stack>
-        <Typography className={classes.elementTitle}>PDF</Typography>
+        <Typography sx={styles.elementTitle}>PDF</Typography>
         <Stack direction={"row"} justifyContent={"center"}>
           {valueDefault.length > 0 ? (
             <a
@@ -880,7 +867,8 @@ const FlowBuilderSingleBlockModal = ({
         {valueDefault.length === 0 && (
           <Button
             component="label"
-            className={`btnPdf${number} ${classes.uploadBtn}`}
+            className={`btnPdf${number}`}
+            sx={styles.uploadBtn}
           >
             Subir PDF
             <input
@@ -899,13 +887,14 @@ const FlowBuilderSingleBlockModal = ({
   const audioLayout = (number, valueDefault = "", valueRecordDefault = "") => {
     return (
       <Stack
-        className={`stackAudio${number} ${classes.elementCard}`}
+        className={`stackAudio${number}`}
+        sx={styles.elementCard}
         key={`stackAudio${number}`}
       >
         <Stack sx={{ position: "absolute", right: 8, top: 8 }} direction={"row"} gap={1}>
-          <Delete className={classes.deleteIcon} onClick={() => deleteElementsTypeOne(number, "audio")} />
+          <Delete sx={styles.deleteIcon} onClick={() => deleteElementsTypeOne(number, "audio")} />
         </Stack>
-        <Typography className={classes.elementTitle}>Audio</Typography>
+        <Typography sx={styles.elementTitle}>Audio</Typography>
         <div
           className={`audio${number}`}
           style={{
@@ -929,7 +918,8 @@ const FlowBuilderSingleBlockModal = ({
         {valueDefault.length === 0 && (
           <Button
             component="label"
-            className={`btnAudio${number} ${classes.uploadBtn}`}
+            className={`btnAudio${number}`}
+            sx={styles.uploadBtn}
           >
             Subir audio
             <input
@@ -956,13 +946,14 @@ const FlowBuilderSingleBlockModal = ({
   const videoLayout = (number, valueDefault = "") => {
     return (
       <Stack
-        className={`stackVideo${number} ${classes.elementCard}`}
+        className={`stackVideo${number}`}
+        sx={styles.elementCard}
         key={`stackVideo${number}`}
       >
         <Stack sx={{ position: "absolute", right: 8, top: 8 }}>
-          <Delete className={classes.deleteIcon} onClick={() => deleteElementsTypeOne(number, "video")} />
+          <Delete sx={styles.deleteIcon} onClick={() => deleteElementsTypeOne(number, "video")} />
         </Stack>
-        <Typography className={classes.elementTitle}>Video</Typography>
+        <Typography sx={styles.elementTitle}>Video</Typography>
         <div
           className={`video${number}`}
           style={{
@@ -986,7 +977,8 @@ const FlowBuilderSingleBlockModal = ({
         {valueDefault.length === 0 && (
           <Button
             component="label"
-            className={`btnVideo${number} ${classes.uploadBtn}`}
+            className={`btnVideo${number}`}
+            sx={styles.uploadBtn}
           >
             Subir video
             <input
@@ -1004,13 +996,14 @@ const FlowBuilderSingleBlockModal = ({
   const messageLayout = (number, valueDefault = "") => {
     return (
       <Stack
-        className={`stackMessage${number} ${classes.elementCard}`}
+        className={`stackMessage${number}`}
+        sx={styles.elementCard}
         key={`stackMessage${number}`}
       >
         <Stack sx={{ position: "absolute", right: 8, top: 8 }}>
-          <Delete className={classes.deleteIcon} onClick={() => deleteElementsTypeOne(number, "message")} />
+          <Delete sx={styles.deleteIcon} onClick={() => deleteElementsTypeOne(number, "message")} />
         </Stack>
-        <Typography className={classes.elementTitle}>Texto</Typography>
+        <Typography sx={styles.elementTitle}>Texto</Typography>
         <TextField
           label={"Mensaje"}
           defaultValue={valueDefault}
@@ -1029,13 +1022,14 @@ const FlowBuilderSingleBlockModal = ({
   const intervalLayout = (number, valueDefault = 0) => {
     return (
       <Stack
-        className={`stackInterval${number} ${classes.elementCard}`}
+        className={`stackInterval${number}`}
+        sx={styles.elementCard}
         key={`stackInterval${number}`}
       >
         <Stack sx={{ position: "absolute", right: 8, top: 8 }}>
-          <Delete className={classes.deleteIcon} onClick={() => deleteElementsTypeOne(number, "interval")} />
+          <Delete sx={styles.deleteIcon} onClick={() => deleteElementsTypeOne(number, "interval")} />
         </Stack>
-        <Typography className={classes.elementTitle}>Intervalo</Typography>
+        <Typography sx={styles.elementTitle}>Intervalo</Typography>
         <TextField
           label={"Tiempo en segundos"}
           className={`interval${number}`}
@@ -1472,22 +1466,22 @@ const FlowBuilderSingleBlockModal = ({
   };
   return (
     <div>
-      <Dialog open={activeModal} fullWidth maxWidth="md" scroll="paper" className={classes.dialog}>
+      <Dialog open={activeModal} fullWidth maxWidth="md" scroll="paper" sx={styles.dialog}>
         {!loading && (
-          <div className={classes.header}>
-            <div className={classes.headerLeft}>
-              <div className={classes.headerIcon}>
+          <Box sx={styles.header}>
+            <Box sx={styles.headerLeft}>
+              <Box sx={styles.headerIcon}>
                 <DashboardOutlinedIcon />
-              </div>
+              </Box>
               <div>
-                <Typography className={classes.headerTitle}>{labels.title}</Typography>
-                <Typography className={classes.headerSubtitle}>Texto, audio, video, imagen, PDF e intervalos</Typography>
+                <Typography sx={styles.headerTitle}>{labels.title}</Typography>
+                <Typography sx={styles.headerSubtitle}>Texto, audio, video, imagen, PDF e intervalos</Typography>
               </div>
-            </div>
-            <IconButton className={classes.closeBtn} onClick={handleClose} size="small">
+            </Box>
+            <IconButton sx={styles.closeBtn} onClick={handleClose} size="small">
               <CloseIcon fontSize="small" />
             </IconButton>
-          </div>
+          </Box>
         )}
         <Stack>
           <Stack
@@ -1505,37 +1499,37 @@ const FlowBuilderSingleBlockModal = ({
               <>{item}</>
             ))}
             <Stack direction={"row"} gap={1} flexWrap="wrap">
-              <Button className={classes.typeBtn} onClick={() => {
+              <Button sx={styles.typeBtn} onClick={() => {
                   setElements((old) => [...old, messageLayout(numberMessagesLast)]);
                   setNumberMessages((old) => { setElementsSeq((oldEleme) => [...oldEleme, `message${numberMessagesLast}`]); return old + 1; });
                   setNumberMessagesLast((old) => old + 1);
                   setTimeout(() => { scrollToBottom(".body-card"); }, 100);
                 }}><Message /> Texto</Button>
-              <Button className={classes.typeBtn} onClick={() => {
+              <Button sx={styles.typeBtn} onClick={() => {
                   setElements((old) => [...old, intervalLayout(numberIntervalLast)]);
                   setNumberInterval((old) => { setElementsSeq((oldEleme) => [...oldEleme, `interval${numberIntervalLast}`]); return old + 1; });
                   setNumberIntervalLast((old) => old + 1);
                   setTimeout(() => { scrollToBottom(".body-card"); }, 100);
                 }}><AccessTime /> Intervalo</Button>
-              <Button className={classes.typeBtn} onClick={() => {
+              <Button sx={styles.typeBtn} onClick={() => {
                   setElements((old) => [...old, imgLayout(numberImgLast)]);
                   setNumberImg((old) => { setElementsSeq((oldEleme) => [...oldEleme, `img${numberImgLast}`]); return old + 1; });
                   setNumberImgLast((old) => old + 1);
                   setTimeout(() => { scrollToBottom(".body-card"); }, 100);
                 }}><Image /> Imagen</Button>
-              <Button className={classes.typeBtn} onClick={() => {
+              <Button sx={styles.typeBtn} onClick={() => {
                   setElements((old) => [...old, audioLayout(numberAudioLast)]);
                   setNumberAudio((old) => { setElementsSeq((oldEleme) => [...oldEleme, `audio${numberAudioLast}`]); return old + 1; });
                   setNumberAudioLast((old) => old + 1);
                   setTimeout(() => { scrollToBottom(".body-card"); }, 100);
                 }}><MicNone /> Audio</Button>
-              <Button className={classes.typeBtn} onClick={() => {
+              <Button sx={styles.typeBtn} onClick={() => {
                   setElements((old) => [...old, videoLayout(numberVideoLast)]);
                   setNumberVideo((old) => { setElementsSeq((oldEleme) => [...oldEleme, `video${numberVideoLast}`]); return old + 1; });
                   setNumberVideoLast((old) => old + 1);
                   setTimeout(() => { scrollToBottom(".body-card"); }, 100);
                 }}><Videocam /> Video</Button>
-              <Button className={classes.typeBtn} onClick={() => {
+              <Button sx={styles.typeBtn} onClick={() => {
                   setElements((old) => [...old, pdfLayout(numberPdfLast)]);
                   setNumberPdf((old) => { setElementsSeq((oldEleme) => [...oldEleme, `pdf${numberPdfLast}`]); return old + 1; });
                   setNumberPdfLast((old) => old + 1);
@@ -1543,7 +1537,7 @@ const FlowBuilderSingleBlockModal = ({
                 }}><PictureAsPdf /> PDF</Button>
             </Stack>
             <Divider style={{ margin: "8px 0" }} />
-            <Box className={classes.variablesSection}>
+            <Box sx={styles.variablesSection}>
               <Typography style={{ fontWeight: 600 }}>Variables</Typography>
               {variables && variables.map((item, idx) => (
                 <Typography key={idx}>{variableFormatter(item)}</Typography>
@@ -1551,22 +1545,22 @@ const FlowBuilderSingleBlockModal = ({
             </Box>
           </Stack>
 
-          <DialogActions className={classes.actions} style={{ display: loading ? "none" : "flex" }}>
-            <Button className={classes.cancelBtn} onClick={handleClose}>
+          <DialogActions sx={styles.actions} style={{ display: loading ? "none" : "flex" }}>
+            <Button sx={styles.cancelBtn} onClick={handleClose}>
               Cancelar
             </Button>
-            <Button className={classes.saveBtn} onClick={() => handleSaveNode()}>
+            <Button sx={styles.saveBtn} onClick={() => handleSaveNode()}>
               {labels.btn}
             </Button>
           </DialogActions>
         </Stack>
         {loading && (
-          <div className={classes.loadingBox}>
+          <Box sx={styles.loadingBox}>
             <CircularProgress size={44} style={{ color: "#5BC2D2" }} />
-            <Typography className={classes.loadingText}>
+            <Typography sx={styles.loadingText}>
               Cargando archivos y creando contenido...
             </Typography>
-          </div>
+          </Box>
         )}
       </Dialog>
     </div>

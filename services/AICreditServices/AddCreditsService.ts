@@ -46,7 +46,7 @@ const AddCreditsService = async ({
   }
 
   // Buscar o crear balance
-  let [balance, created] = await AICreditBalance.findOrCreate({
+  const [balance, created] = await AICreditBalance.findOrCreate({
     where: {
       companyId,
       creditTypeId: creditType.id

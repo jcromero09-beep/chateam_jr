@@ -106,7 +106,7 @@ const GenerateIdentityService = async (
       ageRange,
       country,
       style,
-      generationModel: "gpt-4o"
+      generationModel: "gpt-5.5"
     }
   } as Partial<AgentIdentity> as AgentIdentity);
 
@@ -175,7 +175,7 @@ IMPORTANTE:
 - Las marcas deben ser populares en ${country} y relevantes al nicho`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

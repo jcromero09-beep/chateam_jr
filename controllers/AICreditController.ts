@@ -4,6 +4,7 @@ import { getIO } from "../libs/socket";
 import ListCreditTypesService from "../services/AICreditServices/ListCreditTypesService";
 import ListBalancesService from "../services/AICreditServices/ListBalancesService";
 import GetBalanceService from "../services/AICreditServices/GetBalanceService";
+import GetCreditsSummaryService from "../services/AICreditServices/GetCreditsSummaryService";
 import AddCreditsService from "../services/AICreditServices/AddCreditsService";
 import DeductCreditsService from "../services/AICreditServices/DeductCreditsService";
 import GetUsageHistoryService from "../services/AICreditServices/GetUsageHistoryService";
@@ -42,6 +43,31 @@ export const getBalance = async (req: Request, res: Response): Promise<Response>
   });
 
   return res.json(result);
+};
+
+// GET /ai/credits/summary — Resumen agregado del balance unificado.
+// Devuelve: { totalCredits, totalUsed, totalRemaining, byType[], byKey{}, asOf }
+// Consumido por las UIs (AIWriter, AIMultimodal, AIAudio, etc.) para mostrar
+// "Creditos disponibles" en tiempo real desde el ledger UNIFICADO (no legacy).
+// Soporta query: ?keys=message,image,audio_minute para filtrar.
+export const getSummary = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const { keys } = req.query as { keys?: string };
+
+  const filterKeys =
+    keys && typeof keys === "string"
+      ? keys
+          .split(",")
+          .map(k => k.trim())
+          .filter(k => k.length > 0)
+      : undefined;
+
+  const summary = await GetCreditsSummaryService({
+    companyId,
+    keys: filterKeys
+  });
+
+  return res.json(summary);
 };
 
 // GET /ai/credits/usage — Resumen de uso de créditos

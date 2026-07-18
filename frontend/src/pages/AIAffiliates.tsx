@@ -1,41 +1,31 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Table,
-  Sheet,
-  CircularProgress,
-  Alert,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Input,
-  Textarea,
-  IconButton,
-  Snackbar,
-  Tooltip,
-} from '@mui/joy'
+// [Fase2·G] Conservado como MUI Joy (sin equivalente en el design system): spinner.
+import { CircularProgress } from '@mui/joy'
 import {
   Users,
   Plus,
-  RefreshCw,
+  ArrowClockwise,
   X,
-  CheckCircle2,
+  CheckCircle,
   PauseCircle,
   XCircle,
-  DollarSign,
-  BadgePercent,
-  Link2,
+  Percent,
   Copy,
   Clock,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -61,11 +51,11 @@ interface AffiliateProgram {
   createdAt: string
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: 'success' | 'neutral' | 'warning' | 'primary'; icon: ReactNode }> = {
-  active: { label: 'Activo', color: 'success', icon: <CheckCircle2 size={12} /> },
-  inactive: { label: 'Inactivo', color: 'neutral', icon: <XCircle size={12} /> },
-  suspended: { label: 'Suspendido', color: 'warning', icon: <PauseCircle size={12} /> },
-  pending_approval: { label: 'Pendiente', color: 'primary', icon: <Clock size={12} /> },
+const STATUS_CONFIG: Record<string, { label: string; variant: BadgeProps['variant']; icon: ReactNode }> = {
+  active: { label: 'Activo', variant: 'success', icon: <CheckCircle className="size-3" aria-hidden /> },
+  inactive: { label: 'Inactivo', variant: 'neutral', icon: <XCircle className="size-3" aria-hidden /> },
+  suspended: { label: 'Suspendido', variant: 'warning', icon: <PauseCircle className="size-3" aria-hidden /> },
+  pending_approval: { label: 'Pendiente', variant: 'primary', icon: <Clock className="size-3" aria-hidden /> },
 }
 
 // --- Modal Crear Programa ---
@@ -116,53 +106,74 @@ function CreateProgramModal({ open, onClose, onSuccess }: CreateProgramModalProp
   }
 
   return (
-    <Modal open={open} onClose={handleClose}>
-      <ModalDialog sx={{ minWidth: 480 }}>
-        <ModalClose />
-        <Typography level="h4" sx={{ mb: 2 }}>Crear Programa de Afiliados</Typography>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Crear Programa de Afiliados</DialogTitle>
+        </DialogHeader>
+
         {error && (
-          <Alert color="danger" sx={{ mb: 2 }} endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-          }>{error}</Alert>
+          <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/12 px-3 py-2.5 text-sm text-destructive-text">
+            <span>{error}</span>
+            <button
+              type="button"
+              aria-label="Descartar error"
+              onClick={() => setError(null)}
+              className="shrink-0 rounded p-0.5 transition-colors hover:bg-destructive/15"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
         )}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <FormControl required>
-            <FormLabel>Nombre del Programa</FormLabel>
+
+        <div className="flex flex-col gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="prog-name">Nombre del Programa</Label>
             <Input
+              id="prog-name"
               placeholder="ej. Programa Premium 2025"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-          </FormControl>
-          <FormControl required>
-            <FormLabel>Tasa de Comision (%)</FormLabel>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="prog-rate">Tasa de Comision (%)</Label>
             <Input
+              id="prog-rate"
               type="number"
               placeholder="10"
               value={commissionRate}
               onChange={(e) => setCommissionRate(parseFloat(e.target.value) || 0)}
-              startDecorator={<BadgePercent size={16} />}
-              slotProps={{ input: { min: 0, max: 100, step: 0.1 } }}
+              leftIcon={<Percent aria-hidden />}
+              min={0}
+              max={100}
+              step={0.1}
             />
-          </FormControl>
-          <FormControl>
-            <FormLabel>Descripcion</FormLabel>
-            <Textarea
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="prog-desc">Descripcion</Label>
+            <textarea
+              id="prog-desc"
               placeholder="Describe el programa de afiliados..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              minRows={2}
+              rows={2}
+              className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             />
-          </FormControl>
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1 }}>
-            <Button variant="outlined" onClick={handleClose} disabled={saving}>Cancelar</Button>
-            <Button onClick={handleSubmit} loading={saving} startDecorator={<Plus size={16} />}>
-              Crear Programa
-            </Button>
-          </Box>
-        </Box>
-      </ModalDialog>
-    </Modal>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={handleSubmit} loading={saving}>
+            <Plus className="size-4" weight="bold" aria-hidden />
+            Crear Programa
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -206,6 +217,13 @@ export default function AIAffiliates() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-ocultar la notificacion tras 3s (presentacion; reemplaza autoHideDuration del Snackbar).
+  useEffect(() => {
+    if (!snackbar) return
+    const t = setTimeout(() => setSnackbar(null), 3000)
+    return () => clearTimeout(t)
+  }, [snackbar])
 
   const handleActivate = async (id: number) => {
     try {
@@ -257,245 +275,225 @@ export default function AIAffiliates() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Users size={28} />
-            Programa de Afiliados
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Gestiona programas de referidos y tasas de comision
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshCw size={16} />} onClick={fetchData}>
-            Actualizar
-          </Button>
-          <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
-            Crear Programa
-          </Button>
-        </Box>
-      </Box>
-
-      {/* Error */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }} endDecorator={
-          <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-        }>
-          {error}
-        </Alert>
-      )}
-
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Link2 size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Total Programas</Typography>
-              </Box>
-              <Typography level="h3">{totalProgramas}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <CheckCircle2 size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Activos</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: 'success.500' }}>{activos}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Users size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Referidos Totales</Typography>
-              </Box>
-              <Typography level="h3">{totalReferidos.toLocaleString('es-ES')}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <DollarSign size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Comisiones Totales</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: 'warning.600' }}>
-                ${totalComisiones.toFixed(2)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Info pendientes */}
-      {totalPendiente > 0 && (
-        <Alert color="warning" sx={{ mb: 3 }} startDecorator={<Clock size={18} />}>
-          Tienes <strong>${totalPendiente.toFixed(2)}</strong> en comisiones pendientes de pago
-        </Alert>
-      )}
-
-      {/* Tabla de Programas */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Users size={20} />
-            Programas de Afiliados
-          </Typography>
-
-          {programs.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <Users size={48} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
-                No hay programas de afiliados creados aun
-              </Typography>
-              <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
-                Crear primer programa
+    <TooltipProvider delayDuration={300}>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Users className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Programa de Afiliados
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Gestiona programas de referidos y tasas de comision
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={fetchData}>
+                <ArrowClockwise className="size-4" aria-hidden />
+                Actualizar
               </Button>
-            </Box>
-          ) : (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ minWidth: 180 }}>Nombre</th>
-                    <th style={{ minWidth: 140, textAlign: 'center' }}>Link de Referido</th>
-                    <th style={{ minWidth: 110, textAlign: 'right' }}>Comision (%)</th>
-                    <th style={{ minWidth: 100 }}>Estado</th>
-                    <th style={{ minWidth: 100, textAlign: 'right' }}>Referidos</th>
-                    <th style={{ minWidth: 130, textAlign: 'right' }}>Ganado ($)</th>
-                    <th style={{ minWidth: 130, textAlign: 'right' }}>Pendiente ($)</th>
-                    <th style={{ minWidth: 150, textAlign: 'center' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {programs.map((prog) => {
-                    const statusConf = STATUS_CONFIG[prog.status] ?? STATUS_CONFIG.inactive
-                    const isLoading = actionLoadingId === prog.id
-                    return (
-                      <tr key={prog.id}>
-                        <td>
-                          <Box>
-                            <Typography level="body-sm" fontWeight="lg">{prog.name}</Typography>
-                            {prog.description && (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                {prog.description.length > 60
-                                  ? prog.description.substring(0, 60) + '...'
-                                  : prog.description}
-                              </Typography>
-                            )}
-                          </Box>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <Tooltip title="Click para copiar link de referido" placement="top">
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color="primary"
-                              onClick={() => copyReferralLink(prog.referralCode)}
-                              endDecorator={<Copy size={12} />}
-                              sx={{ cursor: 'pointer' }}
-                            >
-                              {prog.referralCode}
-                            </Chip>
-                          </Tooltip>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm" fontWeight="lg" sx={{ color: 'primary.600' }}>
-                            {Number(prog.commissionRate)}%
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip size="sm" color={statusConf.color} startDecorator={statusConf.icon}>
-                            {statusConf.label}
-                          </Chip>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm">
-                            {(Number(prog.referralsCount) || 0).toLocaleString('es-ES')}
-                          </Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm" sx={{ color: 'success.600' }}>
-                            ${(Number(prog.totalEarnings) || 0).toFixed(2)}
-                          </Typography>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Typography level="body-sm" sx={{ color: 'warning.600' }}>
-                            ${(Number(prog.pendingEarnings) || 0).toFixed(2)}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                            {prog.status !== 'active' ? (
-                              <Button
-                                size="sm"
-                                color="success"
-                                variant="outlined"
-                                loading={isLoading}
-                                onClick={() => handleActivate(prog.id)}
-                                startDecorator={<CheckCircle2 size={14} />}
-                              >
-                                Activar
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                color="neutral"
-                                variant="outlined"
-                                loading={isLoading}
-                                onClick={() => handleDeactivate(prog.id)}
-                                startDecorator={<XCircle size={14} />}
-                              >
-                                Desactivar
-                              </Button>
-                            )}
-                          </Box>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </Table>
-            </Sheet>
+              <Button size="sm" onClick={() => setModalOpen(true)}>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Crear Programa
+              </Button>
+            </div>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text">
+              <span>{error}</span>
+              <button
+                type="button"
+                aria-label="Descartar error"
+                onClick={() => setError(null)}
+                className="shrink-0 rounded p-0.5 transition-colors hover:bg-destructive/15"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Modal Crear */}
-      <CreateProgramModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSuccess={fetchData}
-      />
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatTile label="Total Programas" value={String(totalProgramas)} />
+            <StatTile label="Activos" value={String(activos)} tone="success" />
+            <StatTile label="Referidos Totales" value={totalReferidos.toLocaleString('es-ES')} />
+            <StatTile label="Comisiones Totales" value={`$${totalComisiones.toFixed(2)}`} tone="warning" />
+          </div>
 
-      {/* Snackbar para notificaciones */}
-      <Snackbar
-        open={!!snackbar}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar(null)}
-        color="success"
-        variant="soft"
-      >
-        {snackbar}
-      </Snackbar>
-    </Box>
+          {/* Info pendientes */}
+          {totalPendiente > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/16 px-4 py-3 text-sm text-warning-text">
+              <Clock className="size-[18px] shrink-0" aria-hidden />
+              <span>
+                Tienes <strong>${totalPendiente.toFixed(2)}</strong> en comisiones pendientes de pago
+              </span>
+            </div>
+          )}
+
+          {/* Tabla de Programas */}
+          <div className="space-y-4">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+              <Users className="size-5" aria-hidden />
+              Programas de Afiliados
+            </h2>
+
+            {programs.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card px-6 py-12 text-center shadow-sm shadow-black/[0.02]">
+                <Users className="size-12 text-muted-foreground/40" aria-hidden />
+                <p className="text-sm text-muted-foreground">
+                  No hay programas de afiliados creados aun
+                </p>
+                <Button size="sm" className="mt-2" onClick={() => setModalOpen(true)}>
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                  Crear primer programa
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left">
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nombre</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Link de Referido</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comision (%)</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Referidos</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ganado ($)</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pendiente ($)</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {programs.map((prog) => {
+                        const statusConf = STATUS_CONFIG[prog.status] ?? STATUS_CONFIG.inactive
+                        const isLoading = actionLoadingId === prog.id
+                        return (
+                          <tr key={prog.id} className="transition-colors hover:bg-accent/40">
+                            <td className="px-4 py-3">
+                              <div>
+                                <p className="font-medium text-foreground">{prog.name}</p>
+                                {prog.description && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {prog.description.length > 60
+                                      ? prog.description.substring(0, 60) + '...'
+                                      : prog.description}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Tooltip title="Click para copiar link de referido">
+                                <button
+                                  type="button"
+                                  onClick={() => copyReferralLink(prog.referralCode)}
+                                  aria-label={`Copiar link de referido ${prog.referralCode}`}
+                                  className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-transparent bg-primary/12 px-2 py-0.5 text-xs font-medium leading-none text-primary transition-colors hover:bg-primary/20"
+                                >
+                                  {prog.referralCode}
+                                  <Copy className="size-3" aria-hidden />
+                                </button>
+                              </Tooltip>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="font-medium text-primary">
+                                {Number(prog.commissionRate)}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant={statusConf.variant}>
+                                {statusConf.icon}
+                                {statusConf.label}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                              {(Number(prog.referralsCount) || 0).toLocaleString('es-ES')}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-success-text">
+                              ${(Number(prog.totalEarnings) || 0).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-warning-text">
+                              ${(Number(prog.pendingEarnings) || 0).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-1">
+                                {prog.status !== 'active' ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    loading={isLoading}
+                                    onClick={() => handleActivate(prog.id)}
+                                    className="text-success-text hover:bg-success/10 hover:text-success-text"
+                                  >
+                                    {!isLoading && <CheckCircle className="size-3.5" aria-hidden />}
+                                    Activar
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    loading={isLoading}
+                                    onClick={() => handleDeactivate(prog.id)}
+                                  >
+                                    {!isLoading && <XCircle className="size-3.5" aria-hidden />}
+                                    Desactivar
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Modal Crear */}
+        <CreateProgramModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          onSuccess={fetchData}
+        />
+
+        {/* Notificacion (reemplaza el Snackbar de MUI) */}
+        {snackbar && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-6 left-1/2 z-50 flex max-w-[90vw] -translate-x-1/2 items-center gap-2 rounded-lg border border-success/30 bg-success/14 px-4 py-3 text-sm text-success-text shadow-lg"
+          >
+            <CheckCircle className="size-[18px] shrink-0" aria-hidden />
+            <span className="truncate">{snackbar}</span>
+            <button
+              type="button"
+              aria-label="Cerrar notificacion"
+              onClick={() => setSnackbar(null)}
+              className="shrink-0 rounded p-0.5 transition-colors hover:bg-success/20"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
   )
 }

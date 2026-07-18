@@ -1,55 +1,47 @@
 import { useState, useEffect, useCallback, useContext } from 'react'
 import { AuthContext } from '../context/Auth/AuthContext'
+// [Fase2·G] Conservado como MUI a propósito: no hay equivalente en el design system.
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Switch,
-  Select,
-  Option,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Alert,
-  Divider,
-  Slider,
-  Chip,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  CircularProgress,
-  IconButton,
-  Table,
-  Sheet,
-} from '@mui/joy'
-import {
-  Settings as SettingsIcon,
-  Save as SaveIcon,
-  Refresh as RefreshIcon,
-  VpnKey as KeyIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Pending as PendingIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Close as CloseIcon,
+  Gear,
+  FloppyDisk,
+  ArrowClockwise,
+  Key,
+  Plus,
+  PencilSimple,
+  Trash,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Eye,
+  EyeSlash,
+  X,
   // Iconos para capacidades de IA
-  TextFields as TextIcon,
-  Translate as TranslateIcon,
+  TextT,
+  Translate,
   Image as ImageIcon,
-  RemoveRedEye as VisionIcon,
-  Mic as AudioIcon,
-} from '@mui/icons-material'
+  Microphone,
+  WarningCircle,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { StatTile } from '@/components/ui/stat-tile'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { i18n } from "../translate/i18n" // P3.47: i18n support
 
@@ -183,7 +175,179 @@ const initialFormData: FormData = {
   speechToTextPricing: 10,
 }
 
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Interruptor accesible (role=switch) — el design system no expone un Switch.
+function Toggle({
+  checked,
+  onCheckedChange,
+  label,
+  size = 'md',
+  id,
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  label: string
+  size?: 'sm' | 'md'
+  id?: string
+}) {
+  const sm = size === 'sm'
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        'relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 p-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        sm ? 'h-6 w-11' : 'h-6 w-11',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'inline-block rounded-full bg-card shadow-sm transition-transform',
+          sm ? 'size-4' : 'size-5',
+          checked
+            ? sm
+              ? 'translate-x-[22px]'
+              : 'translate-x-[22px]'
+            : 'translate-x-0.5',
+        )}
+      />
+    </button>
+  )
+}
+
+// Aviso inline (reemplazo del Alert de Joy) con tokens del design system.
+function Notice({
+  tone,
+  children,
+  onDismiss,
+}: {
+  tone: 'destructive' | 'success' | 'warning'
+  children: React.ReactNode
+  onDismiss?: () => void
+}) {
+  const tones = {
+    destructive: 'border-destructive/30 bg-destructive/10 text-destructive-text',
+    success: 'border-success/30 bg-success/12 text-success-text',
+    warning: 'border-warning/30 bg-warning/14 text-warning-text',
+  } as const
+  return (
+    <div
+      role="alert"
+      className={cn(
+        'flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm',
+        tones[tone],
+      )}
+    >
+      <span className="flex items-start gap-2">
+        <WarningCircle className="mt-0.5 size-[18px] shrink-0" aria-hidden />
+        <span>{children}</span>
+      </span>
+      {onDismiss && (
+        <button
+          type="button"
+          aria-label="Cerrar aviso"
+          onClick={onDismiss}
+          className="-mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-current transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          <X className="size-4" aria-hidden />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Fila "capacidad" del modal: switch principal + switch de predeterminado.
+function CapabilityRow({
+  title,
+  description,
+  enabled,
+  onEnabledChange,
+  isDefault,
+  onDefaultChange,
+  defaultLabel,
+}: {
+  title: string
+  description: string
+  enabled: boolean
+  onEnabledChange: (checked: boolean) => void
+  isDefault: boolean
+  onDefaultChange: (checked: boolean) => void
+  defaultLabel: string
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Toggle checked={enabled} onCheckedChange={onEnabledChange} label={title} />
+      </div>
+      {enabled && (
+        <div className="mt-2 flex items-center gap-2 pl-2">
+          <Toggle
+            size="sm"
+            checked={isDefault}
+            onCheckedChange={onDefaultChange}
+            label={defaultLabel}
+          />
+          <span className="text-xs text-primary">{defaultLabel}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function OpenAISettings() {
+  // Cabeceras de la tabla (se resuelven en cada render, como el resto de labels i18n).
+  const columns = [
+    i18n.t("aiModules.openaiSettings.table.status"),
+    i18n.t("aiModules.openaiSettings.table.provider"),
+    i18n.t("aiModules.openaiSettings.table.name"),
+    i18n.t("aiModules.openaiSettings.table.apiKey"),
+    i18n.t("aiModules.openaiSettings.table.active"),
+    i18n.t("aiModules.openaiSettings.table.default"),
+    i18n.t("aiModules.openaiSettings.table.defaultModel"),
+    i18n.t("aiModules.openaiSettings.table.capabilities"),
+    i18n.t("aiModules.openaiSettings.table.actions"),
+  ]
+
   // P3.44: Helper para logging solo en desarrollo
   const isDev = import.meta.env.DEV;
   const devLog = (...args: any[]) => {
@@ -474,20 +638,20 @@ export default function OpenAISettings() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'connected':
-        return <CheckIcon color="success" />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'error':
-        return <ErrorIcon color="error" />
+        return <XCircle className="size-3.5" weight="fill" aria-hidden />
       default:
-        return <PendingIcon color="warning" />
+        return <Clock className="size-3.5" weight="fill" aria-hidden />
     }
   }
 
-  const getStatusColor = (status: string): 'success' | 'danger' | 'warning' => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'connected':
         return 'success'
       case 'error':
-        return 'danger'
+        return 'destructive'
       default:
         return 'warning'
     }
@@ -495,277 +659,267 @@ export default function OpenAISettings() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SettingsIcon sx={{ fontSize: 32 }} />
-            {i18n.t("aiModules.openaiSettings.title")}
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            {i18n.t("aiModules.openaiSettings.description")}
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshIcon />} onClick={fetchProviders}>
-            {i18n.t("aiModules.openaiSettings.buttons.reload")}
-          </Button>
-          <Button startDecorator={<AddIcon />} onClick={handleCreate}>
-            {i18n.t("aiModules.openaiSettings.buttons.addProvider")}
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Gear className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {i18n.t("aiModules.openaiSettings.title")}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {i18n.t("aiModules.openaiSettings.description")}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchProviders}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              {i18n.t("aiModules.openaiSettings.buttons.reload")}
+            </Button>
+            <Button size="sm" onClick={handleCreate}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              {i18n.t("aiModules.openaiSettings.buttons.addProvider")}
+            </Button>
+          </div>
+        </div>
 
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton variant="soft" color="danger" onClick={() => setError(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Notice tone="destructive" onDismiss={() => setError(null)}>
+            {error}
+          </Notice>
+        )}
 
-      {success && (
-        <Alert
-          color="success"
-          sx={{ mb: 2 }}
-          endDecorator={
-            <IconButton variant="soft" color="success" onClick={() => setSuccess(null)}>
-              <CloseIcon />
-            </IconButton>
-          }
-        >
-          {success}
-        </Alert>
-      )}
+        {success && (
+          <Notice tone="success" onDismiss={() => setSuccess(null)}>
+            {success}
+          </Notice>
+        )}
 
-      {/* Resumen de Proveedores */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.openaiSettings.stats.configured")}
-              </Typography>
-              <Typography level="h3">{providers.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.openaiSettings.stats.active")}
-              </Typography>
-              <Typography level="h3">{providers.filter(p => p.isActive).length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.openaiSettings.stats.connected")}
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>
-                {providers.filter(p => p.connectionStatus === 'connected').length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                {i18n.t("aiModules.openaiSettings.stats.errors")}
-              </Typography>
-              <Typography level="h3" sx={{ color: 'danger.500' }}>
-                {providers.filter(p => p.connectionStatus === 'error').length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Resumen de Proveedores */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile
+            label={i18n.t("aiModules.openaiSettings.stats.configured")}
+            value={String(providers.length)}
+          />
+          <StatTile
+            label={i18n.t("aiModules.openaiSettings.stats.active")}
+            value={String(providers.filter(p => p.isActive).length)}
+          />
+          <StatTile
+            label={i18n.t("aiModules.openaiSettings.stats.connected")}
+            value={String(providers.filter(p => p.connectionStatus === 'connected').length)}
+            tone="success"
+          />
+          <StatTile
+            label={i18n.t("aiModules.openaiSettings.stats.errors")}
+            value={String(providers.filter(p => p.connectionStatus === 'error').length)}
+            tone="destructive"
+          />
+        </div>
 
-      {/* Lista de Proveedores */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <KeyIcon />
+        {/* Lista de Proveedores */}
+        <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Key className="size-5 text-muted-foreground" aria-hidden />
             {i18n.t("aiModules.openaiSettings.table.title")}
-          </Typography>
+          </h2>
 
-          <Alert color="warning" sx={{ mb: 3 }}>
+          <Notice tone="warning">
             {i18n.t("aiModules.openaiSettings.security.warning")}
-          </Alert>
+          </Notice>
 
           {providers.length === 0 ? (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
+            <div className="py-10 text-center">
+              <p className="mb-4 text-sm text-muted-foreground">
                 {i18n.t("aiModules.openaiSettings.table.empty")}
-              </Typography>
-              <Button startDecorator={<AddIcon />} onClick={handleCreate}>
+              </p>
+              <Button size="sm" onClick={handleCreate}>
+                <Plus className="size-4" weight="bold" aria-hidden />
                 {i18n.t("aiModules.openaiSettings.buttons.createFirst")}
               </Button>
-            </Box>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 60 }}>{i18n.t("aiModules.openaiSettings.table.status")}</th>
-                    <th style={{ width: 150 }}>{i18n.t("aiModules.openaiSettings.table.provider")}</th>
-                    <th style={{ width: 200 }}>{i18n.t("aiModules.openaiSettings.table.name")}</th>
-                    <th style={{ width: 200 }}>{i18n.t("aiModules.openaiSettings.table.apiKey")}</th>
-                    <th style={{ width: 100 }}>{i18n.t("aiModules.openaiSettings.table.active")}</th>
-                    <th style={{ width: 100 }}>{i18n.t("aiModules.openaiSettings.table.default")}</th>
-                    <th style={{ width: 150 }}>{i18n.t("aiModules.openaiSettings.table.defaultModel")}</th>
-                    <th style={{ width: 200 }}>{i18n.t("aiModules.openaiSettings.table.capabilities")}</th>
-                    <th style={{ width: 180, textAlign: 'center' }}>{i18n.t("aiModules.openaiSettings.table.actions")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {providers.map((provider) => (
-                    <tr key={provider.id}>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(provider.connectionStatus)}
-                          startDecorator={getStatusIcon(provider.connectionStatus)}
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1080px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className={cn(
+                            'whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+                            i === columns.length - 1 && 'text-center',
+                          )}
                         >
-                          {provider.connectionStatus === 'connected' ? 'OK' :
-                           provider.connectionStatus === 'error' ? i18n.t("aiModules.openaiSettings.status.error") : i18n.t("aiModules.openaiSettings.status.pending")}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="lg">
-                          {PROVIDER_OPTIONS.find(p => p.value === provider.provider)?.label || provider.provider}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm">{provider.displayName}</Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" sx={{ fontFamily: 'monospace' }}>
-                          {maskApiKey(provider.apiKey)}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Chip size="sm" color={provider.isActive ? 'success' : 'neutral'}>
-                          {provider.isActive ? i18n.t("aiModules.openaiSettings.common.yes") : i18n.t("aiModules.openaiSettings.common.no")}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Chip size="sm" color={provider.isDefault ? 'primary' : 'neutral'}>
-                          {provider.isDefault ? i18n.t("aiModules.openaiSettings.common.yes") : i18n.t("aiModules.openaiSettings.common.no")}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-xs">
-                          {provider.settings?.defaultModel || '-'}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {provider.textGenerationEnabled && <Chip size="sm" color="primary" startDecorator={<TextIcon sx={{ fontSize: 12 }} />}>{i18n.t("aiModules.openaiSettings.capabilities.text")}</Chip>}
-                          {provider.translationEnabled && <Chip size="sm" color="success" startDecorator={<TranslateIcon sx={{ fontSize: 12 }} />}>{i18n.t("aiModules.openaiSettings.capabilities.translation")}</Chip>}
-                          {provider.imageGenerationEnabled && <Chip size="sm" color="warning" startDecorator={<ImageIcon sx={{ fontSize: 12 }} />}>{i18n.t("aiModules.openaiSettings.capabilities.image")}</Chip>}
-                          {provider.imageAnalysisEnabled && <Chip size="sm" color="neutral" startDecorator={<VisionIcon sx={{ fontSize: 12 }} />}>{i18n.t("aiModules.openaiSettings.capabilities.vision")}</Chip>}
-                          {provider.speechToTextEnabled && <Chip size="sm" color="danger" startDecorator={<AudioIcon sx={{ fontSize: 12 }} />}>{i18n.t("aiModules.openaiSettings.capabilities.stt")}</Chip>}
-                        </Box>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            loading={testing === provider.id}
-                            onClick={() => handleTestConnection(provider.id)}
-                          >
-                            {i18n.t("aiModules.openaiSettings.common.test")}
-                          </Button>
-                          <IconButton size="sm" variant="outlined" onClick={() => handleEdit(provider)}>
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="sm"
-                            variant="outlined"
-                            color="danger"
-                            onClick={() => setDeleteConfirm(provider.id)}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Box>
-                      </td>
+                          {c}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {providers.map((provider) => (
+                      <tr key={provider.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusVariant(provider.connectionStatus)}>
+                            {getStatusIcon(provider.connectionStatus)}
+                            {provider.connectionStatus === 'connected' ? 'OK' :
+                             provider.connectionStatus === 'error' ? i18n.t("aiModules.openaiSettings.status.error") : i18n.t("aiModules.openaiSettings.status.pending")}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {PROVIDER_OPTIONS.find(p => p.value === provider.provider)?.label || provider.provider}
+                        </td>
+                        <td className="px-4 py-3 text-foreground">{provider.displayName}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                          {maskApiKey(provider.apiKey)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={provider.isActive ? 'success' : 'neutral'}>
+                            {provider.isActive ? i18n.t("aiModules.openaiSettings.common.yes") : i18n.t("aiModules.openaiSettings.common.no")}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={provider.isDefault ? 'primary' : 'neutral'}>
+                            {provider.isDefault ? i18n.t("aiModules.openaiSettings.common.yes") : i18n.t("aiModules.openaiSettings.common.no")}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                          {provider.settings?.defaultModel || '-'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {provider.textGenerationEnabled && (
+                              <Badge variant="primary">
+                                <TextT className="size-3" aria-hidden />
+                                {i18n.t("aiModules.openaiSettings.capabilities.text")}
+                              </Badge>
+                            )}
+                            {provider.translationEnabled && (
+                              <Badge variant="success">
+                                <Translate className="size-3" aria-hidden />
+                                {i18n.t("aiModules.openaiSettings.capabilities.translation")}
+                              </Badge>
+                            )}
+                            {provider.imageGenerationEnabled && (
+                              <Badge variant="warning">
+                                <ImageIcon className="size-3" aria-hidden />
+                                {i18n.t("aiModules.openaiSettings.capabilities.image")}
+                              </Badge>
+                            )}
+                            {provider.imageAnalysisEnabled && (
+                              <Badge variant="neutral">
+                                <Eye className="size-3" aria-hidden />
+                                {i18n.t("aiModules.openaiSettings.capabilities.vision")}
+                              </Badge>
+                            )}
+                            {provider.speechToTextEnabled && (
+                              <Badge variant="destructive">
+                                <Microphone className="size-3" aria-hidden />
+                                {i18n.t("aiModules.openaiSettings.capabilities.stt")}
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              loading={testing === provider.id}
+                              onClick={() => handleTestConnection(provider.id)}
+                            >
+                              {i18n.t("aiModules.openaiSettings.common.test")}
+                            </Button>
+                            <ActionBtn label="Editar" onClick={() => handleEdit(provider)}>
+                              <PencilSimple className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                            <ActionBtn
+                              label="Eliminar"
+                              onClick={() => setDeleteConfirm(provider.id)}
+                              className="hover:bg-destructive/10 hover:text-destructive-text"
+                            >
+                              <Trash className="size-[18px]" aria-hidden />
+                            </ActionBtn>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Modal Crear/Editar */}
-      <Modal open={openModal} onClose={() => setOpenModal(false)}>
-        <ModalDialog sx={{ minWidth: 600, maxWidth: 800, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ModalClose />
-          <Typography level="h4" sx={{ mb: 2, flexShrink: 0 }}>
+      <Dialog open={openModal} onOpenChange={setOpenModal}>
+        <DialogContent className="max-w-3xl">
+          <DialogTitle>
             {editingProvider ? i18n.t("aiModules.openaiSettings.modal.titleEdit") : i18n.t("aiModules.openaiSettings.modal.titleCreate")}
-          </Typography>
+          </DialogTitle>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'auto', pr: 1 }}>
-            <Grid container spacing={2}>
-              <Grid xs={12} md={6}>
-                <FormControl required>
-                  <FormLabel>{i18n.t("aiModules.openaiSettings.modal.providerLabel")}</FormLabel>
-                  <Select
-                    value={formData.provider}
-                    onChange={(_, val) => handleProviderChange(val as string)}
-                    disabled={!!editingProvider}
-                  >
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-provider">
+                  {i18n.t("aiModules.openaiSettings.modal.providerLabel")}
+                </Label>
+                <Select
+                  value={formData.provider}
+                  onValueChange={(val) => handleProviderChange(val)}
+                  disabled={!!editingProvider}
+                >
+                  <SelectTrigger id="ai-provider" className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
                     {PROVIDER_OPTIONS.map((option) => (
-                      <Option key={option.value} value={option.value}>
+                      <SelectItem key={option.value} value={option.value}>
                         {option.label}
-                      </Option>
+                      </SelectItem>
                     ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={6}>
-                <FormControl required>
-                  <FormLabel>{i18n.t("aiModules.openaiSettings.modal.displayNameLabel")}</FormLabel>
-                  <Input
-                    placeholder={i18n.t("aiModules.openaiSettings.modal.displayNamePlaceholder")}
-                    value={formData.displayName}
-                    onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-                  />
-                </FormControl>
-              </Grid>
-            </Grid>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-display-name">
+                  {i18n.t("aiModules.openaiSettings.modal.displayNameLabel")}
+                </Label>
+                <Input
+                  id="ai-display-name"
+                  required
+                  placeholder={i18n.t("aiModules.openaiSettings.modal.displayNamePlaceholder")}
+                  value={formData.displayName}
+                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                />
+              </div>
+            </div>
 
-            <FormControl required={!editingProvider}>
-              <FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-api-key">
                 {i18n.t("aiModules.openaiSettings.modal.apiKeyLabel")}
                 {editingProvider && (
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary', ml: 1 }}>
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
                     (Dejar vacío para mantener actual: {editingProvider.apiKey})
-                  </Typography>
+                  </span>
                 )}
-              </FormLabel>
+              </Label>
               <Input
+                id="ai-api-key"
                 type={showApiKey ? 'text' : 'password'}
                 placeholder={
                   editingProvider
@@ -774,17 +928,30 @@ export default function OpenAISettings() {
                 }
                 value={formData.apiKey}
                 onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                endDecorator={
-                  <IconButton onClick={() => setShowApiKey(!showApiKey)}>
-                    {showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                  </IconButton>
+                rightSlot={
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    aria-label={showApiKey ? 'Ocultar API key' : 'Mostrar API key'}
+                    aria-pressed={showApiKey}
+                    className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {showApiKey ? (
+                      <EyeSlash className="size-[18px]" aria-hidden />
+                    ) : (
+                      <Eye className="size-[18px]" aria-hidden />
+                    )}
+                  </button>
                 }
               />
-            </FormControl>
+            </div>
 
-            <FormControl>
-              <FormLabel>{i18n.t("aiModules.openaiSettings.modal.baseUrlLabel")}</FormLabel>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-base-url">
+                {i18n.t("aiModules.openaiSettings.modal.baseUrlLabel")}
+              </Label>
               <Input
+                id="ai-base-url"
                 placeholder={i18n.t("aiModules.openaiSettings.modal.baseUrlPlaceholder")}
                 value={formData.settings.baseUrl}
                 onChange={(e) => setFormData({
@@ -792,63 +959,75 @@ export default function OpenAISettings() {
                   settings: { ...formData.settings, baseUrl: e.target.value }
                 })}
               />
-            </FormControl>
+            </div>
 
-            <Divider />
-            <Typography level="title-sm">{i18n.t("aiModules.openaiSettings.modal.settingsTitle")}</Typography>
+            <div className="border-t border-border" />
+            <h3 className="text-sm font-semibold text-foreground">
+              {i18n.t("aiModules.openaiSettings.modal.settingsTitle")}
+            </h3>
 
-            <Grid container spacing={2}>
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <FormLabel>{i18n.t("aiModules.openaiSettings.modal.defaultModelLabel")}</FormLabel>
-                  <Input
-                    placeholder={i18n.t("aiModules.openaiSettings.modal.defaultModelPlaceholder")}
-                    value={formData.settings.defaultModel}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      settings: { ...formData.settings, defaultModel: e.target.value }
-                    })}
-                  />
-                </FormControl>
-              </Grid>
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <FormLabel>{i18n.t("aiModules.openaiSettings.modal.maxTokensLabel")}</FormLabel>
-                  <Input
-                    type="number"
-                    value={formData.settings.defaultMaxTokens}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      settings: { ...formData.settings, defaultMaxTokens: parseInt(e.target.value) || 2000 }
-                    })}
-                  />
-                </FormControl>
-              </Grid>
-            </Grid>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-default-model">
+                  {i18n.t("aiModules.openaiSettings.modal.defaultModelLabel")}
+                </Label>
+                <Input
+                  id="ai-default-model"
+                  placeholder={i18n.t("aiModules.openaiSettings.modal.defaultModelPlaceholder")}
+                  value={formData.settings.defaultModel}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, defaultModel: e.target.value }
+                  })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-max-tokens">
+                  {i18n.t("aiModules.openaiSettings.modal.maxTokensLabel")}
+                </Label>
+                <Input
+                  id="ai-max-tokens"
+                  type="number"
+                  value={formData.settings.defaultMaxTokens}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, defaultMaxTokens: parseInt(e.target.value) || 2000 }
+                  })}
+                />
+              </div>
+            </div>
 
-            <FormControl>
-              <FormLabel>{i18n.t("aiModules.openaiSettings.modal.temperatureLabel")}: {formData.settings.defaultTemperature}</FormLabel>
-              <Slider
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-temperature">
+                {i18n.t("aiModules.openaiSettings.modal.temperatureLabel")}: {formData.settings.defaultTemperature}
+              </Label>
+              <input
+                id="ai-temperature"
+                type="range"
+                className="h-6 w-full cursor-pointer accent-primary"
                 value={formData.settings.defaultTemperature}
-                onChange={(_, value) => setFormData({
+                onChange={(e) => setFormData({
                   ...formData,
-                  settings: { ...formData.settings, defaultTemperature: value as number }
+                  settings: { ...formData.settings, defaultTemperature: parseFloat(e.target.value) }
                 })}
                 min={0}
                 max={2}
                 step={0.1}
-                marks={[
-                  { value: 0, label: '0' },
-                  { value: 1, label: '1' },
-                  { value: 2, label: '2' },
-                ]}
               />
-            </FormControl>
+              <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
+                <span>0</span>
+                <span>1</span>
+                <span>2</span>
+              </div>
+            </div>
 
             {formData.provider === 'openai' && (
-              <FormControl>
-                <FormLabel>{i18n.t("aiModules.openaiSettings.modal.organizationLabel")}</FormLabel>
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-organization">
+                  {i18n.t("aiModules.openaiSettings.modal.organizationLabel")}
+                </Label>
                 <Input
+                  id="ai-organization"
                   placeholder={i18n.t("aiModules.openaiSettings.modal.organizationPlaceholder")}
                   value={formData.settings.organization}
                   onChange={(e) => setFormData({
@@ -856,430 +1035,326 @@ export default function OpenAISettings() {
                     settings: { ...formData.settings, organization: e.target.value }
                   })}
                 />
-              </FormControl>
+              </div>
             )}
 
-            <Divider />
+            <div className="border-t border-border" />
 
             {/* Solo superadmin puede crear proveedores globales */}
             {isSuperAdmin && (
-              <Box sx={{ mb: 2, p: 2, bgcolor: 'background.level2', borderRadius: 'md' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography level="body-sm" fontWeight="lg">
-                      Proveedor Global
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
+              <div className="rounded-lg bg-muted p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Proveedor Global</p>
+                    <p className="text-xs text-muted-foreground">
                       Disponible para todas las empresas
-                    </Typography>
-                  </Box>
-                  <Switch
+                    </p>
+                  </div>
+                  <Toggle
+                    label="Proveedor Global"
                     checked={formData.isGlobal}
-                    onChange={(e) => setFormData({ ...formData, isGlobal: e.target.checked })}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isGlobal: checked })}
                   />
-                </Box>
-              </Box>
+                </div>
+              </div>
             )}
 
-            <Grid container spacing={2}>
-              <Grid xs={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <FormLabel>{i18n.t("aiModules.openaiSettings.modal.activeLabel")}</FormLabel>
-                    <Switch
-                      checked={formData.isActive}
-                      onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                    />
-                  </Box>
-                </FormControl>
-              </Grid>
-              <Grid xs={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <FormLabel>{i18n.t("aiModules.openaiSettings.modal.defaultLabel")}</FormLabel>
-                    <Switch
-                      checked={formData.isDefault}
-                      onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
-                    />
-                  </Box>
-                </FormControl>
-              </Grid>
-            </Grid>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="ai-active">
+                  {i18n.t("aiModules.openaiSettings.modal.activeLabel")}
+                </Label>
+                <Toggle
+                  id="ai-active"
+                  label={i18n.t("aiModules.openaiSettings.modal.activeLabel")}
+                  checked={formData.isActive}
+                  onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="ai-default">
+                  {i18n.t("aiModules.openaiSettings.modal.defaultLabel")}
+                </Label>
+                <Toggle
+                  id="ai-default"
+                  label={i18n.t("aiModules.openaiSettings.modal.defaultLabel")}
+                  checked={formData.isDefault}
+                  onCheckedChange={(checked) => setFormData({ ...formData, isDefault: checked })}
+                />
+              </div>
+            </div>
 
-            <Divider />
-            <Typography level="title-sm">{i18n.t("aiModules.openaiSettings.modal.capabilitiesTitle")}</Typography>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-              {i18n.t("aiModules.openaiSettings.modal.capabilitiesDescription")}
-            </Typography>
+            <div className="border-t border-border" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                {i18n.t("aiModules.openaiSettings.modal.capabilitiesTitle")}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {i18n.t("aiModules.openaiSettings.modal.capabilitiesDescription")}
+              </p>
+            </div>
 
-            <Grid container spacing={2}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {/* Generacion de Texto */}
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.openaiSettings.modal.textGenerationLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.openaiSettings.modal.textGenerationDescription")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.textGenerationEnabled}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        textGenerationEnabled: e.target.checked,
-                        isDefaultForText: e.target.checked ? formData.isDefaultForText : false
-                      })}
-                    />
-                  </Box>
-                  {formData.textGenerationEnabled && (
-                    <Box sx={{ mt: 1, pl: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Switch
-                        size="sm"
-                        checked={formData.isDefaultForText}
-                        onChange={(e) => setFormData({ ...formData, isDefaultForText: e.target.checked })}
-                      />
-                      <Typography level="body-xs" sx={{ color: 'primary.500' }}>
-                        Usar como predeterminado para texto
-                      </Typography>
-                    </Box>
-                  )}
-                </FormControl>
-              </Grid>
+              <CapabilityRow
+                title={i18n.t("aiModules.openaiSettings.modal.textGenerationLabel")}
+                description={i18n.t("aiModules.openaiSettings.modal.textGenerationDescription")}
+                enabled={formData.textGenerationEnabled}
+                onEnabledChange={(checked) => setFormData({
+                  ...formData,
+                  textGenerationEnabled: checked,
+                  isDefaultForText: checked ? formData.isDefaultForText : false
+                })}
+                isDefault={formData.isDefaultForText}
+                onDefaultChange={(checked) => setFormData({ ...formData, isDefaultForText: checked })}
+                defaultLabel="Usar como predeterminado para texto"
+              />
 
               {/* Traduccion */}
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.openaiSettings.modal.translationLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.openaiSettings.modal.translationDescription")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.translationEnabled}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        translationEnabled: e.target.checked,
-                        isDefaultForTranslation: e.target.checked ? formData.isDefaultForTranslation : false
-                      })}
-                    />
-                  </Box>
-                  {formData.translationEnabled && (
-                    <Box sx={{ mt: 1, pl: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Switch
-                        size="sm"
-                        checked={formData.isDefaultForTranslation}
-                        onChange={(e) => setFormData({ ...formData, isDefaultForTranslation: e.target.checked })}
-                      />
-                      <Typography level="body-xs" sx={{ color: 'primary.500' }}>
-                        Usar como predeterminado para traduccion
-                      </Typography>
-                    </Box>
-                  )}
-                </FormControl>
-              </Grid>
+              <CapabilityRow
+                title={i18n.t("aiModules.openaiSettings.modal.translationLabel")}
+                description={i18n.t("aiModules.openaiSettings.modal.translationDescription")}
+                enabled={formData.translationEnabled}
+                onEnabledChange={(checked) => setFormData({
+                  ...formData,
+                  translationEnabled: checked,
+                  isDefaultForTranslation: checked ? formData.isDefaultForTranslation : false
+                })}
+                isDefault={formData.isDefaultForTranslation}
+                onDefaultChange={(checked) => setFormData({ ...formData, isDefaultForTranslation: checked })}
+                defaultLabel="Usar como predeterminado para traduccion"
+              />
 
               {/* Generacion de Imagenes */}
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.openaiSettings.modal.imageGenerationLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.openaiSettings.modal.imageGenerationDescription")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.imageGenerationEnabled}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        imageGenerationEnabled: e.target.checked,
-                        isDefaultForImages: e.target.checked ? formData.isDefaultForImages : false
-                      })}
-                    />
-                  </Box>
-                  {formData.imageGenerationEnabled && (
-                    <Box sx={{ mt: 1, pl: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Switch
-                        size="sm"
-                        checked={formData.isDefaultForImages}
-                        onChange={(e) => setFormData({ ...formData, isDefaultForImages: e.target.checked })}
-                      />
-                      <Typography level="body-xs" sx={{ color: 'primary.500' }}>
-                        Usar como predeterminado para imagenes
-                      </Typography>
-                    </Box>
-                  )}
-                </FormControl>
-              </Grid>
+              <CapabilityRow
+                title={i18n.t("aiModules.openaiSettings.modal.imageGenerationLabel")}
+                description={i18n.t("aiModules.openaiSettings.modal.imageGenerationDescription")}
+                enabled={formData.imageGenerationEnabled}
+                onEnabledChange={(checked) => setFormData({
+                  ...formData,
+                  imageGenerationEnabled: checked,
+                  isDefaultForImages: checked ? formData.isDefaultForImages : false
+                })}
+                isDefault={formData.isDefaultForImages}
+                onDefaultChange={(checked) => setFormData({ ...formData, isDefaultForImages: checked })}
+                defaultLabel="Usar como predeterminado para imagenes"
+              />
 
               {/* Analisis de Imagenes (Vision) */}
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.openaiSettings.modal.imageAnalysisLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.openaiSettings.modal.imageAnalysisDescription")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.imageAnalysisEnabled}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        imageAnalysisEnabled: e.target.checked,
-                        isDefaultForImageAnalysis: e.target.checked ? formData.isDefaultForImageAnalysis : false
-                      })}
-                    />
-                  </Box>
-                  {formData.imageAnalysisEnabled && (
-                    <Box sx={{ mt: 1, pl: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Switch
-                        size="sm"
-                        checked={formData.isDefaultForImageAnalysis}
-                        onChange={(e) => setFormData({ ...formData, isDefaultForImageAnalysis: e.target.checked })}
-                      />
-                      <Typography level="body-xs" sx={{ color: 'primary.500' }}>
-                        Usar como predeterminado para Vision AI
-                      </Typography>
-                    </Box>
-                  )}
-                </FormControl>
-              </Grid>
+              <CapabilityRow
+                title={i18n.t("aiModules.openaiSettings.modal.imageAnalysisLabel")}
+                description={i18n.t("aiModules.openaiSettings.modal.imageAnalysisDescription")}
+                enabled={formData.imageAnalysisEnabled}
+                onEnabledChange={(checked) => setFormData({
+                  ...formData,
+                  imageAnalysisEnabled: checked,
+                  isDefaultForImageAnalysis: checked ? formData.isDefaultForImageAnalysis : false
+                })}
+                isDefault={formData.isDefaultForImageAnalysis}
+                onDefaultChange={(checked) => setFormData({ ...formData, isDefaultForImageAnalysis: checked })}
+                defaultLabel="Usar como predeterminado para Vision AI"
+              />
 
               {/* Speech to Text */}
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>{i18n.t("aiModules.openaiSettings.modal.speechToTextLabel")}</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {i18n.t("aiModules.openaiSettings.modal.speechToTextDescription")}
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.speechToTextEnabled}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        speechToTextEnabled: e.target.checked,
-                        isDefaultForSTT: e.target.checked ? formData.isDefaultForSTT : false
-                      })}
-                    />
-                  </Box>
-                  {formData.speechToTextEnabled && (
-                    <Box sx={{ mt: 1, pl: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Switch
-                        size="sm"
-                        checked={formData.isDefaultForSTT}
-                        onChange={(e) => setFormData({ ...formData, isDefaultForSTT: e.target.checked })}
-                      />
-                      <Typography level="body-xs" sx={{ color: 'primary.500' }}>
-                        Usar como predeterminado para STT
-                      </Typography>
-                    </Box>
-                  )}
-                </FormControl>
-              </Grid>
+              <CapabilityRow
+                title={i18n.t("aiModules.openaiSettings.modal.speechToTextLabel")}
+                description={i18n.t("aiModules.openaiSettings.modal.speechToTextDescription")}
+                enabled={formData.speechToTextEnabled}
+                onEnabledChange={(checked) => setFormData({
+                  ...formData,
+                  speechToTextEnabled: checked,
+                  isDefaultForSTT: checked ? formData.isDefaultForSTT : false
+                })}
+                isDefault={formData.isDefaultForSTT}
+                onDefaultChange={(checked) => setFormData({ ...formData, isDefaultForSTT: checked })}
+                defaultLabel="Usar como predeterminado para STT"
+              />
 
               {/* Text to Speech */}
-              <Grid xs={12} md={6}>
-                <FormControl>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <FormLabel>Text to Speech (TTS)</FormLabel>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Convertir texto a voz
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={formData.textToSpeechEnabled}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        textToSpeechEnabled: e.target.checked,
-                        isDefaultForTTS: e.target.checked ? formData.isDefaultForTTS : false
-                      })}
-                    />
-                  </Box>
-                  {formData.textToSpeechEnabled && (
-                    <Box sx={{ mt: 1, pl: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Switch
-                        size="sm"
-                        checked={formData.isDefaultForTTS}
-                        onChange={(e) => setFormData({ ...formData, isDefaultForTTS: e.target.checked })}
-                      />
-                      <Typography level="body-xs" sx={{ color: 'primary.500' }}>
-                        Usar como predeterminado para TTS
-                      </Typography>
-                    </Box>
-                  )}
-                </FormControl>
-              </Grid>
-            </Grid>
+              <CapabilityRow
+                title="Text to Speech (TTS)"
+                description="Convertir texto a voz"
+                enabled={formData.textToSpeechEnabled}
+                onEnabledChange={(checked) => setFormData({
+                  ...formData,
+                  textToSpeechEnabled: checked,
+                  isDefaultForTTS: checked ? formData.isDefaultForTTS : false
+                })}
+                isDefault={formData.isDefaultForTTS}
+                onDefaultChange={(checked) => setFormData({ ...formData, isDefaultForTTS: checked })}
+                defaultLabel="Usar como predeterminado para TTS"
+              />
+            </div>
 
             {/* Seccion de Precios - Solo se muestra si hay al menos una capacidad habilitada */}
             {(formData.textGenerationEnabled || formData.translationEnabled || formData.imageGenerationEnabled || formData.imageAnalysisEnabled || formData.speechToTextEnabled) && (
               <>
-                <Divider />
-                <Typography level="title-sm">{i18n.t("aiModules.openaiSettings.modal.pricingTitle")}</Typography>
-                <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-                  {i18n.t("aiModules.openaiSettings.modal.pricingDescription")}
-                </Typography>
+                <div className="border-t border-border" />
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {i18n.t("aiModules.openaiSettings.modal.pricingTitle")}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {i18n.t("aiModules.openaiSettings.modal.pricingDescription")}
+                  </p>
+                </div>
 
-                <Grid container spacing={2}>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   {/* Precio Texto - solo si textGenerationEnabled */}
                   {formData.textGenerationEnabled && (
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>{i18n.t("aiModules.openaiSettings.modal.pricingTextLabel")}</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.textGenerationPricing}
-                          onChange={(e) => setFormData({ ...formData, textGenerationPricing: parseFloat(e.target.value) || 0 })}
-                          slotProps={{ input: { min: 0, step: 0.01 } }}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ai-pricing-text">
+                        {i18n.t("aiModules.openaiSettings.modal.pricingTextLabel")}
+                      </Label>
+                      <Input
+                        id="ai-pricing-text"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={formData.textGenerationPricing}
+                        onChange={(e) => setFormData({ ...formData, textGenerationPricing: parseFloat(e.target.value) || 0 })}
+                      />
+                    </div>
                   )}
 
                   {/* Precio Traduccion - solo si translationEnabled */}
                   {formData.translationEnabled && (
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>{i18n.t("aiModules.openaiSettings.modal.pricingTranslationLabel")}</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.translationPricing}
-                          onChange={(e) => setFormData({ ...formData, translationPricing: parseFloat(e.target.value) || 0 })}
-                          slotProps={{ input: { min: 0, step: 0.01 } }}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ai-pricing-translation">
+                        {i18n.t("aiModules.openaiSettings.modal.pricingTranslationLabel")}
+                      </Label>
+                      <Input
+                        id="ai-pricing-translation"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={formData.translationPricing}
+                        onChange={(e) => setFormData({ ...formData, translationPricing: parseFloat(e.target.value) || 0 })}
+                      />
+                    </div>
                   )}
 
                   {/* Precios Imagenes - solo si imageGenerationEnabled */}
                   {formData.imageGenerationEnabled && (
-                    <>
-                      <Grid xs={12}>
-                        <Typography level="body-sm" fontWeight="lg">{i18n.t("aiModules.openaiSettings.modal.pricingImageGenerationLabel")}</Typography>
-                      </Grid>
-                      <Grid xs={12} md={4}>
-                        <FormControl>
-                          <FormLabel>1024x1024</FormLabel>
+                    <div className="space-y-3 md:col-span-2">
+                      <p className="text-sm font-medium text-foreground">
+                        {i18n.t("aiModules.openaiSettings.modal.pricingImageGenerationLabel")}
+                      </p>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="ai-pricing-1024">1024x1024</Label>
                           <Input
+                            id="ai-pricing-1024"
                             type="number"
+                            min={0}
                             value={formData.imageGenerationPricing['1024x1024'] || 30}
                             onChange={(e) => setFormData({
                               ...formData,
                               imageGenerationPricing: { ...formData.imageGenerationPricing, '1024x1024': parseInt(e.target.value) || 0 }
                             })}
-                            slotProps={{ input: { min: 0 } }}
                           />
-                        </FormControl>
-                      </Grid>
-                      <Grid xs={12} md={4}>
-                        <FormControl>
-                          <FormLabel>512x512</FormLabel>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="ai-pricing-512">512x512</Label>
                           <Input
+                            id="ai-pricing-512"
                             type="number"
+                            min={0}
                             value={formData.imageGenerationPricing['512x512'] || 20}
                             onChange={(e) => setFormData({
                               ...formData,
                               imageGenerationPricing: { ...formData.imageGenerationPricing, '512x512': parseInt(e.target.value) || 0 }
                             })}
-                            slotProps={{ input: { min: 0 } }}
                           />
-                        </FormControl>
-                      </Grid>
-                      <Grid xs={12} md={4}>
-                        <FormControl>
-                          <FormLabel>256x256</FormLabel>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="ai-pricing-256">256x256</Label>
                           <Input
+                            id="ai-pricing-256"
                             type="number"
+                            min={0}
                             value={formData.imageGenerationPricing['256x256'] || 10}
                             onChange={(e) => setFormData({
                               ...formData,
                               imageGenerationPricing: { ...formData.imageGenerationPricing, '256x256': parseInt(e.target.value) || 0 }
                             })}
-                            slotProps={{ input: { min: 0 } }}
                           />
-                        </FormControl>
-                      </Grid>
-                    </>
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {/* Precio Vision - solo si imageAnalysisEnabled */}
                   {formData.imageAnalysisEnabled && (
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>{i18n.t("aiModules.openaiSettings.modal.pricingImageAnalysisLabel")}</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.imageAnalysisPricing}
-                          onChange={(e) => setFormData({ ...formData, imageAnalysisPricing: parseFloat(e.target.value) || 0 })}
-                          slotProps={{ input: { min: 0, step: 0.01 } }}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ai-pricing-vision">
+                        {i18n.t("aiModules.openaiSettings.modal.pricingImageAnalysisLabel")}
+                      </Label>
+                      <Input
+                        id="ai-pricing-vision"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={formData.imageAnalysisPricing}
+                        onChange={(e) => setFormData({ ...formData, imageAnalysisPricing: parseFloat(e.target.value) || 0 })}
+                      />
+                    </div>
                   )}
 
                   {/* Precio STT - solo si speechToTextEnabled */}
                   {formData.speechToTextEnabled && (
-                    <Grid xs={12} md={6}>
-                      <FormControl>
-                        <FormLabel>{i18n.t("aiModules.openaiSettings.modal.pricingSpeechToTextLabel")}</FormLabel>
-                        <Input
-                          type="number"
-                          value={formData.speechToTextPricing}
-                          onChange={(e) => setFormData({ ...formData, speechToTextPricing: parseFloat(e.target.value) || 0 })}
-                          slotProps={{ input: { min: 0, step: 0.01 } }}
-                        />
-                      </FormControl>
-                    </Grid>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ai-pricing-stt">
+                        {i18n.t("aiModules.openaiSettings.modal.pricingSpeechToTextLabel")}
+                      </Label>
+                      <Input
+                        id="ai-pricing-stt"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={formData.speechToTextPricing}
+                        onChange={(e) => setFormData({ ...formData, speechToTextPricing: parseFloat(e.target.value) || 0 })}
+                      />
+                    </div>
                   )}
-                </Grid>
+                </div>
               </>
             )}
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
-              <Button variant="outlined" onClick={() => setOpenModal(false)}>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
                 {i18n.t("aiModules.openaiSettings.buttons.cancel")}
               </Button>
-              <Button
-                startDecorator={<SaveIcon />}
-                onClick={handleSave}
-                loading={saving}
-              >
+              <Button size="sm" onClick={handleSave} loading={saving}>
+                <FloppyDisk className="size-4" aria-hidden />
                 {editingProvider ? i18n.t("aiModules.openaiSettings.buttons.save") : i18n.t("aiModules.openaiSettings.buttons.create")}
               </Button>
-            </Box>
-          </Box>
-        </ModalDialog>
-      </Modal>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Confirmar Eliminacion */}
-      <Modal open={deleteConfirm !== null} onClose={() => setDeleteConfirm(null)}>
-        <ModalDialog>
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {i18n.t("aiModules.openaiSettings.delete.title")}
-          </Typography>
-          <Typography level="body-md" sx={{ mb: 3 }}>
+      <Dialog open={deleteConfirm !== null} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogTitle>{i18n.t("aiModules.openaiSettings.delete.title")}</DialogTitle>
+          <DialogDescription>
             {i18n.t("aiModules.openaiSettings.delete.message")}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-            <Button variant="outlined" onClick={() => setDeleteConfirm(null)}>
+          </DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)}>
               {i18n.t("aiModules.openaiSettings.buttons.cancel")}
             </Button>
             <Button
-              color="danger"
+              size="sm"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
             >
               {i18n.t("aiModules.openaiSettings.buttons.delete")}
             </Button>
-          </Box>
-        </ModalDialog>
-      </Modal>
-    </Box>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

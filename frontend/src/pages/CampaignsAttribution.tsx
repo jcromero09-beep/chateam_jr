@@ -1,40 +1,23 @@
 import { useState, useEffect } from 'react'
+// [Re-skin Tailwind v4] Sólo se conserva de MUI Joy el indicador de progreso
+// (LinearProgress), que no tiene equivalente en el design system.
+import { LinearProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Select,
-  Option,
-  Chip,
-  Sheet,
-  Table,
-  Button as _Button,
-  Divider,
-  RadioGroup as _RadioGroup,
-  Radio as _Radio,
-  IconButton,
-  Tooltip,
-  LinearProgress,
-} from '@mui/joy'
-import {
-  Attribution as AttributionIcon,
-  TrendingUp as TrendingUpIcon,
-  TouchApp as TouchAppIcon,
-  Timeline as TimelineIcon,
-  Analytics as AnalyticsIcon,
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  Email as EmailIcon,
-  WhatsApp as WhatsAppIcon,
-  Telegram as TelegramIcon,
-  Facebook as FacebookIcon,
-  Campaign as CampaignIcon,
-  ShoppingCart as ShoppingCartIcon,
-} from '@mui/icons-material'
+  Signpost,
+  TrendUp,
+  HandTap,
+  Path,
+  ArrowClockwise,
+  DownloadSimple,
+  EnvelopeSimple,
+  WhatsappLogo,
+  TelegramLogo,
+  FacebookLogo,
+  GoogleLogo,
+  Megaphone,
+  ShoppingCart,
+  ArrowRight,
+} from '@phosphor-icons/react'
 import {
   Sankey as _Sankey,
   ResponsiveContainer,
@@ -48,6 +31,17 @@ import {
   LineChart as _LineChart,
   Line as _Line,
 } from 'recharts'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { toast } from 'react-toastify'
 
@@ -95,6 +89,17 @@ interface AttributionMetrics {
   totalConversions: number
   totalRevenue: number
 }
+
+const tableColumns = [
+  'Canal',
+  'First Touch',
+  'Last Touch',
+  'Linear',
+  'Time Decay',
+  'Position Based',
+  'Data-Driven (IA)',
+  'Revenue',
+]
 
 export default function CampaignsAttribution() {
   const [loading, setLoading] = useState(false)
@@ -359,19 +364,19 @@ export default function CampaignsAttribution() {
   const getChannelIcon = (channel: string) => {
     switch (channel.toLowerCase()) {
       case 'whatsapp':
-        return <WhatsAppIcon sx={{ color: '#25D366', fontSize: 18 }} />
+        return <WhatsappLogo className="size-[18px] shrink-0 text-wa" weight="fill" aria-hidden />
       case 'email':
-        return <EmailIcon sx={{ color: '#0078D4', fontSize: 18 }} />
+        return <EnvelopeSimple className="size-[18px] shrink-0 text-[#0078d4]" weight="fill" aria-hidden />
       case 'telegram':
-        return <TelegramIcon sx={{ color: '#0088CC', fontSize: 18 }} />
+        return <TelegramLogo className="size-[18px] shrink-0 text-[#0088cc]" weight="fill" aria-hidden />
       case 'facebook':
-        return <FacebookIcon sx={{ color: '#1877F2', fontSize: 18 }} />
+        return <FacebookLogo className="size-[18px] shrink-0 text-[#1877f2]" weight="fill" aria-hidden />
       case 'google':
-        return <AnalyticsIcon sx={{ color: '#4285F4', fontSize: 18 }} />
+        return <GoogleLogo className="size-[18px] shrink-0 text-[#4285f4]" weight="bold" aria-hidden />
       case 'organic':
-        return <TrendingUpIcon sx={{ color: '#10b981', fontSize: 18 }} />
+        return <TrendUp className="size-[18px] shrink-0 text-success-text" weight="bold" aria-hidden />
       default:
-        return <CampaignIcon sx={{ fontSize: 18 }} />
+        return <Megaphone className="size-[18px] shrink-0 text-muted-foreground" weight="fill" aria-hidden />
     }
   }
 
@@ -395,6 +400,10 @@ export default function CampaignsAttribution() {
   }
 
   const totalConversions = channelAttribution.reduce((acc, ch) => acc + getAttributionValue(ch), 0)
+
+  // Formato de porcentaje con guarda de división por cero (antes renderizaba "NaN%")
+  const pct = (value: number) =>
+    totalConversions > 0 ? `${((value / totalConversions) * 100).toFixed(1)}%` : '—'
 
   const exportData = () => {
     try {
@@ -444,92 +453,125 @@ export default function CampaignsAttribution() {
     }
   }
 
+  const activeModelLabel = attributionModels.find((m) => m.model === attributionModel)?.label
+
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <AttributionIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Atribución de Marketing</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                Análisis multi-touch del recorrido del cliente
-              </Typography>
-            </Box>
-          </Stack>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Signpost className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Atribución de Marketing
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Análisis multi-touch del recorrido del cliente
+                </p>
+              </div>
+            </div>
 
-          <Stack direction="row" spacing={2}>
-            <Select value={period} onChange={(_, value) => setPeriod(value as string)} sx={{ minWidth: 150 }}>
-              <Option value="7days">Últimos 7 días</Option>
-              <Option value="30days">Últimos 30 días</Option>
-              <Option value="90days">Últimos 90 días</Option>
-              <Option value="custom">Personalizado</Option>
-            </Select>
+            <div className="flex items-center gap-2">
+              <Select value={period} onValueChange={setPeriod}>
+                <SelectTrigger className="h-10 w-[180px]" aria-label="Periodo">
+                  <SelectValue placeholder="Periodo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7days">Últimos 7 días</SelectItem>
+                  <SelectItem value="30days">Últimos 30 días</SelectItem>
+                  <SelectItem value="90days">Últimos 90 días</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
+                </SelectContent>
+              </Select>
 
-            <Tooltip title="Actualizar datos">
-              <IconButton variant="outlined" color="neutral" onClick={fetchAttributionData}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
+              <Tooltip title="Actualizar datos">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Actualizar datos"
+                  onClick={fetchAttributionData}
+                >
+                  <ArrowClockwise className="size-5" aria-hidden />
+                </Button>
+              </Tooltip>
 
-            <Tooltip title="Exportar reporte">
-              <IconButton variant="outlined" color="neutral" onClick={exportData}>
-                <DownloadIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        </Stack>
+              <Tooltip title="Exportar reporte">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Exportar reporte"
+                  onClick={exportData}
+                >
+                  <DownloadSimple className="size-5" aria-hidden />
+                </Button>
+              </Tooltip>
+            </div>
+          </div>
 
-        {loading && <LinearProgress />}
+          {loading && <LinearProgress />}
 
-        {/* Attribution Models */}
-        <Card>
-          <CardContent>
-            <Typography level="h4" sx={{ mb: 2 }}>
-              Modelo de Atribución
-            </Typography>
-            <Typography level="body-sm" sx={{ mb: 3, color: 'text.tertiary' }}>
+          {/* Attribution Models */}
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="text-base font-semibold text-foreground">Modelo de Atribución</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               Selecciona cómo quieres atribuir el crédito de conversión entre los diferentes touchpoints
-            </Typography>
-            <Grid container spacing={2}>
-              {attributionModels.map((model) => (
-                <Grid xs={12} md={6} lg={4} key={model.model}>
-                  <Card
-                    variant={attributionModel === model.model ? 'solid' : 'outlined'}
-                    color={attributionModel === model.model ? 'primary' : 'neutral'}
-                    sx={{
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      '&:hover': { boxShadow: 'md' },
-                    }}
-                    onClick={() => setAttributionModel(model.model)}
-                  >
-                    <CardContent>
-                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                        {model.model === 'datadriven' && <TouchAppIcon />}
-                        <Typography level="title-md">{model.label}</Typography>
-                      </Stack>
-                      <Typography level="body-sm">{model.description}</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          </CardContent>
-        </Card>
+            </p>
 
-        {/* Channel Attribution Chart */}
-        <Card>
-          <CardContent>
-            <Typography level="h4" sx={{ mb: 3 }}>
-              Atribución por Canal - {attributionModels.find((m) => m.model === attributionModel)?.label}
-            </Typography>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {attributionModels.map((model) => {
+                const selected = attributionModel === model.model
+                return (
+                  <button
+                    key={model.model}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setAttributionModel(model.model)}
+                    className={cn(
+                      'appearance-none [font-family:inherit] cursor-pointer rounded-lg border p-4 text-left outline-none transition-colors',
+                      'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                      selected
+                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                        : 'border-border bg-card text-foreground hover:border-primary/40 hover:bg-accent/40',
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      {model.model === 'datadriven' && (
+                        <HandTap className="size-[18px] shrink-0" weight="fill" aria-hidden />
+                      )}
+                      <span className="text-sm font-semibold">{model.label}</span>
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1.5 block text-xs',
+                        selected ? 'text-primary-foreground/80' : 'text-muted-foreground',
+                      )}
+                    >
+                      {model.description}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* Channel Attribution Chart */}
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-foreground">Atribución por Canal</h2>
+              <Badge variant="primary">
+                <HandTap className="size-4" aria-hidden />
+                {activeModelLabel}
+              </Badge>
+            </div>
             <ResponsiveContainer width="100%" height={350}>
               <BarChart data={channelAttribution}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="channel" />
-                <YAxis />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="channel" stroke="#94a3b8" fontSize={11} />
+                <YAxis stroke="#94a3b8" fontSize={11} />
                 <RechartsTooltip
                   formatter={((value: number) => [`${value} conversiones`, 'Conversiones Atribuidas']) as any}
                 />
@@ -542,241 +584,248 @@ export default function CampaignsAttribution() {
                 />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </section>
 
-        {/* Attribution Table */}
-        <Card>
-          <CardContent>
-            <Typography level="h4" sx={{ mb: 3 }}>
-              Comparación de Modelos de Atribución
-            </Typography>
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
+          {/* Attribution Table */}
+          <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+            <div className="border-b border-border px-5 py-4">
+              <h2 className="text-base font-semibold text-foreground">
+                Comparación de Modelos de Atribución
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead>
-                  <tr>
-                    <th>Canal</th>
-                    <th>First Touch</th>
-                    <th>Last Touch</th>
-                    <th>Linear</th>
-                    <th>Time Decay</th>
-                    <th>Position Based</th>
-                    <th>Data-Driven (IA)</th>
-                    <th>Revenue</th>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {tableColumns.map((c) => (
+                      <th
+                        key={c}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {channelAttribution.map((channel, index) => (
-                    <tr key={index}>
-                      <td>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          {getChannelIcon(channel.channel)}
-                          <Typography level="body-sm" fontWeight="bold">
-                            {channel.channel}
-                          </Typography>
-                        </Stack>
-                      </td>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold">
-                            {channel.firstTouch}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {((channel.firstTouch / totalConversions) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold">
-                            {channel.lastTouch}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {((channel.lastTouch / totalConversions) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold">
-                            {channel.linear}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {((channel.linear / totalConversions) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold">
-                            {channel.timeDecay}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {((channel.timeDecay / totalConversions) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold">
-                            {channel.positionBased}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {((channel.positionBased / totalConversions) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="bold" sx={{ color: 'primary.main' }}>
-                            {channel.datadriven}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {((channel.datadriven / totalConversions) * 100).toFixed(1)}%
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="bold">
-                          ${(channel.revenue / 1000).toFixed(1)}K
-                        </Typography>
+                <tbody className="divide-y divide-border">
+                  {channelAttribution.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={tableColumns.length}
+                        className="px-4 py-10 text-center text-muted-foreground"
+                      >
+                        {loading ? 'Cargando atribución...' : 'No hay datos de atribución'}
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    channelAttribution.map((channel, index) => (
+                      <tr key={index} className="transition-colors hover:bg-accent/40">
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {getChannelIcon(channel.channel)}
+                            <span className="font-medium text-foreground">{channel.channel}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="block font-semibold tabular-nums text-foreground">
+                            {channel.firstTouch}
+                          </span>
+                          <span className="block text-xs tabular-nums text-muted-foreground">
+                            {pct(channel.firstTouch)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="block font-semibold tabular-nums text-foreground">
+                            {channel.lastTouch}
+                          </span>
+                          <span className="block text-xs tabular-nums text-muted-foreground">
+                            {pct(channel.lastTouch)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="block font-semibold tabular-nums text-foreground">
+                            {channel.linear}
+                          </span>
+                          <span className="block text-xs tabular-nums text-muted-foreground">
+                            {pct(channel.linear)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="block font-semibold tabular-nums text-foreground">
+                            {channel.timeDecay}
+                          </span>
+                          <span className="block text-xs tabular-nums text-muted-foreground">
+                            {pct(channel.timeDecay)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="block font-semibold tabular-nums text-foreground">
+                            {channel.positionBased}
+                          </span>
+                          <span className="block text-xs tabular-nums text-muted-foreground">
+                            {pct(channel.positionBased)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="block font-semibold tabular-nums text-primary">
+                            {channel.datadriven}
+                          </span>
+                          <span className="block text-xs tabular-nums text-muted-foreground">
+                            {pct(channel.datadriven)}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums text-foreground">
+                          ${(channel.revenue / 1000).toFixed(1)}K
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
-              </Table>
-            </Sheet>
-          </CardContent>
-        </Card>
+              </table>
+            </div>
+          </section>
 
-        {/* Customer Journeys */}
-        <Card>
-          <CardContent>
-            <Typography level="h4" sx={{ mb: 3 }}>
+          {/* Customer Journeys */}
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="text-base font-semibold text-foreground">
               Recorridos de Cliente Exitosos
-            </Typography>
-            <Stack spacing={3}>
-              {customerJourneys.map((journey) => (
-                <Card key={journey.id} variant="outlined">
-                  <CardContent>
-                    <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-                      <Box>
-                        <Typography level="title-md">{journey.customerName}</Typography>
-                        <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+            </h2>
+
+            <div className="mt-4 space-y-4">
+              {customerJourneys.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {loading ? 'Cargando recorridos...' : 'No hay recorridos para este periodo'}
+                </p>
+              ) : (
+                customerJourneys.map((journey) => (
+                  <article
+                    key={journey.id}
+                    className="rounded-lg border border-border bg-card p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {journey.customerName}
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
                           ID: {journey.customerId} • Duración: {journey.duration} días
-                        </Typography>
-                      </Box>
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <Chip color="success" variant="soft" startDecorator={<ShoppingCartIcon />}>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="success">
+                          <ShoppingCart className="size-3.5" weight="fill" aria-hidden />
                           ${journey.revenue}
-                        </Chip>
-                        <Chip color="primary" variant="soft">
+                        </Badge>
+                        <Badge variant="primary">
                           {journey.touchPoints.length} touchpoints
-                        </Chip>
-                      </Stack>
-                    </Stack>
+                        </Badge>
+                      </div>
+                    </div>
 
-                    <Divider sx={{ my: 2 }} />
+                    <div className="my-4 border-t border-border" />
 
-                    <Stack direction="row" spacing={2} sx={{ overflowX: 'auto', pb: 1 }}>
-                      {journey.touchPoints.map((touchPoint, index) => (
-                        <Box key={touchPoint.id} sx={{ minWidth: 180 }}>
-                          <Card size="sm" variant="soft" color={index === journey.touchPoints.length - 1 ? 'success' : 'neutral'}>
-                            <CardContent>
-                              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <ol className="flex items-stretch gap-2 overflow-x-auto pb-1">
+                      {journey.touchPoints.map((touchPoint, index) => {
+                        const isLast = index === journey.touchPoints.length - 1
+                        return (
+                          <li key={touchPoint.id} className="flex shrink-0 items-center gap-2">
+                            <div
+                              className={cn(
+                                'w-[180px] rounded-lg border p-3',
+                                isLast
+                                  ? 'border-success/40 bg-success/10'
+                                  : 'border-border bg-muted/40',
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5">
                                 {getChannelIcon(touchPoint.channel)}
-                                <Typography level="body-xs" fontWeight="bold">
+                                <span className="text-xs font-semibold text-muted-foreground">
                                   Paso {touchPoint.position}
-                                </Typography>
-                              </Stack>
-                              <Typography level="body-sm" fontWeight="bold" sx={{ mb: 0.5 }}>
+                                </span>
+                              </div>
+                              <p className="mt-1.5 text-sm font-semibold text-foreground">
                                 {touchPoint.channel.charAt(0).toUpperCase() + touchPoint.channel.slice(1)}
-                              </Typography>
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
+                              </p>
+                              <p className="mb-2 text-xs text-muted-foreground">
                                 {touchPoint.campaign}
-                              </Typography>
-                              <Chip size="sm" color={touchPoint.action === 'converted' ? 'success' : 'neutral'} variant="soft">
+                              </p>
+                              <Badge
+                                variant={touchPoint.action === 'converted' ? 'success' : 'neutral'}
+                              >
                                 {touchPoint.action}
-                              </Chip>
-                            </CardContent>
-                          </Card>
-                          {index < journey.touchPoints.length - 1 && (
-                            <Box sx={{ display: 'flex', justifyContent: 'center', my: 1 }}>
-                              <Typography level="body-lg" sx={{ color: 'text.tertiary' }}>
-                                →
-                              </Typography>
-                            </Box>
-                          )}
-                        </Box>
-                      ))}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
+                              </Badge>
+                            </div>
+                            {!isLast && (
+                              <ArrowRight
+                                className="size-4 shrink-0 text-muted-foreground"
+                                aria-hidden
+                              />
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
 
-        {/* Insights */}
-        <Grid container spacing={3}>
-          <Grid xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-                  <TimelineIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-                  <Box>
-                    <Typography level="h3">{metrics.avgTouchpoints.toFixed(1)}</Typography>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Touchpoints Promedio
-                    </Typography>
-                  </Box>
-                </Stack>
-                <Typography level="body-sm">
-                  Los clientes interactúan en promedio con {metrics.avgTouchpoints.toFixed(1)} canales antes de convertir
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
+          {/* Insights */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center gap-3">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                  <Path className="size-6" weight="fill" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+                    {metrics.avgTouchpoints.toFixed(1)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">Touchpoints Promedio</p>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Los clientes interactúan en promedio con {metrics.avgTouchpoints.toFixed(1)} canales antes de convertir
+              </p>
+            </div>
 
-          <Grid xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-                  <TouchAppIcon sx={{ fontSize: 32, color: 'success.main' }} />
-                  <Box>
-                    <Typography level="h3">{metrics.multiTouchPercentage.toFixed(0)}%</Typography>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Conversiones Multi-Touch
-                    </Typography>
-                  </Box>
-                </Stack>
-                <Typography level="body-sm">
-                  {metrics.multiTouchPercentage.toFixed(0)}% de conversiones involucran múltiples puntos de contacto
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center gap-3">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-success/14 text-success-text">
+                  <HandTap className="size-6" weight="fill" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+                    {metrics.multiTouchPercentage.toFixed(0)}%
+                  </p>
+                  <p className="text-sm text-muted-foreground">Conversiones Multi-Touch</p>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                {metrics.multiTouchPercentage.toFixed(0)}% de conversiones involucran múltiples puntos de contacto
+              </p>
+            </div>
 
-          <Grid xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-                  <TrendingUpIcon sx={{ fontSize: 32, color: 'warning.main' }} />
-                  <Box>
-                    <Typography level="h3">{(metrics.avgConversionTimeHours / 24).toFixed(1)} días</Typography>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Tiempo Promedio de Conversión
-                    </Typography>
-                  </Box>
-                </Stack>
-                <Typography level="body-sm">
-                  El ciclo promedio desde el primer touchpoint hasta la conversión
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      </Stack>
-    </Container>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <div className="flex items-center gap-3">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-warning/16 text-warning-text">
+                  <TrendUp className="size-6" weight="bold" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+                    {(metrics.avgConversionTimeHours / 24).toFixed(1)} días
+                  </p>
+                  <p className="text-sm text-muted-foreground">Tiempo Promedio de Conversión</p>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                El ciclo promedio desde el primer touchpoint hasta la conversión
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
   )
 }

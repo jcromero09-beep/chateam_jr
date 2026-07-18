@@ -88,9 +88,7 @@ const DispatchWebHookService = async ({
 
     if (webhook.config["details"]) {
       const flow = await FlowBuilderModel.findOne({
-        where: {
-          id: webhook.config["details"].idFlow
-        }
+        where: { id: webhook.config["details"].idFlow, active: true }
       });
       const nodes: INodes[] = flow.flow["nodes"];
       const connections: IConnections[] = flow.flow["connections"];

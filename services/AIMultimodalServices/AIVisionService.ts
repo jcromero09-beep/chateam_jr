@@ -1,3 +1,4 @@
+import axios from "axios";
 import logger from "../../utils/logger";
 import { getApiKeyWithFallback } from "../AIProviderService";
 import DeductCreditsService from "../AICreditServices/DeductCreditsService";
@@ -32,7 +33,6 @@ const analyzeImage = async (
   const { prompt, extractText = true, checkNSFW = true, language = 'es' } = options;
 
   try {
-    const axios = require('axios');
     const apiKey = await getApiKeyWithFallback('openai', 'OPENAI_API_KEY', companyId);
 
     const isUrl = imageInput.startsWith('http');
@@ -57,7 +57,7 @@ Idioma de respuesta: ${language}`;
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
-        model: 'gpt-4o',
+        model: 'gpt-5.5',
         messages: [
           { role: 'system', content: systemPrompt },
           {
@@ -114,7 +114,7 @@ Idioma de respuesta: ${language}`;
       text: parsed.text,
       sentiment: parsed.sentiment,
       isNSFW: parsed.isNSFW || false,
-      modelUsed: 'gpt-4o',
+      modelUsed: 'gpt-5.5',
       latencyMs: Date.now() - startTime,
       tokensUsed: {
         input: usage?.prompt_tokens || 0,

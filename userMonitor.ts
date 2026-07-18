@@ -1,7 +1,8 @@
 import Queue from "bull";
 import * as Sentry from "@sentry/node";
 import { QueryTypes } from "sequelize";
-import { isNil } from "lodash";
+import lodash from "lodash";
+const { isNil } = lodash;
 import Session from "./models/Session";
 import logger from "./utils/logger";
 import sequelize from "./database";

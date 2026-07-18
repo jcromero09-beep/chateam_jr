@@ -1,4 +1,10 @@
-import { WAMessage, AnyMessageContent, WAPresence } from "@whiskeysockets/baileys";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
+import { WAMessage, AnyMessageContent, WAPresence } from "baileys";
 import * as Sentry from "@sentry/node";
 import fs from "fs";
 import { exec } from "child_process";
@@ -9,6 +15,8 @@ import GetTicketWbot from "../../helpers/GetTicketWbot";
 import Ticket from "../../models/Ticket";
 import mime from "mime-types";
 import Contact from "../../models/Contact";
+import ResolveOutboundJid from "./ResolveOutboundJid";
+import generateVideoThumbnail, { buildVideoExtras } from "../../helpers/GenerateVideoThumbnail";
 
 interface Request {
   media: Express.Multer.File;
@@ -24,7 +32,7 @@ interface RequestFlow {
   isRecord?: boolean;
 }
 
-const publicFolder = path.resolve(__dirname, "..", "..", "public");
+const publicFolder = path.resolve(currentDir, "..", "..", "public");
 
 const processAudio = async (audio: string): Promise<string> => {
   const outputAudio = `${publicFolder}/${new Date().getTime()}.mp3`;
@@ -66,7 +74,7 @@ export const typeSimulation = async (ticket: Ticket, presence: WAPresence) => {
 
   const wbot = await GetTicketWbot(ticket);
 
-  let contact = await Contact.findOne({
+  const contact = await Contact.findOne({
     where: {
       id: ticket.contactId,
     }
@@ -97,12 +105,14 @@ const SendWhatsAppMediaFlow = async ({
     let options: AnyMessageContent;
 
     if (typeMessage === "video") {
+      const videoMeta = await generateVideoThumbnail(pathMedia);
       options = {
         video: fs.readFileSync(pathMedia),
         caption: body,
-        fileName: mediaName
+        fileName: mediaName,
+        ...buildVideoExtras(videoMeta)
         // gifPlayback: true
-      };
+      } as AnyMessageContent;
     } else if (typeMessage === "audio") {
       console.log('record', isRecord)
       if (isRecord) {
@@ -141,14 +151,24 @@ const SendWhatsAppMediaFlow = async ({
       };
     }
 
-    let contact = await Contact.findOne({
+    const contact = await Contact.findOne({
       where: {
         id: ticket.contactId,
       }
     });
 
+    if (!contact) {
+      throw new AppError("ERR_CONTACT_NOT_FOUND");
+    }
+
+    const number = await ResolveOutboundJid({
+      wbot,
+      contact,
+      isGroup: ticket.isGroup
+    });
+
     const sentMessage = await wbot.sendMessage(
-      `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
+      number,
       {
         ...options
       }

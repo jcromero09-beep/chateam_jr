@@ -24,6 +24,54 @@ import logger from "../../utils/logger";
 const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION || "v24.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
+// ─────────────────────────────────────────────────────────────────────
+// Scopes OAuth — fuente única de verdad para FB.login() / OAuth dialogs
+// ─────────────────────────────────────────────────────────────────────
+
+/** Scopes base del flujo WhatsApp Embedded Signup (NO modificar — producción). */
+export const WHATSAPP_OAUTH_SCOPES: string[] = [
+  "whatsapp_business_management",
+  "whatsapp_business_messaging",
+  "business_management"
+];
+
+/**
+ * Scopes adicionales del Módulo Comentarios FB/IG (GAP 1 —
+ * docs/PLAN_COMENTARIOS_FB_IG.md).
+ *
+ * ⚠️ Requieren App Review de Meta para producción con cuentas ajenas;
+ * funcionan de inmediato con páginas propias (rol admin/tester de la App).
+ */
+export const COMMENT_MODULE_OAUTH_SCOPES: string[] = [
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_manage_engagement",
+  "pages_read_user_content",
+  "instagram_basic",
+  "instagram_manage_comments"
+];
+
+/**
+ * Construye la lista de scopes para el OAuth dialog de forma ADITIVA:
+ * siempre incluye los scopes WhatsApp existentes y, opcionalmente, los del
+ * módulo de comentarios (activados por defecto; desactivables con
+ * META_ENABLE_COMMENT_SCOPES=false en .env si el App Review aún no aprueba).
+ *
+ * Consumidores: frontend EmbeddedSignupModal (FB.login scope) y cualquier
+ * builder backend de URLs OAuth de Meta.
+ */
+export function getEmbeddedSignupScopes(
+  includeCommentScopes: boolean = process.env.META_ENABLE_COMMENT_SCOPES !== "false"
+): string {
+  const scopes = [...WHATSAPP_OAUTH_SCOPES];
+  if (includeCommentScopes) {
+    for (const scope of COMMENT_MODULE_OAUTH_SCOPES) {
+      if (!scopes.includes(scope)) scopes.push(scope);
+    }
+  }
+  return scopes.join(",");
+}
+
 interface EmbeddedSignupResult {
   whatsapp: Whatsapp;
   wabaId: string | null;
@@ -34,8 +82,9 @@ interface EmbeddedSignupResult {
 
 /**
  * Obtiene las credenciales de la company o fallback a las globales de .env
+ * Exportada para reutilización (ej: ConnectPageService del módulo Comentarios FB/IG).
  */
-async function getCredentials(companyId: number): Promise<{
+export async function getCredentials(companyId: number): Promise<{
   appId: string;
   appSecret: string;
 }> {
@@ -66,35 +115,43 @@ async function getCredentials(companyId: number): Promise<{
 /**
  * Intercambia authorization code por short-lived access token.
  *
- * NOTA IMPORTANTE sobre redirect_uri:
- * El flujo Embedded Signup con FB JS SDK (sessioninfoversion: 2) retorna el code
- * vía postMessage — Facebook usa un redirect_uri dinámico interno (xd_arbiter) que
- * cambia en cada sesión y no se puede reproducir. Por eso NO se envía redirect_uri
- * en este intercambio. Meta acepta esto para códigos obtenidos via JS SDK.
+ * NOTA sobre redirect_uri:
+ * Embedded Signup con FB JS SDK / Facebook Login for Business devuelve un code
+ * que se intercambia sin redirect_uri. Enviar la URL de la SPA puede romper el
+ * exchange porque no necesariamente coincide con el redirect interno del SDK.
+ * Sólo se permite incluirlo con META_EMBEDDED_SIGNUP_USE_REDIRECT_URI=true para
+ * diagnósticos o flujos OAuth clásicos controlados.
  */
 async function exchangeCodeForToken(
   code: string,
   appId: string,
-  appSecret: string
+  appSecret: string,
+  redirectUri?: string
 ): Promise<{ accessToken: string; tokenType: string }> {
   const url = `${GRAPH_BASE}/oauth/access_token`;
+  const params: Record<string, string> = {
+    client_id: appId,
+    client_secret: appSecret,
+    code,
+  };
+  const shouldSendRedirectUri =
+    process.env.META_EMBEDDED_SIGNUP_USE_REDIRECT_URI === "true" && !!redirectUri;
+  if (shouldSendRedirectUri) params.redirect_uri = redirectUri;
+
   logger.info(`[EmbeddedSignup:Token] ── Params enviados a Meta ──`);
   logger.info(`[EmbeddedSignup:Token]   URL: ${url}`);
   logger.info(`[EmbeddedSignup:Token]   client_id: ${appId}`);
   logger.info(`[EmbeddedSignup:Token]   client_secret: ${appSecret ? appSecret.substring(0, 6) + "..." : "VACÍO"}`);
-  logger.info(`[EmbeddedSignup:Token]   redirect_uri: (omitido — flujo JS SDK Embedded Signup)`);
+  logger.info(
+    `[EmbeddedSignup:Token]   redirect_uri: ${
+      shouldSendRedirectUri ? redirectUri : "(omitido — Embedded Signup JS SDK)"
+    }`
+  );
   logger.info(`[EmbeddedSignup:Token]   code (50 chars): ${code.substring(0, 50)}...`);
 
   try {
     const { data } = await axios.get(url, {
-      params: {
-        client_id: appId,
-        client_secret: appSecret,
-        // ⚠️ NO enviamos redirect_uri: el código viene del FB JS SDK vía postMessage,
-        // no de un redirect clásico. El redirect_uri interno del SDK (xd_arbiter)
-        // es dinámico e irrepetible — Meta lo acepta sin redirect_uri para este flujo.
-        code,
-      },
+      params,
     });
 
     if (!data.access_token) {
@@ -132,8 +189,9 @@ async function exchangeCodeForToken(
 
 /**
  * Intercambia short-lived token por long-lived token (60 dias)
+ * Exportada para reutilización (ej: ConnectPageService del módulo Comentarios FB/IG).
  */
-async function exchangeForLongLivedToken(
+export async function exchangeForLongLivedToken(
   shortLivedToken: string,
   appId: string,
   appSecret: string
@@ -234,10 +292,11 @@ export async function processEmbeddedSignupCallback(params: {
   connectionName?: string;
   phoneNumberId?: string;
   sessionId?: string;
+  redirectUri?: string;
   /** true cuando Facebook devolvió directamente un accessToken (no un code) */
   isAccessToken?: boolean;
 }): Promise<EmbeddedSignupResult> {
-  const { code, companyId, connectionName, phoneNumberId: selectedPhoneId, sessionId, isAccessToken } = params;
+  const { code, companyId, connectionName, phoneNumberId: selectedPhoneId, sessionId, redirectUri, isAccessToken } = params;
 
   logger.info(`[EmbeddedSignup] Iniciando para company ${companyId} (isAccessToken: ${isAccessToken ?? false})`);
 
@@ -257,8 +316,8 @@ export async function processEmbeddedSignupCallback(params: {
     expiresIn = result.expiresIn;
   } else {
     // Flujo normal: code → short-lived → long-lived
-    logger.info("[EmbeddedSignup] Paso 1: Intercambiando code por token (sin redirect_uri)...");
-    const { accessToken: shortToken } = await exchangeCodeForToken(code, appId, appSecret);
+    logger.info(`[EmbeddedSignup] Paso 1: Intercambiando code por token (${redirectUri ? "con redirect_uri" : "sin redirect_uri"})...`);
+    const { accessToken: shortToken } = await exchangeCodeForToken(code, appId, appSecret, redirectUri);
 
     // 2. Intercambiar short → long-lived token
     logger.info("[EmbeddedSignup] Paso 2: Intercambiando por long-lived token...");

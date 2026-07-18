@@ -31,9 +31,7 @@ export const sendFacebookMessageMedia = async ({
   body
 }: Request): Promise<any> => {
   try {
-    //console.log('sendface', media)
     const type = typeAttachment(media);
-    //console.log('type', type)
     const domain = `${process.env.BACKEND_URL}/public/company${ticket.companyId}/${media.filename}`
 
 
@@ -43,7 +41,6 @@ export const sendFacebookMessageMedia = async ({
       type,
       ticket.whatsapp.facebookUserToken
     );
-    //console.log('enviado')
 
     await ticket.update({ lastMessage: media.filename });
 

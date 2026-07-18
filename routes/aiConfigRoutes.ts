@@ -50,4 +50,3 @@ aiConfigRoutes.get("/analytics", isAuth, isSuper, AIConfigController.getAnalytic
 aiConfigRoutes.get("/models/:provider", isAuth, AIConfigController.getAvailableModels);
 
 export default aiConfigRoutes;
-// console.log("📄 AI-CONFIG-ROUTES.TS LOADED\!");

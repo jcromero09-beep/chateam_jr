@@ -79,7 +79,7 @@ const CommentReplyOrchestratorService = async (
         classification.commentType,
         classification.sentiment,
         classification.purchaseIntentScore,
-        "gpt-4o-mini"
+        "gpt-5.5"
       );
       await comment.reload();
     }

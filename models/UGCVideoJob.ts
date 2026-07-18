@@ -81,11 +81,12 @@ class UGCVideoJob extends Model<UGCVideoJob> {
   @Column(DataType.INTEGER)
   companyId!: number;
 
+  // Nullable: los jobs standalone (playground multi-proveedor) no tienen campaña.
   @ForeignKey(() => UGCCampaign)
-  @AllowNull(false)
+  @AllowNull(true)
   @Index("idx_ugc_video_jobs_campaign")
   @Column(DataType.INTEGER)
-  ugcCampaignId!: number;
+  ugcCampaignId?: number | null;
 
   @ForeignKey(() => User)
   @AllowNull(false)
@@ -137,6 +138,40 @@ class UGCVideoJob extends Model<UGCVideoJob> {
   @AllowNull(true)
   @Column(DataType.STRING(255))
   videoProviderJobId?: string;
+
+  // --- Generación standalone (playground multi-proveedor) ---
+
+  // Proveedor de generación: "higgsfield" | "fal" (null = legacy de campaña).
+  @AllowNull(true)
+  @Index("idx_ugc_video_jobs_provider")
+  @Column(DataType.STRING(50))
+  provider?: string;
+
+  // "image" | "video".
+  @AllowNull(true)
+  @Column(DataType.STRING(20))
+  mediaType?: string;
+
+  // Id de modelo normalizado usado en la generación.
+  @AllowNull(true)
+  @Column(DataType.STRING(120))
+  modelKey?: string;
+
+  // Preset/estilo cinema seleccionado (ej. "drama").
+  @AllowNull(true)
+  @Column(DataType.STRING(120))
+  styleId?: string;
+
+  // Clave de idempotencia por (companyId, idempotencyKey).
+  @AllowNull(true)
+  @Index("idx_ugc_video_jobs_idem")
+  @Column(DataType.STRING(120))
+  idempotencyKey?: string;
+
+  // Prompt del playground (distinto del `script` de campaña).
+  @AllowNull(true)
+  @Column(DataType.TEXT)
+  promptText?: string;
 
   @AllowNull(true)
   @Column(DataType.STRING(255))

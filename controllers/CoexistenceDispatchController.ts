@@ -15,9 +15,12 @@
  */
 import { Request, Response } from "express";
 import ShowTicketService from "../services/TicketServices/ShowTicketService";
-import OutboundRoutingService from "../services/CoexistenceServices/OutboundRoutingService";
+import OutboundRoutingService, {
+  computeMetaWindow
+} from "../services/CoexistenceServices/OutboundRoutingService";
 import OutboundDispatchService from "../services/CoexistenceServices/OutboundDispatchService";
 import OutboundDispatch from "../models/OutboundDispatch";
+import Whatsapp from "../models/Whatsapp";
 import AppError from "../errors/AppError";
 
 export const routingPreview = async (
@@ -26,7 +29,7 @@ export const routingPreview = async (
 ): Promise<Response> => {
   try {
     const { ticketId } = req.params;
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const ticket = await ShowTicketService(ticketId, companyId);
 
     const mode = (req.query.mode as any) || undefined;
@@ -35,9 +38,48 @@ export const routingPreview = async (
       requestedMode: mode
     });
 
+    // FASE 7 — Calcular metadata de ventana 24h para el cliente UI.
+    // (resolveOutbound ya la calcula; la incluimos en formato amigable.)
+    const metaWindow =
+      decision.metaWindow ||
+      (await computeMetaWindow(ticket.id, companyId));
+
+    // Resolver linkedWhatsappId y disponibilidad real de Baileys.
+    // Multi-tenant: filtrar por companyId.
+    const seedWa = (ticket as any).whatsappId
+      ? await Whatsapp.findOne({
+          where: { id: (ticket as any).whatsappId, companyId }
+        })
+      : null;
+    const linkedId = (seedWa as any)?.linkedWhatsappId || null;
+    const linkedWa = linkedId
+      ? await Whatsapp.findOne({ where: { id: linkedId, companyId } })
+      : null;
+
+    const baileysCandidate =
+      seedWa && (seedWa as any).channel === "whatsapp"
+        ? seedWa
+        : linkedWa && (linkedWa as any).channel === "whatsapp"
+        ? linkedWa
+        : null;
+    const canUseBaileys =
+      !!baileysCandidate && (baileysCandidate as any).status === "CONNECTED";
+
     return res.status(200).json({
       ticketId: ticket.id,
       conversationId: (ticket as any).conversationId || null,
+      lastCustomerMessageAt: metaWindow.lastCustomerMessageAt,
+      hoursSinceLastCustomerMessage: metaWindow.hoursSinceLastCustomerMessage,
+      metaWindow: {
+        isOpen: metaWindow.isOpen,
+        expiresAt: metaWindow.expiresAt,
+        minutesRemaining: metaWindow.minutesRemaining
+      },
+      chosenProvider: decision.provider,
+      fallbackProvider: decision.fallbackProvider || null,
+      linkedWhatsappId: linkedId,
+      canUseBaileys,
+      reason: decision.reason,
       decision: {
         provider: decision.provider,
         whatsappId: decision.whatsappId,
@@ -64,7 +106,7 @@ export const dispatchOne = async (
 ): Promise<Response> => {
   try {
     const { ticketId } = req.params;
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const body = (req.body?.body as string) || "";
     const mode = (req.body?.mode as any) || undefined;
 
@@ -123,7 +165,7 @@ export const listDispatches = async (
 ): Promise<Response> => {
   try {
     const { ticketId } = req.params;
-    const { companyId } = (req as any).user;
+    const { companyId } = req.user;
     const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
 
     const rows = await OutboundDispatch.findAll({

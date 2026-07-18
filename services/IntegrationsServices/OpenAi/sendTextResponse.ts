@@ -1,10 +1,12 @@
-import { proto } from "@whiskeysockets/baileys";
+import { proto } from "baileys";
 import logger from "../../../utils/logger";
 import Ticket from "../../../models/Ticket";
 import Contact from "../../../models/Contact";
 import Message from "../../../models/Message";
 import TicketTraking from "../../../models/TicketTraking";
 import UpdateTicketService from "../../TicketServices/UpdateTicketService";
+import AppError from "../../../errors/AppError";
+import { chargeMessage } from "../../AICreditServices/AIUsagePricingService";
 import {
   convertTextToSpeechAndSaveToFile,
   keepOnlySpecifiedChars,
@@ -36,6 +38,34 @@ export const sendTextResponse = async (
   publicFolder: string
 ): Promise<void> => {
 
+  // 💳 COBRO UNIFICADO: chat IA clasico cobra como 'message' (configurable).
+  // Fail-closed: si la company no tiene credito, no se invoca a OpenAI.
+  try {
+    await chargeMessage({
+      companyId: ticket.companyId,
+      units: 1,
+      source: "openai_classic_chat",
+      sourceId: ticket.id,
+      description: `OpenAI clasico ticket=${ticket.id}`,
+      metadata: { contactId: contact?.id, queueId: ticket.queueId }
+    });
+  } catch (creditErr: any) {
+    const isInsufficient =
+      creditErr instanceof AppError &&
+      (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+        creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+    if (isInsufficient) {
+      logger.warn(
+        `[OpenAI clasico] Sin creditos para message (company=${ticket.companyId} ticket=${ticket.id}); skip respuesta`
+      );
+      return;
+    }
+    logger.warn(
+      `[OpenAI clasico] Error cobrando message: ${creditErr?.message || creditErr}; skip respuesta por seguridad`
+    );
+    return;
+  }
+
   // MIGRADO: Ya no pasa openai como parametro
   const chat = await getSafeCompletion({
     messages: messagesOpenAi,
@@ -43,7 +73,7 @@ export const sendTextResponse = async (
     temperature: parseFloat(String(openAiSettings.temperature)) || 0.7
   }, ticket.companyId, 'chat');
 
-  let response = chat.choices[0].message?.content;
+  const response = chat.choices[0].message?.content;
 
   // MEJORA 6: Actualizar memoria de conversacion
   console.log("💾 [MEMORY] Actualizando memoria de conversación...");

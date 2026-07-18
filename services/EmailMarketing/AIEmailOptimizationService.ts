@@ -12,6 +12,10 @@
 
 import { chatCompletion, isCapabilityAvailable } from "../AIClientService";
 import logger from "../../utils/logger";
+import {
+  chargeMessage,
+  chargeAgentExecution
+} from "../AICreditServices/AIUsagePricingService";
 
 // ============================================================================
 // TIPOS
@@ -114,6 +118,15 @@ export async function generateSubjectLines(
     logger.warn("[AIEmailOptimization] IA no disponible, usando fallback con templates");
     return generateSubjectLinesFallback(content, count);
   }
+
+  // 💳 COBRO UNIFICADO (fail-closed): cada subject = 'message' configurable.
+  await chargeMessage({
+    companyId,
+    units: count,
+    source: "email_ai:subject_lines",
+    description: `Email IA: ${count} subject lines`,
+    metadata: { tone, count }
+  });
 
   try {
     const systemPrompt = `Eres un experto en email marketing y copywriting. Tu tarea es generar subject lines de email que maximicen la tasa de apertura (open rate).
@@ -341,6 +354,16 @@ export async function generateEmailContent(
     logger.warn("[AIEmailOptimization] IA no disponible, usando fallback con template basico");
     return generateEmailContentFallback(prompt, type, brandName);
   }
+
+  // 💳 COBRO UNIFICADO (fail-closed): generacion de email completo = agent_execution
+  // (mas pesado que un simple subject line; configurable).
+  await chargeAgentExecution({
+    companyId,
+    units: 1,
+    source: "email_ai:full_content",
+    description: `Email IA: contenido tipo=${type}`,
+    metadata: { type, tone, brand: brandName }
+  });
 
   try {
     const brand = brandName || "Nuestra empresa";

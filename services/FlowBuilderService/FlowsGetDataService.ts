@@ -25,7 +25,7 @@ const FlowsGetDataService = async ({
             id: idFlow
           }
         });
-        let flowRecord = rows[0]
+        const flowRecord = rows[0]
 
         console.log('🔵 [FlowsGetDataService] Flujo encontrado:', {
           id: flowRecord?.id,

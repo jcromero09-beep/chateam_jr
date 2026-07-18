@@ -1,6 +1,8 @@
-import { sign, SignOptions } from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import authConfig from "../config/auth";
 import User from "../models/User";
+
+const { sign } = jwt;
 
 export const createAccessToken = (user: User, sid: string): string => {
   const { secret, expiresIn } = authConfig;

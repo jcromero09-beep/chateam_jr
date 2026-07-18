@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
-import { isNil, head } from "lodash";
+import lodash from "lodash";
+const { isNil, head } = lodash;
 import AppError from "../../errors/AppError";
 import Whatsapp from "../../models/Whatsapp";
 import path from "path";

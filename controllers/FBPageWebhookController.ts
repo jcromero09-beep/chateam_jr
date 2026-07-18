@@ -8,6 +8,12 @@
 
 import { Request, Response } from "express";
 import { logInfo, logError } from "../utils/logger";
+// [Fase2·N6.1] Validación HMAC X-Hub-Signature-256 (mismo validador que el webhook WhatsApp)
+import {
+  shouldAcceptWebhook as verifyMetaSignature,
+  getSignatureMode
+} from "../services/CoexistenceServices/MetaSignatureValidator";
+import { getTraceId } from "../utils/traceContext";
 
 /**
  * GET /webhook/facebook
@@ -39,6 +45,21 @@ export const verify = async (req: Request, res: Response): Promise<Response | vo
  * Responde inmediatamente con 200 y procesa en background.
  */
 export const receive = async (req: Request, res: Response): Promise<void> => {
+  // [Fase2·N6.1] Validar la firma HMAC ANTES de procesar. Modo por defecto 'warn'
+  // (loguea, acepta); pasar a 'enforce' vía env META_SIGNATURE_MODE cuando se
+  // confirme que todas las firmas entrantes son válidas.
+  const traceId = getTraceId();
+  const sigHeader =
+    req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"];
+  const sigCheck = verifyMetaSignature((req as any).rawBody, sigHeader, traceId);
+  if (!sigCheck.accept) {
+    logError(
+      `[FBPageWebhook] ❌ Firma HMAC inválida (mode=${getSignatureMode()}, reason=${sigCheck.result.reason}) — rechazando`
+    );
+    res.status(403).json({ error: "invalid_signature", reason: sigCheck.result.reason });
+    return;
+  }
+
   // Responder inmediatamente — Meta requiere respuesta rápida
   res.sendStatus(200);
 

@@ -68,7 +68,7 @@ const ProcessWebChatMessageService = async ({
     whatsappId: widget.whatsappId
   });
 
-  console.log("✅ Contacto:", { id: contact.id, name: contact.name, number: contact.number });
+  console.log("✅ Contacto:", { id: contact.id });
 
   // 3. Buscar ticket abierto existente o crear uno nuevo
   let ticket = await Ticket.findOne({

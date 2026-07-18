@@ -55,7 +55,7 @@ export const resolveOrCreate = async (
   input: ResolveInput
 ): Promise<ResolveResult | null> => {
   const companyId = input.companyId;
-  let canonical =
+  const canonical =
     input.canonicalNumber ||
     normalizeNumber(
       (input.contact as any)?.number || (input.contact as any)?.remoteJid

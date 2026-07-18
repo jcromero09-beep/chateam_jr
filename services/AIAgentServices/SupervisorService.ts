@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import RouterAgentService, { ClassificationResult } from "./RouterAgentService";
 import QueryEnrichmentAgent, { EnrichmentResult } from "./QueryEnrichmentAgent";
 import RAGAgentService, { RAGResponse } from "./RAGAgentService";
@@ -5,10 +9,11 @@ import SupportAgentService, { SupportResponse } from "./SupportAgentService";
 import AppointmentAgentService from "./AppointmentAgentService";
 import AppointmentContextStore from "./AppointmentContextStore";
 import AgentLogService from "./AgentLogService";
-import DeductCreditsService from "../AICreditServices/DeductCreditsService";
 import SupervisorActionsService from "./SupervisorActionsService";
 import TicketContextService from "./TicketContextService";
 import PromptContextBuilder from "./PromptContextBuilder";
+import QuickReplySemanticService, { RelevantQuickReply } from "./QuickReplySemanticService";
+import QuickReplyDecisionService from "./QuickReplyDecisionService";
 import ToolRegistry from "./ToolRegistry";
 import ToolExecutor from "./ToolExecutor";
 import AIAgentConfig from "../../models/AIAgentConfig";
@@ -20,6 +25,17 @@ import SentimentDetectionService, { SentimentResult } from "./SentimentDetection
 import PreprocessingService, { ProcessedMessage } from "./PreprocessingService";
 import DynamicPromptBuilder, { ContactContext, CompanyContext } from "./DynamicPromptBuilder";
 import ResponseGatekeeperService from "./ResponseGatekeeperService";
+import AITurnLedgerService from "./AITurnLedgerService";
+
+// ─── CAPA DE MEMORIA + PLANNER (2026-04-22) ─────────────────────────────
+// Memoria estructurada del ticket actual + QA histórica cross-ticket +
+// planner que decide la fuente antes de despachar. Ver docs/WHATSAPP_... y
+// los servicios: CurrentTicketMemoryService, HistoricalQARetrieverService,
+// MemoryJudgeAgent, ResponsePlannerService, EmotionStateService,
+// QAExtractorService.
+import CurrentTicketMemoryService from "./CurrentTicketMemoryService";
+import ResponsePlannerService from "./ResponsePlannerService";
+import EmotionStateService from "./EmotionStateService";
 
 /**
  * Supervisor Service — Orquestador central del sistema Multi-Agente
@@ -47,6 +63,7 @@ export interface SupervisorRequest {
   chatbotId?: number; // Si viene de un chatbot específico
   ticketContext?: string; // Contexto de tags del ticket (kanban + notas)
   channel?: string; // Canal de origen: "whatsapp", "webchat", "facebook", "instagram", "telegram"
+  turnId?: string; // Ledger opcional de turno IA, creado por el listener/canal
 }
 
 export interface SupervisorResponse {
@@ -71,6 +88,12 @@ export interface SupervisorResponse {
   skipSend?: boolean;
   /** Decisión cruda del gatekeeper para auditoría */
   gatekeeperDecision?: 'send' | 'rewrite' | 'escalate' | 'ignore';
+  /** Fuente efectiva de la respuesta (auditoría) */
+  responseSource?: 'current_ticket' | 'historical_qa' | 'kb' | 'tool' | 'agent' | 'human';
+  /** Si la respuesta reutilizó una fila AIHistoricalQA, su id */
+  historicalQaId?: number;
+  /** Emotion state (para post-proceso y logs) */
+  emotionState?: string;
 }
 
 // ─── SALUDOS Y DESPEDIDAS PERSONALIZADOS ────────────────────────────────
@@ -86,6 +109,23 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     message, companyId, ticketId, contactId,
     ticketHistory = [], contactInfo = {}
   } = request;
+  const turnId = request.turnId;
+
+  if (turnId) {
+    void AITurnLedgerService.logEvent({
+      turnId,
+      companyId,
+      ticketId,
+      contactId,
+      whatsappId: request.whatsappId,
+      channel: request.channel,
+      eventType: "supervisor_started",
+      metadata: {
+        messageChars: message.length,
+        historyTurns: ticketHistory.length
+      }
+    });
+  }
 
   logger.info(
     `[Supervisor] Procesando: company=${companyId}, ticket=${ticketId}, ` +
@@ -128,22 +168,65 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   // 🔍 TIMEOUT DE SEGURIDAD: 20 segundos máximo para todo el proceso
   const TIMEOUT_MS = 20000;
   let timedOut = false;
+  // 🆕 Guardamos el handle del timer para poder cancelarlo. Antes quedaba colgado: en los
+  // returns tempranos (contexto de cita) el timeoutPromise nunca se consumía y su reject a
+  // los 20s producía un unhandled rejection. clearSupervisorTimeout() se invoca en todos los
+  // caminos de salida (returns tempranos, tras el race y en el catch del enriquecimiento).
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       timedOut = true;
       reject(new Error(`[Supervisor] ⏰ TIMEOUT después de ${TIMEOUT_MS}ms`));
     }, TIMEOUT_MS);
   });
+  const clearSupervisorTimeout = () => {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = undefined;
+    }
+  };
+  // 🆕 Timeout REAL del despacho a agentes (RAG / tools / appointment). Antes el TIMEOUT_MS
+  // sólo envolvía el enriquecimiento (Promise.race del enrichment); el dispatch podía colgar
+  // sin límite (máx observado 28.9s). Como red de seguridad cortamos el dispatch a los 25s y
+  // dejamos que el catch global escale a humano, en vez de dejar al cliente esperando.
+  const DISPATCH_TIMEOUT_MS = 25000;
+  const withDispatchTimeout = async <T>(p: Promise<T>, label: string): Promise<T> => {
+    let h: ReturnType<typeof setTimeout> | undefined;
+    const t = new Promise<never>((_, rej) => {
+      h = setTimeout(
+        () => rej(new Error(`[Supervisor] ⏰ dispatch timeout ${DISPATCH_TIMEOUT_MS}ms en ${label}`)),
+        DISPATCH_TIMEOUT_MS
+      );
+    });
+    try {
+      return await Promise.race([p, t]);
+    } finally {
+      if (h) clearTimeout(h);
+    }
+  };
 
   try {
     // 🆕 0a. Verificar si hay contexto de cita activo (esperando confirmación
     // en flujo de agendamiento inicial — el cliente está eligiendo un slot)
     if (ticketId && !timedOut) {
       const appointmentContext = await AppointmentContextStore.get(ticketId);
-      if (appointmentContext?.step === 'awaiting_confirmation') {
-        logger.info(`[Supervisor] Contexto de cita activo detectado para ticket ${ticketId}, delegando a AppointmentAgent`);
+      // 2026-07-10 FIX: antes SOLO se cortocircuitaba en 'awaiting_confirmation'. Por eso,
+      // cuando el cliente estaba eligiendo servicio/profesional/fecha (awaiting_service_selection,
+      // awaiting_user_selection, awaiting_date) y respondía algo corto como "1", el orquestador
+      // lo re-clasificaba como RAG (intent=general) y escalaba a humano SIN agendar la cita.
+      // Ahora cualquier paso activo del flujo de creación delega al AppointmentAgent, que sabe
+      // interpretar la selección y continuar hasta agendar.
+      const APPOINTMENT_ACTIVE_STEPS = [
+        'awaiting_confirmation',
+        'awaiting_service_selection',
+        'awaiting_user_selection',
+        'awaiting_date'
+      ];
+      if (appointmentContext?.step && APPOINTMENT_ACTIVE_STEPS.includes(appointmentContext.step)) {
+        logger.info(`[Supervisor] Contexto de cita activo (${appointmentContext.step}) detectado para ticket ${ticketId}, delegando a AppointmentAgent`);
 
-        // El usuario está esperando confirmación, delegar siempre al AppointmentAgent
+        // El usuario está en medio del flujo de cita, delegar siempre al AppointmentAgent
+        clearSupervisorTimeout();
         return await handleAppointmentAgent(
           message, companyId, ticketId, contactId,
           { intent: 'appointment_request', targetAgent: 'appointment', confidence: 1.0 } as ClassificationResult,
@@ -178,6 +261,7 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
 
           if (apptResp.action !== 'none') {
             // Clasificador resolvió con confianza suficiente → cortamos aquí
+            clearSupervisorTimeout();
             const intentMap: Record<string, string> = {
               confirm: 'appointment_confirmed',
               reschedule: 'appointment_request',
@@ -223,6 +307,7 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
         ticketHistory, contactInfo
       });
       enrichment = await Promise.race([enrichPromise, timeoutPromise]);
+      clearSupervisorTimeout(); // el enriquecimiento resolvió → cancelar el timer para no dejarlo colgado
 
       // 🆕 Bug C fix: propagar entidades temporales resueltas como strings
       // dentro de `entities` para que AppointmentAgent pueda leerlas sin
@@ -261,6 +346,7 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
         `confidence=${classification.confidence}, enrichedQuery="${(enrichment.enrichedQuery || "").substring(0, 60)}..."`
       );
     } catch (routerError: any) {
+      clearSupervisorTimeout();
       if (timedOut) throw routerError;
       logger.error(`[Supervisor] ❌ Error en QueryEnrichment: ${routerError.message}`);
       return buildErrorResponse(message, startTime);
@@ -301,34 +387,104 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     };
   }
 
-  // 🆕 2b. Construir bloque de CONTEXTO DISPONIBLE con etiquetas semánticas
-  // Reemplaza ticketContext simple por el bloque unificado con empresa, kanban,
-  // historial, Quick Replies semánticos y memorias del contacto
-  let unifiedContext = '';
+  // ═══════════════════════════════════════════════════════════════════
+  // 🧠 PLANNER DE MEMORIA (2026-04-22)
+  //
+  // Antes de despachar al agente, preguntamos al planner si la pregunta
+  // actual ya fue respondida en el MISMO ticket o en tickets previos con
+  // evidencia verificada. Si el planner decide 'reuse', respondemos
+  // directamente sin gastar LLM del agente. Si decide 'escalate' por
+  // emoción+contexto operativo, escalamos. Si decide 'dispatch', sigue
+  // el flujo normal.
+  //
+  // El gatekeeper se ejecuta SIEMPRE al final (tanto para reuse como
+  // para dispatch) — la memoria no salta las salvaguardas.
+  // ═══════════════════════════════════════════════════════════════════
+  let emotionEval: ReturnType<typeof EmotionStateService.evaluate> | null = null;
+  let plannerOutput: Awaited<ReturnType<typeof ResponsePlannerService.plan>> | null = null;
+  let reuseResponse: string | null = null;
+  let reuseSource: 'current_ticket' | 'historical_qa' | null = null;
+  let reuseHistoricalQaId: number | undefined;
+  let ticketMem: Awaited<ReturnType<typeof CurrentTicketMemoryService.load>> | null = null;
+
   try {
-    unifiedContext = await PromptContextBuilder.buildSupervisorContext({
+    ticketMem = ticketId
+      ? await CurrentTicketMemoryService.load(ticketId, companyId, contactId)
+      : null;
+
+    emotionEval = EmotionStateService.evaluate({
+      text: message,
+      ticketHistory,
+      ticketMemory: ticketMem,
+      lastAgentConfidence: undefined, // lo completará turno a turno
+      userRequestedHuman: classification.intent === 'escalation',
+      sensitiveIntent:
+        classification.intent === 'complaint' ||
+        classification.intent === 'refund_request'
+    });
+
+    plannerOutput = await ResponsePlannerService.plan({
       companyId,
       ticketId,
       contactId,
       currentMessage: message,
-      ticketHistory,
-      contactInfo
+      enrichedQuery: enrichment?.enrichedQuery,
+      hydeQuery: enrichment?.hydeQuery,
+      intent: classification.intent,
+      targetAgentHint: classification.targetAgent,
+      productKey: (contactInfo as any)?.plan,
+      language: classification.language || 'es',
+      channel: request.channel,
+      emotionState: emotionEval.state,
+      emotionEscalate: emotionEval.escalationRecommended,
+      userRequestedHuman: classification.intent === 'escalation',
+      ticketMemory: ticketMem
     });
-    logger.info(`[Supervisor] Bloque CONTEXTO DISPONIBLE construido, length=${unifiedContext.length}`);
-  } catch (ctxError: any) {
-    logger.warn(`[Supervisor] Error construyendo contexto: ${ctxError.message}`);
-    // Fallback: usar solo ticketContext simple
-    if (ticketId) {
-      try {
-        const tagContext = await TicketContextService.getTicketContext(ticketId);
-        unifiedContext = TicketContextService.buildContextPrompt(tagContext);
-      } catch {
-        unifiedContext = '';
-      }
+
+    if (plannerOutput.decision === 'reuse' && plannerOutput.adaptedAnswer) {
+      reuseResponse = plannerOutput.adaptedAnswer;
+      reuseSource = plannerOutput.sourceType === 'current_ticket'
+        ? 'current_ticket'
+        : 'historical_qa';
+      reuseHistoricalQaId = plannerOutput.historicalQaId;
+      logger.info(
+        `[Supervisor] 🧠 Planner REUSE src=${reuseSource} conf=${plannerOutput.confidence.toFixed(2)} — ` +
+        `saltando dispatch a agente`
+      );
+    } else if (plannerOutput.decision === 'escalate') {
+      logger.info(
+        `[Supervisor] 🧠 Planner ESCALATE — razón: ${plannerOutput.reasoning}`
+      );
+      return {
+        message: "Voy a conectarte con un asesor para que te atienda directamente. 🤝",
+        intent: classification.intent,
+        agentUsed: 'planner_escalation',
+        confidence: plannerOutput.confidence,
+        shouldEscalate: true,
+        escalationReason: plannerOutput.reasoning,
+        totalLatencyMs: Date.now() - startTime,
+        totalTokens: { input: 0, output: 0 },
+        creditsDeducted: 0,
+        sentiment: sentimentResult.sentiment,
+        emotionState: emotionEval.state,
+        responseSource: 'human',
+        metadata: {
+          classification,
+          plannerDecision: plannerOutput.decision,
+          plannerReason: plannerOutput.reasoning,
+          emotionSignals: emotionEval.signals
+        }
+      };
     }
+  } catch (plannerErr: any) {
+    logger.warn(
+      `[Supervisor] Planner falló (silenciado, seguimos dispatch normal): ${plannerErr.message}`
+    );
   }
 
-  // 2c. Buscar QuickReplies relevantes (para enviar media si tienen imagen)
+  // 2b. Buscar QuickReplies relevantes para el prompt y para potencial media.
+  // La decision final de ADJUNTAR la imagen se toma despues del gatekeeper,
+  // usando la respuesta final del agente y el contexto del turno.
   // ⚠️ GATE: en el PRIMER mensaje del ticket NO buscamos QuickReplies.
   // Razón: el cliente aún no ha especificado qué necesita (tipo de vehículo,
   // modalidad, etc.) y enviar una imagen ahora viola el protocolo del KB
@@ -343,20 +499,62 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   const botHasResponded = history.some(m => m.role === "assistant");
   const isFirstTurn = !botHasResponded;
 
-  const queryForQuickReply = enrichment?.enrichedQuery || message;
-  let matchedQuickReplies: Array<{ id: number; shortcode: string; message: string; mediaPath?: string; mediaName?: string; similarity: number }> = [];
+  const quickReplyLookup = QuickReplyDecisionService.planLookup({
+    currentMessage: message,
+    enrichedQuery: enrichment?.enrichedQuery,
+    ticketHistory,
+    ticketMemory: ticketMem
+  });
+
+  let matchedQuickReplies: RelevantQuickReply[] = [];
 
   if (isFirstTurn) {
     logger.info(`[Supervisor] Primer turno del ticket → búsqueda de QuickReplies OMITIDA (evita enviar catálogo sin contexto)`);
+  } else if (!quickReplyLookup.allowPromptContext) {
+    logger.info(
+      `[Supervisor] QuickReplies omitidos en prompt para este turno: ${quickReplyLookup.reason}`
+    );
   } else {
     try {
-      const QuickReplySemanticService = require("./QuickReplySemanticService").default;
-      matchedQuickReplies = await QuickReplySemanticService.findRelevant(queryForQuickReply, companyId);
+      matchedQuickReplies = await QuickReplySemanticService.findRelevant(
+        quickReplyLookup.searchQuery,
+        companyId
+      );
       if (matchedQuickReplies.length > 0) {
-        logger.info(`[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => `${q.shortcode}(${q.similarity.toFixed(2)})`).join(', ')}`);
+        logger.info(
+          `[Supervisor] QuickReplies matcheados: ${matchedQuickReplies.map(q => `${q.shortcode}(${q.similarity.toFixed(2)})`).join(', ')} ` +
+          `query="${quickReplyLookup.searchQuery.substring(0, 120)}"`
+        );
       }
     } catch (qrError: any) {
       logger.warn(`[Supervisor] Error buscando QuickReplies: ${qrError.message}`);
+    }
+  }
+
+  // 🆕 2c. Construir bloque de CONTEXTO DISPONIBLE con etiquetas semánticas
+  // Reutiliza los QuickReplies ya encontrados para no hacer doble búsqueda.
+  let unifiedContext = '';
+  try {
+    unifiedContext = await PromptContextBuilder.buildSupervisorContext({
+      companyId,
+      ticketId,
+      contactId,
+      currentMessage: message,
+      ticketHistory,
+      contactInfo,
+      quickReplyCandidates: matchedQuickReplies
+    });
+    logger.info(`[Supervisor] Bloque CONTEXTO DISPONIBLE construido, length=${unifiedContext.length}`);
+  } catch (ctxError: any) {
+    logger.warn(`[Supervisor] Error construyendo contexto: ${ctxError.message}`);
+    // Fallback: usar solo ticketContext simple
+    if (ticketId) {
+      try {
+        const tagContext = await TicketContextService.getTicketContext(ticketId);
+        unifiedContext = TicketContextService.buildContextPrompt(tagContext);
+      } catch {
+        unifiedContext = '';
+      }
     }
   }
 
@@ -373,6 +571,34 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
 
   // 3. Despachar al agente especializado
   let agentResponse: SupervisorResponse;
+
+  // 🧠 3.0. Atajo: si el planner resolvió con memoria/QA histórica, saltamos el dispatch
+  if (reuseResponse && reuseSource) {
+    logger.info(
+      `[Supervisor] 🧠 REUSE atajo: src=${reuseSource} sin dispatch`
+    );
+    agentResponse = {
+      message: reuseResponse,
+      intent: classification.intent,
+      agentUsed: `memory_reuse_${reuseSource}`,
+      confidence: plannerOutput?.confidence ?? 0.85,
+      shouldEscalate: false,
+      totalLatencyMs: Date.now() - startTime,
+      totalTokens: { input: 0, output: 0 },  // reuse no consume tokens del agente
+      creditsDeducted: 0,
+      responseSource: reuseSource,
+      historicalQaId: reuseHistoricalQaId,
+      sentiment: sentimentResult.sentiment,
+      emotionState: emotionEval?.state,
+      metadata: {
+        classification,
+        plannerDecision: plannerOutput?.decision,
+        plannerReason: plannerOutput?.reasoning,
+        historicalQaId: reuseHistoricalQaId
+      }
+    };
+  } else {
+
   logger.info(`[Supervisor] 🚀 Despachando a agente: ${classification.targetAgent} (intent=${classification.intent})`);
 
   switch (classification.targetAgent) {
@@ -384,17 +610,17 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
         `enrichedQuery="${(enrichment?.enrichedQuery || message).substring(0, 60)}..." (usado para búsqueda), ` +
         `company=${companyId}`
       );
-      agentResponse = await handleRAGAgent(
+      agentResponse = await withDispatchTimeout(handleRAGAgent(
         message, companyId, ticketId, contactId, classification, startTime, enrichedRequest
-      );
+      ), 'rag');
       logger.info(`[Supervisor] ← RAGAgent resultado: confidence=${agentResponse.confidence}, sources=${agentResponse.sources?.length || 0}, shouldEscalate=${agentResponse.shouldEscalate}`);
       break;
 
     case 'support':
-      agentResponse = await handleAgentWithTools(
+      agentResponse = await withDispatchTimeout(handleAgentWithTools(
         message, companyId, ticketId, contactId, classification, startTime,
         'support', 'soporte-tecnico', ticketHistory, contactInfo, enrichedRequest
-      );
+      ), 'support');
       break;
 
     case 'escalation':
@@ -414,22 +640,31 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
       break;
 
     case 'sales':
-      agentResponse = await handleAgentWithTools(
+      agentResponse = await withDispatchTimeout(handleAgentWithTools(
         message, companyId, ticketId, contactId, classification, startTime,
         'sales', 'agente-ventas', ticketHistory, contactInfo, enrichedRequest
-      );
+      ), 'sales');
       break;
 
     case 'appointment':
-      agentResponse = await handleAppointmentAgent(
+      agentResponse = await withDispatchTimeout(handleAppointmentAgent(
         message, companyId, ticketId, contactId, classification, startTime, enrichedRequest
-      );
+      ), 'appointment');
       break;
 
     default:
-      agentResponse = await handleRAGAgent(
+      agentResponse = await withDispatchTimeout(handleRAGAgent(
         message, companyId, ticketId, contactId, classification, startTime, enrichedRequest
-      );
+      ), 'rag');
+  }
+  } // fin del else (dispatch clásico cuando no hay reuse)
+
+  // Propagar emotion/responseSource a la respuesta si el dispatch la generó sin pasar por reuse
+  if (!agentResponse.emotionState && emotionEval) {
+    agentResponse.emotionState = emotionEval.state;
+  }
+  if (!agentResponse.responseSource) {
+    agentResponse.responseSource = 'agent';
   }
 
   // 4. Evaluar calidad — considerar confianza + sentimiento
@@ -451,43 +686,43 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
   // Inyectar sentiment en la respuesta para métricas
   agentResponse.sentiment = sentimentResult.sentiment;
 
-  // 5. Deducir créditos basado en tokens reales consumidos
+  // 5. Tracking legacy de tokens
+  // AIClientService ya cobra el consumo real contra Company.aiTokenBalance,
+  // registra auditoria en AiTokenTransactions y acumula CompanyTokenUsages.
+  // No cobramos aqui contra AICreditBalances.agent_execution
+  // porque el saldo activo de subplanes vive en Company.aiTokenBalance.
+  // Cobrar la bolsa granular aqui bloquea respuestas aunque la company tenga
+  // tokens legacy disponibles.
   const tokensConsumed = (agentResponse.totalTokens.input || 0) + (agentResponse.totalTokens.output || 0);
   if (tokensConsumed > 0) {
-    // Calcular créditos: 1 crédito por cada 1000 tokens (ajustar según necesidad)
-    const creditsToDeduct = Math.ceil(tokensConsumed / 1000);
-    try {
-      await DeductCreditsService({
-        companyId,
-        creditTypeKey: 'message',
-        amount: creditsToDeduct,
-        description: `Agente ${agentResponse.agentUsed}: ${message.substring(0, 50)}`,
-        source: "agent_execution",
-        sourceId: ticketId ? String(ticketId) : String(contactId || "unknown"),
-        tokensUsed: tokensConsumed
-      });
-      agentResponse.creditsDeducted = creditsToDeduct;
-    } catch (creditError: any) {
-      logger.warn(`[Supervisor] Error deduciendo créditos: ${creditError.message}`);
-      // No fallar por créditos — el mensaje ya fue procesado
-    }
+    agentResponse.creditsDeducted = 0;
+    logger.info(
+      `[Supervisor] Tokens registrados via CompanyTokenUsages: ` +
+      `company=${companyId}, tokens=${tokensConsumed}, agent=${agentResponse.agentUsed}`
+    );
   }
 
-  // 5b. Clasificar etapa kanban del ticket
-  if (ticketId) {
-    try {
-      await SupervisorActionsService.classifyTicketStage(
-        ticketId,
-        companyId,
-        agentResponse.intent,
-        agentResponse.agentUsed
-      );
-      logger.info(`[Supervisor] Etapa kanban clasificada: ticket=${ticketId}, intent=${agentResponse.intent}`);
-    } catch (stageError: any) {
-      logger.warn(`[Supervisor] Error clasificando etapa kanban: ${stageError.message}`);
-      // No fallar por esto — el mensaje ya fue procesado
-    }
+  if (turnId) {
+    void AITurnLedgerService.logEvent({
+      turnId,
+      companyId,
+      ticketId,
+      contactId,
+      whatsappId: request.whatsappId,
+      channel: request.channel,
+      eventType: "token_usage_recorded",
+      eventStatus: tokensConsumed > 0 ? "ok" : "skipped",
+      reason: tokensConsumed > 0 ? "model_usage_reported" : "no_model_tokens_reported",
+      inputTokens: agentResponse.totalTokens.input,
+      outputTokens: agentResponse.totalTokens.output,
+      metadata: {
+        agentUsed: agentResponse.agentUsed,
+        responseSource: agentResponse.responseSource
+      }
+    });
   }
+
+  // 5b. Kanban ahora se clasifica en el listener del canal, despues de confirmar envio.
 
   // 6. Log del supervisor
   try {
@@ -514,22 +749,6 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     });
   } catch (logError: any) {
     logger.warn(`[Supervisor] Error en log: ${logError.message}`);
-  }
-
-  // Adjuntar SOLO el QuickReply más relevante con media (máximo 1 imagen por respuesta)
-  // REGLA: Enviar imagen solo cuando el bot da info concreta del producto
-  // Si SOLO pregunta (sin dar info) → no enviar imagen (aún no sabe qué recomendar)
-  // Si da info concreta (precio, nombre producto) + pregunta al final → SÍ enviar
-  const hasQuestion = agentResponse.message.includes("?");
-  const hasConcreteInfo = /\$\d|plan |GPS |cuesta|precio|incluye|instalación/i.test(agentResponse.message);
-  const botIsAsking = hasQuestion && !hasConcreteInfo;
-  const bestQuickReply = matchedQuickReplies.find(qr => qr.mediaPath);
-
-  if (bestQuickReply && !botIsAsking) {
-    agentResponse.metadata.quickReplies = [bestQuickReply];
-    logger.info(`[Supervisor] QuickReply adjuntado: /${bestQuickReply.shortcode} (bot no pregunta, envía ficha)`);
-  } else if (bestQuickReply && botIsAsking) {
-    logger.info(`[Supervisor] QuickReply omitido: /${bestQuickReply.shortcode} (bot está preguntando, espera respuesta del cliente)`);
   }
 
   // 🆕 7. RESPONSE GATEKEEPER (capa de reflexión antes del envío)
@@ -573,7 +792,18 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
         resolvedTime: classification?.entities?.temporal_time,
         // 🆕 ticket/contact para que el Guard persista contexto awaiting_confirmation
         ticketId,
-        contactId
+        contactId,
+        // 🆕 (2026-04-22) Memoria del ticket para consistency/repeat checks
+        ticketMemory: ticketId
+          ? await CurrentTicketMemoryService.load(ticketId, companyId, contactId)
+          : undefined,
+        emotionState: emotionEval?.state,
+        responseSource: agentResponse.responseSource,
+        // 🆕 Sprint 1 (2026-05-20) — contexto para CorrectionRepeatBlocker
+        queueId: (ticketMem as any)?.entities?.queueId
+          ? Number((ticketMem as any).entities.queueId)
+          : undefined,
+        productKey: (contactInfo as any)?.plan
       });
 
       agentResponse.gatekeeperDecision = gatekeeperResult.decision;
@@ -621,17 +851,234 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     }
   }
 
+  if (turnId) {
+    void AITurnLedgerService.logEvent({
+      turnId,
+      companyId,
+      ticketId,
+      contactId,
+      whatsappId: request.whatsappId,
+      channel: request.channel,
+      eventType: "gatekeeper_decision",
+      eventStatus: agentResponse.skipSend ? "skipped" : "ok",
+      reason: agentResponse.gatekeeperDecision || (shouldRunGatekeeper ? "gatekeeper_failed_or_no_decision" : "gatekeeper_not_required"),
+      metadata: {
+        shouldRunGatekeeper,
+        decision: agentResponse.gatekeeperDecision || null,
+        shouldEscalate: agentResponse.shouldEscalate,
+        skipSend: agentResponse.skipSend || false,
+        reasoning: agentResponse.metadata?.gatekeeperReasoning || null
+      }
+    });
+  }
+
+  // 7b. Decision final de QuickReply media
+  // Se toma DESPUES del gatekeeper para respetar la respuesta final aprobada.
+  agentResponse.metadata = agentResponse.metadata || {};
+  try {
+    if (!isFirstTurn && !agentResponse.skipSend && !agentResponse.shouldEscalate && agentResponse.message?.trim()) {
+      const postResponseQuery = QuickReplyDecisionService.buildPostResponseLookupQuery({
+        currentMessage: message,
+        finalResponse: agentResponse.message,
+        ticketMemory: ticketMem
+      });
+
+      let responseMatchedQuickReplies: RelevantQuickReply[] = [];
+      if (postResponseQuery) {
+        try {
+          responseMatchedQuickReplies = await QuickReplySemanticService.findRelevant(
+            postResponseQuery,
+            companyId
+          );
+        } catch (qrError: any) {
+          logger.warn(`[Supervisor] Error buscando QuickReplies post-response: ${qrError.message}`);
+        }
+      }
+
+      const mergedQuickReplies = new Map<number, RelevantQuickReply>();
+      [...matchedQuickReplies, ...responseMatchedQuickReplies].forEach(candidate => {
+        const existing = mergedQuickReplies.get(candidate.id);
+        if (!existing || candidate.similarity > existing.similarity) {
+          mergedQuickReplies.set(candidate.id, candidate);
+        }
+      });
+
+      const mergedCandidates = Array.from(mergedQuickReplies.values());
+      const quickReplyDecision = QuickReplyDecisionService.decideSend({
+        currentMessage: message,
+        finalResponse: agentResponse.message,
+        intent: classification.intent,
+        ticketHistory,
+        candidates: mergedCandidates
+      });
+
+      agentResponse.metadata.quickReplyDecision = {
+        reason: quickReplyDecision.reason,
+        lookupReason: quickReplyLookup.reason,
+        initialCandidates: matchedQuickReplies.map(q => ({
+          shortcode: q.shortcode,
+          similarity: q.similarity
+        })),
+        responseCandidates: responseMatchedQuickReplies.map(q => ({
+          shortcode: q.shortcode,
+          similarity: q.similarity
+        }))
+      };
+
+      if (quickReplyDecision.shouldSend && quickReplyDecision.candidate) {
+        agentResponse.metadata.quickReplies = [quickReplyDecision.candidate];
+        logger.info(
+          `[Supervisor] QuickReply adjuntado: /${quickReplyDecision.candidate.shortcode} ` +
+          `(reason=${quickReplyDecision.reason})`
+        );
+      } else if (mergedCandidates.length > 0) {
+        logger.info(
+          `[Supervisor] QuickReply omitido tras decision contextual: ${quickReplyDecision.reason}`
+        );
+      }
+    }
+  } catch (quickReplyDecisionError: any) {
+    logger.warn(
+      `[Supervisor] Decision final de QuickReply fallo (silenciada): ${quickReplyDecisionError.message}`
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 🧠 ESCRITURA DE MEMORIA — tras gatekeeper
+  // (fire-and-forget, nunca bloquea el envío)
+  // ═══════════════════════════════════════════════════════════════════
+  try {
+    if (ticketId && !agentResponse.skipSend) {
+      const decision = agentResponse.gatekeeperDecision || 'send';
+      const turnResolved = !agentResponse.shouldEscalate &&
+                           decision !== 'escalate' &&
+                           decision !== 'ignore' &&
+                           agentResponse.confidence >= 0.35;
+      const memoryEntities = Object.entries(classification.entities || {}).reduce(
+        (acc, [key, value]) => {
+          if (typeof value === "string" && value.trim()) {
+            acc[key] = value.trim();
+          }
+          return acc;
+        },
+        {} as Record<string, string>
+      );
+
+      if ((contactInfo as any)?.plan) {
+        memoryEntities.plan = String((contactInfo as any).plan);
+      }
+      if (request.channel) {
+        memoryEntities.channel = request.channel;
+      }
+
+      // 1) Memoria del ticket actual
+      void CurrentTicketMemoryService.recordTurn({
+        ticketId,
+        companyId,
+        contactId,
+        userMessage: message,
+        agentAnswer: agentResponse.message,
+        source: (agentResponse.responseSource === 'agent'
+          ? 'agent'
+          : (agentResponse.responseSource || 'agent')) as any,
+        confidence: agentResponse.confidence,
+        agentUsed: agentResponse.agentUsed,
+        intent: agentResponse.intent,
+        emotion: emotionEval?.state,
+        turnResolved,
+        historicalQaId: agentResponse.historicalQaId,
+        entities: Object.keys(memoryEntities).length > 0 ? memoryEntities : undefined
+      }).catch((e: any) =>
+        logger.warn(`[Supervisor] recordTurn falló (silenciado): ${e.message}`)
+      );
+
+      if (!turnResolved) {
+        void CurrentTicketMemoryService.markUnresolved(
+          ticketId, companyId, message,
+          agentResponse.escalationReason || agentResponse.gatekeeperDecision
+        ).catch(() => { /* silenciar */ });
+      }
+
+      // 2) Promoción a AIHistoricalQA — solo si no vino de memoria (evita ciclos)
+      if (agentResponse.responseSource !== 'current_ticket' &&
+          agentResponse.responseSource !== 'historical_qa') {
+        try {
+          const QAExtractorService = require("./QAExtractorService").default;
+          void QAExtractorService.extractAndStore({
+            companyId,
+            ticketId,
+            contactId,
+            userMessage: message,
+            agentAnswer: agentResponse.message,
+            confidence: agentResponse.confidence,
+            agentUsed: agentResponse.agentUsed,
+            intent: agentResponse.intent,
+            sources: agentResponse.sources,
+            toolsUsed: (agentResponse.metadata?.toolsUsed as string[]) || [],
+            gatekeeperDecision: (agentResponse.gatekeeperDecision || 'send'),
+            language: classification.language || 'es',
+            channel: request.channel,
+            productKey: (contactInfo as any)?.plan,
+            tags: agentResponse.intent ? [agentResponse.intent] : []
+          }).catch((e: any) =>
+            logger.warn(`[Supervisor] QAExtractor falló (silenciado): ${e.message}`)
+          );
+        } catch { /* silenciar */ }
+      }
+    }
+  } catch (memErr: any) {
+    logger.warn(`[Supervisor] bloque memoria post-proceso falló: ${memErr.message}`);
+  }
+
   logger.info(
     `[Supervisor] Completado: intent=${agentResponse.intent}, agent=${agentResponse.agentUsed}, ` +
     `confidence=${agentResponse.confidence.toFixed(2)}, escalate=${agentResponse.shouldEscalate}, ` +
     `skipSend=${agentResponse.skipSend || false}, ` +
     `gatekeeper=${agentResponse.gatekeeperDecision || 'n/a'}, ` +
-    `quickRepliesWithMedia=${matchedQuickReplies.filter(q => q.mediaPath).length}, ` +
+    `source=${agentResponse.responseSource || 'agent'}, ` +
+    `quickReplyAttached=${((agentResponse.metadata?.quickReplies as any[]) || []).length}, ` +
     `latency=${agentResponse.totalLatencyMs}ms`
   );
 
+  if (turnId) {
+    void AITurnLedgerService.logEvent({
+      turnId,
+      companyId,
+      ticketId,
+      contactId,
+      whatsappId: request.whatsappId,
+      channel: request.channel,
+      eventType: "supervisor_finished",
+      eventStatus: agentResponse.skipSend ? "skipped" : "ok",
+      reason: agentResponse.skipSend ? "skip_send" : "response_ready",
+      inputTokens: agentResponse.totalTokens.input,
+      outputTokens: agentResponse.totalTokens.output,
+      metadata: {
+        intent: agentResponse.intent,
+        agentUsed: agentResponse.agentUsed,
+        confidence: agentResponse.confidence,
+        shouldEscalate: agentResponse.shouldEscalate,
+        gatekeeperDecision: agentResponse.gatekeeperDecision || null,
+        responseSource: agentResponse.responseSource || "agent"
+      }
+    });
+  }
+
   return agentResponse;
   } catch (err: any) {
+    if (turnId) {
+      void AITurnLedgerService.logEvent({
+        turnId,
+        companyId,
+        ticketId,
+        contactId,
+        whatsappId: request.whatsappId,
+        channel: request.channel,
+        eventType: "supervisor_failed",
+        eventStatus: "error",
+        reason: err?.message || "unknown_error"
+      });
+    }
     logger.error(`[Supervisor] ❌ Error en processMessage: ${err.message}`);
     return buildErrorResponse(message, startTime);
   }
@@ -694,6 +1141,7 @@ async function handleRAGAgent(
       totalLatencyMs: Date.now() - startTime,
       totalTokens: ragResult.tokensUsed,
       creditsDeducted: 0,
+      responseSource: 'kb',
       metadata: {
         classification,
         searchResults: ragResult.searchResults,
@@ -828,6 +1276,13 @@ async function handleAgentWithTools(
 ## Protocolo de citas (OBLIGATORIO)
 Los "servicios" son TIPOS OPERATIVOS de cita (instalación, capacitación, soporte, etc.), NO productos en catálogo. No los listes al cliente como menú.
 
+### Para AGENDAR una cita nueva, sigue SIEMPRE este orden (no te saltes pasos ni inventes IDs):
+1. list_appointment_services → identifica el servicio/tipo de cita (serviceId).
+2. list_appointment_users con ese serviceId → el cliente elige el asesor/usuario que lo atenderá (userId). NUNCA consultes horarios sin un userId real devuelto por esta herramienta.
+3. check_availability con date + serviceId + userId → ofrece SOLO los horarios que devuelva la herramienta (jamás inventes horarios).
+4. schedule_appointment con date + time + serviceId + userId del horario que el cliente eligió.
+Regla dura: los bloques/horarios disponibles SÓLO aparecen cuando el cliente ya tiene servicio Y usuario seleccionados. No uses valores por defecto para serviceId/userId. Si list_appointment_users no devuelve usuarios, no ofrezcas horarios: ofrece escalar a un asesor humano.
+
 Cuando el cliente responda a un mensaje de confirmación de cita:
 1. Si responde afirmativo ("sí", "confirmo", "ok", "de acuerdo", "perfecto"):
    → Llama primero get_my_appointments para localizar la cita pendiente.
@@ -914,10 +1369,10 @@ PROHIBIDO: confirmar, reagendar o cancelar respondiendo texto sin invocar la too
 
     // 4. Tool calling loop (máx 3 iteraciones)
     let finalContent = '';
-    let totalTokens = { input: 0, output: 0 };
+    const totalTokens = { input: 0, output: 0 };
     let shouldEscalate = false;
     let escalationReason: string | undefined;
-    let toolsUsed: string[] = [];
+    const toolsUsed: string[] = [];
     const conversationMessages: any[] = [...messages];
 
     const MAX_TOOL_ITERATIONS = 3;
@@ -928,7 +1383,7 @@ PROHIBIDO: confirmar, reagendar o cancelar respondiendo texto sin invocar la too
       // 📤 Log del prompt enviado al LLM
       logger.info(
         `[Supervisor] 📤 Enviando al LLM (iter ${iteration + 1}): ` +
-        `${conversationMessages.length} mensajes, model=gpt-4.1-mini, company=${companyId}`
+        `${conversationMessages.length} mensajes, model=gpt-5.5, company=${companyId}`
       );
 
       // Debug: mostrar system prompt y user message
@@ -939,7 +1394,7 @@ PROHIBIDO: confirmar, reagendar o cancelar respondiendo texto sin invocar la too
 
       const llmResponse = await AIClientService.chatCompletionWithTools({
         messages: conversationMessages,
-        model: 'gpt-4.1-mini',
+        model: 'gpt-5.5',
         maxTokens: dynamicMaxTokens,
         temperature: 0.4,
         companyId,
@@ -1011,7 +1466,7 @@ PROHIBIDO: confirmar, reagendar o cancelar respondiendo texto sin invocar la too
     if (!finalContent) {
       const finalResponse = await AIClientService.chatCompletion({
         messages: conversationMessages,
-        model: 'gpt-4.1-mini',
+        model: 'gpt-5.5',
         maxTokens: dynamicMaxTokens,
         temperature: 0.4,
         companyId
@@ -1032,6 +1487,7 @@ PROHIBIDO: confirmar, reagendar o cancelar respondiendo texto sin invocar la too
       totalTokens,
       creditsDeducted: 0,
       sentiment: localSentiment.sentiment,
+      responseSource: toolsUsed.length > 0 ? 'tool' : 'agent',
       metadata: {
         classification,
         toolsUsed,

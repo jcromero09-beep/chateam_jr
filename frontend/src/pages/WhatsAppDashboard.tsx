@@ -1,32 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Chip,
-  Table,
-  IconButton,
-  Button,
-  Sheet,
-  Avatar,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  WhatsApp as WhatsAppIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  TrendingUp as TrendingUpIcon,
-  People as PeopleIcon,
-  Message as MessageIcon,
-  Schedule as ScheduleIcon,
-  Refresh as RefreshIcon,
-  Settings as SettingsIcon,
-  Add as AddIcon,
-} from '@mui/icons-material'
+  WhatsappLogo,
+  CheckCircle,
+  XCircle,
+  Warning,
+  TrendUp,
+  Users,
+  ChatCircle,
+  Clock,
+  ArrowClockwise,
+  Gear,
+  Plus,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { StatTile } from '@/components/ui/stat-tile'
+import { RowAction } from '@/components/ui/row-action'
 import api from '../services/api'
 
 // Interfaces
@@ -54,6 +45,8 @@ interface DashboardData {
   connections: WhatsAppConnection[]
   metrics: DashboardMetrics
 }
+
+const tableColumns = ['Número / Nombre', 'Estado', 'Mensajes 24h', 'Última Sincronización', 'Acciones']
 
 export default function WhatsAppDashboard() {
   const navigate = useNavigate()
@@ -91,7 +84,7 @@ export default function WhatsAppDashboard() {
   }, [])
 
   // Funciones auxiliares
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status.toUpperCase()) {
       case 'CONNECTED':
       case 'QRCODE':
@@ -100,7 +93,7 @@ export default function WhatsAppDashboard() {
         return 'neutral'
       case 'ERROR':
       case 'TIMEOUT':
-        return 'danger'
+        return 'destructive'
       case 'PENDING':
       case 'OPENING':
         return 'warning'
@@ -133,16 +126,16 @@ export default function WhatsAppDashboard() {
   const getStatusIcon = (status: string) => {
     switch (status.toUpperCase()) {
       case 'CONNECTED':
-        return <CheckCircleIcon />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'ERROR':
       case 'TIMEOUT':
-        return <ErrorIcon />
+        return <XCircle className="size-3.5" weight="fill" aria-hidden />
       case 'PENDING':
       case 'OPENING':
       case 'QRCODE':
-        return <ScheduleIcon />
+        return <Clock className="size-3.5" weight="fill" aria-hidden />
       default:
-        return <WarningIcon />
+        return <Warning className="size-3.5" weight="fill" aria-hidden />
     }
   }
 
@@ -172,311 +165,264 @@ export default function WhatsAppDashboard() {
     navigate('/connections')
   }
 
-  const handleViewConnection = (id: number) => {
+  const handleViewConnection = (_id: number) => {
     navigate(`/connections`)
   }
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   if (error) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Card color="danger" variant="soft">
-          <CardContent>
-            <Typography level="title-md">Error al cargar el dashboard</Typography>
-            <Typography level="body-sm">{error}</Typography>
-            <Button
-              size="sm"
-              variant="solid"
-              color="danger"
-              onClick={handleRefresh}
-              sx={{ mt: 2 }}
-            >
-              Reintentar
-            </Button>
-          </CardContent>
-        </Card>
-      </Box>
+      <div className="p-6">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/12 p-5">
+          <h2 className="text-base font-semibold text-destructive-text">
+            Error al cargar el dashboard
+          </h2>
+          <p className="mt-1 text-sm text-destructive-text">{error}</p>
+          <Button variant="outline" size="sm" onClick={handleRefresh} className="mt-4">
+            Reintentar
+          </Button>
+        </div>
+      </div>
     )
   }
 
+  const availability =
+    metrics.totalConnections > 0
+      ? Math.round((metrics.activeConnections / metrics.totalConnections) * 100)
+      : 0
+  const allActive =
+    metrics.totalConnections > 0 && metrics.activeConnections === metrics.totalConnections
+
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <WhatsAppIcon sx={{ fontSize: 32, color: '#25D366' }} />
-            WhatsApp Business API Dashboard
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Gestión y monitoreo de conexiones WhatsApp Cloud API (canal Meta)
-          </Typography>
-        </Box>
-        <IconButton
-          variant="outlined"
-          color="neutral"
-          onClick={handleRefresh}
-          title="Actualizar datos"
-        >
-          <RefreshIcon />
-        </IconButton>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-wa/15 text-wa">
+              <WhatsappLogo className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                WhatsApp Business API Dashboard
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestión y monitoreo de conexiones WhatsApp Cloud API (canal Meta)
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar datos"
+            className="text-muted-foreground"
+            onClick={handleRefresh}
+          >
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-      {/* KPIs Principales - 3 cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Conexiones Activas
-                  </Typography>
-                  <Typography level="h3">{metrics.activeConnections}/{metrics.totalConnections}</Typography>
-                  <Chip
-                    size="sm"
-                    color={metrics.totalConnections > 0 && metrics.activeConnections === metrics.totalConnections ? 'success' : 'warning'}
-                    sx={{ mt: 1 }}
-                  >
+        {/* KPIs Principales - 3 cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+          {/* Conexiones Activas */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="mb-1 text-sm text-muted-foreground">Conexiones Activas</p>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {metrics.activeConnections}/{metrics.totalConnections}
+                </p>
+                <div className="mt-2">
+                  <Badge variant={allActive ? 'success' : 'warning'}>
                     {metrics.totalConnections > 0
-                      ? `${Math.round((metrics.activeConnections / metrics.totalConnections) * 100)}% Disponibilidad`
+                      ? `${availability}% Disponibilidad`
                       : 'Sin conexiones'}
-                  </Chip>
-                </Box>
-                <Avatar sx={{ bgcolor: 'success.softBg', color: 'success.solidBg' }}>
-                  <CheckCircleIcon />
-                </Avatar>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+                  </Badge>
+                </div>
+              </div>
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-success/14 text-success-text">
+                <CheckCircle className="size-6" weight="fill" aria-hidden />
+              </span>
+            </div>
+          </div>
 
-        <Grid xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Mensajes (24h)
-                  </Typography>
-                  <Typography level="h3">{metrics.messagesLast24h.toLocaleString()}</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                    {metrics.messagesLast24h > 0 ? (
-                      <>
-                        <TrendingUpIcon sx={{ fontSize: 16, color: 'success.500' }} />
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {metrics.messagesSent24h} enviados / {metrics.messagesReceived24h} recibidos
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Sin actividad
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-                <Avatar sx={{ bgcolor: 'primary.softBg', color: 'primary.solidBg' }}>
-                  <MessageIcon />
-                </Avatar>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+          {/* Mensajes (24h) */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="mb-1 text-sm text-muted-foreground">Mensajes (24h)</p>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {metrics.messagesLast24h.toLocaleString()}
+                </p>
+                <div className="mt-2 flex items-center gap-1">
+                  {metrics.messagesLast24h > 0 ? (
+                    <>
+                      <TrendUp className="size-4 text-success-text" weight="bold" aria-hidden />
+                      <span className="text-xs text-muted-foreground">
+                        {metrics.messagesSent24h} enviados / {metrics.messagesReceived24h} recibidos
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Sin actividad</span>
+                  )}
+                </div>
+              </div>
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
+                <ChatCircle className="size-6" weight="fill" aria-hidden />
+              </span>
+            </div>
+          </div>
 
-        <Grid xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                    Conversaciones Activas
-                  </Typography>
-                  <Typography level="h3">{metrics.activeConversations}</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                    {metrics.avgResponseTime > 0 ? (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Resp. promedio: {formatResponseTime(metrics.avgResponseTime)}
-                      </Typography>
-                    ) : (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        Tickets abiertos/pendientes
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-                <Avatar sx={{ bgcolor: 'warning.softBg', color: 'warning.solidBg' }}>
-                  <PeopleIcon />
-                </Avatar>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          {/* Conversaciones Activas */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="mb-1 text-sm text-muted-foreground">Conversaciones Activas</p>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {metrics.activeConversations}
+                </p>
+                <div className="mt-2 flex items-center gap-1">
+                  {metrics.avgResponseTime > 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      Resp. promedio: {formatResponseTime(metrics.avgResponseTime)}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Tickets abiertos/pendientes
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-warning/16 text-warning-text">
+                <Users className="size-6" weight="fill" aria-hidden />
+              </span>
+            </div>
+          </div>
+        </div>
 
-      {/* Métricas Secundarias */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12}>
-          <Card>
-            <CardContent>
-              <Typography level="title-md" sx={{ mb: 2 }}>
-                Estadísticas de Mensajes (24h)
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid xs={6} sm={3}>
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Enviados
-                    </Typography>
-                    <Typography level="h4" sx={{ color: 'primary.500' }}>
-                      {metrics.messagesSent24h.toLocaleString()}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid xs={6} sm={3}>
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Recibidos
-                    </Typography>
-                    <Typography level="h4" sx={{ color: 'success.500' }}>
-                      {metrics.messagesReceived24h.toLocaleString()}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid xs={6} sm={3}>
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Tasa de Respuesta
-                    </Typography>
-                    <Typography level="h4" sx={{ color: 'warning.500' }}>
-                      {metrics.messagesReceived24h > 0
-                        ? `${Math.round((metrics.messagesSent24h / metrics.messagesReceived24h) * 100)}%`
-                        : '0%'}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid xs={6} sm={3}>
-                  <Box>
-                    <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                      Tiempo Promedio
-                    </Typography>
-                    <Typography level="h4" sx={{ color: 'info.500' }}>
-                      {metrics.avgResponseTime > 0
-                        ? formatResponseTime(metrics.avgResponseTime)
-                        : '-'}
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Métricas Secundarias */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-base font-semibold text-foreground">
+            Estadísticas de Mensajes (24h)
+          </h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <StatTile label="Enviados" value={metrics.messagesSent24h.toLocaleString()} tone="primary" />
+            <StatTile
+              label="Recibidos"
+              value={metrics.messagesReceived24h.toLocaleString()}
+              tone="success"
+            />
+            <StatTile
+              label="Tasa de Respuesta"
+              value={
+                metrics.messagesReceived24h > 0
+                  ? `${Math.round((metrics.messagesSent24h / metrics.messagesReceived24h) * 100)}%`
+                  : '0%'
+              }
+              tone="warning"
+            />
+            <StatTile
+              label="Tiempo Promedio"
+              value={metrics.avgResponseTime > 0 ? formatResponseTime(metrics.avgResponseTime) : '-'}
+              tone="primary"
+            />
+          </div>
+        </div>
 
-      {/* Tabla de Conexiones */}
-      <Card>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Typography level="title-md">
+        {/* Tabla de Conexiones */}
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-foreground">
               Conexiones WhatsApp Business API
-            </Typography>
-            <Button
-              size="sm"
-              variant="solid"
-              color="primary"
-              startDecorator={<AddIcon />}
-              onClick={handleAddConnection}
-            >
+            </h2>
+            <Button size="sm" onClick={handleAddConnection}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Agregar Conexión
             </Button>
-          </Box>
+          </div>
 
           {connections.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <WhatsAppIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 2 }} />
-              <Typography level="body-md" sx={{ color: 'text.tertiary', mb: 2 }}>
+            <div className="flex flex-col items-center rounded-xl border border-border bg-card px-4 py-10 text-center shadow-sm shadow-black/[0.02]">
+              <WhatsappLogo className="mb-3 size-12 text-muted-foreground" aria-hidden />
+              <p className="mb-4 text-sm text-muted-foreground">
                 No hay conexiones WhatsApp Cloud API configuradas
-              </Typography>
-              <Button
-                variant="outlined"
-                color="primary"
-                startDecorator={<AddIcon />}
-                onClick={handleAddConnection}
-              >
+              </p>
+              <Button variant="outline" size="sm" onClick={handleAddConnection}>
+                <Plus className="size-4" weight="bold" aria-hidden />
                 Agregar tu primera conexión
               </Button>
-            </Box>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 200 }}>Número / Nombre</th>
-                    <th style={{ width: 120 }}>Estado</th>
-                    <th style={{ width: 120 }}>Mensajes 24h</th>
-                    <th style={{ width: 180 }}>Última Sincronización</th>
-                    <th style={{ width: 100, textAlign: 'center' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {connections.map((connection) => (
-                    <tr key={connection.id}>
-                      <td>
-                        <Box>
-                          <Typography level="body-sm" fontWeight="lg">
-                            {connection.number || '-'}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            {connection.name}
-                          </Typography>
-                        </Box>
-                      </td>
-                      <td>
-                        <Chip
-                          size="sm"
-                          color={getStatusColor(connection.status)}
-                          startDecorator={getStatusIcon(connection.status)}
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {tableColumns.map((c, i) => (
+                        <th
+                          key={i}
+                          className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground ${
+                            i === tableColumns.length - 1 ? 'text-center' : ''
+                          }`}
                         >
-                          {getStatusText(connection.status)}
-                        </Chip>
-                      </td>
-                      <td>
-                        <Typography level="body-sm" fontWeight="lg">
-                          {connection.messagesLast24h.toLocaleString()}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          {formatDate(connection.lastSync)}
-                        </Typography>
-                      </td>
-                      <td>
-                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="neutral"
-                            onClick={() => handleViewConnection(connection.id)}
-                            title="Ver configuración"
-                          >
-                            <SettingsIcon />
-                          </IconButton>
-                        </Box>
-                      </td>
+                          {c}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Sheet>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {connections.map((connection) => (
+                      <tr key={connection.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium text-foreground">
+                              {connection.number || '-'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{connection.name}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusVariant(connection.status)}>
+                            {getStatusIcon(connection.status)}
+                            {getStatusText(connection.status)}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 font-medium tabular-nums text-foreground">
+                          {connection.messagesLast24h.toLocaleString()}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {formatDate(connection.lastSync)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <RowAction label="Ver configuración">
+                              <button
+                                type="button"
+                                aria-label="Ver configuración"
+                                onClick={() => handleViewConnection(connection.id)}
+                                className="flex size-full items-center justify-center"
+                              >
+                                <Gear className="size-[18px]" aria-hidden />
+                              </button>
+                            </RowAction>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </Box>
+        </div>
+      </div>
+    </div>
   )
 }

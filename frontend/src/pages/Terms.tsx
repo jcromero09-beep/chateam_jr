@@ -1,36 +1,48 @@
-import { Typography, Stack, Container, Card, CardContent, Box, Button } from '@mui/joy'
-import { Description as TermsIcon, Edit as EditIcon } from '@mui/icons-material'
+import { FileText, PencilSimple } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
 
 export default function Terms() {
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <TermsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Términos y Condiciones</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Gestión de términos y políticas</Typography>
-            </Box>
-          </Stack>
-          <Button startDecorator={<EditIcon />} color="primary">Editar</Button>
-        </Stack>
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
-              <Typography level="h4">Términos del Servicio</Typography>
-              <Typography level="body-sm">
-                Última actualización: 10 de Enero, 2025
-              </Typography>
-              <Box sx={{ p: 2, bgcolor: 'background.level2', borderRadius: 'sm', minHeight: 400 }}>
-                <Typography level="body-sm">
-                  Aquí se mostrarían los términos y condiciones completos del servicio...
-                </Typography>
-              </Box>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Stack>
-    </Container>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <FileText className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Términos y Condiciones
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestión de términos y políticas
+              </p>
+            </div>
+          </div>
+          <Button size="sm">
+            <PencilSimple className="size-4" weight="bold" aria-hidden />
+            Editar
+          </Button>
+        </div>
+
+        {/* Terms card */}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold text-foreground">
+              Términos del Servicio
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Última actualización: 10 de Enero, 2025
+            </p>
+            <div className="mt-2 min-h-[400px] rounded-md bg-muted p-4">
+              <p className="text-sm text-foreground">
+                Aquí se mostrarían los términos y condiciones completos del servicio...
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

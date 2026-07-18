@@ -1,38 +1,33 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Table,
-  Sheet,
-  CircularProgress,
-  Alert,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Input,
-  Select,
-  Option,
-  IconButton,
-  Switch,
-} from '@mui/joy'
-import {
-  CalendarClock,
+  CalendarCheck,
   Plus,
-  RefreshCw,
+  ArrowClockwise,
   X,
-  CheckCircle2,
-  AlertCircle,
+  CheckCircle,
+  WarningCircle,
   Clock,
-  Activity,
-  ToggleLeft,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 const isDev = import.meta.env.DEV
@@ -66,10 +61,10 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
   model_health_check: 'Salud del modelo',
 }
 
-const LAST_RESULT_CONFIG: Record<LastResult, { label: string; color: 'success' | 'danger' | 'neutral' }> = {
-  success: { label: 'Exitoso', color: 'success' },
-  error: { label: 'Error', color: 'danger' },
-  pending: { label: 'Pendiente', color: 'neutral' },
+const LAST_RESULT_CONFIG: Record<LastResult, { label: string; variant: BadgeProps['variant'] }> = {
+  success: { label: 'Exitoso', variant: 'success' },
+  error: { label: 'Error', variant: 'destructive' },
+  pending: { label: 'Pendiente', variant: 'neutral' },
 }
 
 const formatDate = (dateStr: string | null) => {
@@ -82,6 +77,59 @@ const formatDate = (dateStr: string | null) => {
   } catch {
     return dateStr
   }
+}
+
+// --- Toggle accesible (no hay wrapper Switch en el design system) ---
+function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  onChange: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        checked ? 'bg-success' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
+// --- Alerta de error reutilizable ---
+function ErrorAlert({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"
+    >
+      <span>{message}</span>
+      <button
+        type="button"
+        aria-label="Descartar error"
+        onClick={onDismiss}
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-destructive-text transition-colors hover:bg-destructive/15"
+      >
+        <X className="size-4" aria-hidden />
+      </button>
+    </div>
+  )
 }
 
 // --- Modal Crear Tarea ---
@@ -129,55 +177,67 @@ function CreateTaskModal({ open, onClose, onSuccess }: CreateTaskModalProps) {
   }
 
   return (
-    <Modal open={open} onClose={handleClose}>
-      <ModalDialog sx={{ minWidth: 480 }}>
-        <ModalClose />
-        <Typography level="h4" sx={{ mb: 2 }}>Crear Tarea Programada</Typography>
-        {error && (
-          <Alert color="danger" sx={{ mb: 2 }} endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-          }>{error}</Alert>
-        )}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <FormControl required>
-            <FormLabel>Nombre</FormLabel>
-            <Input
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Crear Tarea Programada</DialogTitle>
+        </DialogHeader>
+
+        {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
+
+        <div className="flex flex-col gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="task-name">Nombre</Label>
+            <input
+              id="task-name"
               placeholder="ej. Reset creditos mensual"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              className="h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             />
-          </FormControl>
-          <FormControl required>
-            <FormLabel>Tipo de Tarea</FormLabel>
-            <Select
-              value={taskType}
-              onChange={(_, val) => { if (val) setTaskType(val as TaskType) }}
-            >
-              {(Object.entries(TASK_TYPE_LABELS) as [TaskType, string][]).map(([key, label]) => (
-                <Option key={key} value={key}>{label}</Option>
-              ))}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="task-type">Tipo de Tarea</Label>
+            <Select value={taskType} onValueChange={(val) => setTaskType(val as TaskType)}>
+              <SelectTrigger id="task-type" className="h-11">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.entries(TASK_TYPE_LABELS) as [TaskType, string][]).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
-          <FormControl required>
-            <FormLabel>Expresion Cron</FormLabel>
-            <Input
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="task-cron">Expresion Cron</Label>
+            <input
+              id="task-cron"
               placeholder="0 0 * * *"
               value={cronExpression}
               onChange={(e) => setCronExpression(e.target.value)}
+              className="h-11 w-full rounded-md border border-input bg-card px-3.5 font-mono text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             />
-            <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-              Formato: minuto hora dia mes diasemana. Ej: <code>0 0 * * *</code> = cada dia a medianoche
-            </Typography>
-          </FormControl>
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1 }}>
-            <Button variant="outlined" onClick={handleClose} disabled={saving}>Cancelar</Button>
-            <Button onClick={handleSubmit} loading={saving} startDecorator={<CalendarClock size={16} />}>
-              Crear Tarea
-            </Button>
-          </Box>
-        </Box>
-      </ModalDialog>
-    </Modal>
+            <p className="text-xs text-muted-foreground">
+              Formato: minuto hora dia mes diasemana. Ej:{' '}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono">0 0 * * *</code> = cada dia a medianoche
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={handleSubmit} loading={saving}>
+            <CalendarCheck className="size-4" aria-hidden />
+            Crear Tarea
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -249,178 +309,139 @@ export default function AIScheduler() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="flex min-h-[60vh] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography level="h2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CalendarClock size={28} />
-            Tareas Programadas de IA
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-            Administra las tareas automatizadas y sus programaciones
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<RefreshCw size={16} />} onClick={fetchData}>
-            Actualizar
-          </Button>
-          <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
-            Crear Tarea
-          </Button>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <CalendarCheck className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Tareas Programadas de IA
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Administra las tareas automatizadas y sus programaciones
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <ArrowClockwise className="size-4" aria-hidden />
+              Actualizar
+            </Button>
+            <Button size="sm" onClick={() => setModalOpen(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Crear Tarea
+            </Button>
+          </div>
+        </div>
 
-      {/* Error */}
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }} endDecorator={
-          <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}><X size={16} /></IconButton>
-        }>
-          {error}
-        </Alert>
-      )}
+        {/* Error */}
+        {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <CalendarClock size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Total Tareas</Typography>
-              </Box>
-              <Typography level="h3">{totalTareas}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <ToggleLeft size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Activas</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: 'success.500' }}>{activas}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Activity size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Ejecutadas Hoy</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>{ejecutadasHoy}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <AlertCircle size={18} style={{ opacity: 0.6 }} />
-                <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>Fallidas</Typography>
-              </Box>
-              <Typography level="h3" sx={{ color: fallidas > 0 ? 'danger.500' : 'neutral.500' }}>{fallidas}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total Tareas" value={String(totalTareas)} />
+          <StatTile label="Activas" value={String(activas)} tone="success" />
+          <StatTile label="Ejecutadas Hoy" value={String(ejecutadasHoy)} />
+          <StatTile
+            label="Fallidas"
+            value={String(fallidas)}
+            tone={fallidas > 0 ? 'destructive' : 'neutral'}
+          />
+        </div>
 
-      {/* Tabla de Tareas */}
-      <Card>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Clock size={20} />
-            Tareas Configuradas
-          </Typography>
+        {/* Tabla de Tareas */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+            <Clock className="size-5 text-muted-foreground" aria-hidden />
+            <h2 className="text-base font-semibold text-foreground">Tareas Configuradas</h2>
+          </div>
 
           {tasks.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <CalendarClock size={48} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 2 }}>
+            <div className="flex flex-col items-center gap-3 px-4 py-14 text-center">
+              <CalendarCheck className="size-12 text-muted-foreground/40" aria-hidden />
+              <p className="text-sm text-muted-foreground">
                 No hay tareas programadas configuradas
-              </Typography>
-              <Button startDecorator={<Plus size={16} />} onClick={() => setModalOpen(true)}>
+              </p>
+              <Button size="sm" onClick={() => setModalOpen(true)}>
+                <Plus className="size-4" weight="bold" aria-hidden />
                 Crear primera tarea
               </Button>
-            </Box>
+            </div>
           ) : (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead>
-                  <tr>
-                    <th style={{ minWidth: 160 }}>Nombre</th>
-                    <th style={{ minWidth: 200 }}>Tipo</th>
-                    <th style={{ minWidth: 160 }}>Expresion Cron</th>
-                    <th style={{ minWidth: 180 }}>Proxima Ejecucion</th>
-                    <th style={{ minWidth: 120 }}>Ultimo Resultado</th>
-                    <th style={{ minWidth: 100, textAlign: 'center' }}>Activa</th>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nombre</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tipo</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expresion Cron</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Proxima Ejecucion</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ultimo Resultado</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Activa</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border">
                   {tasks.map((task) => {
                     const resultConfig = LAST_RESULT_CONFIG[task.lastResult] ?? LAST_RESULT_CONFIG.pending
                     return (
-                      <tr key={task.id}>
-                        <td>
-                          <Typography level="body-sm" fontWeight="lg">{task.name}</Typography>
+                      <tr key={task.id} className="transition-colors hover:bg-accent/40">
+                        <td className="px-4 py-3 font-medium text-foreground">{task.name}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {TASK_TYPE_LABELS[task.taskType] ?? task.taskType}
                         </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {TASK_TYPE_LABELS[task.taskType] ?? task.taskType}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip size="sm" variant="outlined" sx={{ fontFamily: 'monospace' }}>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className="font-mono">
                             {task.cronExpression}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td>
-                          <Typography level="body-xs">{formatDate(task.nextRunAt)}</Typography>
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {formatDate(task.nextRunAt)}
                         </td>
-                        <td>
-                          <Chip
-                            size="sm"
-                            color={resultConfig.color}
-                            startDecorator={
-                              task.lastResult === 'success' ? <CheckCircle2 size={12} /> :
-                              task.lastResult === 'error' ? <AlertCircle size={12} /> :
-                              <Clock size={12} />
-                            }
-                          >
+                        <td className="px-4 py-3">
+                          <Badge variant={resultConfig.variant}>
+                            {task.lastResult === 'success' ? (
+                              <CheckCircle className="size-3.5" aria-hidden />
+                            ) : task.lastResult === 'error' ? (
+                              <WarningCircle className="size-3.5" aria-hidden />
+                            ) : (
+                              <Clock className="size-3.5" aria-hidden />
+                            )}
                             {resultConfig.label}
-                          </Chip>
+                          </Badge>
                         </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {togglingId === task.id ? (
-                            <CircularProgress size="sm" />
-                          ) : (
-                            <Switch
-                              checked={task.isActive}
-                              onChange={() => handleToggleActive(task)}
-                              color={task.isActive ? 'success' : 'neutral'}
-                              size="sm"
-                            />
-                          )}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center">
+                            {togglingId === task.id ? (
+                              <CircularProgress size="sm" />
+                            ) : (
+                              <ToggleSwitch
+                                checked={task.isActive}
+                                onChange={() => handleToggleActive(task)}
+                                label={task.isActive ? 'Desactivar tarea' : 'Activar tarea'}
+                              />
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
                   })}
                 </tbody>
-              </Table>
-            </Sheet>
+              </table>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Modal */}
       <CreateTaskModal
@@ -428,6 +449,6 @@ export default function AIScheduler() {
         onClose={() => setModalOpen(false)}
         onSuccess={fetchData}
       />
-    </Box>
+    </div>
   )
 }

@@ -254,11 +254,12 @@ export class CampaignRecommendationService {
   }
 
   private getCompletionModel(): string {
-    return this.provider?.settings?.defaultModel || "gpt-4o";
+    return this.provider?.settings?.defaultModel || "gpt-5.5";
   }
 
   private supportsJsonMode(model: string): boolean {
     const jsonModeModels = [
+      "gpt-5.5",
       "gpt-4o",
       "gpt-4o-mini",
       "gpt-3.5-turbo-1106",
@@ -1299,6 +1300,11 @@ Responde SOLO con un JSON valido con esta estructura:
 
       // Calcular scores individuales (0-100)
       const contentScore = Math.min(100, ctr * 20); // CTR benchmark ~5%
+      // [Fase2·E5.1] La frecuencia es un proxy pobre de fatiga: hay campañas con
+      // frecuencia 1.5 quemadas y con 6 rindiendo. La señal real (CTR cayendo +
+      // CPA subiendo) la calcula CampaignFatigueService sobre InsightsDaily y se
+      // publica como alerta. Aquí la frecuencia se queda solo como indicador de
+      // saturación de alcance, que es lo único que mide de verdad.
       const timingScore = frequency < 3 ? 80 : frequency < 5 ? 60 : 40;
       const audienceScore = impressions > 0 ? Math.min(100, (clicks / impressions) * 1000) : 0;
       const budgetScore = spend > 0 && conversions > 0 ? Math.min(100, 100 - (spend / conversions / 10)) : 50;

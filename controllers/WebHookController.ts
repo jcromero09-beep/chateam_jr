@@ -1,7 +1,12 @@
 import { Request, Response } from "express";
 import Whatsapp from "../models/Whatsapp";
 import { handleMessage } from "../services/FacebookServices/facebookMessageListener";
-// import { handleMessage } from "../services/FacebookServices/facebookMessageListener";
+// Módulo Comentarios FB/IG — este endpoint (/webhook) es el callback del
+// objeto 'page'/'instagram' en Meta, por donde Meta entrega los comentarios
+// (entry[].changes[]). Reenviamos esos eventos al inbox de comentarios.
+import IngestCommentService from "../services/SocialCommentServices/IngestCommentService";
+import { extractCommentEvents } from "../services/SocialCommentServices/extractCommentEvents";
+import logger from "../utils/logger";
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "whaticket";
@@ -27,7 +32,6 @@ export const webHook = async (
 ): Promise<Response> => {
   try {
     const { body } = req;
-   // console.log(30, "WebHookController", { body })
 
   console.log("Estructura completa del body:", JSON.stringify(body, null, 2));
 
@@ -40,8 +44,38 @@ export const webHook = async (
         channel = "instagram";
       }
 
-      body.entry?.forEach(async (entry: any) => {
-     //   console.log("Processing Entry:", JSON.stringify(entry, null, 2));
+      // ── Comentarios FB/IG: entry[].changes[] (feed/comments) ──────────
+      // Meta entrega los comentarios de página por ESTE mismo callback
+      // (object=page/instagram) mezclados con la mensajería. Los extraemos
+      // y los ingerimos en el inbox (SocialComments) SIN bloquear la
+      // respuesta y SIN afectar el flujo de Messenger de abajo.
+      try {
+        const commentEvents = extractCommentEvents(body);
+        if (commentEvents.length > 0) {
+          logger.info(
+            `[Webhook FB] 💬 ${commentEvents.length} evento(s) de comentario detectado(s) (object=${body.object})`
+          );
+          for (const commentEvent of commentEvents) {
+            IngestCommentService(commentEvent).catch(commentErr => {
+              const msg =
+                commentErr instanceof Error
+                  ? commentErr.message
+                  : String(commentErr);
+              logger.error(
+                `[Webhook FB] Error ingiriendo comentario ${commentEvent.commentId}: ${msg}`
+              );
+            });
+          }
+        }
+      } catch (commentExtractErr) {
+        const msg =
+          commentExtractErr instanceof Error
+            ? commentExtractErr.message
+            : String(commentExtractErr);
+        logger.error(`[Webhook FB] Error extrayendo comentarios: ${msg}`);
+      }
+
+      for (const entry of body.entry ?? []) {
         const getTokenPage = await Whatsapp.findOne({
           where: {
             facebookPageUserId: entry.id,
@@ -51,11 +85,10 @@ export const webHook = async (
 
         if (getTokenPage) {
           entry.messaging?.forEach((data: any) => {
-         //  console.log('Processing Message Data:', getTokenPage);
             handleMessage(getTokenPage, data, channel, getTokenPage.companyId);
           });
         }
-      });
+      }
 
       return res.status(200).json({
         message: "EVENT_RECEIVED"

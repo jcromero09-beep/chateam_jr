@@ -1,11 +1,13 @@
 import React, { useState } from 'react'
 import { Box, Typography } from '@mui/joy'
 import BrokenImageIcon from '@mui/icons-material/BrokenImage'
+import { formatWhatsAppText } from '../../utils/formatWhatsAppText'
 
 interface MediaImageProps {
   src: string
   isSticker?: boolean
   isDark: boolean
+  isOwn?: boolean
   caption?: string
   onLightboxOpen?: (src: string, type: string, currentIndex?: number, allMedia?: Array<{id: number; src: string; type: string}>) => void
 }
@@ -14,6 +16,7 @@ export default function MediaImage({
   src,
   isSticker = false,
   isDark,
+  isOwn,
   caption,
   onLightboxOpen,
 }: MediaImageProps) {
@@ -87,12 +90,15 @@ export default function MediaImage({
           level="body-sm"
           sx={{
             mt: 0.5,
-            color: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)',
+            color: isOwn
+              ? 'inherit'
+              : (isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)'),
             wordBreak: 'break-word',
+            whiteSpace: 'pre-wrap',
             maxWidth: '330px',
           }}
         >
-          {caption}
+          {formatWhatsAppText(caption, undefined, isOwn)}
         </Typography>
       )}
     </Box>

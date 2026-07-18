@@ -28,9 +28,9 @@ export function useDate() {
     }
 
     function returnDays(date) {
-        let data1 = new Date()
-        let data2 = new Date(date)
-        let result = data2.getTime() - data1.getTime();
+        const data1 = new Date()
+        const data2 = new Date(date)
+        const result = data2.getTime() - data1.getTime();
         let days = Math.ceil(result / (1000 * 60 * 60 * 24));
 
         if (days === -0) {

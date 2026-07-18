@@ -1,33 +1,34 @@
 import React, { useState, useEffect } from 'react';
+// [Fase2·G] Conservado de MUI Joy a propósito: no hay equivalente en el design
+// system (indicador de progreso). Todo lo demás migrado a Tailwind v4 + tokens.
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Button,
-  Card,
-  Chip,
-  Sheet,
-  Table,
-  Typography,
-  Input,
-  FormControl,
-  FormLabel,
+  ArrowClockwise,
+  MagnifyingGlass,
+  CheckCircle,
+  XCircle,
+  Warning,
+  Info,
+  ClockCounterClockwise,
+} from '@phosphor-icons/react';
+import { StatTile } from '@/components/ui/stat-tile';
+import { Button } from '@/components/ui/button';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import {
   Select,
-  Option,
-  Alert,
-  CircularProgress,
-  Stack,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  Textarea
-} from '@mui/joy';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
-  Refresh as RefreshIcon,
-  Search as SearchIcon,
-  CheckCircle as SuccessIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-} from '@mui/icons-material';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import { toast } from 'react-toastify';
 import api from '../../services/api';
 
@@ -62,6 +63,42 @@ interface Filters {
   date_to: string;
   search: string;
 }
+
+// Superficie base del design system (misma que IntegrationsAnalytics).
+function Panel({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+// Campo de texto/fecha con los tokens del design system.
+const fieldClass =
+  'h-9 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30';
+
+const columns = [
+  'Fecha',
+  'Conexión',
+  'Tipo',
+  'Entidad',
+  'Estado',
+  'Procesados',
+  'Fallidos',
+  'Duración',
+  'Acciones',
+];
 
 const SyncLogsViewer: React.FC = () => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
@@ -142,12 +179,13 @@ const SyncLogsViewer: React.FC = () => {
     setDetailsModalOpen(true);
   };
 
-  const getStatusColor = (status: string) => {
+  // Estado -> variante del Badge (tokens semánticos *-text vía badge.tsx).
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'success':
         return 'success';
       case 'error':
-        return 'danger';
+        return 'destructive';
       case 'warning':
         return 'warning';
       default:
@@ -158,13 +196,13 @@ const SyncLogsViewer: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'success':
-        return <SuccessIcon />;
+        return <CheckCircle className="size-3.5 shrink-0" aria-hidden />;
       case 'error':
-        return <ErrorIcon />;
+        return <XCircle className="size-3.5 shrink-0" aria-hidden />;
       case 'warning':
-        return <WarningIcon />;
+        return <Warning className="size-3.5 shrink-0" aria-hidden />;
       default:
-        return <InfoIcon />;
+        return <Info className="size-3.5 shrink-0" aria-hidden />;
     }
   };
 
@@ -200,377 +238,384 @@ const SyncLogsViewer: React.FC = () => {
 
   if (loading && page === 1) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography level="h2">Logs de Sincronización</Typography>
-        <Button
-          startDecorator={<RefreshIcon />}
-          variant="outlined"
-          onClick={() => fetchLogs()}
-        >
-          Actualizar
-        </Button>
-      </Stack>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <ClockCounterClockwise className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Logs de Sincronización
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Historial de sincronizaciones de las integraciones
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => fetchLogs()}>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar
+          </Button>
+        </div>
 
-      {/* Statistics Cards */}
-      <Stack direction="row" spacing={2} mb={3}>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Tasa de Éxito
-          </Typography>
-          <Typography level="h3" color="success">
-            {calculateSuccessRate()}%
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Registros Procesados
-          </Typography>
-          <Typography level="h3" color="primary">
-            {getTotalRecordsProcessed()}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Registros Fallidos
-          </Typography>
-          <Typography level="h3" color="danger">
-            {getTotalRecordsFailed()}
-          </Typography>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <Typography level="body-sm" textColor="text.secondary">
-            Total Sincronizaciones
-          </Typography>
-          <Typography level="h3">
-            {logs.length}
-          </Typography>
-        </Card>
-      </Stack>
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile
+            label="Tasa de Éxito"
+            value={`${calculateSuccessRate()}%`}
+            tone="success"
+          />
+          <StatTile
+            label="Registros Procesados"
+            value={String(getTotalRecordsProcessed())}
+            tone="primary"
+          />
+          <StatTile
+            label="Registros Fallidos"
+            value={String(getTotalRecordsFailed())}
+            tone="destructive"
+          />
+          <StatTile label="Total Sincronizaciones" value={String(logs.length)} />
+        </div>
 
-      {/* Filters */}
-      <Card sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} flexWrap="wrap">
-          <FormControl sx={{ minWidth: 200 }}>
-            <FormLabel>Conexión</FormLabel>
-            <Select
-              value={filters.connection_id}
-              onChange={(_, value) => setFilters({ ...filters, connection_id: value! })}
-            >
-              <Option value="all">Todas</Option>
-              {connections.map((conn) => (
-                <Option key={conn.id} value={conn.id.toString()}>
-                  {conn.name}
-                </Option>
-              ))}
-            </Select>
-          </FormControl>
+        {/* Filters */}
+        <Panel>
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="min-w-[200px] space-y-1.5">
+              <Label htmlFor="logs-connection">Conexión</Label>
+              <Select
+                value={filters.connection_id}
+                onValueChange={(value) => setFilters({ ...filters, connection_id: value })}
+              >
+                <SelectTrigger id="logs-connection" className="w-full sm:w-[200px]">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {connections.map((conn) => (
+                    <SelectItem key={conn.id} value={conn.id.toString()}>
+                      {conn.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 150 }}>
-            <FormLabel>Tipo de Sync</FormLabel>
-            <Select
-              value={filters.sync_type}
-              onChange={(_, value) => setFilters({ ...filters, sync_type: value! })}
-            >
-              <Option value="all">Todos</Option>
-              <Option value="inbound">Inbound</Option>
-              <Option value="outbound">Outbound</Option>
-            </Select>
-          </FormControl>
+            <div className="min-w-[150px] space-y-1.5">
+              <Label htmlFor="logs-sync-type">Tipo de Sync</Label>
+              <Select
+                value={filters.sync_type}
+                onValueChange={(value) => setFilters({ ...filters, sync_type: value })}
+              >
+                <SelectTrigger id="logs-sync-type" className="w-full sm:w-[150px]">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="inbound">Inbound</SelectItem>
+                  <SelectItem value="outbound">Outbound</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 150 }}>
-            <FormLabel>Entidad</FormLabel>
-            <Select
-              value={filters.entity_type}
-              onChange={(_, value) => setFilters({ ...filters, entity_type: value! })}
-            >
-              <Option value="all">Todas</Option>
-              <Option value="contact">Contacto</Option>
-              <Option value="ticket">Ticket</Option>
-              <Option value="message">Mensaje</Option>
-              <Option value="user">Usuario</Option>
-            </Select>
-          </FormControl>
+            <div className="min-w-[150px] space-y-1.5">
+              <Label htmlFor="logs-entity">Entidad</Label>
+              <Select
+                value={filters.entity_type}
+                onValueChange={(value) => setFilters({ ...filters, entity_type: value })}
+              >
+                <SelectTrigger id="logs-entity" className="w-full sm:w-[150px]">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="contact">Contacto</SelectItem>
+                  <SelectItem value="ticket">Ticket</SelectItem>
+                  <SelectItem value="message">Mensaje</SelectItem>
+                  <SelectItem value="user">Usuario</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 150 }}>
-            <FormLabel>Estado</FormLabel>
-            <Select
-              value={filters.status}
-              onChange={(_, value) => setFilters({ ...filters, status: value! })}
-            >
-              <Option value="all">Todos</Option>
-              <Option value="success">Éxito</Option>
-              <Option value="error">Error</Option>
-              <Option value="warning">Advertencia</Option>
-            </Select>
-          </FormControl>
+            <div className="min-w-[150px] space-y-1.5">
+              <Label htmlFor="logs-status">Estado</Label>
+              <Select
+                value={filters.status}
+                onValueChange={(value) => setFilters({ ...filters, status: value })}
+              >
+                <SelectTrigger id="logs-status" className="w-full sm:w-[150px]">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="success">Éxito</SelectItem>
+                  <SelectItem value="error">Error</SelectItem>
+                  <SelectItem value="warning">Advertencia</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <FormControl sx={{ minWidth: 180 }}>
-            <FormLabel>Fecha Desde</FormLabel>
-            <Input
-              type="date"
-              value={filters.date_from}
-              onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
-            />
-          </FormControl>
+            <div className="min-w-[180px] space-y-1.5">
+              <Label htmlFor="logs-date-from">Fecha Desde</Label>
+              <input
+                id="logs-date-from"
+                type="date"
+                value={filters.date_from}
+                onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
+                className={cn(fieldClass, 'sm:w-[180px]')}
+              />
+            </div>
 
-          <FormControl sx={{ minWidth: 180 }}>
-            <FormLabel>Fecha Hasta</FormLabel>
-            <Input
-              type="date"
-              value={filters.date_to}
-              onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
-            />
-          </FormControl>
+            <div className="min-w-[180px] space-y-1.5">
+              <Label htmlFor="logs-date-to">Fecha Hasta</Label>
+              <input
+                id="logs-date-to"
+                type="date"
+                value={filters.date_to}
+                onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
+                className={cn(fieldClass, 'sm:w-[180px]')}
+              />
+            </div>
 
-          <FormControl sx={{ minWidth: 250, flex: 1 }}>
-            <FormLabel>Buscar</FormLabel>
-            <Input
-              placeholder="Buscar en logs..."
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              startDecorator={<SearchIcon />}
-            />
-          </FormControl>
+            <div className="min-w-[250px] flex-1 space-y-1.5">
+              <Label htmlFor="logs-search">Buscar</Label>
+              <div className="relative">
+                <MagnifyingGlass
+                  className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <input
+                  id="logs-search"
+                  placeholder="Buscar en logs..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  className={cn(fieldClass, 'pl-10')}
+                />
+              </div>
+            </div>
 
-          <Box sx={{ display: 'flex', alignItems: 'flex-end' }}>
-            <Button
-              variant="outlined"
-              color="neutral"
-              onClick={handleResetFilters}
-            >
+            <Button variant="outline" size="sm" onClick={handleResetFilters}>
               Limpiar
             </Button>
-          </Box>
-        </Stack>
-      </Card>
+          </div>
+        </Panel>
 
-      {/* Logs Table */}
-      {logs.length === 0 ? (
-        <Alert color="neutral">
-          No se encontraron logs con los filtros aplicados.
-        </Alert>
-      ) : (
-        <>
-          <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Conexión</th>
-                  <th>Tipo</th>
-                  <th>Entidad</th>
-                  <th>Estado</th>
-                  <th>Procesados</th>
-                  <th>Fallidos</th>
-                  <th>Duración</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id}>
-                    <td>{formatDate(log.started_at)}</td>
-                    <td>{getConnectionName(log.connection_id)}</td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={log.sync_type === 'inbound' ? 'primary' : 'success'}
-                      >
-                        {log.sync_type === 'inbound' ? 'Entrada' : 'Salida'}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {log.entity_type}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={getStatusColor(log.status)}
-                        startDecorator={getStatusIcon(log.status)}
-                      >
-                        {log.status}
-                      </Chip>
-                    </td>
-                    <td>{log.records_processed}</td>
-                    <td>
-                      {log.records_failed > 0 ? (
-                        <Chip size="sm" color="danger" variant="soft">
-                          {log.records_failed}
-                        </Chip>
-                      ) : (
-                        '0'
-                      )}
-                    </td>
-                    <td>{formatDuration(log.duration_ms)}</td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant="plain"
-                        onClick={() => handleShowDetails(log)}
-                      >
-                        Ver Detalles
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
+        {/* Logs Table */}
+        {logs.length === 0 ? (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          >
+            <Info className="size-5 shrink-0" aria-hidden />
+            No se encontraron logs con los filtros aplicados.
+          </div>
+        ) : (
+          <>
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={i}
+                          className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {logs.map((log) => (
+                      <tr key={log.id} className="transition-colors hover:bg-accent/40">
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {formatDate(log.started_at)}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {getConnectionName(log.connection_id)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={log.sync_type === 'inbound' ? 'primary' : 'success'}>
+                            {log.sync_type === 'inbound' ? 'Entrada' : 'Salida'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline">{log.entity_type}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={getStatusVariant(log.status)}>
+                            {getStatusIcon(log.status)}
+                            {log.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                          {log.records_processed}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums">
+                          {log.records_failed > 0 ? (
+                            <Badge variant="destructive">{log.records_failed}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                          {formatDuration(log.duration_ms)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleShowDetails(log)}
+                          >
+                            Ver Detalles
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-          {/* Pagination */}
-          <Stack direction="row" justifyContent="center" spacing={2} mt={3}>
-            <Button
-              variant="outlined"
-              disabled={page === 1}
-              onClick={() => setPage(page - 1)}
-            >
-              Anterior
-            </Button>
-            <Typography level="body-md" sx={{ display: 'flex', alignItems: 'center' }}>
-              Página {page} de {totalPages}
-            </Typography>
-            <Button
-              variant="outlined"
-              disabled={page === totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              Siguiente
-            </Button>
-          </Stack>
-        </>
-      )}
+            {/* Pagination */}
+            <div className="flex items-center justify-center gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 1}
+                onClick={() => setPage(page - 1)}
+              >
+                Anterior
+              </Button>
+              <span className="text-sm tabular-nums text-muted-foreground">
+                Página {page} de {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === totalPages}
+                onClick={() => setPage(page + 1)}
+              >
+                Siguiente
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Details Modal */}
-      <Modal open={detailsModalOpen} onClose={() => setDetailsModalOpen(false)}>
-        <ModalDialog sx={{ width: 700, maxWidth: '90vw' }}>
-          <ModalClose />
-          <Typography level="h4" mb={2}>
-            Detalles del Log de Sincronización
-          </Typography>
+      <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
+        <DialogContent className="max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Detalles del Log de Sincronización</DialogTitle>
+          </DialogHeader>
 
           {selectedLog && (
-            <Stack spacing={2}>
-              <Stack direction="row" spacing={2}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    ID
-                  </Typography>
-                  <Typography level="body-md">{selectedLog.id}</Typography>
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Conexión
-                  </Typography>
-                  <Typography level="body-md">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">ID</p>
+                  <p className="text-sm tabular-nums text-foreground">{selectedLog.id}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Conexión</p>
+                  <p className="text-sm text-foreground">
                     {getConnectionName(selectedLog.connection_id)}
-                  </Typography>
-                </Box>
-              </Stack>
+                  </p>
+                </div>
+              </div>
 
-              <Stack direction="row" spacing={2}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Tipo
-                  </Typography>
-                  <Chip size="sm" variant="soft">
-                    {selectedLog.sync_type}
-                  </Chip>
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Entidad
-                  </Typography>
-                  <Chip size="sm" variant="outlined">
-                    {selectedLog.entity_type}
-                  </Chip>
-                </Box>
-              </Stack>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="mb-1 text-sm text-muted-foreground">Tipo</p>
+                  <Badge variant="primary">{selectedLog.sync_type}</Badge>
+                </div>
+                <div>
+                  <p className="mb-1 text-sm text-muted-foreground">Entidad</p>
+                  <Badge variant="outline">{selectedLog.entity_type}</Badge>
+                </div>
+              </div>
 
-              <Stack direction="row" spacing={2}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Inicio
-                  </Typography>
-                  <Typography level="body-md">{formatDate(selectedLog.started_at)}</Typography>
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Fin
-                  </Typography>
-                  <Typography level="body-md">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Inicio</p>
+                  <p className="text-sm text-foreground">{formatDate(selectedLog.started_at)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Fin</p>
+                  <p className="text-sm text-foreground">
                     {selectedLog.completed_at ? formatDate(selectedLog.completed_at) : 'En progreso'}
-                  </Typography>
-                </Box>
-              </Stack>
+                  </p>
+                </div>
+              </div>
 
-              <Stack direction="row" spacing={2}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Registros Procesados
-                  </Typography>
-                  <Typography level="h4" color="primary">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Registros Procesados</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
                     {selectedLog.records_processed}
-                  </Typography>
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Registros Fallidos
-                  </Typography>
-                  <Typography level="h4" color="danger">
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Registros Fallidos</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-destructive-text">
                     {selectedLog.records_failed}
-                  </Typography>
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Duración
-                  </Typography>
-                  <Typography level="h4">
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Duración</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
                     {formatDuration(selectedLog.duration_ms)}
-                  </Typography>
-                </Box>
-              </Stack>
+                  </p>
+                </div>
+              </div>
 
               {selectedLog.error_message && (
-                <Box>
-                  <Typography level="body-sm" textColor="text.secondary" mb={1}>
-                    Mensaje de Error
-                  </Typography>
-                  <Alert color="danger">
-                    {selectedLog.error_message}
-                  </Alert>
-                </Box>
+                <div>
+                  <p className="mb-1 text-sm text-muted-foreground">Mensaje de Error</p>
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+                  >
+                    <XCircle className="mt-0.5 size-5 shrink-0" aria-hidden />
+                    <span className="break-words">{selectedLog.error_message}</span>
+                  </div>
+                </div>
               )}
 
               {selectedLog.metadata && (
-                <Box>
-                  <Typography level="body-sm" textColor="text.secondary" mb={1}>
+                <div>
+                  <label
+                    htmlFor="log-metadata"
+                    className="mb-1 block text-sm text-muted-foreground"
+                  >
                     Metadata (JSON)
-                  </Typography>
-                  <Textarea
+                  </label>
+                  <textarea
+                    id="log-metadata"
                     value={JSON.stringify(selectedLog.metadata, null, 2)}
                     readOnly
-                    minRows={6}
-                    sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}
+                    rows={6}
+                    className="w-full rounded-md border border-input bg-card p-3 font-mono text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />
-                </Box>
+                </div>
               )}
-            </Stack>
+            </div>
           )}
-        </ModalDialog>
-      </Modal>
-    </Box>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 

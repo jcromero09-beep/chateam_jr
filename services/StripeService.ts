@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
   import Stripe from 'stripe';
   import CompanyBilling from '../models/CompanyBilling';
   import Invoice from '../models/Invoice';
@@ -6,6 +10,10 @@
   import Company from '../models/Company';
   import { updateDueDateByCompanyId } from './CompanyService/dateCompany';
   import logger, { logError, logInfo, logWarn, logDebug } from '../utils/logger';
+  import {
+    buildWebsiteEventUserFromCompany,
+    sendWebsiteConversionEventAsync
+  } from './FacebookConversionService/SendWebsiteEvent';
 
   export class StripeService {
     private stripe: Stripe;
@@ -373,6 +381,31 @@
           metadata: subscription.metadata,
         });
 
+        if (subscription.status === 'trialing' && subscription.trial_start && subscription.trial_end) {
+          const company = await Company.findByPk(companyId);
+          if (company) {
+            const eventUser = await buildWebsiteEventUserFromCompany(company);
+            sendWebsiteConversionEventAsync({
+              eventName: "StartTrial",
+              eventId: `trial_${companyId}_${subscription.id}_${subscription.trial_start}`,
+              user: eventUser,
+              context: {
+                actionSource: "system_generated",
+                eventSourceUrl: `${process.env.FRONTEND_URL || "https://chateam.com"}/trial`
+              },
+              customData: {
+                currency: (subscription.items.data[0]?.price.currency || "mxn").toUpperCase(),
+                value: 0,
+                predicted_ltv: (subscription.items.data[0]?.price.unit_amount || 0) / 100,
+                content_name: "Trial Chateam",
+                content_ids: [subscription.items.data[0]?.price.id].filter(Boolean),
+                trial_start: new Date(subscription.trial_start * 1000).toISOString(),
+                trial_end: new Date(subscription.trial_end * 1000).toISOString()
+              }
+            });
+          }
+        }
+
         logInfo(`✅ Company billing updated for subscription: ${subscription.id}`);
       } catch (error) {
         logError('❌ Error handling subscription updated:', error);
@@ -457,6 +490,28 @@
               } catch (e: any) {
                 logError(`❌ Error provisionando créditos de email:`, e);
               }
+            }
+
+            if (company) {
+              const eventUser = await buildWebsiteEventUserFromCompany(company);
+              sendWebsiteConversionEventAsync({
+                eventName: "Purchase",
+                eventId: `purchase_${invoice.payment_intent || invoice.id}`,
+                user: eventUser,
+                context: {
+                  actionSource: "system_generated",
+                  eventSourceUrl: `${process.env.FRONTEND_URL || "https://chateam.com"}/checkout/success`
+                },
+                customData: {
+                  currency: invoice.currency.toUpperCase(),
+                  value: (invoice.amount_paid || invoice.total || 0) / 100,
+                  content_ids: [`plan_${plan.id}`],
+                  content_type: "product",
+                  content_name: plan.name,
+                  order_id: String(invoice.payment_intent || invoice.id),
+                  payment_method: "stripe"
+                }
+              });
             }
           }
         }

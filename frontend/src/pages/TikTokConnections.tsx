@@ -7,44 +7,35 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
+import { CircularProgress } from "@mui/joy";
+import {
+  Trash,
+  ArrowClockwise,
+  ArrowSquareOut,
+  MusicNotes,
+  Info,
+  WarningCircle,
+  CheckCircle,
+  XCircle,
+  Buildings,
+  VideoCamera,
+  PlugsConnected,
+} from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import api from "../services/api";
 import socketService from "../services/socket";
 import { useAuth } from "../hooks/useAuth";
 import TikTokPostsTab from "../components/TikTokPostsTab";
-import {
-  Box,
-  Typography,
-  Button,
-  Card,
-  Table,
-  Sheet,
-  Chip,
-  Switch,
-  IconButton,
-  Alert,
-  Stack,
-  CircularProgress,
-  Container,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  Select,
-  Option,
-} from "@mui/joy";
-import {
-  Delete as DeleteIcon,
-  Refresh as RefreshIcon,
-  OpenInNew as OpenInNewIcon,
-  MusicNote as MusicNoteIcon,
-  Info as InfoIcon,
-  ErrorOutline as ErrorIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  Business as BusinessIcon,
-  Videocam as VideocamIcon,
-  Cable as CableIcon,
-} from "@mui/icons-material";
 
 interface TikTokConnection {
   id: number;
@@ -58,6 +49,43 @@ interface TikTokConnection {
   updatedAt: string;
 }
 
+type TikTokConnectionPayload = Partial<TikTokConnection> & {
+  tiktokLastPollAt?: string | null;
+  tiktokPollingEnabled?: boolean | null;
+  tiktokPollingInterval?: number | null;
+};
+
+const getAuthUrl = (payload: unknown): string | null => {
+  const normalizeUrl = (value: unknown): string | null => {
+    if (typeof value !== "string") return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:" ? value : null;
+    } catch {
+      return null;
+    }
+  };
+
+  if (typeof payload === "string") return normalizeUrl(payload);
+  if (!payload || typeof payload !== "object") return null;
+
+  const body = payload as {
+    authUrl?: unknown;
+    url?: unknown;
+    data?: { authUrl?: unknown; url?: unknown };
+  };
+
+  const authUrl = body.data?.authUrl ?? body.data?.url ?? body.authUrl ?? body.url;
+  return normalizeUrl(authUrl);
+};
+
+const normalizeConnection = (connection: TikTokConnectionPayload): TikTokConnection => ({
+  ...(connection as TikTokConnection),
+  lastPollAt: connection.lastPollAt ?? connection.tiktokLastPollAt ?? null,
+  pollingEnabled: Boolean(connection.pollingEnabled ?? connection.tiktokPollingEnabled ?? true),
+  pollingInterval: connection.pollingInterval ?? connection.tiktokPollingInterval ?? 120,
+});
+
 const POLLING_INTERVALS = [
   { value: 30, label: "30 seg" },
   { value: 60, label: "1 min" },
@@ -65,6 +93,37 @@ const POLLING_INTERVALS = [
   { value: 300, label: "5 min" },
   { value: 600, label: "10 min" },
 ];
+
+// Botón de acción de fila (mismo look que RowAction, con onClick/disabled y children variables).
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-55",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function TikTokConnections() {
   const [searchParams] = useSearchParams();
@@ -94,14 +153,15 @@ export default function TikTokConnections() {
 
   // Socket listener — actualización en tiempo real
   const handleTikTokSocket = useCallback((data: Record<string, unknown>) => {
-    const typedData = data as { action?: string; tiktok?: TikTokConnection; tiktokId?: number };
+    const typedData = data as { action?: string; tiktok?: TikTokConnectionPayload; tiktokId?: number };
     if (typedData.action === "update" && typedData.tiktok) {
+      const updatedTikTok = normalizeConnection(typedData.tiktok);
       setConnections((prev) => {
-        const exists = prev.find((c) => c.id === typedData.tiktok!.id);
+        const exists = prev.find((c) => c.id === updatedTikTok.id);
         if (exists) {
-          return prev.map((c) => (c.id === typedData.tiktok!.id ? { ...c, ...typedData.tiktok! } : c));
+          return prev.map((c) => (c.id === updatedTikTok.id ? { ...c, ...updatedTikTok } : c));
         }
-        return [...prev, typedData.tiktok!];
+        return [...prev, updatedTikTok];
       });
     } else if (typedData.action === "delete" && typedData.tiktokId) {
       setConnections((prev) => prev.filter((c) => c.id !== typedData.tiktokId));
@@ -122,10 +182,10 @@ export default function TikTokConnections() {
       setLoading(true);
       const response = await api.get("/tiktok");
       const data = response.data;
-      const list: TikTokConnection[] = Array.isArray(data)
+      const list: TikTokConnectionPayload[] = Array.isArray(data)
         ? data
         : data.data ?? data.connections ?? [];
-      setConnections(list);
+      setConnections(list.map(normalizeConnection));
     } catch (error) {
       toast.error("Error al cargar las conexiones de TikTok");
       setConnections([]);
@@ -138,7 +198,7 @@ export default function TikTokConnections() {
     try {
       setConnectingOAuth(true);
       const response = await api.get("/tiktok/oauth/url");
-      const authUrl: string = response.data?.authUrl ?? response.data?.url ?? response.data;
+      const authUrl = getAuthUrl(response.data);
       if (!authUrl) {
         toast.error("No se pudo obtener la URL de autenticación de TikTok");
         return;
@@ -155,7 +215,7 @@ export default function TikTokConnections() {
     try {
       setConnectingBusinessId(connectionId);
       const response = await api.get("/tiktok/business/oauth/url");
-      const authUrl: string = response.data?.authUrl ?? response.data?.url ?? response.data;
+      const authUrl = getAuthUrl(response.data);
       if (!authUrl) {
         toast.error("No se pudo obtener la URL de Business API");
         return;
@@ -195,7 +255,7 @@ export default function TikTokConnections() {
     try {
       setPollingIds((prev) => new Set(prev).add(connection.id));
       await api.put(`/tiktok/${connection.id}`, {
-        pollingEnabled: !connection.pollingEnabled,
+        tiktokPollingEnabled: !connection.pollingEnabled,
       });
       setConnections((prev) =>
         prev.map((c) =>
@@ -290,405 +350,291 @@ export default function TikTokConnections() {
   const connectedCount = connections.filter((c) => c.status === "CONNECTED").length;
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box
-              sx={{
-                width: 44,
-                height: 44,
-                borderRadius: "12px",
-                bgcolor: "#00000010",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <MusicNoteIcon sx={{ fontSize: 26, color: "#000000" }} />
-            </Box>
-            <Box>
-              <Typography level="h2">TikTok Comments</Typography>
-              <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <MusicNotes className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                TikTok Comments
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Monitorea y gestiona comentarios de tus videos de TikTok
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <IconButton
-              variant="soft"
-              color="neutral"
-              size="lg"
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Recargar lista"
+              className="text-muted-foreground"
               onClick={fetchConnections}
               disabled={loading}
-              sx={{ borderRadius: "lg" }}
-              title="Recargar lista"
             >
-              <RefreshIcon />
-            </IconButton>
-            <Button
-              variant="solid"
-              color="neutral"
-              size="lg"
-              startDecorator={
-                connectingOAuth ? (
-                  <CircularProgress size="sm" sx={{ color: "#fff" }} />
-                ) : (
-                  <OpenInNewIcon />
-                )
-              }
-              onClick={handleConnect}
-              disabled={connectingOAuth}
-              sx={{
-                px: 3,
-                fontWeight: 600,
-                borderRadius: "lg",
-                bgcolor: "#000000",
-                color: "#ffffff",
-                "&:hover": { bgcolor: "#333333" },
-                "&:active": { bgcolor: "#222222" },
-              }}
-            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={handleConnect} loading={connectingOAuth}>
+              {!connectingOAuth && <ArrowSquareOut className="size-4" aria-hidden />}
               {connectingOAuth ? "Abriendo..." : "Conectar con TikTok"}
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Alerta de error en URL params */}
         {errorParam && (
-          <Alert
-            variant="soft"
-            color="danger"
-            startDecorator={<ErrorIcon />}
-            sx={{ borderRadius: "lg" }}
-          >
-            <Box>
-              <Typography level="body-sm" fontWeight={600}>
-                Error al conectar con TikTok
-              </Typography>
-              <Typography level="body-xs" sx={{ mt: 0.25 }}>
-                {decodeURIComponent(errorParam)}
-              </Typography>
-            </Box>
-          </Alert>
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/12 p-4 text-destructive-text">
+            <WarningCircle className="mt-0.5 size-5 shrink-0" weight="fill" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold">Error al conectar con TikTok</p>
+              <p className="mt-0.5 text-xs">{decodeURIComponent(errorParam)}</p>
+            </div>
+          </div>
         )}
 
         {/* Alerta condicional según estado Business API */}
         {connections.length > 0 && !hasBusinessConnection && (
-          <Alert
-            variant="soft"
-            color="warning"
-            startDecorator={<InfoIcon />}
-            sx={{ borderRadius: "lg" }}
-          >
-            <Box>
-              <Typography level="body-sm" fontWeight={600}>
+          <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/16 p-4 text-warning-text">
+            <Info className="mt-0.5 size-5 shrink-0" weight="fill" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold">
                 Conecta la Business API para responder comentarios
-              </Typography>
-              <Typography level="body-xs" sx={{ mt: 0.25 }}>
+              </p>
+              <p className="mt-0.5 text-xs">
                 Sin Business API solo puedes leer comentarios. Conecta Business API en una
                 conexion para habilitar respuestas manuales y auto-reply con IA.
-              </Typography>
-            </Box>
-          </Alert>
+              </p>
+            </div>
+          </div>
         )}
 
         {hasBusinessConnection && (
-          <Alert
-            variant="soft"
-            color="success"
-            startDecorator={<CheckCircleIcon />}
-            sx={{ borderRadius: "lg" }}
-          >
-            <Typography level="body-sm">
+          <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/14 p-4 text-success-text">
+            <CheckCircle className="mt-0.5 size-5 shrink-0" weight="fill" aria-hidden />
+            <p className="text-sm">
               Business API conectada — Puedes responder comentarios directamente y usar auto-reply con IA.
               Ve a la pestaña <strong>Publicaciones</strong> para ver y responder comentarios.
-            </Typography>
-          </Alert>
+            </p>
+          </div>
         )}
 
         {/* Tabs: Conexiones + Publicaciones */}
-        <Tabs
-          value={activeTab}
-          onChange={(_event, newValue) => setActiveTab(newValue as number)}
-          sx={{ borderRadius: "lg" }}
-        >
-          <TabList
-            variant="soft"
-            color="neutral"
-            disableUnderline
-            sx={{
-              p: 0.5,
-              gap: 0.5,
-              borderRadius: "xl",
-              bgcolor: "background.level1",
-              "& .MuiTab-root": {
-                borderRadius: "lg",
-                fontWeight: 600,
-                fontSize: "0.85rem",
-              },
-              "& .MuiTab-root[aria-selected='true']": {
-                bgcolor: "background.surface",
-                boxShadow: "sm",
-              },
-            }}
-          >
-            <Tab
-              disableIndicator
-              value={0}
-              sx={{ gap: 1 }}
-            >
-              <CableIcon sx={{ fontSize: 18 }} />
+        <Tabs value={String(activeTab)} onValueChange={(value) => setActiveTab(Number(value))}>
+          <TabsList>
+            <TabsTrigger value="0">
+              <PlugsConnected className="size-[18px]" aria-hidden />
               Conexiones
               {connectedCount > 0 && (
-                <Chip size="sm" variant="solid" color="success" sx={{ ml: 0.5 }}>
+                <Badge variant="success" className="ml-1">
                   {connectedCount}
-                </Chip>
+                </Badge>
               )}
-            </Tab>
-            <Tab
-              disableIndicator
-              value={1}
-              sx={{ gap: 1 }}
-            >
-              <VideocamIcon sx={{ fontSize: 18 }} />
+            </TabsTrigger>
+            <TabsTrigger value="1">
+              <VideoCamera className="size-[18px]" aria-hidden />
               Publicaciones
-            </Tab>
-          </TabList>
+            </TabsTrigger>
+          </TabsList>
 
           {/* ═══════════════════════════════════════════════ */}
           {/* TAB 0: Conexiones */}
           {/* ═══════════════════════════════════════════════ */}
-          <TabPanel value={0} sx={{ p: 0, pt: 2 }}>
-            <Card variant="outlined" sx={{ p: 0, overflow: "hidden" }}>
-              <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
-                <Typography level="title-sm" fontWeight={700}>
-                  Cuentas conectadas
-                </Typography>
-              </Box>
-              <Sheet sx={{ overflow: "auto" }}>
-                <Table stickyHeader>
+          <TabsContent value="0">
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="border-b border-border px-4 py-3">
+                <h2 className="text-sm font-semibold text-foreground">Cuentas conectadas</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-sm">
                   <thead>
-                    <tr>
-                      <th style={{ width: 180, paddingLeft: 16 }}>Nombre</th>
-                      <th style={{ width: 120 }}>Estado</th>
-                      <th style={{ width: 120 }}>Business API</th>
-                      <th style={{ width: 130 }}>Intervalo</th>
-                      <th style={{ width: 170 }}>Ultimo Poll</th>
-                      <th style={{ width: 100 }}>Polling</th>
-                      <th style={{ width: 180 }}>Acciones</th>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nombre</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Business API</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Intervalo</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ultimo Poll</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Polling</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border">
                     {loading ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: "center", padding: "3rem" }}>
-                          <Stack alignItems="center" spacing={1.5}>
+                        <td colSpan={7} className="px-4 py-12 text-center">
+                          <div className="flex flex-col items-center gap-3 text-muted-foreground">
                             <CircularProgress size="md" />
-                            <Typography level="body-sm" sx={{ color: "text.tertiary" }}>
-                              Cargando conexiones...
-                            </Typography>
-                          </Stack>
+                            <span className="text-sm">Cargando conexiones...</span>
+                          </div>
                         </td>
                       </tr>
                     ) : connections.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: "center", padding: "3rem" }}>
-                          <Stack alignItems="center" spacing={1.5}>
-                            <MusicNoteIcon sx={{ fontSize: 40, color: "text.tertiary", opacity: 0.4 }} />
-                            <Box>
-                              <Typography level="body-md" fontWeight={600}>
-                                Sin conexiones de TikTok
-                              </Typography>
-                              <Typography level="body-sm" sx={{ color: "text.tertiary", mt: 0.5 }}>
-                                Haz click en "Conectar con TikTok" para agregar tu primera cuenta
-                              </Typography>
-                            </Box>
-                          </Stack>
+                        <td colSpan={7} className="px-4 py-12 text-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <MusicNotes className="size-10 text-muted-foreground/40" aria-hidden />
+                            <p className="text-sm font-semibold text-foreground">
+                              Sin conexiones de TikTok
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Haz click en "Conectar con TikTok" para agregar tu primera cuenta
+                            </p>
+                          </div>
                         </td>
                       </tr>
                     ) : (
                       connections.map((connection) => (
-                        <tr key={connection.id}>
+                        <tr key={connection.id} className="transition-colors hover:bg-accent/40">
                           {/* Nombre */}
-                          <td style={{ paddingLeft: 16 }}>
-                            <Stack direction="row" spacing={1.25} alignItems="center">
-                              <Box
-                                sx={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: "8px",
-                                  bgcolor: "#00000008",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  flexShrink: 0,
-                                }}
-                              >
-                                <MusicNoteIcon sx={{ fontSize: 16, color: "#000000" }} />
-                              </Box>
-                              <Typography level="body-sm" fontWeight={600} noWrap>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                                <MusicNotes className="size-4" aria-hidden />
+                              </span>
+                              <span className="whitespace-nowrap font-medium text-foreground">
                                 {connection.name}
-                              </Typography>
-                            </Stack>
+                              </span>
+                            </div>
                           </td>
 
                           {/* Estado */}
-                          <td>
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={connection.status === "CONNECTED" ? "success" : "danger"}
-                              startDecorator={
-                                connection.status === "CONNECTED" ? (
-                                  <CheckCircleIcon sx={{ fontSize: 13 }} />
-                                ) : (
-                                  <CancelIcon sx={{ fontSize: 13 }} />
-                                )
-                              }
-                            >
+                          <td className="px-4 py-3">
+                            <Badge variant={connection.status === "CONNECTED" ? "success" : "destructive"}>
+                              {connection.status === "CONNECTED" ? (
+                                <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                              ) : (
+                                <XCircle className="size-3.5" weight="fill" aria-hidden />
+                              )}
                               {connection.status === "CONNECTED" ? "Conectado" : "Desconectado"}
-                            </Chip>
+                            </Badge>
                           </td>
 
                           {/* Business API */}
-                          <td>
+                          <td className="px-4 py-3">
                             {connection.tiktokBusinessConnected ? (
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color="success"
-                                startDecorator={<BusinessIcon sx={{ fontSize: 13 }} />}
-                              >
+                              <Badge variant="success">
+                                <Buildings className="size-3.5" weight="fill" aria-hidden />
                                 Activa
-                              </Chip>
+                              </Badge>
                             ) : (
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color="neutral"
-                              >
-                                No conectada
-                              </Chip>
+                              <Badge variant="neutral">No conectada</Badge>
                             )}
                           </td>
 
                           {/* Intervalo */}
-                          <td>
+                          <td className="px-4 py-3">
                             <Select
-                              size="sm"
-                              variant="soft"
-                              value={connection.pollingInterval ?? 120}
-                              onChange={(_event, newValue) => {
-                                if (newValue !== null) {
-                                  handleChangeInterval(connection.id, newValue as number);
-                                }
-                              }}
-                              sx={{
-                                minWidth: 100,
-                                fontSize: "0.75rem",
-                              }}
+                              value={String(connection.pollingInterval ?? 120)}
+                              onValueChange={(value) =>
+                                handleChangeInterval(connection.id, Number(value))
+                              }
                             >
-                              {POLLING_INTERVALS.map((opt) => (
-                                <Option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </Option>
-                              ))}
+                              <SelectTrigger className="h-8 w-[110px] text-xs" aria-label="Intervalo de polling">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {POLLING_INTERVALS.map((opt) => (
+                                  <SelectItem key={opt.value} value={String(opt.value)}>
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
                             </Select>
                           </td>
 
                           {/* Ultimo Poll */}
-                          <td>
-                            <Typography level="body-xs" sx={{ color: "text.secondary" }}>
-                              {formatDate(connection.lastPollAt)}
-                            </Typography>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {formatDate(connection.lastPollAt)}
                           </td>
 
                           {/* Polling toggle */}
-                          <td>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Switch
-                                checked={connection.pollingEnabled}
-                                disabled={pollingIds.has(connection.id)}
-                                onChange={() => handleTogglePolling(connection)}
-                                color={connection.pollingEnabled ? "success" : "neutral"}
-                                size="sm"
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={connection.pollingEnabled}
+                              aria-label={connection.pollingEnabled ? "Desactivar polling" : "Activar polling"}
+                              disabled={pollingIds.has(connection.id)}
+                              onClick={() => handleTogglePolling(connection)}
+                              className={cn(
+                                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55",
+                                connection.pollingEnabled ? "bg-success" : "bg-input",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "inline-block size-5 transform rounded-full bg-white shadow transition-transform",
+                                  connection.pollingEnabled ? "translate-x-[22px]" : "translate-x-0.5",
+                                )}
+                                aria-hidden
                               />
-                            </Stack>
+                            </button>
                           </td>
 
                           {/* Acciones */}
-                          <td>
-                            <Stack direction="row" spacing={0.5} alignItems="center">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
                               {/* Conectar Business API */}
                               {!connection.tiktokBusinessConnected && connection.status === "CONNECTED" && (
                                 <Button
                                   size="sm"
-                                  variant="soft"
-                                  color="primary"
+                                  variant="outline"
+                                  className="h-8 gap-1.5 px-2.5 text-xs"
                                   onClick={() => handleConnectBusiness(connection.id)}
-                                  disabled={connectingBusinessId === connection.id}
-                                  startDecorator={
-                                    connectingBusinessId === connection.id ? (
-                                      <CircularProgress size="sm" />
-                                    ) : (
-                                      <BusinessIcon sx={{ fontSize: 16 }} />
-                                    )
-                                  }
-                                  sx={{ fontSize: "0.7rem", py: 0.5 }}
+                                  loading={connectingBusinessId === connection.id}
                                 >
+                                  {connectingBusinessId !== connection.id && (
+                                    <Buildings className="size-4" aria-hidden />
+                                  )}
                                   Business
                                 </Button>
                               )}
-                              <IconButton
-                                size="sm"
-                                variant="soft"
-                                color="primary"
+                              <ActionBtn
+                                label="Poll ahora"
                                 onClick={() => handlePollNow(connection.id)}
                                 disabled={pollingIds.has(connection.id)}
-                                title="Poll Ahora"
+                                className="text-primary hover:bg-primary/10 hover:text-primary"
                               >
                                 {pollingIds.has(connection.id) ? (
                                   <CircularProgress size="sm" />
                                 ) : (
-                                  <RefreshIcon />
+                                  <ArrowClockwise className="size-[18px]" aria-hidden />
                                 )}
-                              </IconButton>
-                              <IconButton
-                                size="sm"
-                                variant="soft"
-                                color="danger"
+                              </ActionBtn>
+                              <ActionBtn
+                                label="Eliminar conexion"
                                 onClick={() => handleDelete(connection.id)}
                                 disabled={deletingIds.has(connection.id)}
-                                title="Eliminar conexion"
+                                className="hover:bg-destructive/10 hover:text-destructive-text"
                               >
                                 {deletingIds.has(connection.id) ? (
                                   <CircularProgress size="sm" />
                                 ) : (
-                                  <DeleteIcon />
+                                  <Trash className="size-[18px]" aria-hidden />
                                 )}
-                              </IconButton>
-                            </Stack>
+                              </ActionBtn>
+                            </div>
                           </td>
                         </tr>
                       ))
                     )}
                   </tbody>
-                </Table>
-              </Sheet>
-            </Card>
-          </TabPanel>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
 
           {/* ═══════════════════════════════════════════════ */}
           {/* TAB 1: Publicaciones */}
           {/* ═══════════════════════════════════════════════ */}
-          <TabPanel value={1} sx={{ p: 0, pt: 2 }}>
+          <TabsContent value="1">
             <TikTokPostsTab connections={connections} />
-          </TabPanel>
+          </TabsContent>
         </Tabs>
-      </Stack>
-    </Container>
+      </div>
+    </div>
   );
 }

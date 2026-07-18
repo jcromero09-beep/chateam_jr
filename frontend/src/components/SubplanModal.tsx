@@ -139,6 +139,7 @@ export default function SubplanModal({ open, onClose, onSuccess, currentTokenInf
 
         setUploadingComprobante(true)
         const formData = new FormData()
+        formData.append('typeArch', 'receipts')
         formData.append('file', comprobanteFile)
         formData.append('subplanId', String(selectedSubplan.id))
         formData.append('descripcion', comprobanteDescripcion || 'Comprobante de pago de tokens IA')

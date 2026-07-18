@@ -297,8 +297,33 @@ const processCampaign = async (
     privateReplyText = replaceVariables(processSpintax(privateReplyText), vars);
   }
 
-  // h. Ejecutar respuesta publica
-  if (campaign.sendPublicReply && publicReplyText) {
+  // [Fase2·Ola H · H.2] Gate de moderación: si el comentario cae en categoría
+  // sensible, NUNCA se auto-publica. Se retiene la respuesta como borrador y se
+  // enruta a revisión humana. La clasificación por keywords es determinista (no
+  // depende de que la IA funcione).
+  let heldForReview = false;
+  try {
+    const { classifyByKeywords } = await import("../SocialCommentServices/CommentModerationService");
+    const cls = await classifyByKeywords(campaign.companyId, commentText);
+    if (cls.sensitive) {
+      heldForReview = true;
+      const CommentModerationAudit = (await import("../../models/CommentModerationAudit")).default;
+      await CommentModerationAudit.create({
+        companyId: campaign.companyId, commentId: 0, action: "held",
+        toStatus: "pending_review", category: cls.category,
+        draftAfter: publicReplyText || null,
+        note: `Auto-reply RETENIDO (${platform} comment ${commentId}); keywords: ${cls.matched.join(", ")}`
+      } as any);
+      logger.warn(`[WebhookProcessor] Comentario ${commentId} sensible (${cls.category}) → retenido para revisión humana, NO auto-publicado`);
+    }
+  } catch (modErr: unknown) {
+    logger.error(`[WebhookProcessor] Gate de moderación falló (fail-safe: retener): ${modErr instanceof Error ? modErr.message : modErr}`);
+    // fail-safe: ante duda, retener (mejor no publicar que publicar algo sensible).
+    heldForReview = true;
+  }
+
+  // h. Ejecutar respuesta publica (bloqueada si el comentario está en revisión)
+  if (campaign.sendPublicReply && publicReplyText && !heldForReview) {
     try {
       const replyFn = platform === "instagram" ? replyToIGComment : replyToComment;
       const result = await replyFn(commentId, publicReplyText, accessToken);
@@ -311,7 +336,7 @@ const processCampaign = async (
   }
 
   // i. Ejecutar respuesta privada (solo Facebook soporta private_replies)
-  if (campaign.sendPrivateReply && privateReplyText && platform === "facebook") {
+  if (campaign.sendPrivateReply && privateReplyText && platform === "facebook" && !heldForReview) {
     try {
       const result = await sendPrivateReply(commentId, privateReplyText, accessToken);
       privateReplyId = result.id || null;

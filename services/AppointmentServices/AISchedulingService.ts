@@ -153,7 +153,7 @@ class AISchedulingService {
         reasoning: suggestion.reasoning,
         alternativeTimes: suggestion.alternativeTimes,
         status: 'pending',
-        aiModel: completion.model || 'gpt-4o',
+        aiModel: completion.model || 'gpt-5.5',
         aiTokensUsed: totalTokens
       });
 

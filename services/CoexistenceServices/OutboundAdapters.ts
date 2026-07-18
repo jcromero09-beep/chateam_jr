@@ -29,13 +29,91 @@ export interface AdapterSendInput {
   quotedMsg?: any;
 }
 
+export interface DispatchError {
+  message: string;
+  name?: string;
+  /** Código numérico de Meta Graph API (cuando aplica). */
+  code?: number | string;
+  /** Subcódigo Meta. */
+  subcode?: number | string;
+  /** Indica si el error es por ventana 24h cerrada (re-engagement). */
+  closedWindow?: boolean;
+  /** Indica si el error es transitorio y vale la pena reintentar. */
+  retriable?: boolean;
+  /** fbtrace_id para soporte Meta. */
+  fbtrace_id?: string;
+}
+
 export interface DispatchResult {
   provider: AdapterProvider;
   providerMessageId: string | null;
   ok: boolean;
   rawResult?: any;
-  error?: { message: string; name?: string };
+  error?: DispatchError;
 }
+
+// ───────────────────────────────────────────────────────────────────
+// FASE 7 — Detección de errores Meta de ventana 24h cerrada
+// ───────────────────────────────────────────────────────────────────
+// Códigos oficiales de Meta WhatsApp Cloud API que indican que el
+// mensaje libre fue rechazado por estar fuera de la ventana de 24h.
+// Cuando aparece uno de estos: el dispatcher debe intentar fallback
+// por Baileys (si está disponible) o pedir template Meta.
+//
+// Ref: https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes
+//   131047 — Re-engagement message  (ventana cerrada)
+//   131051 — Unsupported message type (a veces relacionado)
+//   131026 — Message Undeliverable
+//   131048 — Spam restrictions
+//   131056 — Pair rate limit
+//   470    — Re-engagement (legacy code)
+//   368    — Temporarily blocked / re-engagement requirement
+const META_CLOSED_WINDOW_CODES = new Set<number | string>([
+  131047,
+  470,
+  368,
+  131048,
+  131026
+]);
+
+const META_RETRIABLE_CODES = new Set<number | string>([
+  131056, // pair rate limit
+  131000, // generic
+  130472, // user marked as experiment
+  4 // application request limit reached
+]);
+
+const classifyMetaError = (err: any): DispatchError => {
+  const data = err?.response?.data?.error || err?.error || {};
+  const code = data?.code;
+  const subcode = data?.error_subcode;
+  const fbtrace_id = data?.fbtrace_id;
+  const messageRaw =
+    data?.error_user_msg ||
+    data?.message ||
+    err?.message ||
+    "meta_send_failed";
+
+  const closedWindow =
+    META_CLOSED_WINDOW_CODES.has(code) ||
+    META_CLOSED_WINDOW_CODES.has(subcode) ||
+    /re-?engagement|24[\s-]?hour|outside.*window|message.*template/i.test(
+      String(messageRaw)
+    );
+
+  const retriable =
+    META_RETRIABLE_CODES.has(code) || (err?.response?.status >= 500);
+
+  return {
+    message: String(messageRaw).substring(0, 500),
+    name: err?.name,
+    code,
+    subcode,
+    fbtrace_id,
+    closedWindow,
+    retriable
+  };
+};
 
 // ═══════════════════════════════════════════════════════════════
 // BAILEYS ADAPTER
@@ -128,15 +206,22 @@ export const metaAdapter = {
         rawResult: (response as any)?.data || response
       };
     } catch (err: any) {
+      const classified = classifyMetaError(err);
       logger.error(
-        { err: err?.message, ticketId: (ticket as any).id },
+        {
+          err: classified.message,
+          code: classified.code,
+          subcode: classified.subcode,
+          closedWindow: classified.closedWindow,
+          ticketId: (ticket as any).id
+        },
         "[OutboundAdapter:meta] send failed"
       );
       return {
         provider: "meta",
         providerMessageId: null,
         ok: false,
-        error: { message: err?.message, name: err?.name }
+        error: classified
       };
     }
   }

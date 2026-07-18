@@ -1,3 +1,9 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import * as Yup from "yup";
 import AppError from "../../errors/AppError";
 import Prompt from "../../models/Prompt";
@@ -147,7 +153,7 @@ if (fileNameIA) {
     console.log('[DEBUG] Iniciando proceso de embedding asincrónico...');
   
     const rutaDelArchivo = path.resolve(
-      __dirname,
+      currentDir,
       "..",
       "..",
       "..",

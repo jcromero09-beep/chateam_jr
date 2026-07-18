@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { selectModel } from "./ModelRouterService";
 import logger from "../../utils/logger";
 
@@ -17,7 +21,7 @@ import logger from "../../utils/logger";
  * debe pasar el mensaje al flujo normal (Sales/Support con tools),
  * NO asumir confirmación ni negación.
  *
- * Modelo: gpt-4.1-mini (tier 'mini', ~$0.0001 por clasificación).
+ * Modelo: gpt-5.5 por defecto (respetando ModelRouterService si hay config).
  */
 
 export type AppointmentIntent = 'confirm' | 'reschedule' | 'cancel' | 'ambiguous';
@@ -52,7 +56,7 @@ const classifyResponse = async (
 
   // 🆕 Usar selectModel para respetar la config de modelo por empresa
   const modelSelection = await selectModel('appointment_classifier', message, 'mini');
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini';
+  const modelKey = modelSelection?.entity.key || 'gpt-5.5';
 
   // Construir descripción de la cita para dar contexto al LLM
   let citaInfo = '';

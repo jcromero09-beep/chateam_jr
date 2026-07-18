@@ -1,41 +1,37 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CircularProgress } from '@mui/joy'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Sheet,
-  Table,
-  Input,
+  Plus,
+  PaperPlaneTilt,
+  PencilSimple,
+  Trash,
+  Play,
+  Pause,
+  MagnifyingGlass,
+  ArrowClockwise,
+  Megaphone,
+  EnvelopeSimple,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { StatTile } from '@/components/ui/stat-tile'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
   Select,
-  Option,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Textarea,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-} from '@mui/joy'
-import {
-  Add as AddIcon,
-  Send as SendIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  PlayArrow as PlayArrowIcon,
-  Pause as PauseIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Campaign as CampaignIcon,
-  Email as EmailIcon,
-} from '@mui/icons-material'
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import * as emailService from '../services/emailCampaignService'
 
 // TODO: Socket.IO listener for real-time updates
@@ -82,14 +78,11 @@ const STATUS_LABEL: Record<CampaignStatus, string> = {
   FINALIZADA: 'Finalizada',
 }
 
-const STATUS_COLOR: Record<
-  CampaignStatus,
-  'neutral' | 'warning' | 'primary' | 'danger' | 'success'
-> = {
+const STATUS_VARIANT: Record<CampaignStatus, BadgeProps['variant']> = {
   INACTIVA: 'neutral',
   PROGRAMADA: 'warning',
   EN_ANDAMENTO: 'primary',
-  CANCELADA: 'danger',
+  CANCELADA: 'destructive',
   FINALIZADA: 'success',
 }
 
@@ -100,6 +93,40 @@ const EMPTY_FORM: NewCampaignForm = {
   contactListId: '',
   sendAt: '',
 }
+
+// Botón de acción de fila (mismo look que RowAction del prototipo, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+const inputClasses =
+  'h-11 w-full rounded-md border border-input bg-card px-3.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
 
 export default function EmailMarketingCampaigns() {
   const [campaigns, setCampaigns] = useState<EmailCampaign[]>([])
@@ -288,499 +315,416 @@ export default function EmailMarketingCampaigns() {
   // ---- Render ----
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Stack spacing={3}>
-
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* ---- Header ---- */}
-        <Stack
-          direction="row"
-          spacing={2}
-          alignItems="center"
-          justifyContent="space-between"
-          flexWrap="wrap"
-          sx={{ gap: 1 }}
-        >
-          <Stack direction="row" spacing={2} alignItems="center">
-            <EmailIcon sx={{ fontSize: 36, color: 'primary.500' }} />
-            <Box>
-              <Typography level="h2">Campanas de Email</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <EnvelopeSimple className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Campanas de Email
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 {count > 0 ? `${count} campanas en total` : 'Gestion de campanas con Acelle Mail'}
-              </Typography>
-            </Box>
-          </Stack>
+              </p>
+            </div>
+          </div>
 
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Tooltip title="Actualizar lista">
-              <IconButton
-                variant="outlined"
-                color="neutral"
-                onClick={refreshList}
-                disabled={loading}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
+          <div className="flex items-center gap-2">
             <Button
-              startDecorator={<AddIcon />}
-              color="primary"
-              onClick={() => setOpenCreateModal(true)}
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar lista"
+              className="text-muted-foreground"
+              onClick={refreshList}
+              disabled={loading}
             >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={() => setOpenCreateModal(true)}>
+              <Plus className="size-4" weight="bold" aria-hidden />
               Nueva Campana
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* ---- Stats Cards ---- */}
-        <Grid container spacing={2}>
-          {[
-            { label: 'Total', value: campaigns.length, color: '#6B7280', icon: <CampaignIcon sx={{ fontSize: 28 }} /> },
-            { label: 'Inactivas', value: totalByStatus('INACTIVA'), color: '#9CA3AF' },
-            { label: 'Programadas', value: totalByStatus('PROGRAMADA'), color: '#F59E0B' },
-            { label: 'En Progreso', value: totalByStatus('EN_ANDAMENTO'), color: '#3B82F6' },
-            { label: 'Finalizadas', value: totalByStatus('FINALIZADA'), color: '#10B981' },
-          ].map((stat) => (
-            <Grid key={stat.label} xs={12} sm={6} md={2.4}>
-              <Card variant="outlined">
-                <CardContent>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Box>
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                        {stat.label}
-                      </Typography>
-                      <Typography level="h3">{stat.value}</Typography>
-                    </Box>
-                    {stat.icon ?? (
-                      <Box
-                        sx={{
-                          width: 12,
-                          height: 12,
-                          borderRadius: '50%',
-                          backgroundColor: stat.color,
-                        }}
-                      />
-                    )}
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          <StatTile label="Total" value={String(campaigns.length)} />
+          <StatTile label="Inactivas" value={String(totalByStatus('INACTIVA'))} />
+          <StatTile label="Programadas" value={String(totalByStatus('PROGRAMADA'))} tone="warning" />
+          <StatTile label="En Progreso" value={String(totalByStatus('EN_ANDAMENTO'))} tone="primary" />
+          <StatTile label="Finalizadas" value={String(totalByStatus('FINALIZADA'))} tone="success" />
+        </div>
 
         {/* ---- Search bar ---- */}
-        <Card variant="outlined">
-          <CardContent>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Input
-                placeholder="Buscar por nombre de campana... (Enter para buscar)"
-                value={searchParam}
-                onChange={(e) => setSearchParam(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                startDecorator={<SearchIcon />}
-                sx={{ flexGrow: 1 }}
-              />
-              <Button
-                variant="outlined"
-                color="neutral"
-                startDecorator={<SearchIcon />}
-                onClick={refreshList}
-                disabled={loading}
-              >
-                Buscar
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <MagnifyingGlass
+              className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              placeholder="Buscar por nombre de campana... (Enter para buscar)"
+              aria-label="Buscar campanas"
+              value={searchParam}
+              onChange={(e) => setSearchParam(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={refreshList} disabled={loading}>
+            <MagnifyingGlass className="size-4" aria-hidden />
+            Buscar
+          </Button>
+        </div>
 
         {/* ---- Table ---- */}
-        <Card variant="outlined">
-          <CardContent sx={{ p: 0 }}>
-            {loading && campaigns.length === 0 ? (
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  py: 6,
-                }}
-              >
-                <CircularProgress size="md" />
-              </Box>
-            ) : (
-              <Sheet sx={{ overflow: 'auto', borderRadius: 'var(--joy-radius-md)' }}>
-                <Table
-                  stickyHeader
-                  hoverRow
-                  sx={{
-                    '& thead th': { fontWeight: 700, fontSize: '0.8rem' },
-                    '& tbody td': { verticalAlign: 'middle' },
-                    '--TableCell-paddingX': '16px',
-                    '--TableCell-paddingY': '12px',
-                  }}
-                >
-                  <thead>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+          {loading && campaigns.length === 0 ? (
+            <div className="flex items-center justify-center py-16">
+              <CircularProgress size="md" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    {['Nombre', 'Asunto', 'Lista de Contactos', 'Estado', 'Fecha Creacion'].map((c) => (
+                      <th
+                        key={c}
+                        className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {c}
+                      </th>
+                    ))}
+                    <th className="whitespace-nowrap px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {campaigns.length === 0 ? (
                     <tr>
-                      <th style={{ minWidth: 220 }}>Nombre</th>
-                      <th style={{ minWidth: 200 }}>Asunto</th>
-                      <th style={{ minWidth: 180 }}>Lista de Contactos</th>
-                      <th style={{ minWidth: 130 }}>Estado</th>
-                      <th style={{ minWidth: 140 }}>Fecha Creacion</th>
-                      <th style={{ minWidth: 140, textAlign: 'center' }}>Acciones</th>
+                      <td colSpan={6} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <Megaphone className="size-12 text-muted-foreground/50" aria-hidden />
+                          <p className="text-sm text-muted-foreground">
+                            {searchParam
+                              ? 'No se encontraron campanas con ese criterio'
+                              : 'No hay campanas creadas todavia'}
+                          </p>
+                          {!searchParam && (
+                            <Button size="sm" onClick={() => setOpenCreateModal(true)}>
+                              <Plus className="size-4" weight="bold" aria-hidden />
+                              Crear primera campana
+                            </Button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {campaigns.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
-                          <Stack spacing={1} alignItems="center">
-                            <CampaignIcon sx={{ fontSize: 48, color: 'neutral.300' }} />
-                            <Typography level="body-md" sx={{ color: 'text.tertiary' }}>
-                              {searchParam
-                                ? 'No se encontraron campanas con ese criterio'
-                                : 'No hay campanas creadas todavia'}
-                            </Typography>
-                            {!searchParam && (
-                              <Button
-                                size="sm"
-                                startDecorator={<AddIcon />}
-                                onClick={() => setOpenCreateModal(true)}
-                              >
-                                Crear primera campana
-                              </Button>
+                  ) : (
+                    campaigns.map((campaign) => {
+                      const isActioning = actionLoading === campaign.id
+                      const canPlay =
+                        campaign.status === 'INACTIVA' ||
+                        campaign.status === 'PROGRAMADA' ||
+                        campaign.status === 'CANCELADA'
+                      const canPause = campaign.status === 'EN_ANDAMENTO'
+
+                      return (
+                        <tr key={campaign.id} className="transition-colors hover:bg-accent/40">
+                          {/* Nombre */}
+                          <td className="px-4 py-3 font-medium text-foreground">{campaign.name}</td>
+
+                          {/* Asunto */}
+                          <td className="px-4 py-3">
+                            <span className="block max-w-[220px] truncate text-muted-foreground">
+                              {campaign.subject || '-'}
+                            </span>
+                          </td>
+
+                          {/* Lista de Contactos */}
+                          <td className="px-4 py-3">
+                            {campaign.contactList ? (
+                              <Badge variant="neutral">{campaign.contactList.name}</Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Sin lista</span>
                             )}
-                          </Stack>
-                        </td>
-                      </tr>
-                    ) : (
-                      campaigns.map((campaign) => {
-                        const isActioning = actionLoading === campaign.id
-                        const canPlay =
-                          campaign.status === 'INACTIVA' ||
-                          campaign.status === 'PROGRAMADA' ||
-                          campaign.status === 'CANCELADA'
-                        const canPause = campaign.status === 'EN_ANDAMENTO'
+                          </td>
 
-                        return (
-                          <tr key={campaign.id}>
-                            {/* Nombre */}
-                            <td>
-                              <Typography level="body-sm" fontWeight="md">
-                                {campaign.name}
-                              </Typography>
-                            </td>
+                          {/* Estado */}
+                          <td className="px-4 py-3">
+                            <Badge variant={STATUS_VARIANT[campaign.status] ?? 'neutral'}>
+                              {STATUS_LABEL[campaign.status] ?? campaign.status}
+                            </Badge>
+                          </td>
 
-                            {/* Asunto */}
-                            <td>
-                              <Typography
-                                level="body-sm"
-                                sx={{
-                                  color: 'text.secondary',
-                                  maxWidth: 220,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {campaign.subject || '-'}
-                              </Typography>
-                            </td>
+                          {/* Fecha Creacion */}
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                            {campaign.createdAt
+                              ? new Date(campaign.createdAt).toLocaleDateString('es-ES', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                })
+                              : '-'}
+                          </td>
 
-                            {/* Lista de Contactos */}
-                            <td>
-                              {campaign.contactList ? (
-                                <Chip size="sm" variant="soft" color="neutral">
-                                  {campaign.contactList.name}
-                                </Chip>
+                          {/* Acciones */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-0.5">
+                              {isActioning ? (
+                                <CircularProgress size="sm" />
                               ) : (
-                                <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                  Sin lista
-                                </Typography>
+                                <>
+                                  {canPlay && (
+                                    <ActionBtn
+                                      label="Iniciar campana"
+                                      onClick={() => handlePlay(campaign)}
+                                      className="text-success-text hover:bg-success/10 hover:text-success-text"
+                                    >
+                                      <Play className="size-[18px]" aria-hidden />
+                                    </ActionBtn>
+                                  )}
+
+                                  {canPause && (
+                                    <ActionBtn
+                                      label="Pausar campana"
+                                      onClick={() => handlePause(campaign)}
+                                      className="text-warning-text hover:bg-warning/10 hover:text-warning-text"
+                                    >
+                                      <Pause className="size-[18px]" aria-hidden />
+                                    </ActionBtn>
+                                  )}
+
+                                  <ActionBtn
+                                    label="Editar campana"
+                                    onClick={() => {}}
+                                    disabled
+                                  >
+                                    <PencilSimple className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+
+                                  <ActionBtn
+                                    label="Eliminar campana"
+                                    onClick={() => openDelete(campaign)}
+                                    className="hover:bg-destructive/10 hover:text-destructive-text"
+                                  >
+                                    <Trash className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                </>
                               )}
-                            </td>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-                            {/* Estado */}
-                            <td>
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color={STATUS_COLOR[campaign.status] ?? 'neutral'}
-                              >
-                                {STATUS_LABEL[campaign.status] ?? campaign.status}
-                              </Chip>
-                            </td>
+          {/* Load More */}
+          {hasMore && (
+            <div className="flex justify-center p-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLoadMore}
+                loading={loading}
+              >
+                Cargar mas
+              </Button>
+            </div>
+          )}
 
-                            {/* Fecha Creacion */}
-                            <td>
-                              <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                                {campaign.createdAt
-                                  ? new Date(campaign.createdAt).toLocaleDateString('es-ES', {
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                      year: 'numeric',
-                                    })
-                                  : '-'}
-                              </Typography>
-                            </td>
-
-                            {/* Acciones */}
-                            <td>
-                              <Stack
-                                direction="row"
-                                spacing={0.5}
-                                justifyContent="center"
-                                alignItems="center"
-                              >
-                                {isActioning ? (
-                                  <CircularProgress size="sm" />
-                                ) : (
-                                  <>
-                                    {canPlay && (
-                                      <Tooltip title="Iniciar campana" size="sm">
-                                        <IconButton
-                                          size="sm"
-                                          variant="plain"
-                                          color="success"
-                                          onClick={() => handlePlay(campaign)}
-                                        >
-                                          <PlayArrowIcon />
-                                        </IconButton>
-                                      </Tooltip>
-                                    )}
-
-                                    {canPause && (
-                                      <Tooltip title="Pausar campana" size="sm">
-                                        <IconButton
-                                          size="sm"
-                                          variant="plain"
-                                          color="warning"
-                                          onClick={() => handlePause(campaign)}
-                                        >
-                                          <PauseIcon />
-                                        </IconButton>
-                                      </Tooltip>
-                                    )}
-
-                                    <Tooltip title="Editar campana" size="sm">
-                                      <IconButton
-                                        size="sm"
-                                        variant="plain"
-                                        color="neutral"
-                                        disabled
-                                      >
-                                        <EditIcon />
-                                      </IconButton>
-                                    </Tooltip>
-
-                                    <Tooltip title="Eliminar campana" size="sm">
-                                      <IconButton
-                                        size="sm"
-                                        variant="plain"
-                                        color="danger"
-                                        onClick={() => openDelete(campaign)}
-                                      >
-                                        <DeleteIcon />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </>
-                                )}
-                              </Stack>
-                            </td>
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </Table>
-              </Sheet>
-            )}
-
-            {/* Load More */}
-            {hasMore && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                <Button
-                  variant="outlined"
-                  color="neutral"
-                  size="sm"
-                  onClick={handleLoadMore}
-                  loading={loading}
-                >
-                  Cargar mas
-                </Button>
-              </Box>
-            )}
-
-            {/* Loading overlay while paginating */}
-            {loading && campaigns.length > 0 && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                <CircularProgress size="sm" />
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      </Stack>
+          {/* Loading overlay while paginating */}
+          {loading && campaigns.length > 0 && (
+            <div className="flex justify-center py-4">
+              <CircularProgress size="sm" />
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ---- Create Campaign Modal ---- */}
-      <Modal open={openCreateModal} onClose={handleCloseCreateModal}>
-        <ModalDialog
-          sx={{
-            width: { xs: '95vw', sm: 560 },
-            maxHeight: '90vh',
-            overflow: 'auto',
-          }}
-        >
-          <ModalClose />
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
-            <SendIcon sx={{ color: 'primary.500' }} />
-            <Typography level="h4">Nueva Campana de Email</Typography>
-          </Stack>
+      <Dialog
+        open={openCreateModal}
+        onOpenChange={(o) => {
+          if (!o) handleCloseCreateModal()
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PaperPlaneTilt className="size-5 text-primary" aria-hidden />
+              Nueva Campana de Email
+            </DialogTitle>
+          </DialogHeader>
 
-          <Stack spacing={2}>
+          <div className="space-y-4">
             {/* Nombre */}
-            <FormControl required error={!!formErrors.name}>
-              <FormLabel>Nombre de la campana</FormLabel>
-              <Input
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-name">
+                Nombre de la campana <span className="text-destructive-text">*</span>
+              </Label>
+              <input
+                id="campaign-name"
                 placeholder="Ej: Newsletter Febrero 2026"
                 value={form.name}
                 onChange={(e) => handleFormChange('name', e.target.value)}
+                aria-invalid={!!formErrors.name || undefined}
+                className={cn(
+                  inputClasses,
+                  formErrors.name &&
+                    'border-destructive hover:border-destructive focus-visible:border-destructive focus-visible:ring-destructive/30',
+                )}
               />
               {formErrors.name && (
-                <Typography level="body-xs" color="danger">
-                  {formErrors.name}
-                </Typography>
+                <p className="text-xs text-destructive-text">{formErrors.name}</p>
               )}
-            </FormControl>
+            </div>
 
             {/* Asunto */}
-            <FormControl required error={!!formErrors.subject}>
-              <FormLabel>Asunto del email</FormLabel>
-              <Input
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-subject">
+                Asunto del email <span className="text-destructive-text">*</span>
+              </Label>
+              <input
+                id="campaign-subject"
                 placeholder="Asunto que veran los destinatarios"
                 value={form.subject}
                 onChange={(e) => handleFormChange('subject', e.target.value)}
+                aria-invalid={!!formErrors.subject || undefined}
+                className={cn(
+                  inputClasses,
+                  formErrors.subject &&
+                    'border-destructive hover:border-destructive focus-visible:border-destructive focus-visible:ring-destructive/30',
+                )}
               />
               {formErrors.subject && (
-                <Typography level="body-xs" color="danger">
-                  {formErrors.subject}
-                </Typography>
+                <p className="text-xs text-destructive-text">{formErrors.subject}</p>
               )}
-            </FormControl>
+            </div>
 
             {/* Lista de Contactos */}
-            <FormControl>
-              <FormLabel>Lista de contactos (email)</FormLabel>
-              <Select
-                placeholder="Seleccionar lista..."
-                value={form.contactListId || null}
-                onChange={(_, value) => handleFormChange('contactListId', value ?? '')}
-              >
-                {contactLists.length === 0 ? (
-                  <Option value="" disabled>
-                    No hay listas de email disponibles
-                  </Option>
-                ) : (
-                  contactLists.map((list) => (
-                    <Option key={list.id} value={String(list.id)}>
-                      {list.name}
-                    </Option>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-list">Lista de contactos (email)</Label>
+              {contactLists.length === 0 ? (
+                <p className="rounded-md border border-input bg-muted/40 px-3.5 py-2.5 text-sm text-muted-foreground">
+                  No hay listas de email disponibles
+                </p>
+              ) : (
+                <Select
+                  value={form.contactListId || undefined}
+                  onValueChange={(value) => handleFormChange('contactListId', value)}
+                >
+                  <SelectTrigger id="campaign-list" className="h-11">
+                    <SelectValue placeholder="Seleccionar lista..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {contactLists.map((list) => (
+                      <SelectItem key={list.id} value={String(list.id)}>
+                        {list.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
 
             {/* Contenido HTML */}
-            <FormControl>
-              <FormLabel>Contenido HTML</FormLabel>
-              <Textarea
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-html">Contenido HTML</Label>
+              <textarea
+                id="campaign-html"
                 placeholder="Pega aqui el contenido HTML de tu email..."
-                minRows={5}
-                maxRows={10}
+                rows={5}
                 value={form.htmlContent}
                 onChange={(e) => handleFormChange('htmlContent', e.target.value)}
-                sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
+                className="w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 font-mono text-xs text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               />
-            </FormControl>
+            </div>
 
             {/* Fecha de envio */}
-            <FormControl>
-              <FormLabel>Fecha y hora de envio (opcional)</FormLabel>
-              <Input
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-sendat">Fecha y hora de envio (opcional)</Label>
+              <input
+                id="campaign-sendat"
                 type="datetime-local"
                 value={form.sendAt}
                 onChange={(e) => handleFormChange('sendAt', e.target.value)}
+                className={inputClasses}
               />
-            </FormControl>
+            </div>
+          </div>
 
-            {/* Buttons */}
-            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 1 }}>
-              <Button
-                variant="outlined"
-                color="neutral"
-                onClick={handleCloseCreateModal}
-                disabled={formSubmitting}
-              >
-                Cancelar
-              </Button>
-              <Button
-                color="primary"
-                startDecorator={formSubmitting ? <CircularProgress size="sm" /> : <SendIcon />}
-                onClick={handleCreateSubmit}
-                disabled={formSubmitting}
-              >
-                {formSubmitting ? 'Creando...' : 'Crear Campana'}
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={handleCloseCreateModal}
+              disabled={formSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateSubmit} loading={formSubmitting}>
+              {!formSubmitting && <PaperPlaneTilt className="size-4" aria-hidden />}
+              {formSubmitting ? 'Creando...' : 'Crear Campana'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ---- Delete Confirmation Modal ---- */}
-      <Modal
+      <Dialog
         open={openDeleteModal}
-        onClose={() => {
-          setOpenDeleteModal(false)
-          setSelectedCampaign(null)
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenDeleteModal(false)
+            setSelectedCampaign(null)
+          }
         }}
       >
-        <ModalDialog variant="outlined" role="alertdialog" sx={{ maxWidth: 420 }}>
-          <ModalClose />
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <DeleteIcon sx={{ color: 'danger.500' }} />
-              <Typography level="h4">Eliminar campana</Typography>
-            </Stack>
-
-            <Typography level="body-md">
+        <DialogContent className="sm:max-w-md" role="alertdialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash className="size-5 text-destructive-text" aria-hidden />
+              Eliminar campana
+            </DialogTitle>
+            <DialogDescription>
               Estas a punto de eliminar la campana{' '}
-              <Typography fontWeight="bold">"{selectedCampaign?.name}"</Typography>. Esta accion no
-              se puede deshacer.
-            </Typography>
+              <span className="font-bold text-foreground">"{selectedCampaign?.name}"</span>. Esta
+              accion no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
 
-            <Stack direction="row" spacing={1} justifyContent="flex-end">
-              <Button
-                variant="outlined"
-                color="neutral"
-                onClick={() => {
-                  setOpenDeleteModal(false)
-                  setSelectedCampaign(null)
-                }}
-                disabled={actionLoading !== null}
-              >
-                Cancelar
-              </Button>
-              <Button
-                color="danger"
-                startDecorator={
-                  actionLoading !== null ? <CircularProgress size="sm" /> : <DeleteIcon />
-                }
-                onClick={handleDeleteConfirm}
-                disabled={actionLoading !== null}
-              >
-                {actionLoading !== null ? 'Eliminando...' : 'Eliminar'}
-              </Button>
-            </Stack>
-          </Stack>
-        </ModalDialog>
-      </Modal>
-    </Container>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpenDeleteModal(false)
+                setSelectedCampaign(null)
+              }}
+              disabled={actionLoading !== null}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleDeleteConfirm}
+              loading={actionLoading !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {actionLoading === null && <Trash className="size-4" aria-hidden />}
+              {actionLoading !== null ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

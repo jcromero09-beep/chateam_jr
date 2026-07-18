@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { QueryTypes } from "sequelize";
 import sequelize from "../../database";
 import HybridSearchService from "../RAGServices/HybridSearchService";
@@ -332,7 +336,7 @@ const processQuery = async (
 
   // 5. Seleccionar modelo y generar respuesta
   const modelSelection = await selectModel('rag', query);
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini';
+  const modelKey = modelSelection?.entity.key || 'gpt-5.5';
 
   let answer: string;
   let tokensUsed = { input: 0, output: 0 };
@@ -351,7 +355,7 @@ const processQuery = async (
   }
 
   // Helper local: retry con backoff exponencial para fallas de red con OpenAI
-  const chatCompletionWithRetry = async (params: any, maxAttempts = 3): Promise<any> => {
+  const chatCompletionWithRetry = async (params: any, maxAttempts = 2): Promise<any> => {
     const { chatCompletion } = require("../AIClientService");
     let lastErr: any;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -381,86 +385,29 @@ const processQuery = async (
     const ragMaxTokens = PreprocessingService.getMaxTokensForChannel(channel as any);
 
     // ═══════════════════════════════════════════════════════════════════
-    // PASADA 1: ANÁLISIS Y DECISIÓN (JSON)
-    // El LLM razona sobre el contexto y decide qué hacer
-    // ═══════════════════════════════════════════════════════════════════
-    const analysisPrompt = `Eres un analizador experto de conversaciones de atención al cliente.
-Tu trabajo es analizar el mensaje del cliente con todo el contexto disponible y DECIDIR qué hacer.
-
-## CONTEXTO DISPONIBLE
-${ticketContext || '(sin contexto adicional)'}
-
-## REGLAS Y CONOCIMIENTO DE LA EMPRESA
-${context}
-
-## HISTORIAL DE LA CONVERSACIÓN
-${ticketHistory.length > 0
-  ? ticketHistory.slice(-10).map(m => `${m.role === 'assistant' ? 'AGENTE' : 'CLIENTE'}: ${m.content}`).join('\n')
-  : '(primer mensaje, sin historial)'}
-
-## MENSAJE ACTUAL DEL CLIENTE
-"${query}"
-
-## TU TAREA
-Analiza y responde SOLO con un JSON válido (sin markdown, sin backticks):
-
-{
-  "contexto_detectado": "descripción breve del contexto (ej: 'primer mensaje, petición vaga sobre GPS')",
-  "es_primer_mensaje": true|false,
-  "cliente_especifico_que_necesita": true|false,
-  "info_faltante": ["qué falta saber, ej: tipo de vehículo, presupuesto"],
-  "reglas_aplicables": ["qué reglas del CONOCIMIENTO aplican aquí"],
-  "opciones_consideradas": [
-    {"opcion": "descripción", "viable": true|false, "razon": "por qué"}
-  ],
-  "decision": "preguntar_clarificacion | dar_informacion | ofrecer_producto | derivar_humano | saludar",
-  "que_hacer": "instrucción específica para el redactor (ej: 'preguntar tipo de vehículo antes de recomendar')",
-  "datos_a_usar": "qué datos específicos del CONOCIMIENTO usar en la respuesta (copia textual si aplica)",
-  "prohibiciones": ["qué NO hacer en la respuesta"]
-}`;
-
-    logger.info(`[RAGAgent] PASADA 1: Análisis y decisión...`);
-    const analysisResponse = await chatCompletionWithRetry({
-      messages: [
-        { role: 'system', content: 'Responde SOLO con JSON válido. Sin markdown, sin backticks, sin explicación fuera del JSON.' },
-        { role: 'user', content: analysisPrompt }
-      ],
-      model: modelKey,
-      maxTokens: 800,
-      temperature: 0.1,
-      companyId,
-      module: 'classification' as any
-    });
-
-    let analysis: any = {};
-    try {
-      const text = analysisResponse.content?.trim() || '{}';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-    } catch (parseErr) {
-      logger.warn(`[RAGAgent] Error parseando análisis JSON, usando fallback`);
-      analysis = { decision: 'dar_informacion', que_hacer: 'responder con la información disponible' };
-    }
-
-    logger.info(
-      `[RAGAgent] Decisión: ${analysis.decision} | ${analysis.que_hacer?.substring(0, 80) || ''}`
-    );
-
-    // ═══════════════════════════════════════════════════════════════════
-    // PASADA 2: REDACCIÓN FINAL
-    // El LLM redacta el mensaje natural según la decisión tomada
+    // PASADA ÚNICA: ANÁLISIS + REDACCIÓN (fusión de las 2 pasadas anteriores)
+    // Antes eran 2 llamadas LLM secuenciales (análisis JSON con mini + redacción con
+    // el modelo grande). Se fusionan en 1 sola: el modelo razona internamente (qué necesita
+    // el cliente, qué reglas aplican, qué NO inventar) y produce directamente la respuesta
+    // final. Ahorra una llamada LLM serial (~2-4s) por request. Se mantienen los guardrails
+    // anti-alucinación como instrucciones explícitas y el ResponseGatekeeper posterior sigue
+    // auditando la respuesta.
     // ═══════════════════════════════════════════════════════════════════
     const systemPrompt = buildRAGSystemPrompt(context, ticketContext, dbSystemPrompt);
+    const canalTexto = channel === 'webchat' ? 'chat web' : 'WhatsApp';
 
     const instruccionRedactor = `
-## DECISIÓN TOMADA POR EL ANALIZADOR
-Acción: ${analysis.decision || 'dar_informacion'}
-Instrucción: ${analysis.que_hacer || 'responder con información disponible'}
-Datos a usar: ${analysis.datos_a_usar || 'los del CONTEXTO arriba'}
-Prohibiciones: ${Array.isArray(analysis.prohibiciones) ? analysis.prohibiciones.join(', ') : 'ninguna'}
+## CÓMO RESPONDER (razona internamente, NUNCA muestres el razonamiento)
+1. Identifica qué necesita el cliente usando el CONTEXTO y el HISTORIAL de la conversación.
+2. Aplica SOLO las REGLAS Y CONOCIMIENTO de la empresa que correspondan al caso.
+3. Usa ÚNICAMENTE datos que aparezcan en el CONOCIMIENTO/CONTEXTO. Está PROHIBIDO inventar
+   precios, horarios, servicios, plazos, promociones o cualquier dato que no esté ahí.
+4. Si falta información para responder bien, haz UNA sola pregunta de aclaración.
+5. Si el pedido está fuera de tu alcance o requiere gestión/agendamiento, ofrece derivar
+   a un asesor humano en vez de inventar.
 
-Redacta la respuesta final al cliente siguiendo EXACTAMENTE esta decisión.
-NO muestres el razonamiento, solo la respuesta final en lenguaje natural para WhatsApp.`;
+Responde SOLO con el mensaje final al cliente, en lenguaje natural para ${canalTexto},
+sin encabezados, sin JSON y sin explicar tu proceso.`;
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt + '\n' + instruccionRedactor }
@@ -478,31 +425,28 @@ NO muestres el razonamiento, solo la respuesta final en lenguaje natural para Wh
 
     messages.push({ role: 'user', content: query });
 
-    logger.info(`[RAGAgent] PASADA 2: Redacción final...`);
+    logger.info(`[RAGAgent] PASADA ÚNICA: análisis + redacción...`);
     const llmResponse = await chatCompletionWithRetry({
       messages,
       model: modelKey,
       maxTokens: ragMaxTokens,
-      temperature: 0.3, // Baja para seguir la decisión sin inventar
+      temperature: 0.3, // Baja para ceñirse al conocimiento sin inventar
       companyId,
       module: 'chat' as any
     });
 
     answer = llmResponse.content;
 
-    // Sumar tokens de ambas pasadas
-    const analysisTokens = (analysisResponse.usage?.prompt_tokens || 0) + (analysisResponse.usage?.completion_tokens || 0);
-    const redactionTokens = (llmResponse.usage?.prompt_tokens || 0) + (llmResponse.usage?.completion_tokens || 0);
     tokensUsed = {
-      input: (analysisResponse.usage?.prompt_tokens || 0) + (llmResponse.usage?.prompt_tokens || 0),
-      output: (analysisResponse.usage?.completion_tokens || 0) + (llmResponse.usage?.completion_tokens || 0)
+      input: llmResponse.usage?.prompt_tokens || 0,
+      output: llmResponse.usage?.completion_tokens || 0
     };
 
     logger.info(
-      `[RAGAgent] Completado 2 pasadas: tokens=${analysisTokens + redactionTokens}, decisión=${analysis.decision}`
+      `[RAGAgent] Completado (pasada única): tokens=${tokensUsed.input + tokensUsed.output}`
     );
   } catch (llmError: any) {
-    logger.error(`[RAGAgent] Error en generación LLM (2 pasadas): ${llmError.message}`);
+    logger.error(`[RAGAgent] Error en generación LLM (pasada única): ${llmError.message}`);
     answer = "Déjame conectarte con un asesor humano para que te ayude mejor con tu consulta. 🙏";
     isFallback = true;
   }
@@ -672,6 +616,7 @@ function calculateCost(
 ): number {
   // Costos aproximados por 1K tokens (USD)
   const costs: Record<string, { input: number; output: number }> = {
+    'gpt-5.5': { input: 0.005, output: 0.03 },
     'gpt-4.1-mini': { input: 0.0004, output: 0.0016 },
     'gpt-4.1': { input: 0.002, output: 0.008 },
     'claude-3.5-haiku': { input: 0.0008, output: 0.004 },

@@ -1,7 +1,7 @@
 import * as Yup from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
-import axios from "axios";
+import logger from "../utils/logger";
 
 import ListService from "../services/ContactListItemService/ListService";
 import CreateService from "../services/ContactListItemService/CreateService";
@@ -12,9 +12,10 @@ import FindService from "../services/ContactListItemService/FindService";
 
 import ContactListItem from "../models/ContactListItem";
 import ContactList from "../models/ContactList";
-import Setting from "../models/Setting";
 
 import AppError from "../errors/AppError";
+import { EmailMarketingFactory } from "../services/EmailMarketing/providers/EmailMarketingFactory";
+import { EmailMarketingProvider } from "../services/EmailMarketing/providers/EmailMarketingProvider";
 
 type IndexQuery = {
   searchParam: string;
@@ -35,6 +36,51 @@ type FindParams = {
   companyId: number;
   contactListId: number;
 };
+
+// ============================================================================
+// Helpers de provider
+// ============================================================================
+
+interface ProviderTarget {
+  provider: EmailMarketingProvider;
+  providerListId: string;
+}
+
+/**
+ * Resuelve el provider activo + providerListId efectivo de la lista.
+ * Si la lista es de email pero NO tiene provider sync, lanza error claro.
+ */
+async function resolveProviderForList(
+  contactList: ContactList,
+  companyId: number
+): Promise<ProviderTarget | null> {
+  if (!contactList.isEmailList) return null;
+
+  const providerListId = contactList.providerListId || contactList.acelleListUid;
+  if (!providerListId) {
+    throw new AppError(
+      "Esta lista de email no esta sincronizada con ningun provider. Edite la lista para resincronizar.",
+      400
+    );
+  }
+
+  const provider = await EmailMarketingFactory.getProvider(companyId);
+
+  // Si la lista fue creada con un provider distinto al activo,
+  // permitimos operar pero advertimos en logs
+  const expected = contactList.provider || (contactList.acelleListUid ? "acelle" : null);
+  if (expected && expected !== provider.getProviderName()) {
+    logger.warn(
+      `[ContactListItemController] Lista ${contactList.id} fue creada con '${expected}' pero provider activo es '${provider.getProviderName()}'. Operando contra el activo.`
+    );
+  }
+
+  return { provider, providerListId };
+}
+
+// ============================================================================
+// Endpoints
+// ============================================================================
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const { searchParam, pageNumber, contactListId } = req.query as IndexQuery;
@@ -64,37 +110,40 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     throw new AppError(err.message);
   }
 
-  // Verificar si la lista es de email
-  const contactList = await ContactList.findByPk(data.contactListId);
+  const contactList = await ContactList.findOne({ where: { id: data.contactListId, companyId } });
 
   if (!contactList) {
     throw new AppError("Lista de contactos no encontrada", 404);
   }
 
-  // Si es lista de email, crear primero en Acelle Mail
-  if (contactList.isEmailList && contactList.acelleListUid) {
+  // Si es lista de email, sincronizar PRIMERO con provider
+  let target: ProviderTarget | null = null;
+  if (contactList.isEmailList) {
     if (!data.email) {
       throw new AppError("Email es requerido para listas de email", 400);
     }
+    target = await resolveProviderForList(contactList, Number(companyId));
 
-    try {
-      await createAcelleSubscriber(contactList.acelleListUid, data, companyId);
-    } catch (error: any) {
-      console.error("Error creando suscriptor en Acelle Mail:", error.response?.data || error.message);
-      throw new AppError(
-        `Error al crear suscriptor en Acelle Mail: ${JSON.stringify(error.response?.data || error.message)}`,
-        400
-      );
+    if (target) {
+      const result = await target.provider.createSubscriber(target.providerListId, {
+        email: data.email,
+        name: data.name
+      });
+      if (!result.success) {
+        throw new AppError(
+          `Error al crear suscriptor en ${target.provider.getProviderName()}: ${result.error || "error desconocido"}`,
+          400
+        );
+      }
     }
   }
 
   const record = await CreateService({
     ...data,
     companyId
-  });
+  } as any);
 
-  // Si es lista de email, marcar como valido
-  if (contactList.isEmailList && contactList.acelleListUid) {
+  if (target) {
     record.isWhatsappValid = true;
     await record.save();
   }
@@ -112,7 +161,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 export const show = async (req: Request, res: Response): Promise<Response> => {
   const { id } = req.params;
 
-  const record = await ShowService(id);
+  const record = await ShowService(id, req.user.companyId);
 
   return res.status(200).json(record);
 };
@@ -136,33 +185,41 @@ export const update = async (
 
   const { id } = req.params;
 
-  // Verificar si la lista es de email
-  const contactList = await ContactList.findByPk(data.contactListId);
+  const contactList = await ContactList.findOne({ where: { id: data.contactListId, companyId } });
 
   if (!contactList) {
     throw new AppError("Lista de contactos no encontrada", 404);
   }
 
-  // Si es lista de email, actualizar en Acelle Mail
-  if (contactList.isEmailList && contactList.acelleListUid) {
+  // Si es lista de email, sincronizar update con provider
+  let target: ProviderTarget | null = null;
+  if (contactList.isEmailList) {
     if (!data.email) {
       throw new AppError("Email es requerido para listas de email", 400);
     }
+    target = await resolveProviderForList(contactList, Number(companyId));
 
-    try {
-      await updateAcelleSubscriber(contactList.acelleListUid, data, companyId);
-    } catch (error: any) {
-      console.error("Error actualizando suscriptor en Acelle Mail:", error.response?.data || error.message);
+    if (target) {
+      const result = await target.provider.updateSubscriber(target.providerListId, {
+        email: data.email,
+        name: data.name
+      });
+      if (!result.success) {
+        // Update no es bloqueante (puede fallar si el subscriber no existe en remoto)
+        logger.warn(
+          `[ContactListItemController] updateSubscriber fallo: ${result.error}`
+        );
+      }
     }
   }
 
   const record = await UpdateService({
     ...data,
-    id
-  });
+    id,
+    companyId
+  } as any);
 
-  // Si es lista de email, marcar como valido
-  if (contactList.isEmailList && contactList.acelleListUid) {
+  if (target) {
     record.isWhatsappValid = true;
     await record.save();
   }
@@ -184,16 +241,32 @@ export const remove = async (
   const { id } = req.params;
   const { companyId } = req.user;
 
-  // Obtener el contacto antes de eliminarlo para verificar si es lista de email
+  // Obtener el contacto antes de eliminarlo
   const contact = await ContactListItem.findByPk(id, {
     include: [{ model: ContactList, as: "contactList" }]
   });
 
-  if (contact && contact.contactList?.isEmailList && contact.contactList?.acelleListUid) {
+  if (contact && contact.contactList?.isEmailList && contact.email) {
     try {
-      await deleteAcelleSubscriber(contact.contactList.acelleListUid, contact.email, companyId);
-    } catch (error: any) {
-      console.error("Error eliminando suscriptor de Acelle Mail:", error.response?.data || error.message);
+      const target = await resolveProviderForList(
+        contact.contactList,
+        Number(companyId)
+      );
+      if (target) {
+        const result = await target.provider.deleteSubscriber(
+          target.providerListId,
+          contact.email
+        );
+        if (!result.success) {
+          logger.warn(
+            `[ContactListItemController] deleteSubscriber fallo: ${result.error}`
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        `[ContactListItemController] No se pudo eliminar de provider: ${(err as Error).message}`
+      );
     }
   }
 
@@ -218,98 +291,3 @@ export const findList = async (
 
   return res.status(200).json(records);
 };
-
-// ========== Acelle Mail API Helpers ==========
-
-async function createAcelleSubscriber(listUid: string, data: StoreData, companyId: number): Promise<void> {
-  const emailApiUrl = await Setting.findOne({ where: { key: "emailApiUrl", companyId } });
-  const emailApiKey = await Setting.findOne({ where: { key: "emailApiKey", companyId } });
-
-  if (!emailApiUrl?.value || !emailApiKey?.value) {
-    throw new AppError("API de email no configurada", 400);
-  }
-
-  const apiUrl = emailApiUrl.value;
-  const apiToken = emailApiKey.value;
-
-  const params = new URLSearchParams();
-  params.append("api_token", apiToken);
-  params.append("list_uid", listUid);
-  params.append("EMAIL", data.email || "");
-  params.append("status", "subscribed");
-
-  const nameParts = data.name.trim().split(" ");
-  const firstName = nameParts[0] || "";
-  const lastName = nameParts.slice(1).join(" ") || "";
-
-  if (firstName) {
-    params.append("FIRST_NAME", firstName);
-  }
-  if (lastName) {
-    params.append("LAST_NAME", lastName);
-  }
-
-  await axios.post(
-    `${apiUrl}/subscribers?${params.toString()}`,
-    {},
-    {
-      headers: {
-        "Accept": "application/json"
-      }
-    }
-  );
-}
-
-async function updateAcelleSubscriber(listUid: string, data: StoreData, companyId: number): Promise<void> {
-  const emailApiUrl = await Setting.findOne({ where: { key: "emailApiUrl", companyId } });
-  const emailApiKey = await Setting.findOne({ where: { key: "emailApiKey", companyId } });
-
-  if (!emailApiUrl?.value || !emailApiKey?.value) {
-    throw new AppError("API de email no configurada", 400);
-  }
-
-  const apiUrl = emailApiUrl.value;
-  const apiToken = emailApiKey.value;
-
-  const params = new URLSearchParams();
-  params.append("api_token", apiToken);
-  params.append("list_uid", listUid);
-  params.append("EMAIL", data.email || "");
-
-  const nameParts = data.name.trim().split(" ");
-  const firstName = nameParts[0] || "";
-  const lastName = nameParts.slice(1).join(" ") || "";
-
-  if (firstName) {
-    params.append("FIRST_NAME", firstName);
-  }
-  if (lastName) {
-    params.append("LAST_NAME", lastName);
-  }
-
-  await axios.patch(
-    `${apiUrl}/subscribers?${params.toString()}`,
-    {},
-    {
-      headers: {
-        "Accept": "application/json"
-      }
-    }
-  );
-}
-
-async function deleteAcelleSubscriber(listUid: string, email: string, companyId: number): Promise<void> {
-  const emailApiUrl = await Setting.findOne({ where: { key: "emailApiUrl", companyId } });
-  const emailApiKey = await Setting.findOne({ where: { key: "emailApiKey", companyId } });
-
-  if (!emailApiUrl?.value || !emailApiKey?.value) {
-    throw new AppError("API de email no configurada", 400);
-  }
-
-  const apiUrl = emailApiUrl.value;
-  const apiToken = emailApiKey.value;
-
-  await axios.delete(
-    `${apiUrl}/subscribers?api_token=${apiToken}&list_uid=${listUid}&EMAIL=${encodeURIComponent(email)}`
-  );
-}

@@ -1,20 +1,12 @@
 import CompanyTokenUsage from "../../models/CompanyTokenUsage";
+import Company from "../../models/Company";
+import AiTokenTransaction from "../../models/AiTokenTransaction";
+import sequelize from "../../database";
 import { Sequelize } from "sequelize-typescript";
-import { Op } from "sequelize";
-
-// Precios por 1M tokens (Diciembre 2024 - Actualizar segun OpenAI pricing)
-const PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-4o": { input: 2.50, output: 10.00 },
-  "gpt-4o-mini": { input: 0.15, output: 0.60 },
-  "gpt-3.5-turbo-0125": { input: 0.50, output: 1.50 },
-  "gpt-3.5-turbo": { input: 0.50, output: 1.50 },
-  "gpt-4-turbo": { input: 10.00, output: 30.00 },
-  "gpt-4": { input: 30.00, output: 60.00 },
-  "text-embedding-3-small": { input: 0.02, output: 0 },
-  "text-embedding-3-large": { input: 0.13, output: 0 },
-  "text-embedding-ada-002": { input: 0.10, output: 0 },
-  "whisper-1": { input: 0.006, output: 0 }, // $0.006 por minuto de audio
-};
+import {
+  calculateTokenCostUsd,
+  normalizePricingModel
+} from "./AITokenPricingService";
 
 export interface TrackTokensParams {
   companyId: number;
@@ -34,8 +26,9 @@ const getFirstDayOfMonth = (): Date => {
 };
 
 /**
- * Registra el uso de tokens de OpenAI en la base de datos.
- * Acumula tokens por compania, modelo y mes.
+ * Registra y cobra el uso de tokens de OpenAI.
+ * Descuenta del saldo real de Company.aiTokenBalance, crea auditoria en
+ * AiTokenTransactions y acumula el consumo mensual por compania/modelo.
  */
 export const trackTokenUsage = async ({
   companyId,
@@ -45,17 +38,41 @@ export const trackTokenUsage = async ({
   totalTokens,
   module
 }: TrackTokensParams): Promise<void> => {
+  const transaction = await sequelize.transaction();
+
   try {
     if (!companyId || !model || totalTokens <= 0) {
+      await transaction.rollback();
       return; // No registrar si faltan datos o no hay tokens
     }
 
     const monthDate = getFirstDayOfMonth();
-    const pricing = PRICING[model] || { input: 0, output: 0 };
+    const pricingModel = normalizePricingModel(model);
+    const costUsd = calculateTokenCostUsd(model, promptTokens, completionTokens);
 
-    // Calcular costo en USD
-    const costUsd = (promptTokens * pricing.input / 1_000_000) +
-                   (completionTokens * pricing.output / 1_000_000);
+    const company = await Company.findByPk(companyId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE
+    });
+
+    if (!company) {
+      throw new Error(`ERR_COMPANY_NOT_FOUND: company=${companyId}`);
+    }
+
+    const currentBalance = Number(company.aiTokenBalance || 0);
+
+    if (currentBalance < totalTokens) {
+      throw new Error(
+        `ERR_AI_INSUFFICIENT_TOKENS: company=${companyId} required=${totalTokens} available=${currentBalance}`
+      );
+    }
+
+    const balanceAfter = currentBalance - totalTokens;
+
+    await company.update(
+      { aiTokenBalance: balanceAfter } as any,
+      { transaction }
+    );
 
     // Buscar registro existente para este companyId + model + month
     const existing = await CompanyTokenUsage.findOne({
@@ -63,7 +80,8 @@ export const trackTokenUsage = async ({
         companyId: companyId,
         model,
         month: monthDate
-      }
+      },
+      transaction
     });
 
     if (existing) {
@@ -80,7 +98,8 @@ export const trackTokenUsage = async ({
             companyId: companyId,
             model,
             month: monthDate
-          }
+          },
+          transaction
         }
       );
     } else {
@@ -95,13 +114,42 @@ export const trackTokenUsage = async ({
         tokensTotal: totalTokens,
         costUsdMonth: costUsd,
         costUsdTotal: costUsd
-      } as any);
+      } as any, { transaction });
     }
 
-    console.log(`[TokenTracking] ${module}: ${totalTokens} tokens (${model}) - $${costUsd.toFixed(6)}`);
+    await AiTokenTransaction.create({
+      companyId,
+      type: "usage",
+      tokens: -Math.abs(totalTokens),
+      amountUsd: costUsd,
+      module,
+      referenceId: model,
+      meta: {
+        model,
+        pricingModel,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        costUsd
+      },
+      balanceAfter,
+      description: `Uso IA ${module}: ${totalTokens} tokens (${model})`
+    } as any, { transaction });
+
+    await transaction.commit();
+
+    console.log(
+      `[TokenTracking] ${module}: ${totalTokens} tokens (${model}) - $${costUsd.toFixed(6)} - balance ${currentBalance} -> ${balanceAfter}`
+    );
   } catch (error) {
-    console.error("[TokenTracking] Error al registrar tokens:", error);
-    // No lanzar error para no interrumpir el flujo principal
+    // `finished` es una propiedad interna de Sequelize (no expuesta en el tipo).
+    // Se setea a "commit" | "rollback" cuando la transacción ya terminó.
+    // Casteamos a any para evitar TS2339 sin perder la verificación runtime.
+    if (!(transaction as any).finished) {
+      await transaction.rollback();
+    }
+    console.error("[TokenTracking] Error al registrar/cobrar tokens:", error);
+    throw error;
   }
 };
 
@@ -132,16 +180,19 @@ export const trackChatCompletion = async (
 export const trackEmbeddings = async (
   companyId: number,
   model: string,
-  usage: { prompt_tokens?: number; total_tokens?: number } | undefined
+  usage: { prompt_tokens?: number; total_tokens?: number } | number | undefined
 ): Promise<void> => {
   if (!usage) return;
+
+  const promptTokens = typeof usage === "number" ? usage : usage.prompt_tokens || 0;
+  const totalTokens = typeof usage === "number" ? usage : usage.total_tokens || 0;
 
   await trackTokenUsage({
     companyId,
     model,
-    promptTokens: usage.prompt_tokens || 0,
+    promptTokens,
     completionTokens: 0,
-    totalTokens: usage.total_tokens || 0,
+    totalTokens,
     module: 'embedding'
   });
 };

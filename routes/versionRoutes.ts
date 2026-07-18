@@ -8,4 +8,3 @@ versionRouter.get("/version", VerssionController.index);
 versionRouter.post("/version", VerssionController.store);
 
 export default versionRouter;
-// console.log("📄 VERSION-ROUTES.TS LOADED\!");

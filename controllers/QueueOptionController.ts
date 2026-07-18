@@ -14,8 +14,9 @@ type FilterList = {
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const { queueId, queueOptionId, parentId } = req.query as FilterList;
+  const { companyId } = req.user;
 
-  const queueOptions = await ListService({ queueId, queueOptionId, parentId });
+  const queueOptions = await ListService({ queueId, queueOptionId, parentId, companyId });
 
   return res.json(queueOptions);
 };

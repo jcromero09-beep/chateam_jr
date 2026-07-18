@@ -1,7 +1,13 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import path from "path";
 import multer from "multer";
 
-const privateFolder = path.resolve(__dirname, "..", "..", "private");
+const privateFolder = path.resolve(currentDir, "..", "..", "private");
 export default {
   directory: privateFolder,
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import AppError from "../../errors/AppError";
 import Schedule from "../../models/Schedule";
 import CreateService from "../../services/ScheduleServices/CreateService";
@@ -9,7 +9,13 @@ jest.mock("../../services/ScheduleServices/resolveScheduleTicketId");
 
 describe("Schedule CreateService", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-04-01T00:00:00.000Z"));
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   test("should pass ticketId when provided", async () => {
@@ -93,6 +99,22 @@ describe("Schedule CreateService", () => {
       })
     ).rejects.toMatchObject<AppError>({
       message: "Fecha de envío inválida",
+      statusCode: 400
+    });
+
+    expect(Schedule.create).not.toHaveBeenCalled();
+  });
+
+  test("should reject sendAt values in the past", async () => {
+    await expect(
+      CreateService({
+        body: "Mensaje programado",
+        sendAt: "2026-03-31T11:05",
+        contactId: 1761,
+        companyId: 6
+      })
+    ).rejects.toMatchObject<AppError>({
+      message: "La fecha debe ser futura",
       statusCode: 400
     });
 

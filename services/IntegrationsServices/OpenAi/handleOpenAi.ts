@@ -1,4 +1,10 @@
-import { proto } from "@whiskeysockets/baileys";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
+import { proto } from "baileys";
 import path from "path";
 import OpenAI from "openai";
 import Message from "../../../models/Message";
@@ -46,7 +52,7 @@ export const handleOpenAi = async (
   if (msg.messageStubType) return;
 
   const publicFolder: string = path.resolve(
-    __dirname,
+    currentDir,
     "..",
     "..",
     "..",
@@ -77,7 +83,7 @@ export const handleOpenAi = async (
     : "default"; // sin extension
 
   const embeddingPath = path.resolve(
-    __dirname,
+    currentDir,
     `../../../../public/company${ticket.companyId}/ia/Embeddings/${nombreBaseArchivo}.json`
   );
 

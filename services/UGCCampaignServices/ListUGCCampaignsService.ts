@@ -4,7 +4,7 @@
  * Incluye conteo de videoJobs y socialPosts.
  */
 
-import { Op, fn, col, literal } from "sequelize";
+import { Op, literal } from "sequelize";
 import UGCCampaign, { UGCCampaignStatus } from "../../models/UGCCampaign";
 import UGCVideoJob from "../../models/UGCVideoJob";
 import UGCSocialPost from "../../models/UGCSocialPost";
@@ -41,9 +41,13 @@ const ListUGCCampaignsService = async (
   }
 
   if (searchParam && searchParam.trim()) {
-    whereClause.name = {
-      [Op.iLike]: `%${searchParam.trim()}%`
-    };
+    const term = searchParam.trim();
+    // Escapar comillas simples para la consulta literal sobre el JSONB productBrief
+    const safeTerm = term.replace(/'/g, "''");
+    whereClause[Op.or as unknown as string] = [
+      { name: { [Op.iLike]: `%${term}%` } },
+      literal(`"productBrief"->>'productName' ILIKE '%${safeTerm}%'`)
+    ];
   }
 
   const { rows: campaigns, count: total } = await UGCCampaign.findAndCountAll({

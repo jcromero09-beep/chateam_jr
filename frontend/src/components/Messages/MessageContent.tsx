@@ -13,6 +13,7 @@ import AudioPlayer from './AudioPlayer'
 import VCardMessage from './VCardMessage'
 import LocationMessage from './LocationMessage'
 import CiphertextMessage from './CiphertextMessage'
+import AdMetaPreviewMessage from './AdMetaPreviewMessage'
 
 interface MediaItem {
   id: number
@@ -52,11 +53,23 @@ export default function MessageContent({
   const isSticker = mediaType.includes('sticker') || mediaType === 'sticker'
   const isVideo = mediaType.includes('video') || mediaType === 'video'
   const isAudio = mediaType.includes('audio') || mediaType === 'ptt' || mediaType === 'audio'
-  const isDoc = mediaType.includes('application') || mediaType === 'document' || mediaType.includes('pdf') || mediaType.includes('document')
-  const isContact = mediaType.includes('contact') || mediaType === 'contact'
+  const isContact = mediaType.includes('contact') || mediaType === 'contact' || mediaType === 'vcard'
   const isLocation = mediaType.includes('location') || mediaType === 'location'
+  const isAdMetaPreview = mediaType === 'admetapreview'
+  // Documento = cualquier media con archivo adjunto (mediaUrl) que NO sea un tipo
+  // visual/audio/contacto/ubicación conocido. Cubre PDF/DOCX/XLSX (application/*),
+  // XML/CSV/TXT (text/* -> Baileys guarda mediaType "text") y mimetypes genéricos
+  // (octet-stream, etc.). Antes solo se detectaba "application"/"pdf", por lo que los
+  // XML (mediaType "text") solo mostraban el nombre sin el componente descargable.
+  const isDoc =
+    !!message.mediaUrl &&
+    !isImage && !isSticker && !isVideo && !isAudio &&
+    !isContact && !isLocation && !isCiphertext && !isAdMetaPreview
 
-  const hasMedia = message.mediaUrl && (isImage || isSticker || isVideo || isAudio || isDoc || isContact || isLocation)
+  const hasMedia =
+    Boolean(message.mediaUrl && (isImage || isSticker || isVideo || isAudio || isDoc)) ||
+    isContact ||
+    isLocation
   const textContent = message.body
 
   // Si es nota privada, envolver todo en wrapper ambar
@@ -94,6 +107,7 @@ export default function MessageContent({
           src={message.mediaUrl!}
           isSticker={isSticker}
           isDark={isDark}
+          isOwn={isOwn}
           caption={!isSticker && textContent ? textContent : undefined}
           onLightboxOpen={onLightboxOpen}
         />
@@ -159,7 +173,7 @@ export default function MessageContent({
   const renderText = () => {
     if (!textContent) return null
     // Si hay media, mostrar caption debajo (ya se maneja arriba)
-    if (hasMedia && (isImage || isSticker)) {
+    if (hasMedia && (isImage || isSticker || isContact || isLocation)) {
       // Si es sticker, mostrar solo la imagen
       if (isSticker) {
         return null
@@ -172,9 +186,10 @@ export default function MessageContent({
         sx={{
           color: isOwn ? 'inherit' : (isDark ? '#E9EDEF' : 'rgba(0,0,0,0.85)'),
           wordBreak: 'break-word',
+          whiteSpace: 'pre-wrap',
         }}
       >
-        {formatWhatsAppText(textContent, searchTerm)}
+        {formatWhatsAppText(textContent, searchTerm, isOwn)}
       </Typography>
     )
   }
@@ -207,11 +222,21 @@ export default function MessageContent({
         />
       ) : (
         <>
-          {/* Media */}
-          {renderMedia()}
+	          {/* Media */}
+	          {isAdMetaPreview ? (
+	            <AdMetaPreviewMessage
+	              body={textContent}
+	              dataJson={message.dataJson}
+	              isDark={isDark}
+	              isOwn={isOwn}
+	              searchTerm={searchTerm}
+	            />
+	          ) : (
+	            renderMedia()
+	          )}
 
-          {/* Texto (si no hay media o es caption ya manejado) */}
-          {!hasMedia && renderText()}
+	          {/* Texto (si no hay media o es caption ya manejado) */}
+	          {!hasMedia && !isAdMetaPreview && renderText()}
           {hasMedia && !isImage && !isSticker && textContent && !isAudio && !isDoc && !isContact && !isLocation && (
             <Typography
               level="body-sm"
@@ -219,9 +244,10 @@ export default function MessageContent({
                 mt: 0.5,
                 color: isOwn ? 'inherit' : (isDark ? '#E9EDEF' : 'rgba(0,0,0,0.85)'),
                 wordBreak: 'break-word',
+                whiteSpace: 'pre-wrap',
               }}
             >
-              {formatWhatsAppText(textContent, searchTerm)}
+              {formatWhatsAppText(textContent, searchTerm, isOwn)}
             </Typography>
           )}
         </>

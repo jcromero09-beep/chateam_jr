@@ -30,7 +30,13 @@ class SocketService {
 
     // Siempre conectar directamente al backend para websockets
     // El proxy de Vite no maneja bien los namespaces de socket.io
-    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+    // socket.io interpreta el path de la URL como namespace. Si VITE_API_URL trae un
+    // prefijo (p.ej. /be para el reverse-proxy nginx en un solo dominio), hay que
+    // conectar SOLO al origin y dejar /${companyId} como namespace real del backend.
+    const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+    const backendUrl = (() => {
+      try { return new URL(rawApiUrl, window.location.origin).origin } catch { return rawApiUrl }
+    })()
 
     console.log(`Conectando socket a: ${backendUrl}/${companyId}`)
 

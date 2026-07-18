@@ -10,12 +10,34 @@ interface MediaDocumentProps {
   isOwn: boolean
 }
 
+// El backend antepone un timestamp al nombre real: "1781626234357_Factura.xml"
+// o "1781626234357.pdf" (sin nombre original). Limpiamos para mostrarlo legible.
+const prettifyFilename = (raw: string): string => {
+  if (!raw) return 'Documento'
+  let name = raw.split('/').pop() || raw
+  // Quitar prefijo timestamp inicial: "1781626234357_..." o "1781626234357.ext"
+  name = name.replace(/^\d{10,}_/, '').replace(/^\d{10,}\./, '.')
+  // Quitar sufijo timestamp antes de la extensión: "..._1781626234357.xml"
+  name = name.replace(/_\d{10,}(\.[a-z0-9]+)$/i, '$1')
+  return name || raw
+}
+
+const getExtensionLabel = (raw: string): string => {
+  const match = (raw || '').match(/\.([a-z0-9]+)$/i)
+  return match ? match[1].toUpperCase() : 'Documento'
+}
+
 export default function MediaDocument({
   src,
   filename = 'Documento',
   isDark,
   isOwn,
 }: MediaDocumentProps) {
+  const displayName = prettifyFilename(filename)
+  const extLabel = getExtensionLabel(filename)
+  // Fuerza la descarga vía backend (Content-Disposition) — el atributo `download`
+  // se ignora entre dominios distintos (frontend vs backend).
+  const downloadUrl = `${src}${src.includes('?') ? '&' : '?'}download=${encodeURIComponent(displayName)}`
   return (
     <Box
       sx={{
@@ -48,20 +70,19 @@ export default function MediaDocument({
             whiteSpace: 'nowrap',
           }}
         >
-          {filename}
+          {displayName}
         </Typography>
         <Typography
           level="body-xs"
           sx={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)' }}
         >
-          Documento
+          {extLabel}
         </Typography>
       </Stack>
       <Button
         component="a"
-        href={src}
-        download
-        target="_blank"
+        href={downloadUrl}
+        download={displayName}
         size="sm"
         variant="soft"
         sx={{ flexShrink: 0, minWidth: 'auto', px: 1 }}

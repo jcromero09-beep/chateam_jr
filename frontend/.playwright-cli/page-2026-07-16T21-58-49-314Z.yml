@@ -1,0 +1,434 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e67]:
+    - link "Saltar al contenido" [ref=e68] [cursor=pointer]:
+      - /url: "#main-content"
+    - navigation "Navegación principal" [ref=e69]:
+      - generic [ref=e70]:
+        - img "ChatEAM" [ref=e73]
+        - button "Colapsar menú" [ref=e74] [cursor=pointer]
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - paragraph [ref=e79]: INICIO
+          - generic [ref=e81]:
+            - link "Gestión" [ref=e82] [cursor=pointer]:
+              - /url: /
+            - generic:
+              - link "Dashboard" [ref=e92] [cursor=pointer]:
+                - /url: /
+              - link "Leads Kanban" [ref=e99] [cursor=pointer]:
+                - /url: /kanban-lead-conversions
+        - generic [ref=e105]:
+          - paragraph [ref=e106]: OPERATIVO
+          - generic [ref=e107]:
+            - link "Tickets" [ref=e109] [cursor=pointer]:
+              - /url: /tickets
+            - link "Contactos" [ref=e116] [cursor=pointer]:
+              - /url: /contacts
+            - link "Mensajes Rápidos" [ref=e123] [cursor=pointer]:
+              - /url: /quick-replies
+            - link "Chats Internos" [ref=e130] [cursor=pointer]:
+              - /url: /internal-chats
+            - link "Conversaciones Web" [ref=e137] [cursor=pointer]:
+              - /url: /webchat/chats
+            - link "Mensajes Programados" [ref=e144] [cursor=pointer]:
+              - /url: /schedules
+        - generic [ref=e150]:
+          - paragraph [ref=e151]: ORGANIZACIÓN
+          - generic [ref=e152]:
+            - link "Origen de Clientes" [ref=e154] [cursor=pointer]:
+              - /url: /customer-origins
+            - link "Colas" [ref=e161] [cursor=pointer]:
+              - /url: /queues
+            - link "Etiquetas" [ref=e168] [cursor=pointer]:
+              - /url: /tags
+            - link "Automatizaciones" [ref=e175] [cursor=pointer]:
+              - /url: /automation-rules
+            - link "Funnel de Ventas" [ref=e182] [cursor=pointer]:
+              - /url: /funnel
+        - generic [ref=e188]:
+          - paragraph [ref=e189]: CANALES
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - link "Conexiones" [ref=e192] [cursor=pointer]:
+                - /url: /connections
+              - generic:
+                - link "Lista" [ref=e202] [cursor=pointer]:
+                  - /url: /connections
+                - link "Coexistencia Meta" [ref=e209] [cursor=pointer]:
+                  - /url: /coexistence
+                - link "Plantillas" [ref=e216] [cursor=pointer]:
+                  - /url: /whatsapp/templates
+            - generic [ref=e222]:
+              - link "Comentarios FB/IG" [ref=e223] [cursor=pointer]:
+                - /url: /social-comments
+              - generic:
+                - link "Bandeja" [ref=e233] [cursor=pointer]:
+                  - /url: /social-comments
+                - link "Moderación" [ref=e240] [cursor=pointer]:
+                  - /url: /moderation
+                - link "Configuracion" [ref=e247] [cursor=pointer]:
+                  - /url: /social-comments/settings
+            - generic [ref=e253]:
+              - link "WebChat" [ref=e254] [cursor=pointer]:
+                - /url: /webchat/settings
+              - link "Configuración" [ref=e264] [cursor=pointer]:
+                - /url: /webchat/settings
+        - generic [ref=e270]:
+          - paragraph [ref=e271]: MARKETING & CAMPAÑAS
+          - generic [ref=e272]:
+            - generic [ref=e273]:
+              - link "Campañas" [ref=e274] [cursor=pointer]:
+                - /url: /campaigns
+              - generic:
+                - link "Lista" [ref=e284] [cursor=pointer]:
+                  - /url: /campaigns
+                - link "Contactos" [ref=e291] [cursor=pointer]:
+                  - /url: /campaigns/contacts
+                - link "Configuración" [ref=e298] [cursor=pointer]:
+                  - /url: /campaigns/settings
+            - generic [ref=e304]:
+              - link "UGC & Contenido" [ref=e305] [cursor=pointer]:
+                - /url: /ugc/dashboard
+              - generic:
+                - link "Dashboard" [ref=e315] [cursor=pointer]:
+                  - /url: /ugc/dashboard
+                - link "Campañas UGC" [ref=e322] [cursor=pointer]:
+                  - /url: /ugc/campaigns
+                - link "Elegir Modelos" [ref=e329] [cursor=pointer]:
+                  - /url: /ugc/model-selector
+                - link "Cinema Studio" [ref=e336] [cursor=pointer]:
+                  - /url: /ugc/generate
+                - link "Video Studio" [ref=e343] [cursor=pointer]:
+                  - /url: /ugc/video-studio
+                - link "Optimización IA" [ref=e350] [cursor=pointer]:
+                  - /url: /ugc/optimization
+                - link "Configuración" [ref=e357] [cursor=pointer]:
+                  - /url: /ugc/settings
+                - link "Posts Programados" [ref=e364] [cursor=pointer]:
+                  - /url: /ugc/social-posts
+            - generic [ref=e370]:
+              - link "Marketing" [ref=e371] [cursor=pointer]:
+                - /url: /campaigns/insights
+              - generic:
+                - link "Insights" [ref=e381] [cursor=pointer]:
+                  - /url: /campaigns/insights
+                - link "Atribución" [ref=e388] [cursor=pointer]:
+                  - /url: /campaigns/attribution
+                - link "Auditoría" [ref=e397] [cursor=pointer]:
+                  - /url: /campaigns/audit
+                - link "Facebook Ads" [ref=e404] [cursor=pointer]:
+                  - /url: /facebook-conversions
+            - generic [ref=e410]:
+              - link "Email Marketing" [ref=e411] [cursor=pointer]:
+                - /url: /email-marketing
+              - generic:
+                - link "Dashboard" [ref=e421] [cursor=pointer]:
+                  - /url: /email-marketing
+                - link "Campañas" [ref=e428] [cursor=pointer]:
+                  - /url: /email-marketing/campaigns
+                - link "Analytics" [ref=e435] [cursor=pointer]:
+                  - /url: /email-marketing/analytics
+                - link "Plantillas" [ref=e442] [cursor=pointer]:
+                  - /url: /email-marketing/templates
+                - link "Proveedores" [ref=e449] [cursor=pointer]:
+                  - /url: /email/provider-settings
+                - link "Packs de Envío" [ref=e457] [cursor=pointer]:
+                  - /url: /email/credit-packs
+                - link "Planes de Email" [ref=e464] [cursor=pointer]:
+                  - /url: /email-plans
+                - link "Mis Créditos" [ref=e471] [cursor=pointer]:
+                  - /url: /email/credits-dashboard
+            - generic [ref=e477]:
+              - link "Auto-Responder" [ref=e478] [cursor=pointer]:
+                - /url: /comment-autoreply
+              - generic:
+                - link "Dashboard" [ref=e488] [cursor=pointer]:
+                  - /url: /comment-autoreply
+                - link "Campañas" [ref=e495] [cursor=pointer]:
+                  - /url: /comment-autoreply/campaigns
+                - link "Configuración" [ref=e502] [cursor=pointer]:
+                  - /url: /comment-autoreply/settings
+        - generic [ref=e508]:
+          - paragraph [ref=e509]: CITAS Y FLUJOS
+          - generic [ref=e510]:
+            - generic [ref=e511]:
+              - link "Citas" [ref=e512] [cursor=pointer]:
+                - /url: /appointments/dashboard
+              - generic:
+                - link "Dashboard" [ref=e522] [cursor=pointer]:
+                  - /url: /appointments/dashboard
+                - link "Gestión" [ref=e529] [cursor=pointer]:
+                  - /url: /appointments/bookings
+                - link "Calendario" [ref=e536] [cursor=pointer]:
+                  - /url: /appointments/calendar
+                - link "Servicios" [ref=e543] [cursor=pointer]:
+                  - /url: /appointments/services
+                - link "Disponibilidad" [ref=e550] [cursor=pointer]:
+                  - /url: /appointments/availability
+                - link "Recordatorios" [ref=e558] [cursor=pointer]:
+                  - /url: /appointments/reminders
+                - link "Reportes" [ref=e565] [cursor=pointer]:
+                  - /url: /appointments/reports
+            - generic [ref=e571]:
+              - link "Flowbuilder" [ref=e572] [cursor=pointer]:
+                - /url: /flowbuilder/conversation
+              - generic:
+                - link "Flujos" [ref=e582] [cursor=pointer]:
+                  - /url: /flowbuilder/conversation
+                - link "Palabras Clave" [ref=e589] [cursor=pointer]:
+                  - /url: /flowbuilder/campaign
+        - generic [ref=e595]:
+          - paragraph [ref=e596]: AFILIADOS
+          - generic [ref=e598]:
+            - link "Afiliados" [ref=e599] [cursor=pointer]:
+              - /url: /affiliates
+            - generic:
+              - link "Dashboard" [ref=e609] [cursor=pointer]:
+                - /url: /affiliates
+              - link "Programas" [ref=e616] [cursor=pointer]:
+                - /url: /affiliates/programs
+              - link "Referidos" [ref=e623] [cursor=pointer]:
+                - /url: /affiliates/referrals
+              - link "Links" [ref=e630] [cursor=pointer]:
+                - /url: /affiliates/links
+              - link "Recompensas" [ref=e637] [cursor=pointer]:
+                - /url: /affiliates/wallet
+        - generic [ref=e643]:
+          - paragraph [ref=e644]: INTELIGENCIA ARTIFICIAL
+          - generic [ref=e645]:
+            - generic [ref=e646]:
+              - link "Plataforma IA" [ref=e647] [cursor=pointer]:
+                - /url: /ai/platform
+              - generic:
+                - link "Dashboard IA" [ref=e657] [cursor=pointer]:
+                  - /url: /ai/platform
+                - link "Recomendaciones" [ref=e664] [cursor=pointer]:
+                  - /url: /stats/recommendations
+                - link "Base de Conocimiento" [ref=e671] [cursor=pointer]:
+                  - /url: /ai/knowledge-base
+                - link "Agentes de IA" [ref=e678] [cursor=pointer]:
+                  - /url: /ai/agents
+            - generic [ref=e684]:
+              - link "Generación de Contenido" [ref=e685] [cursor=pointer]:
+                - /url: /ai/writer
+              - link "AI Writer" [ref=e695] [cursor=pointer]:
+                - /url: /ai/writer
+            - generic [ref=e701]:
+              - link "IA Avanzada" [ref=e702] [cursor=pointer]:
+                - /url: /openai/settings
+              - generic:
+                - link "Proveedores IA" [ref=e712] [cursor=pointer]:
+                  - /url: /openai/settings
+                - link "Paquetes Créditos" [ref=e719] [cursor=pointer]:
+                  - /url: /ai/credits
+                - link "Planes y Subscripciones" [ref=e726] [cursor=pointer]:
+                  - /url: /ai/subplans
+                - link "Afiliados IA" [ref=e733] [cursor=pointer]:
+                  - /url: /ai/affiliates
+                - link "Revisión Correcciones" [ref=e740] [cursor=pointer]:
+                  - /url: /ai/correction-review
+            - generic [ref=e746]:
+              - link "Costos IA" [ref=e747] [cursor=pointer]:
+                - /url: /ai-rentability
+              - link "Rentabilidad IA" [ref=e757] [cursor=pointer]:
+                - /url: /ai-rentability
+        - generic [ref=e763]:
+          - paragraph [ref=e764]: CONFIGURACIÓN
+          - generic [ref=e765]:
+            - link "Configuración General" [ref=e767] [cursor=pointer]:
+              - /url: /settings
+            - link "Usuarios" [ref=e774] [cursor=pointer]:
+              - /url: /users
+            - link "Roles y Usuarios" [ref=e781] [cursor=pointer]:
+              - /url: /roles-management
+            - link "Facturación" [ref=e788] [cursor=pointer]:
+              - /url: /billing
+            - link "Permisos" [ref=e795] [cursor=pointer]:
+              - /url: /permissions-manager
+        - generic [ref=e802]:
+          - paragraph [ref=e803]: PLATAFORMA
+          - generic [ref=e804]:
+            - generic [ref=e805]:
+              - link "Administración" [ref=e806] [cursor=pointer]:
+                - /url: /plans
+              - generic:
+                - link "Planes" [ref=e816] [cursor=pointer]:
+                  - /url: /plans
+                - link "Empresas" [ref=e823] [cursor=pointer]:
+                  - /url: /companies
+                - link "Consumo Tokens IA" [ref=e830] [cursor=pointer]:
+                  - /url: /admin/ai-token-usage
+                - link "Términos y Condiciones" [ref=e837] [cursor=pointer]:
+                  - /url: /terms
+                - link "API Mensajes" [ref=e844] [cursor=pointer]:
+                  - /url: /api-messages
+            - generic [ref=e850]:
+              - link "Desarrollo" [ref=e851] [cursor=pointer]:
+                - /url: /integrations-internal/logs
+              - generic:
+                - link "Logs" [ref=e861] [cursor=pointer]:
+                  - /url: /integrations-internal/logs
+                - link "Herramientas Dev" [ref=e868] [cursor=pointer]:
+                  - /url: /integrations-internal/testing
+    - generic [ref=e874]:
+      - banner [ref=e875]:
+        - generic "$0.00" [ref=e876]:
+          - generic [ref=e877]: "Plan:"
+          - generic [ref=e878]: Demo Gratuito
+        - 'button "515.000 de 15.000 tokens disponibles · Subplan: subplan 2 prueba" [ref=e879] [cursor=pointer]':
+          - generic [ref=e880]:
+            - generic [ref=e881]: "Tokens IA:"
+            - generic [ref=e882]: "515.000"
+        - button "Notificaciones" [ref=e883] [cursor=pointer]
+        - button "Modo oscuro" [ref=e887] [cursor=pointer]
+        - button "Menú de usuario" [ref=e891] [cursor=pointer]:
+          - generic [ref=e892]: AD
+          - generic [ref=e893]:
+            - generic [ref=e894]: Administrador
+            - generic [ref=e895]: admin
+      - main [ref=e899]:
+        - generic [ref=e901]:
+          - generic [ref=e902]:
+            - generic [ref=e903]:
+              - heading "Bienvenido, Administrador" [level=1] [ref=e904]
+              - paragraph [ref=e905]: Tus tickets asignados · jueves, 16 de julio
+            - generic [ref=e906]:
+              - button "Mis tickets" [ref=e907] [cursor=pointer]
+              - button "Actualizar datos del dashboard" [ref=e910] [cursor=pointer]
+          - generic [ref=e913]:
+            - generic [ref=e914]:
+              - generic [ref=e915]: Usuarios
+              - paragraph [ref=e920]: "5"
+              - paragraph [ref=e921]: Registrados
+            - generic [ref=e922]:
+              - generic [ref=e923]: Online
+              - paragraph [ref=e928]: "4"
+              - paragraph [ref=e929]: Agentes conectados
+            - generic [ref=e930]:
+              - generic [ref=e931]: Conversaciones
+              - paragraph [ref=e936]: "0"
+              - paragraph [ref=e937]: Activas (24h)
+            - generic [ref=e938]:
+              - generic [ref=e939]: Sin asignar
+              - paragraph [ref=e944]: "114"
+              - paragraph [ref=e945]: Tickets sin usuario
+            - generic [ref=e946]:
+              - generic [ref=e947]: Mensajes
+              - paragraph [ref=e952]: "33"
+              - paragraph [ref=e953]: Este mes
+            - generic [ref=e954]:
+              - generic [ref=e955]: Reseñas
+              - paragraph [ref=e960]: "0"
+              - paragraph [ref=e961]: 0/5 promedio
+          - generic [ref=e962]:
+            - generic [ref=e963]:
+              - generic [ref=e964]:
+                - heading "Actividad" [level=2] [ref=e965]
+                - paragraph [ref=e966]: Últimos 7 días
+              - generic [ref=e967]:
+                - generic [ref=e968]:
+                  - generic [ref=e969]: Mensajes
+                  - generic [ref=e971]: Usuarios activos
+                - img "Mensajes y usuarios activos en los últimos 7 días" [ref=e973]:
+                  - generic [ref=e983]: 9 jul
+                  - generic [ref=e984]: 10 jul
+            - generic [ref=e985]:
+              - generic [ref=e986]:
+                - heading "Tickets" [level=2] [ref=e987]
+                - paragraph [ref=e988]: Distribución por estado
+              - generic [ref=e989]:
+                - generic [ref=e990]:
+                  - img "116 tickets en total" [ref=e991]
+                  - generic:
+                    - generic: "116"
+                    - generic: Total
+                - list [ref=e997]:
+                  - listitem [ref=e998]:
+                    - generic [ref=e1000]: Abiertos
+                    - generic [ref=e1001]: "25"
+                  - listitem [ref=e1002]:
+                    - generic [ref=e1004]: Pendientes
+                    - generic [ref=e1005]: "49"
+                  - listitem [ref=e1006]:
+                    - generic [ref=e1008]: Cerrados
+                    - generic [ref=e1009]: "42"
+          - generic [ref=e1010]:
+            - generic [ref=e1011]:
+              - paragraph [ref=e1012]: Tiempo de respuesta promedio
+              - paragraph [ref=e1013]: 80285.3 min
+              - paragraph [ref=e1016]: 25% mejor que el promedio del sector
+            - generic [ref=e1017]:
+              - paragraph [ref=e1018]: Tasa de satisfacción
+              - paragraph [ref=e1019]: 0%
+              - paragraph [ref=e1022]: Basado en 0 reseñas
+            - generic [ref=e1023]:
+              - paragraph [ref=e1024]: Resolución primer contacto
+              - paragraph [ref=e1025]: 0%
+              - paragraph [ref=e1028]: "Objetivo: 85%"
+          - generic [ref=e1029]:
+            - generic [ref=e1030]:
+              - generic [ref=e1031]:
+                - heading "Equipo" [level=2] [ref=e1032]
+                - paragraph [ref=e1033]: 4 en línea
+              - list [ref=e1034]:
+                - listitem [ref=e1035]:
+                  - generic [ref=e1036]: AD
+                  - generic [ref=e1037]:
+                    - paragraph [ref=e1038]: Administrador
+                    - paragraph [ref=e1039]: admin@chateam.com
+                  - generic [ref=e1040]: 1h 16m
+                - listitem [ref=e1043]:
+                  - generic [ref=e1044]: Q(
+                  - generic [ref=e1045]:
+                    - paragraph [ref=e1046]: QA Agent (pruebas)
+                    - paragraph [ref=e1047]: qa-agent@chateam.com
+                  - generic [ref=e1048]: 4h 18m
+                - listitem [ref=e1051]:
+                  - generic [ref=e1052]: QA
+                  - generic [ref=e1053]:
+                    - paragraph [ref=e1054]: QA Rol Agente
+                    - paragraph [ref=e1055]: qa-role-agent@chateam.com
+                  - generic [ref=e1056]: 1d 3h
+                - listitem [ref=e1059]:
+                  - generic [ref=e1060]: UD
+                  - generic [ref=e1061]:
+                    - paragraph [ref=e1062]: Usuario Demo
+                    - paragraph [ref=e1063]: user@chateam.com
+                  - generic [ref=e1064]: 136d 13h
+                - listitem [ref=e1067]:
+                  - generic [ref=e1068]: RR
+                  - generic [ref=e1069]:
+                    - paragraph [ref=e1070]: RRHH
+                    - paragraph [ref=e1071]: rrhh@gmail.com
+                  - generic [ref=e1072]: Desconectado
+            - generic [ref=e1074]:
+              - generic [ref=e1075]:
+                - heading "Actividad reciente" [level=2] [ref=e1076]
+                - paragraph [ref=e1077]: Últimos eventos
+              - list [ref=e1078]:
+                - listitem [ref=e1079]:
+                  - generic [ref=e1083]:
+                    - paragraph [ref=e1084]: "Ticket #679 abierto"
+                    - paragraph [ref=e1085]: RRHH · Hace 5 días
+                - listitem [ref=e1086]:
+                  - generic [ref=e1090]:
+                    - paragraph [ref=e1091]: "Ticket #2206 abierto"
+                    - paragraph [ref=e1092]: RRHH · Hace 5 días
+                - listitem [ref=e1093]:
+                  - generic [ref=e1097]:
+                    - paragraph [ref=e1098]: "Ticket #80 abierto"
+                    - paragraph [ref=e1099]: RRHH · Hace 5 días
+                - listitem [ref=e1100]:
+                  - generic [ref=e1104]:
+                    - paragraph [ref=e1105]: "Ticket #2653 abierto"
+                    - paragraph [ref=e1106]: RRHH · Hace 5 días
+                - listitem [ref=e1107]:
+                  - generic [ref=e1111]:
+                    - paragraph [ref=e1112]: "Ticket #77 abierto"
+                    - paragraph [ref=e1113]: RRHH · Hace 5 días
+  - region "Notifications Alt+T":
+    - alert [ref=e1115] [cursor=pointer]:
+      - text: Inicio de sesión exitoso
+      - button "close" [ref=e1119]
+      - progressbar "notification timer" [ref=e1124]

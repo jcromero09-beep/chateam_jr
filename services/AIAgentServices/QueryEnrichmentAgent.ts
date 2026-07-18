@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * QueryEnrichmentAgent — Clasificación + Enriquecimiento de Queries en una sola llamada LLM
  *
@@ -323,6 +327,7 @@ const enrich = async (request: EnrichmentRequest): Promise<EnrichmentResult> => 
         { role: "system", content: "Responde SOLO con JSON válido. Sin markdown, sin backticks, sin explicación." },
         { role: "user", content: prompt }
       ],
+      model: "gpt-4.1-mini", // 2026-07-10: mini (NO gpt-5.5). gpt-5.5 es de razonamiento → ~8s de latencia (medido) en un paso que corre en CADA mensaje. Clasificación estructurada → mini es correcto por velocidad, no por costo.
       maxTokens: 500,
       temperature: 0.1,
       companyId,

@@ -26,7 +26,7 @@ const GetFlowsCampaignDataService = async ({
           }
         });
         
-        let hook = rows[0]
+        const hook = rows[0]
 
         return {
             details: hook

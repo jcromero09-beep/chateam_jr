@@ -18,6 +18,19 @@ import Company from "./models/Company";
 import { startBackendQueueProcessors } from "./backendQueues";
 import { startBackendCronJobs } from "./backendCronJobs";
 
+// [estabilidad] Red de seguridad: en Node 22 un unhandledRejection/uncaughtException
+// tumba el proceso por defecto. Un 404 async sin catch (p.ej. impersonación que
+// consulta un userId ajeno a la companyId → ERR_NO_USER_FOUND) NO debe reiniciar
+// todo el backend (bucle de reinicios → 502 en cascada). Se loguea y sigue vivo.
+process.on("unhandledRejection", (reason: any) => {
+  logger.error(
+    `[unhandledRejection] ${reason?.message || reason}${reason?.stack ? `\n${reason.stack}` : ""}`
+  );
+});
+process.on("uncaughtException", (err: any) => {
+  logger.error(`[uncaughtException] ${err?.message || err}\n${err?.stack || ""}`);
+});
+
 const NODE_ID = process.env.NODE_ID || "node-1";
 const PORT = parseInt(process.env.PORT || "3001");
 const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || "60");
@@ -48,7 +61,7 @@ server.listen(PORT, async () => {
 
   // Solo node-1 corre cron jobs y queue processors para evitar duplicados
   if (NODE_ID === "node-1") {
-    startBackendQueueProcessors();
+    await startBackendQueueProcessors();
     startBackendCronJobs();
     console.log(`📋 [${NODE_ID}] Queue processors and cron jobs started (primary node)`);
   }
@@ -75,8 +88,8 @@ server.listen(PORT, async () => {
       if (!location) {
         // No asignada: asignar a este nodo si tenemos capacidad
         if (myWhatsapps.length < MAX_SESSIONS) {
-          await sessionRegistry.register(item.whatsapp.id);
-          myWhatsapps.push(item);
+          const claimed = await sessionRegistry.register(item.whatsapp.id);
+          if (claimed) myWhatsapps.push(item);
         }
       } else if (location.nodeId === NODE_ID) {
         // Ya asignada a este nodo

@@ -1,9 +1,15 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 /* import path from "path";
 
  const name = process.env.GERENCIANET_SANDBOX === "false" ? "producao" : "homologacao";
 
  const cert = path.join(
-  __dirname,
+  currentDir,
   `../../certs/${process.env.GERENCIANET_PIX_CERT}.p12`
 );
 
@@ -29,7 +35,7 @@ async function getSettingValue(key: string): Promise<string | undefined> {
   }
 }
 
-const cert = path.join(__dirname, `../../certs/certificadoEfi.p12`);
+const cert = path.join(currentDir, `../../certs/certificadoEfi.p12`);
 
 const config = {
   sandbox: false,
@@ -46,5 +52,4 @@ const config = {
   console.log(config);
 })();
 
-export = config;
-
+export default config;

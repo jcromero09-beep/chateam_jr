@@ -2,8 +2,8 @@ import type {
   AuthenticationCreds,
   AuthenticationState,
   SignalDataTypeMap
-} from "@whiskeysockets/baileys";
-import { BufferJSON, initAuthCreds, proto } from "@whiskeysockets/baileys";
+} from "baileys";
+import { BufferJSON, initAuthCreds, proto } from "baileys";
 import Whatsapp from "../models/Whatsapp";
 
 const KEY_MAP: { [T in keyof SignalDataTypeMap]: string } = {
@@ -15,7 +15,8 @@ const KEY_MAP: { [T in keyof SignalDataTypeMap]: string } = {
   "sender-key-memory": "senderKeyMemory",
   "lid-mapping": "lidMapping",
   "device-list": "deviceList",
-  tctoken: "tcToken"
+  tctoken: "tcToken",
+  "identity-key": "identityKeys"
 };
 
 const authState = async (

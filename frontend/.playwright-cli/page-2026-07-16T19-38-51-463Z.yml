@@ -1,0 +1,56 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - main [ref=e4]:
+    - complementary [ref=e5]:
+      - img "Chateam" [ref=e7]
+      - generic [ref=e8]:
+        - paragraph [ref=e9]: Plataforma omnicanal
+        - heading "Toda tu comunicación, en un solo lugar." [level=1] [ref=e10]
+        - paragraph [ref=e11]: Gestiona conversaciones, tickets y campañas de cada canal desde una sola bandeja, con seguimiento de ventas y asistencia de IA.
+        - list [ref=e12]:
+          - listitem [ref=e13]:
+            - generic [ref=e17]: WhatsApp Business API
+          - listitem [ref=e18]:
+            - generic [ref=e22]: Comentarios de Instagram y Facebook
+          - listitem [ref=e23]:
+            - generic [ref=e27]: WebChat y bandeja multicanal
+          - listitem [ref=e28]:
+            - generic [ref=e32]: Automatización y respuestas con IA
+      - paragraph [ref=e33]: © 2026 Chateam. Todos los derechos reservados.
+    - generic [ref=e36]:
+      - generic [ref=e37]:
+        - heading "Inicia sesión" [level=2] [ref=e38]
+        - paragraph [ref=e39]: Accede a tu panel de Chateam.
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - text: Correo electrónico
+          - textbox "Correo electrónico" [ref=e43]:
+            - /placeholder: tucorreo@empresa.com
+            - text: admin@chateam.com
+        - generic [ref=e44]:
+          - generic [ref=e45]:
+            - generic [ref=e46]: Contraseña
+            - button "¿Olvidaste tu contraseña?" [ref=e47]
+          - generic [ref=e48]:
+            - textbox "Contraseña" [ref=e49]:
+              - /placeholder: Tu contraseña
+              - text: Chateam.Admin2026
+            - button "Mostrar contraseña" [ref=e51]
+        - generic [ref=e54]:
+          - checkbox "Mantener sesión iniciada" [ref=e55]
+          - generic [ref=e56] [cursor=pointer]: Mantener sesión iniciada
+        - button "Iniciar sesión" [ref=e57] [cursor=pointer]
+      - generic [ref=e58]: o
+      - generic [ref=e62]:
+        - button "Crear cuenta" [ref=e63] [cursor=pointer]
+        - button "Contáctanos por WhatsApp" [ref=e64] [cursor=pointer]
+  - region "Notifications Alt+T":
+    - generic [ref=e67]:
+      - alert [ref=e68] [cursor=pointer]:
+        - text: Credenciales inválidas
+        - button "close" [ref=e72]
+        - progressbar "notification timer" [ref=e77]
+      - alert [ref=e78] [cursor=pointer]:
+        - text: Error del servidor. Por favor, intenta más tarde.
+        - button "close" [ref=e82]
+        - progressbar "notification timer" [ref=e87]

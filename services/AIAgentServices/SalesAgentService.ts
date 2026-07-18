@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { selectModel } from "./ModelRouterService";
 import AgentLogService from "./AgentLogService";
 import logger from "../../utils/logger";
@@ -45,7 +49,7 @@ const processInquiry = async (
 
   // 1. Select model (sales tier = mini)
   const modelSelection = await selectModel('sales', message, 'mini');
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini';
+  const modelKey = modelSelection?.entity.key || 'gpt-5.5';
 
   // 2. Build sales prompt
   const prompt = buildSalesPrompt(message, ticketHistory, contactInfo);
@@ -199,6 +203,7 @@ Responde SOLO en JSON con este formato:
 
 function calculateCost(tokens: { input: number; output: number }, modelKey: string): number {
   const costs: Record<string, { input: number; output: number }> = {
+    'gpt-5.5': { input: 0.005, output: 0.03 },
     'gpt-4.1-mini': { input: 0.0004, output: 0.0016 },
     'gpt-4.1': { input: 0.002, output: 0.008 },
     'claude-3.5-haiku': { input: 0.0008, output: 0.004 },

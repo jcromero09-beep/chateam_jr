@@ -1,3 +1,13 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import Chatbot from "../../models/Chatbot";
 import Contact from "../../models/Contact";
 import Queue from "../../models/Queue";
@@ -362,8 +372,8 @@ function resolvePublicFile(relativePath: string, needAbsolute = false) {
   // Mantiene compat con tu lógica (dist/src)
   const base =
     process.env.BACKEND_URL === "https://localhost:8090"
-      ? `${__dirname.split("src")[0].split("\\").join("/")}`
-      : `${__dirname.split("dist")[0].split("\\").join("/")}`;
+      ? `${currentDir.split("src")[0].split("\\").join("/")}`
+      : `${currentDir.split("dist")[0].split("\\").join("/")}`;
 
   const absolute = `${base}public/${relativePath}`;
   const fileExtension = path.extname(absolute);

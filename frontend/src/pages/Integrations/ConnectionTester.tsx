@@ -1,33 +1,29 @@
 import React, { useState, useEffect } from 'react';
+// [Fase2·G] CircularProgress se conserva en MUI Joy a propósito (no hay equivalente
+// en el design system Tailwind/Radix todavía). El resto de la pantalla ya está migrado.
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Button,
-  Card,
-  Chip,
-  Typography,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Alert,
-  CircularProgress,
-  Stack,
-  List,
-  ListItem,
-  ListItemDecorator,
-  Textarea,
-  Divider
-} from '@mui/joy';
-import {
-  PlayArrow as TestIcon,
-  CheckCircle as SuccessIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Info as InfoIcon,
-  Warning as WarningIcon,
-  Refresh as RefreshIcon
-} from '@mui/icons-material';
+  ArrowClockwise,
+  CheckCircle,
+  Info,
+  Play,
+  PlugsConnected,
+  Warning,
+  XCircle,
+} from '@phosphor-icons/react';
 import { toast } from 'react-toastify';
+import { StatTile } from '@/components/ui/stat-tile';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import api from '../../services/api';
 
 interface IntegrationConnection {
@@ -129,26 +125,42 @@ const ConnectionTester: React.FC = () => {
     }
   };
 
+  // [a11y] Los iconos de estado usan los tokens *-text (contraste 4.5:1), nunca
+  // los tokens de superficie (--success/--warning/--destructive).
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'success':
-        return <SuccessIcon color="success" />;
+        return <CheckCircle className="size-5 text-success-text" weight="fill" aria-hidden />;
       case 'error':
-        return <ErrorIcon color="error" />;
+        return <XCircle className="size-5 text-destructive-text" weight="fill" aria-hidden />;
       case 'warning':
-        return <WarningIcon color="warning" />;
+        return <Warning className="size-5 text-warning-text" weight="fill" aria-hidden />;
       case 'info':
       default:
-        return <InfoIcon color="info" />;
+        return <Info className="size-5 text-primary" weight="fill" aria-hidden />;
     }
   };
 
-  const _getStatusColor = (status: string): 'success' | 'danger' | 'warning' | 'neutral' => {
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'success':
+        return 'Correcto';
+      case 'error':
+        return 'Error';
+      case 'warning':
+        return 'Advertencia';
+      case 'info':
+      default:
+        return 'Información';
+    }
+  };
+
+  const getStatusVariant = (status: string): BadgeProps['variant'] => {
     switch (status) {
       case 'success':
         return 'success';
       case 'error':
-        return 'danger';
+        return 'destructive';
       case 'warning':
         return 'warning';
       case 'info':
@@ -169,248 +181,275 @@ const ConnectionTester: React.FC = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     );
   }
 
   if (connections.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert color="warning">
-          No hay conexiones configuradas. Configure una conexión primero para poder probarla.
-        </Alert>
-      </Box>
+      <div className="p-5 sm:p-6 lg:p-8">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/12 px-4 py-3 text-sm text-foreground"
+        >
+          <Warning className="mt-0.5 size-5 shrink-0 text-warning-text" weight="fill" aria-hidden />
+          <span>
+            No hay conexiones configuradas. Configure una conexión primero para poder probarla.
+          </span>
+        </div>
+      </div>
     );
   }
 
   const connectionData = getSelectedConnectionData();
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography level="h2">Probador de Conexiones</Typography>
-        <Button
-          startDecorator={<RefreshIcon />}
-          variant="outlined"
-          onClick={fetchConnections}
-        >
-          Actualizar Lista
-        </Button>
-      </Stack>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <PlugsConnected className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Probador de Conexiones
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Valida credenciales, conectividad y endpoints de tus integraciones
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchConnections}>
+            <ArrowClockwise className="size-4" aria-hidden />
+            Actualizar Lista
+          </Button>
+        </div>
 
-      <Card sx={{ mb: 3 }}>
-        <Typography level="h4" mb={2}>
-          Seleccionar Conexión
-        </Typography>
-        <FormControl>
-          <FormLabel>Conexión a Probar</FormLabel>
-          <Select
-            value={selectedConnection}
-            onChange={(_, value) => {
-              setSelectedConnection(value);
-              setTestResult(null);
-            }}
-          >
-            {connections.map((conn) => (
-              <Option key={conn.id} value={conn.id}>
-                {conn.name} ({conn.integration_type}) {!conn.is_active && '(Inactiva)'}
-              </Option>
-            ))}
-          </Select>
-        </FormControl>
+        {/* Seleccionar conexión */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">Seleccionar Conexión</h2>
 
-        {connectionData && (
-          <Box sx={{ mt: 2 }}>
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={2}>
-                <Typography level="body-sm" textColor="text.secondary">
-                  Tipo:
-                </Typography>
-                <Chip size="sm" variant="soft" color="primary">
-                  {connectionData.integration_type}
-                </Chip>
-              </Stack>
-              <Stack direction="row" spacing={2}>
-                <Typography level="body-sm" textColor="text.secondary">
-                  Estado:
-                </Typography>
-                <Chip
-                  size="sm"
-                  variant="soft"
-                  color={connectionData.is_active ? 'success' : 'neutral'}
-                >
-                  {connectionData.is_active ? 'Activa' : 'Inactiva'}
-                </Chip>
-              </Stack>
+          <div className="max-w-md space-y-1.5">
+            <Label htmlFor="tester-connection">Conexión a Probar</Label>
+            <Select
+              value={selectedConnection != null ? String(selectedConnection) : undefined}
+              onValueChange={(value) => {
+                setSelectedConnection(Number(value));
+                setTestResult(null);
+              }}
+            >
+              <SelectTrigger id="tester-connection" className="w-full">
+                <SelectValue placeholder="Seleccione una conexión" />
+              </SelectTrigger>
+              <SelectContent>
+                {connections.map((conn) => (
+                  <SelectItem key={conn.id} value={String(conn.id)}>
+                    {conn.name} ({conn.integration_type}) {!conn.is_active && '(Inactiva)'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {connectionData && (
+            <dl className="mt-4 space-y-2">
+              <div className="flex items-center gap-3">
+                <dt className="text-sm text-muted-foreground">Tipo:</dt>
+                <dd>
+                  <Badge variant="primary">{connectionData.integration_type}</Badge>
+                </dd>
+              </div>
+              <div className="flex items-center gap-3">
+                <dt className="text-sm text-muted-foreground">Estado:</dt>
+                <dd>
+                  <Badge variant={connectionData.is_active ? 'success' : 'neutral'} dot>
+                    {connectionData.is_active ? 'Activa' : 'Inactiva'}
+                  </Badge>
+                </dd>
+              </div>
               {connectionData.webhook_url && (
-                <Stack direction="row" spacing={2}>
-                  <Typography level="body-sm" textColor="text.secondary">
-                    Webhook:
-                  </Typography>
-                  <Typography level="body-sm" noWrap sx={{ maxWidth: 400 }}>
+                <div className="flex items-center gap-3">
+                  <dt className="shrink-0 text-sm text-muted-foreground">Webhook:</dt>
+                  <dd
+                    className="max-w-[400px] truncate text-sm text-foreground"
+                    title={connectionData.webhook_url}
+                  >
                     {connectionData.webhook_url}
-                  </Typography>
-                </Stack>
+                  </dd>
+                </div>
               )}
-            </Stack>
-          </Box>
+            </dl>
+          )}
+
+          <div className="my-5 border-t border-border" />
+
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={handleTestConnection}
+            loading={testing}
+            disabled={!selectedConnection || testing}
+          >
+            {!testing && <Play className="size-4" weight="fill" aria-hidden />}
+            {testing ? 'Probando Conexión...' : 'Ejecutar Prueba de Conexión'}
+          </Button>
+        </div>
+
+        {/* Resultados */}
+        {testResult && (
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Resultados de la Prueba</h2>
+
+            {/* Summary */}
+            <div
+              role="status"
+              className={cn(
+                'flex items-start gap-3 rounded-lg border px-4 py-3',
+                testResult.success
+                  ? 'border-success/30 bg-success/12'
+                  : 'border-destructive/30 bg-destructive/12',
+              )}
+            >
+              {testResult.success ? (
+                <CheckCircle className="mt-0.5 size-5 shrink-0 text-success-text" weight="fill" aria-hidden />
+              ) : (
+                <XCircle className="mt-0.5 size-5 shrink-0 text-destructive-text" weight="fill" aria-hidden />
+              )}
+              <div className="space-y-1">
+                <p
+                  className={cn(
+                    'text-sm font-semibold',
+                    testResult.success ? 'text-success-text' : 'text-destructive-text',
+                  )}
+                >
+                  {testResult.success
+                    ? 'Prueba completada exitosamente'
+                    : 'Prueba completada con errores'}
+                </p>
+                <p className="text-sm text-foreground">
+                  Total: {testResult.summary.total} pruebas | Exitosas: {testResult.summary.passed} |
+                  Fallidas: {testResult.summary.failed} | Advertencias: {testResult.summary.warnings}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ejecutado: {new Date(testResult.timestamp).toLocaleString('es-ES')}
+                </p>
+              </div>
+            </div>
+
+            {/* Summary stats */}
+            <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <StatTile label="Total pruebas" value={String(testResult.summary.total)} />
+              <StatTile label="Exitosas" value={String(testResult.summary.passed)} tone="success" />
+              <StatTile label="Fallidas" value={String(testResult.summary.failed)} tone="destructive" />
+              <StatTile label="Advertencias" value={String(testResult.summary.warnings)} tone="warning" />
+            </div>
+
+            {/* Test Details */}
+            <h3 className="mb-2 mt-6 text-base font-semibold text-foreground">Detalle de Pruebas</h3>
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {testResult.tests.map((test, index) => (
+                <li key={index} className="flex items-start gap-3 p-4">
+                  <span className="mt-0.5 shrink-0" title={getStatusLabel(test.status)}>
+                    {getStatusIcon(test.status)}
+                    <span className="sr-only">{getStatusLabel(test.status)}</span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-foreground">{test.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={getStatusVariant(test.status)}>
+                          {getStatusLabel(test.status)}
+                        </Badge>
+                        {test.duration && (
+                          <Badge variant="outline" className="tabular-nums">
+                            {formatDuration(test.duration)}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{test.message}</p>
+                    {test.details && (
+                      <pre className="mt-2 max-h-52 overflow-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-foreground">
+                        {JSON.stringify(test.details, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {testResult.error && (
+              <div
+                role="alert"
+                className="mt-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3"
+              >
+                <XCircle className="mt-0.5 size-5 shrink-0 text-destructive-text" weight="fill" aria-hidden />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-semibold text-destructive-text">Error General</p>
+                  <p className="break-words text-sm text-foreground">{testResult.error}</p>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
-        <Divider sx={{ my: 2 }} />
+        {/* Test Information */}
+        <div className="rounded-xl border border-border bg-muted/40 p-5 shadow-sm shadow-black/[0.02] sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Info className="size-5 text-primary" weight="fill" aria-hidden />
+            Información sobre las Pruebas
+          </h2>
+          <ul className="space-y-2">
+            <li className="flex items-start gap-2.5">
+              <CheckCircle className="mt-0.5 size-4 shrink-0 text-success-text" weight="fill" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">Validación de Credenciales:</strong>{' '}
+                Verifica que las credenciales de API sean válidas y tengan los permisos necesarios.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <CheckCircle className="mt-0.5 size-4 shrink-0 text-success-text" weight="fill" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">Conectividad:</strong> Prueba la
+                conexión con el servidor externo y verifica que sea accesible.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <CheckCircle className="mt-0.5 size-4 shrink-0 text-success-text" weight="fill" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">Endpoints API:</strong> Valida que
+                los endpoints principales estén disponibles y respondiendo correctamente.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <CheckCircle className="mt-0.5 size-4 shrink-0 text-success-text" weight="fill" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">Mapeo de Campos:</strong> Verifica
+                que existan mapeos de campos configurados para la sincronización.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <CheckCircle className="mt-0.5 size-4 shrink-0 text-success-text" weight="fill" aria-hidden />
+              <span className="text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">Webhook (opcional):</strong> Si está
+                configurado, prueba que el webhook sea accesible y responda correctamente.
+              </span>
+            </li>
+          </ul>
 
-        <Button
-          fullWidth
-          size="lg"
-          startDecorator={testing ? <CircularProgress size="sm" /> : <TestIcon />}
-          onClick={handleTestConnection}
-          loading={testing}
-          disabled={!selectedConnection || testing}
-        >
-          {testing ? 'Probando Conexión...' : 'Ejecutar Prueba de Conexión'}
-        </Button>
-      </Card>
+          <div className="my-5 border-t border-border" />
 
-      {testResult && (
-        <Card>
-          <Typography level="h4" mb={2}>
-            Resultados de la Prueba
-          </Typography>
-
-          {/* Summary */}
-          <Alert
-            color={testResult.success ? 'success' : 'danger'}
-            startDecorator={testResult.success ? <SuccessIcon /> : <ErrorIcon />}
-            sx={{ mb: 3 }}
-          >
-            <Stack spacing={1}>
-              <Typography level="title-md">
-                {testResult.success
-                  ? 'Prueba completada exitosamente'
-                  : 'Prueba completada con errores'}
-              </Typography>
-              <Typography level="body-sm">
-                Total: {testResult.summary.total} pruebas |
-                Exitosas: {testResult.summary.passed} |
-                Fallidas: {testResult.summary.failed} |
-                Advertencias: {testResult.summary.warnings}
-              </Typography>
-              <Typography level="body-xs">
-                Ejecutado: {new Date(testResult.timestamp).toLocaleString('es-ES')}
-              </Typography>
-            </Stack>
-          </Alert>
-
-          {/* Test Details */}
-          <Typography level="title-lg" mb={2}>
-            Detalle de Pruebas
-          </Typography>
-          <List>
-            {testResult.tests.map((test, index) => (
-              <React.Fragment key={index}>
-                <ListItem>
-                  <ListItemDecorator>
-                    {getStatusIcon(test.status)}
-                  </ListItemDecorator>
-                  <Box sx={{ flex: 1 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5}>
-                      <Typography level="title-sm">{test.name}</Typography>
-                      {test.duration && (
-                        <Chip size="sm" variant="outlined">
-                          {formatDuration(test.duration)}
-                        </Chip>
-                      )}
-                    </Stack>
-                    <Typography level="body-sm" textColor="text.secondary">
-                      {test.message}
-                    </Typography>
-                    {test.details && (
-                      <Box sx={{ mt: 1 }}>
-                        <Textarea
-                          value={JSON.stringify(test.details, null, 2)}
-                          readOnly
-                          minRows={3}
-                          maxRows={8}
-                          sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
-                        />
-                      </Box>
-                    )}
-                  </Box>
-                </ListItem>
-                {index < testResult.tests.length - 1 && <Divider />}
-              </React.Fragment>
-            ))}
-          </List>
-
-          {testResult.error && (
-            <Box sx={{ mt: 3 }}>
-              <Alert color="danger" startDecorator={<ErrorIcon />}>
-                <Typography level="title-sm" mb={1}>
-                  Error General
-                </Typography>
-                <Typography level="body-sm">{testResult.error}</Typography>
-              </Alert>
-            </Box>
-          )}
-        </Card>
-      )}
-
-      {/* Test Information */}
-      <Card sx={{ mt: 3, bgcolor: 'background.level1' }}>
-        <Typography level="h4" mb={2}>
-          ℹ️ Información sobre las Pruebas
-        </Typography>
-        <List size="sm">
-          <ListItem>
-            <ListItemDecorator>
-              <CheckCircleIcon />
-            </ListItemDecorator>
-            <Typography level="body-sm">
-              <strong>Validación de Credenciales:</strong> Verifica que las credenciales de API sean válidas y tengan los permisos necesarios.
-            </Typography>
-          </ListItem>
-          <ListItem>
-            <ListItemDecorator>
-              <CheckCircleIcon />
-            </ListItemDecorator>
-            <Typography level="body-sm">
-              <strong>Conectividad:</strong> Prueba la conexión con el servidor externo y verifica que sea accesible.
-            </Typography>
-          </ListItem>
-          <ListItem>
-            <ListItemDecorator>
-              <CheckCircleIcon />
-            </ListItemDecorator>
-            <Typography level="body-sm">
-              <strong>Endpoints API:</strong> Valida que los endpoints principales estén disponibles y respondiendo correctamente.
-            </Typography>
-          </ListItem>
-          <ListItem>
-            <ListItemDecorator>
-              <CheckCircleIcon />
-            </ListItemDecorator>
-            <Typography level="body-sm">
-              <strong>Mapeo de Campos:</strong> Verifica que existan mapeos de campos configurados para la sincronización.
-            </Typography>
-          </ListItem>
-          <ListItem>
-            <ListItemDecorator>
-              <CheckCircleIcon />
-            </ListItemDecorator>
-            <Typography level="body-sm">
-              <strong>Webhook (opcional):</strong> Si está configurado, prueba que el webhook sea accesible y responda correctamente.
-            </Typography>
-          </ListItem>
-        </List>
-
-        <Divider sx={{ my: 2 }} />
-
-        <Typography level="body-xs" textColor="text.tertiary">
-          <strong>Nota:</strong> Las pruebas no modifican ningún dato. Solo validan la configuración y conectividad.
-        </Typography>
-      </Card>
-    </Box>
+          <p className="text-xs text-muted-foreground">
+            <strong className="font-semibold text-foreground">Nota:</strong> Las pruebas no modifican
+            ningún dato. Solo validan la configuración y conectividad.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 };
 

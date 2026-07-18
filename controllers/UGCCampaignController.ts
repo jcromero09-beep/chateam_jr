@@ -13,16 +13,95 @@
  */
 
 import { Request, Response } from "express";
+import path from "path";
+import { Op } from "sequelize";
+import uploadConfig from "../config/upload";
 import CreateUGCCampaignService from "../services/UGCCampaignServices/CreateUGCCampaignService";
 import ListUGCCampaignsService from "../services/UGCCampaignServices/ListUGCCampaignsService";
 import ShowUGCCampaignService from "../services/UGCCampaignServices/ShowUGCCampaignService";
 import LaunchUGCCampaignService from "../services/UGCCampaignServices/LaunchUGCCampaignService";
 import PauseUGCCampaignService from "../services/UGCCampaignServices/PauseUGCCampaignService";
+import UpdateModelSelectionService, {
+  ValidationAppError
+} from "../services/UGCCampaignServices/UpdateModelSelectionService";
+import {
+  FAL_MODEL_CATALOG,
+  FAL_CATALOG_VERSION,
+  resolveCatalogModelId
+} from "../services/UGCProviders/fal/catalog";
 import UGCCampaign, { UGCCampaignStatus } from "../models/UGCCampaign";
 import UGCVideoJob from "../models/UGCVideoJob";
 import UGCVideoAsset from "../models/UGCVideoAsset";
+import AgentIdentity from "../models/AgentIdentity";
+import AgentInteraction from "../models/AgentInteraction";
 import AppError from "../errors/AppError";
 import logger from "../utils/logger";
+
+const safeCount = async (
+  label: string,
+  counter: () => Promise<number>
+): Promise<number> => {
+  try {
+    return await counter();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(`[UGCCampaignController.dashboard] ${label} count skipped: ${message}`);
+    return 0;
+  }
+};
+
+const safeFindAll = async <T>(
+  label: string,
+  finder: () => Promise<T[]>
+): Promise<T[]> => {
+  try {
+    return await finder();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(`[UGCCampaignController.dashboard] ${label} list skipped: ${message}`);
+    return [];
+  }
+};
+
+const absoluteBackendUrl = (req: Request): string => {
+  const configured = process.env.BACKEND_URL || "";
+  const base = configured || `${req.protocol}://${req.get("host")}`;
+  return base.replace(/\/+$/, "");
+};
+
+/**
+ * POST /ugc/assets/reference
+ * Sube una imagen de referencia para modelos text+image -> video.
+ */
+export const uploadReference = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const file = req.file;
+
+  if (!file) {
+    return res.status(400).json({
+      success: false,
+      message: "ERR_UGC_REFERENCE_FILE_REQUIRED"
+    });
+  }
+
+  const relativePath = path
+    .relative(uploadConfig.directory, file.path)
+    .split(path.sep)
+    .join("/");
+  const url = `${absoluteBackendUrl(req)}/public/${relativePath}`;
+
+  return res.status(201).json({
+    success: true,
+    data: {
+      url,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size
+    }
+  });
+};
 
 /**
  * POST /ugc/campaigns
@@ -32,11 +111,37 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const { companyId, id: userId } = req.user;
   const {
     name,
+    brief,
+    product,
+    tone,
+    targetAudience,
+    callToAction,
+    videoProvider,
+    videoFormat,
+    videoDuration,
+    videoResolution,
+    videosCount,
+    imagesCount,
+    videoLanguage,
+    platforms,
+    autoPublish,
+    abTesting,
     productBrief,
     generationConfig,
     publishConfig,
     optimizationConfig,
-    budget
+    budget,
+    pipelineMode,
+    videoModelKey,
+    videoModelDefaults,
+    videoModelMotionReferenceUrl,
+    audioReferenceUrl,
+    imageModelKey,
+    imageModelDefaults,
+    voiceModelKey,
+    voiceModelDefaults,
+    lipsyncModelKey,
+    lipsyncModelDefaults
   } = req.body;
 
   try {
@@ -44,11 +149,44 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       companyId,
       userId,
       name,
-      productBrief,
-      generationConfig,
-      publishConfig,
-      optimizationConfig,
-      budget
+      productBrief: productBrief || {
+        productName: product,
+        targetAudience,
+        tone,
+        callToAction,
+        keyFeatures: brief ? [brief] : []
+      },
+      generationConfig: generationConfig || {
+        videoCount: Number(videosCount || 3),
+        imageCount: Number(imagesCount || 2),
+        videoDuration: Number(videoDuration || 30),
+        videoResolution: videoResolution || "720p",
+        aspectRatio: videoFormat || "9:16",
+        videoProvider: videoProvider || process.env.UGC_VIDEO_PROVIDER || "fal-wan",
+        imageProvider: process.env.UGC_IMAGE_PROVIDER || "fal-flux",
+        language: videoLanguage || "es",
+        subtitlesEnabled: true,
+        hooks: []
+      },
+      publishConfig: publishConfig || {
+        platforms: platforms || [],
+        autoPublish: Boolean(autoPublish)
+      },
+      optimizationConfig: optimizationConfig || {
+        abTestEnabled: Boolean(abTesting)
+      },
+      budget,
+      pipelineMode,
+      videoModelKey,
+      videoModelDefaults,
+      videoModelMotionReferenceUrl,
+      audioReferenceUrl,
+      imageModelKey,
+      imageModelDefaults,
+      voiceModelKey,
+      voiceModelDefaults,
+      lipsyncModelKey,
+      lipsyncModelDefaults
     });
 
     return res.status(201).json({
@@ -120,6 +258,73 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
       message: "Error interno al listar campanas UGC"
     });
   }
+};
+
+/**
+ * GET /ugc/dashboard
+ * Resumen agregado del pipeline UGC para evitar derivar contadores desde listas paginadas.
+ */
+export const dashboard = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+
+  const [
+    totalIdentities,
+    totalCampaigns,
+    activeCampaigns,
+    totalVideos,
+    completedVideos,
+    generatedImages,
+    totalInteractions,
+    recentIdentities,
+    recentCampaigns
+  ] = await Promise.all([
+    safeCount("identities", () => AgentIdentity.count({ where: { companyId } })),
+    safeCount("campaigns", () => UGCCampaign.count({ where: { companyId } })),
+    safeCount("active campaigns", () => UGCCampaign.count({
+      where: {
+        companyId,
+        status: { [Op.in]: ["active", "producing", "review", "publishing", "optimizing"] }
+      }
+    })),
+    safeCount("videos", () => UGCVideoJob.count({ where: { companyId } })),
+    safeCount("completed videos", () => UGCVideoJob.count({ where: { companyId, status: "completed" } })),
+    safeCount("generated images", () => UGCVideoAsset.count({
+      where: {
+        companyId,
+        assetType: { [Op.in]: ["generated_image", "image_thumbnail"] },
+        isActive: true
+      }
+    })),
+    safeCount("interactions", () => AgentInteraction.count({ where: { companyId } })),
+    safeFindAll("recent identities", () => AgentIdentity.findAll({
+      where: { companyId },
+      order: [["createdAt", "DESC"]],
+      limit: 5
+    })),
+    safeFindAll("recent campaigns", () => UGCCampaign.findAll({
+      where: { companyId },
+      order: [["createdAt", "DESC"]],
+      limit: 5
+    }))
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      stats: {
+        totalIdentities,
+        totalCampaigns,
+        activeCampaigns,
+        totalVideos,
+        videosGenerated: totalVideos,
+        completedVideos,
+        generatedImages,
+        totalInteractions
+      },
+      identities: recentIdentities,
+      campaigns: recentCampaigns
+    }
+  });
 };
 
 /**
@@ -388,6 +593,115 @@ export const listVideos = async (req: Request, res: Response): Promise<Response>
     return res.status(500).json({
       success: false,
       message: "Error interno al listar videos de campana"
+    });
+  }
+};
+
+/**
+ * GET /ugc/fal-models
+ * Devuelve el catálogo curado de modelos fal.ai disponibles.
+ * No consume API de fal — el catálogo es estático.
+ */
+export const listFalModels = async (
+  _req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    // Resolvemos el modelId final (incluyendo env overrides) para
+    // que el frontend muestre exactamente lo que se invocará en runtime.
+    const models = FAL_MODEL_CATALOG.map(entry => ({
+      ...entry,
+      modelId: resolveCatalogModelId(entry)
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Catálogo de modelos fal.ai disponibles",
+      data: {
+        version: FAL_CATALOG_VERSION,
+        models
+      },
+      errors: null
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`[UGCCampaignController.listFalModels] Error: ${errorMessage}`);
+    return res.status(500).json({
+      success: false,
+      message: "Error interno al cargar catálogo fal.ai"
+    });
+  }
+};
+
+/**
+ * PATCH /ugc/campaigns/:id/model-selection
+ * Guarda la selección de modelo (video + image edit) para una campaña.
+ *
+ * Body (todos los campos opcionales — PATCH semantics):
+ *   - videoModelKey, videoModelDefaults, videoModelMotionReferenceUrl
+ *   - imageModelKey, imageModelDefaults
+ *
+ * Responde:
+ *   200 → campaña actualizada
+ *   404 → campaña no existe
+ *   422 → validación Zod o assets requeridos faltantes (motion-control)
+ */
+export const updateModelSelection = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { companyId, id: userId } = req.user;
+  const campaignId = Number(req.params.id);
+
+  if (!Number.isFinite(campaignId) || campaignId <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "ID de campaña inválido"
+    });
+  }
+
+  try {
+    // El service detecta por el shape del body si es PR #1 (flat) o
+    // PR #2 (pipeline con slots) y aplica las validaciones correctas.
+    const campaign = await UpdateModelSelectionService({
+      campaignId,
+      companyId,
+      userId,
+      body: req.body ?? {}
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Selección de modelo actualizada",
+      data: campaign,
+      errors: null
+    });
+  } catch (error: unknown) {
+    if (error instanceof ValidationAppError) {
+      logger.warn(
+        `[UGCCampaignController.updateModelSelection] 422 campaign=${campaignId} ` +
+          `issues=${error.issues.length}`
+      );
+      return res.status(422).json({
+        success: false,
+        message: error.message,
+        data: null,
+        errors: error.issues
+      });
+    }
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `[UGCCampaignController.updateModelSelection] Error: ${errorMessage}`
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Error interno al guardar selección de modelo"
     });
   }
 };

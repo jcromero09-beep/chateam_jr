@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import { Job } from "bull";
 import FacebookConversionEvent from "../models/FacebookConversionEvent";
 import FacebookDataset from "../models/FacebookDataset";

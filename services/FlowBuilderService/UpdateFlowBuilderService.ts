@@ -12,7 +12,7 @@ const UpdateFlowBuilderService = async ({
   companyId,
   name,
   flowId
-}: Request): Promise<String> => {
+}: Request): Promise<string> => {
   try {
 
     const nameExist = await FlowBuilderModel.findOne({

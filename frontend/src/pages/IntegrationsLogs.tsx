@@ -1,32 +1,27 @@
 import { useState } from 'react'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Input,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Chip,
-  Table,
-  Sheet,
-  Tooltip,
-} from '@mui/joy'
-import {
   Article as LogIcon,
-  Search as SearchIcon,
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  FilterList as FilterIcon,
-} from '@mui/icons-material'
+  MagnifyingGlass,
+  DownloadSimple,
+  ArrowClockwise,
+  CheckCircle,
+  XCircle,
+  Warning,
+  Info,
+  Funnel,
+} from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 interface IntegrationLog {
   id: number
@@ -272,12 +267,12 @@ export default function IntegrationsLogs() {
     { hour: '11:00', events: 543 },
   ]
 
-  const getTypeColor = (type: string) => {
+  const getTypeVariant = (type: string): BadgeProps['variant'] => {
     switch (type) {
       case 'sync':
         return 'success'
       case 'error':
-        return 'danger'
+        return 'destructive'
       case 'warning':
         return 'warning'
       case 'info':
@@ -290,13 +285,13 @@ export default function IntegrationsLogs() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'sync':
-        return <CheckCircleIcon fontSize="small" />
+        return <CheckCircle className="size-3.5" weight="fill" aria-hidden />
       case 'error':
-        return <ErrorIcon fontSize="small" />
+        return <XCircle className="size-3.5" weight="fill" aria-hidden />
       case 'warning':
-        return <WarningIcon fontSize="small" />
+        return <Warning className="size-3.5" weight="fill" aria-hidden />
       case 'info':
-        return <InfoIcon fontSize="small" />
+        return <Info className="size-3.5" weight="fill" aria-hidden />
       default:
         return null
     }
@@ -327,314 +322,279 @@ export default function IntegrationsLogs() {
   const maxActivity = Math.max(...activityByHour.map(a => a.events))
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <LogIcon sx={{ fontSize: 32 }} />
-            Logs de Integraciones
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Registro centralizado de todas las operaciones de integración
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startDecorator={<DownloadIcon />} onClick={handleExportCSV}>
-            Exportar CSV
-          </Button>
-          <Button startDecorator={<RefreshIcon />} onClick={handleRefresh}>
-            Actualizar
-          </Button>
-        </Box>
-      </Box>
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* Header */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <LogIcon className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Logs de Integraciones
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Registro centralizado de todas las operaciones de integración
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV}>
+                <DownloadSimple className="size-4" aria-hidden />
+                Exportar CSV
+              </Button>
+              <Button size="sm" onClick={handleRefresh}>
+                <ArrowClockwise className="size-4" aria-hidden />
+                Actualizar
+              </Button>
+            </div>
+          </div>
 
-      {/* KPIs */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Eventos
-              </Typography>
-              <Typography level="h3">{stats.totalEvents.toLocaleString()}</Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                Últimos 30 días
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Tasa de Éxito
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>{stats.successRate}%</Typography>
-              <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>
-                +0.3% vs semana pasada
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Duración Promedio
-              </Typography>
-              <Typography level="h3">{stats.avgDuration}ms</Typography>
-              <Typography level="body-xs" sx={{ color: 'success.500', mt: 0.5 }}>
-                -12ms vs semana pasada
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Errores 24h
-              </Typography>
-              <Typography level="h3" sx={{ color: stats.errors24h > 20 ? 'danger.500' : 'warning.500' }}>
+          {/* KPIs */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <p className="text-sm text-muted-foreground">Total Eventos</p>
+              <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {stats.totalEvents.toLocaleString()}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">Últimos 30 días</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <p className="text-sm text-muted-foreground">Tasa de Éxito</p>
+              <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-success-text">
+                {stats.successRate}%
+              </p>
+              <p className="mt-1 text-xs text-success-text">+0.3% vs semana pasada</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <p className="text-sm text-muted-foreground">Duración Promedio</p>
+              <p className="mt-1.5 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {stats.avgDuration}ms
+              </p>
+              <p className="mt-1 text-xs text-success-text">-12ms vs semana pasada</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+              <p className="text-sm text-muted-foreground">Errores 24h</p>
+              <p
+                className={cn(
+                  'mt-1.5 text-3xl font-semibold tracking-tight tabular-nums',
+                  stats.errors24h > 20 ? 'text-destructive-text' : 'text-warning-text'
+                )}
+              >
                 {stats.errors24h}
-              </Typography>
-              <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                0.8% del total
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">0.8% del total</p>
+            </div>
+          </div>
 
-      {/* Gráfico de Actividad */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            Actividad por Hora (Últimas 12 horas)
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 200 }}>
-            {activityByHour.map((item, idx) => (
-              <Tooltip key={idx} title={`${item.hour}: ${item.events} eventos`}>
-                <Box
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'flex-end',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: `${(item.events / maxActivity) * 100}%`,
-                      bgcolor: 'primary.500',
-                      borderRadius: 'sm',
-                      transition: 'all 0.3s',
-                      '&:hover': {
-                        bgcolor: 'primary.600',
-                        transform: 'scaleY(1.05)',
-                      },
-                    }}
+          {/* Gráfico de Actividad */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <h2 className="mb-4 text-base font-semibold text-foreground">
+              Actividad por Hora (Últimas 12 horas)
+            </h2>
+            <div className="flex h-[200px] items-end gap-1">
+              {activityByHour.map((item, idx) => (
+                <Tooltip key={idx} title={`${item.hour}: ${item.events} eventos`}>
+                  <div className="flex flex-1 cursor-pointer flex-col items-center justify-end">
+                    <div
+                      className="w-full rounded-sm bg-primary transition-all hover:bg-primary-hover hover:scale-y-[1.05]"
+                      style={{ height: `${(item.events / maxActivity) * 100}%` }}
+                    />
+                    <span className="mt-1 text-xs text-muted-foreground">
+                      {item.hour.split(':')[0]}h
+                    </span>
+                  </div>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+
+          {/* Filtros */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="filter-integration">Integración</Label>
+                <Select value={filterIntegration} onValueChange={setFilterIntegration}>
+                  <SelectTrigger id="filter-integration">
+                    <Funnel className="size-4 shrink-0 opacity-60" aria-hidden />
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">Todas</SelectItem>
+                    <SelectItem value="Billie">Billie</SelectItem>
+                    <SelectItem value="Aria Lite">Aria Lite</SelectItem>
+                    <SelectItem value="SmartTrack">SmartTrack</SelectItem>
+                    <SelectItem value="SGR">SGR</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="filter-type">Tipo de Evento</Label>
+                <Select value={filterType} onValueChange={setFilterType}>
+                  <SelectTrigger id="filter-type">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="sync">Sync</SelectItem>
+                    <SelectItem value="error">Error</SelectItem>
+                    <SelectItem value="warning">Warning</SelectItem>
+                    <SelectItem value="info">Info</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="filter-date">Período</Label>
+                <Select value={filterDate} onValueChange={setFilterDate}>
+                  <SelectTrigger id="filter-date">
+                    <SelectValue placeholder="Hoy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Hoy</SelectItem>
+                    <SelectItem value="yesterday">Ayer</SelectItem>
+                    <SelectItem value="week">Última semana</SelectItem>
+                    <SelectItem value="month">Último mes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="filter-search">Buscar</Label>
+                <div className="relative">
+                  <MagnifyingGlass
+                    className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
                   />
-                  <Typography level="body-xs" sx={{ mt: 1, color: 'text.tertiary' }}>
-                    {item.hour.split(':')[0]}h
-                  </Typography>
-                </Box>
-              </Tooltip>
-            ))}
-          </Box>
-        </CardContent>
-      </Card>
+                  <input
+                    id="filter-search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar en mensajes..."
+                    className="h-9 w-full rounded-md border border-input bg-card pl-9 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
 
-      {/* Filtros */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="flex-end">
-            <Grid xs={12} sm={6} md={3}>
-              <FormControl>
-                <FormLabel>Integración</FormLabel>
-                <Select
-                  value={filterIntegration}
-                  onChange={(_, value) => setFilterIntegration(value as string)}
+          {/* Tabla de Logs */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-base font-semibold text-foreground">
+                Registro de Eventos ({filteredLogs.length})
+              </h2>
+              <span className="text-sm text-muted-foreground">
+                Página {currentPage} de {totalPages}
+              </span>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      <th className="w-[140px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Timestamp
+                      </th>
+                      <th className="w-[120px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Integración
+                      </th>
+                      <th className="w-[100px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Tipo
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Mensaje
+                      </th>
+                      <th className="w-[80px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Registros
+                      </th>
+                      <th className="w-[80px] whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Duración
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paginatedLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                          No se encontraron logs con los filtros seleccionados
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedLogs.map((log) => (
+                        <tr key={log.id} className="transition-colors hover:bg-accent/40">
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {log.timestamp}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline">{log.integration}</Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={getTypeVariant(log.type)}>
+                              {getTypeIcon(log.type)}
+                              {log.type}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="text-sm text-foreground">{log.message}</p>
+                            {log.details && (
+                              <p className="mt-0.5 text-xs text-muted-foreground">{log.details}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-semibold tabular-nums text-foreground">
+                            {log.records > 0 ? log.records : '-'}
+                          </td>
+                          <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                            {log.duration > 0 ? `${log.duration}s` : '-'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Paginación */}
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-1">
+                <Button
                   size="sm"
-                  startDecorator={<FilterIcon />}
+                  variant="outline"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(currentPage - 1)}
                 >
-                  <Option value="All">Todas</Option>
-                  <Option value="Billie">Billie</Option>
-                  <Option value="Aria Lite">Aria Lite</Option>
-                  <Option value="SmartTrack">SmartTrack</Option>
-                  <Option value="SGR">SGR</Option>
-                  <Option value="Custom">Custom</Option>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={12} sm={6} md={3}>
-              <FormControl>
-                <FormLabel>Tipo de Evento</FormLabel>
-                <Select
-                  value={filterType}
-                  onChange={(_, value) => setFilterType(value as string)}
+                  Anterior
+                </Button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  const pageNum = currentPage <= 3 ? i + 1 : currentPage - 2 + i
+                  if (pageNum > totalPages) return null
+                  return (
+                    <Button
+                      key={pageNum}
+                      size="sm"
+                      variant={currentPage === pageNum ? 'primary' : 'outline'}
+                      onClick={() => setCurrentPage(pageNum)}
+                    >
+                      {pageNum}
+                    </Button>
+                  )
+                })}
+                <Button
                   size="sm"
+                  variant="outline"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(currentPage + 1)}
                 >
-                  <Option value="all">Todos</Option>
-                  <Option value="sync">Sync</Option>
-                  <Option value="error">Error</Option>
-                  <Option value="warning">Warning</Option>
-                  <Option value="info">Info</Option>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={12} sm={6} md={3}>
-              <FormControl>
-                <FormLabel>Período</FormLabel>
-                <Select
-                  value={filterDate}
-                  onChange={(_, value) => setFilterDate(value as string)}
-                  size="sm"
-                >
-                  <Option value="today">Hoy</Option>
-                  <Option value="yesterday">Ayer</Option>
-                  <Option value="week">Última semana</Option>
-                  <Option value="month">Último mes</Option>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={12} sm={6} md={3}>
-              <FormControl>
-                <FormLabel>Buscar</FormLabel>
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar en mensajes..."
-                  size="sm"
-                  startDecorator={<SearchIcon />}
-                />
-              </FormControl>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
-      {/* Tabla de Logs */}
-      <Card>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography level="title-lg">
-              Registro de Eventos ({filteredLogs.length})
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-              Página {currentPage} de {totalPages}
-            </Typography>
-          </Box>
-
-          <Sheet sx={{ overflow: 'auto' }}>
-            <Table>
-              <thead>
-                <tr>
-                  <th style={{ width: 140 }}>Timestamp</th>
-                  <th style={{ width: 120 }}>Integración</th>
-                  <th style={{ width: 100 }}>Tipo</th>
-                  <th>Mensaje</th>
-                  <th style={{ width: 80 }}>Registros</th>
-                  <th style={{ width: 80 }}>Duración</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td>
-                      <Typography level="body-xs">
-                        {log.timestamp}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Chip size="sm" variant="outlined">
-                        {log.integration}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Chip
-                        size="sm"
-                        color={getTypeColor(log.type)}
-                        variant="soft"
-                        startDecorator={getTypeIcon(log.type)}
-                      >
-                        {log.type}
-                      </Chip>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {log.message}
-                      </Typography>
-                      {log.details && (
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                          {log.details}
-                        </Typography>
-                      )}
-                    </td>
-                    <td>
-                      <Typography level="body-sm" fontWeight="lg">
-                        {log.records > 0 ? log.records : '-'}
-                      </Typography>
-                    </td>
-                    <td>
-                      <Typography level="body-sm">
-                        {log.duration > 0 ? `${log.duration}s` : '-'}
-                      </Typography>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Sheet>
-
-          {paginatedLogs.length === 0 && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                No se encontraron logs con los filtros seleccionados
-              </Typography>
-            </Box>
-          )}
-
-          {/* Paginación */}
-          {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 2 }}>
-              <Button
-                size="sm"
-                variant="outlined"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(currentPage - 1)}
-              >
-                Anterior
-              </Button>
-              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                const pageNum = currentPage <= 3 ? i + 1 : currentPage - 2 + i
-                if (pageNum > totalPages) return null
-                return (
-                  <Button
-                    key={pageNum}
-                    size="sm"
-                    variant={currentPage === pageNum ? 'solid' : 'outlined'}
-                    onClick={() => setCurrentPage(pageNum)}
-                  >
-                    {pageNum}
-                  </Button>
-                )
-              })}
-              <Button
-                size="sm"
-                variant="outlined"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(currentPage + 1)}
-              >
-                Siguiente
-              </Button>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-    </Box>
+                  Siguiente
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
   )
 }

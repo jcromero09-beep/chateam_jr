@@ -1,4 +1,5 @@
 import Bull, { Queue } from "bull";
+import { createRequire } from "node:module";
 import { REDIS_URI_CONNECTION } from "./config/redis";
 import logger from "./utils/logger";
 import moment from "moment";
@@ -19,6 +20,8 @@ import SendPendingMessage from "./jobs/SendPendingMessage";
 import CampaignSetting from "./models/CampaignSetting";
 import CampaignModel from "./models/Campaign";
 import sequelize from "./database";
+
+const require = createRequire(import.meta.url);
 
 interface Job {
   name: string;
@@ -44,11 +47,16 @@ const QUEUE_CONCURRENCY = {
   AppointmentReminder: 10,       // Ligero, puede procesar muchos
   FacebookConversionQueue: 3,    // API de Facebook, limite moderado
   VideoGenerationQueue: 2,       // Generación de videos con IA, operación pesada
+  UGCVideoGenerationQueue: 2,    // fal.ai submit + webhook completion
+  UGCVideoPipelineQueue: 1,       // UGC AI video workflows can be long-running
+  UGCImageGenerationQueue: 2,     // UGC image generation through ComfyUI
+  GenerationPollQueue: 4,         // Polling de jobs de generación (Higgsfield, etc.)
   EmailSendQueue: 10,            // Envío individual de emails
   EmailCampaignQueue: 2,         // Orquestación de campañas email
   EmailWebhookQueue: 5,          // Procesamiento de webhooks email
   EmailAutomationQueue: 5,        // Automatizaciones de email
-  SendPendingMessage: 5            // Mensajes pendientes, puede procesar varios en paralelo
+  SendPendingMessage: 5,           // Mensajes pendientes, puede procesar varios en paralelo
+  CommentResponderQueue: 3         // Respuestas automáticas a comentarios FB/IG (Graph API)
 };
 
 // ========================================
@@ -87,6 +95,22 @@ const QUEUE_RETRY_CONFIG: Record<string, any> = {
     attempts: 2,
     backoff: { type: 'exponential', delay: 30000 }  // 30s, 150s
   },
+  UGCVideoPipelineQueue: {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 30000 }
+  },
+  UGCVideoGenerationQueue: {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 30000 }
+  },
+  UGCImageGenerationQueue: {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 15000 }
+  },
+  GenerationPollQueue: {
+    attempts: 1,
+    backoff: { type: 'fixed', delay: 10000 }
+  },
   EmailSendQueue: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5000 }   // 5s, 25s, 125s
@@ -102,6 +126,10 @@ const QUEUE_RETRY_CONFIG: Record<string, any> = {
   EmailAutomationQueue: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5000 }   // 5s, 25s, 125s
+  },
+  CommentResponderQueue: {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 10000 }  // 10s, 50s
   }
 };
 
@@ -130,6 +158,9 @@ const QUEUE_PRIORITIES: Record<string, number> = {
   ExportContacts: 5,             // Baja prioridad
   ImportContacts: 5,             // Baja prioridad
   VideoGenerationQueue: 3,       // Prioridad media
+  UGCVideoPipelineQueue: 3,       // Prioridad media
+  UGCVideoGenerationQueue: 3,     // Prioridad media
+  UGCImageGenerationQueue: 3,     // Prioridad media
   EmailSendQueue: 2,             // Alta prioridad
   EmailCampaignQueue: 3,         // Prioridad media
   EmailWebhookQueue: 2,          // Alta prioridad
@@ -164,6 +195,21 @@ const QUEUE_STALL_CONFIG: Record<string, { lockDuration: number; stalledInterval
   },
   VideoGenerationQueue: {
     lockDuration: 10 * 60 * 1000,      // 10 min — videos IA tardan mucho
+    stalledInterval: 3 * 60 * 1000,
+    maxStalledCount: 1
+  },
+  UGCVideoPipelineQueue: {
+    lockDuration: 30 * 60 * 1000,
+    stalledInterval: 5 * 60 * 1000,
+    maxStalledCount: 1
+  },
+  UGCVideoGenerationQueue: {
+    lockDuration: 5 * 60 * 1000,
+    stalledInterval: 60 * 1000,
+    maxStalledCount: 2
+  },
+  UGCImageGenerationQueue: {
+    lockDuration: 15 * 60 * 1000,
     stalledInterval: 3 * 60 * 1000,
     maxStalledCount: 1
   },
@@ -207,6 +253,22 @@ function getQueueSettings(name: string): Bull.QueueOptions {
   };
 }
 
+async function runJobHandle(handler: any, bullJob: Bull.Job): Promise<void> {
+  const resolvedHandler = handler?.default || handler;
+
+  if (typeof resolvedHandler === "function") {
+    await resolvedHandler(bullJob);
+    return;
+  }
+
+  if (typeof resolvedHandler?.handle === "function") {
+    await resolvedHandler.handle(bullJob);
+    return;
+  }
+
+  throw new Error("job.handle is not a function");
+}
+
 // Define las colas que este proceso (WORKER) va a consumir.
 const jobs: Job[] = REDIS_ENABLED ? [
   {
@@ -226,16 +288,25 @@ const jobs: Job[] = REDIS_ENABLED ? [
   }
 ] : [];
 
+export const queues: { [key: string]: Queue } = {};
+
+function registerJob(job: Job): void {
+  jobs.push(job);
+  queues[job.name] = job.queue;
+}
+
 // ========================================
 // OPTIMIZACIÓN 1 (cont.): Lazy Loading de Colas Pesadas
 // ========================================
-function loadHeavyQueues() {
+async function loadHeavyQueues() {
   logger.info("🔄 [QUEUES] Cargando colas pesadas con lazy loading...");
 
   try {
     // Campaign Queue — con stall detection de 5 min
-    const Campaign = require("./jobs/Campaign").default;
-    jobs.push({
+    // await import (ESM nativo): Campaign arrastra whatsapp-rust-bridge (ESM-only, bundle 2MB);
+    // require()+tsx/cjs revienta esbuild al transpilarlo. import() lo carga sin transpilar.
+    const Campaign = (await import("./jobs/Campaign")).default;
+    registerJob({
       name: "CampaignQueue",
       queue: new Bull("CampaignQueue", REDIS_URI_CONNECTION, getQueueSettings("CampaignQueue")),
       handle: Campaign
@@ -248,7 +319,7 @@ function loadHeavyQueues() {
   try {
     // Export Contacts — con stall detection de 10 min
     const ExportContactsToExcel = require("./jobs/ExportContactsToExcel").default;
-    jobs.push({
+    registerJob({
       name: "ExportContacts",
       queue: new Bull("ExportContacts", REDIS_URI_CONNECTION, getQueueSettings("ExportContacts")),
       handle: ExportContactsToExcel
@@ -259,9 +330,22 @@ function loadHeavyQueues() {
   }
 
   try {
+    // Verificación de WhatsApp de contactos importados (Baileys onWhatsApp, throttled)
+    const VerifyContactsWhatsapp = require("./jobs/VerifyContactsWhatsapp").default;
+    registerJob({
+      name: "VerifyContactsWhatsapp",
+      queue: new Bull("VerifyContactsWhatsapp", REDIS_URI_CONNECTION, getQueueSettings("VerifyContactsWhatsapp")),
+      handle: VerifyContactsWhatsapp
+    });
+    logger.info("✅ [QUEUES] VerifyContactsWhatsapp cargada");
+  } catch (error: any) {
+    logger.error(`❌ [QUEUES] Error cargando VerifyContactsWhatsapp: ${error.message}`);
+  }
+
+  try {
     // Import Contacts — con stall detection de 10 min
     const ImportContacts = require("./jobs/ImportContacts").default;
-    jobs.push({
+    registerJob({
       name: "ImportContacts",
       queue: new Bull("ImportContacts", REDIS_URI_CONNECTION, getQueueSettings("ImportContacts")),
       handle: ImportContacts
@@ -274,7 +358,7 @@ function loadHeavyQueues() {
   try {
     // Facebook Conversion Queue
     const FacebookConversionQueue = require("./jobs/FacebookConversionQueue").default;
-    jobs.push({
+    registerJob({
       name: "FacebookConversionQueue",
       queue: new Bull("FacebookConversionQueue", REDIS_URI_CONNECTION, getQueueSettings("FacebookConversionQueue")),
       handle: FacebookConversionQueue
@@ -287,7 +371,7 @@ function loadHeavyQueues() {
   try {
     // Video Generation Queue — con stall detection de 10 min
     const VideoGeneration = require("./jobs/VideoGeneration").default;
-    jobs.push({
+    registerJob({
       name: "VideoGenerationQueue",
       queue: new Bull("VideoGenerationQueue", REDIS_URI_CONNECTION, getQueueSettings("VideoGenerationQueue")),
       handle: VideoGeneration
@@ -297,10 +381,58 @@ function loadHeavyQueues() {
     logger.error(`❌ [QUEUES] Error cargando VideoGenerationQueue: ${error.message}`);
   }
 
+  try {
+    const UGCVideoGeneration = require("./jobs/UGCVideoGeneration").default;
+    registerJob({
+      name: "UGCVideoGenerationQueue",
+      queue: new Bull("UGCVideoGenerationQueue", REDIS_URI_CONNECTION, getQueueSettings("UGCVideoGenerationQueue")),
+      handle: UGCVideoGeneration
+    });
+    logger.info("✅ [QUEUES] UGCVideoGenerationQueue cargada (fal submit + webhook)");
+  } catch (error: any) {
+    logger.error(`❌ [QUEUES] Error cargando UGCVideoGenerationQueue: ${error.message}`);
+  }
+
+  try {
+    const UGCVideoPipeline = require("./jobs/UGCVideoPipeline").default;
+    registerJob({
+      name: "UGCVideoPipelineQueue",
+      queue: new Bull("UGCVideoPipelineQueue", REDIS_URI_CONNECTION, getQueueSettings("UGCVideoPipelineQueue")),
+      handle: UGCVideoPipeline
+    });
+    logger.info("✅ [QUEUES] UGCVideoPipelineQueue cargada (stall: 30min)");
+  } catch (error: any) {
+    logger.error(`❌ [QUEUES] Error cargando UGCVideoPipelineQueue: ${error.message}`);
+  }
+
+  try {
+    const UGCImageGeneration = require("./jobs/UGCImageGeneration").default;
+    registerJob({
+      name: "UGCImageGenerationQueue",
+      queue: new Bull("UGCImageGenerationQueue", REDIS_URI_CONNECTION, getQueueSettings("UGCImageGenerationQueue")),
+      handle: UGCImageGeneration
+    });
+    logger.info("✅ [QUEUES] UGCImageGenerationQueue cargada (stall: 15min)");
+  } catch (error: any) {
+    logger.error(`❌ [QUEUES] Error cargando UGCImageGenerationQueue: ${error.message}`);
+  }
+
+  try {
+    const GenerationPoll = (await import("./jobs/GenerationPoll")).default;
+    registerJob({
+      name: "GenerationPollQueue",
+      queue: new Bull("GenerationPollQueue", REDIS_URI_CONNECTION, getQueueSettings("GenerationPollQueue")),
+      handle: GenerationPoll
+    });
+    logger.info("✅ [QUEUES] GenerationPollQueue cargada (polling generación)");
+  } catch (error: any) {
+    logger.error(`❌ [QUEUES] Error cargando GenerationPollQueue: ${error.message}`);
+  }
+
   // ========== Email Marketing Queues ==========
   try {
     const EmailSend = require("./jobs/EmailSend").default;
-    jobs.push({
+    registerJob({
       name: "EmailSendQueue",
       queue: new Bull("EmailSendQueue", REDIS_URI_CONNECTION, getQueueSettings("EmailSendQueue")),
       handle: EmailSend
@@ -312,7 +444,7 @@ function loadHeavyQueues() {
 
   try {
     const EmailCampaign = require("./jobs/EmailCampaign").default;
-    jobs.push({
+    registerJob({
       name: "EmailCampaignQueue",
       queue: new Bull("EmailCampaignQueue", REDIS_URI_CONNECTION, getQueueSettings("EmailCampaignQueue")),
       handle: EmailCampaign
@@ -324,7 +456,7 @@ function loadHeavyQueues() {
 
   try {
     const EmailWebhook = require("./jobs/EmailWebhook").default;
-    jobs.push({
+    registerJob({
       name: "EmailWebhookQueue",
       queue: new Bull("EmailWebhookQueue", REDIS_URI_CONNECTION, getQueueSettings("EmailWebhookQueue")),
       handle: EmailWebhook
@@ -336,7 +468,7 @@ function loadHeavyQueues() {
 
   try {
     const EmailAutomation = require("./jobs/EmailAutomation").default;
-    jobs.push({
+    registerJob({
       name: "EmailAutomationQueue",
       queue: new Bull("EmailAutomationQueue", REDIS_URI_CONNECTION, getQueueSettings("EmailAutomationQueue")),
       handle: EmailAutomation
@@ -360,10 +492,9 @@ export const sendAppointmentReminderQueue = REDIS_ENABLED
   ? new Bull("SendAppointmentReminder", REDIS_URI_CONNECTION)
   : null as any;
 
-export const queues = jobs.reduce((acc, { name, queue }) => {
-  acc[name] = queue;
-  return acc;
-}, {} as { [key: string]: Queue });
+jobs.forEach(({ name, queue }) => {
+  queues[name] = queue;
+});
 
 // Exponer jobs para graceful shutdown desde worker.ts
 export function getAllQueues(): Queue[] {
@@ -423,6 +554,14 @@ export const humanCorrectionQueue = REDIS_ENABLED
 // Cola para extracción de memorias al cerrar ticket
 export const extractMemoryQueue = REDIS_ENABLED
   ? new Bull("ExtractMemory", REDIS_URI_CONNECTION)
+  : null as any;
+
+// ─── Comentarios FB/IG ──────────────────────────────────────────────────────
+// Cola de respuestas automáticas a comentarios (modos auto_message | ai).
+// PRODUCER aquí — el PROCESSOR vive en backendQueues.ts (el backend tiene
+// Socket.IO inicializado, necesario para emitir el DTO tras responder).
+export const commentResponderQueue = REDIS_ENABLED
+  ? new Bull("CommentResponderQueue", REDIS_URI_CONNECTION)
   : null as any;
 
 /**
@@ -641,10 +780,23 @@ export const add = (name: string, data: any, options?: any): Promise<Bull.Job<an
     });
   }
 
+  // ── Comentarios FB/IG: respuestas automáticas (procesada en el BACKEND) ──
+  if (name === "CommentResponder") {
+    return commentResponderQueue.add(
+      data,
+      getJobOptions("CommentResponderQueue", options)
+    );
+  }
+
   // Para otros jobs, usar colas locales del worker
   if (!queues[name]) {
-    logger.error(`[WORKER] ❌ Queue ${name} not found`);
-    throw new Error(`Queue ${name} not found`);
+    if (!REDIS_ENABLED) {
+      logger.error(`[WORKER] ❌ Queue ${name} not available because Redis is disabled`);
+      throw new Error(`Queue ${name} not available because Redis is disabled`);
+    }
+
+    queues[name] = new Bull(name, REDIS_URI_CONNECTION, getQueueSettings(name));
+    logger.warn(`[WORKER] Queue ${name} creada en modo producer-only`);
   }
 
   if (DEBUG_SCHEDULER) {
@@ -1140,12 +1292,12 @@ export function startScheduledMessagesScheduler(): void {
   });
 }
 
-export function startQueueProcess(): void {
+export async function startQueueProcess(): Promise<void> {
   logger.info("🔄 Iniciando processamento de filas do WORKER...");
   logger.info(`📊 Total de filas a processar: ${jobs.length}`);
 
   // Load heavy queues only in worker process
-  loadHeavyQueues();
+  await loadHeavyQueues();
 
   // ── AI Learning Jobs: processors específicos ──────────────────────────
   // FeedbackInferenceJob — concurrencia 5, sin stall detection custom
@@ -1233,7 +1385,7 @@ export function startQueueProcess(): void {
           }
 
           // Procesar la campaña usando el handler lazy-loaded
-          await job.handle(bullJob);
+          await runJobHandle(job.handle, bullJob);
           logger.info(`✅ [WORKER] ProcessCampaign ID=${id} procesado con sucesso`);
 
         } catch (error) {
@@ -1259,7 +1411,7 @@ export function startQueueProcess(): void {
         }
 
         try {
-          await job.handle(bullJob);
+          await runJobHandle(job.handle, bullJob);
         } catch (error) {
           logger.error(`❌ [WORKER] Error SendCampaign ID=${id}: ${error.message}`);
           throw error;
@@ -1271,7 +1423,7 @@ export function startQueueProcess(): void {
       job.queue.process(concurrency, async (bullJob: Bull.Job) => {
         try {
           logger.info(`📨 Recebendo job na fila ${job.name}: ${JSON.stringify(bullJob.data)}`);
-          await job.handle(bullJob);
+          await runJobHandle(job.handle, bullJob);
           logger.info(`✅ Job na fila ${job.name} processado com sucesso`);
         } catch (error) {
           logger.error(`❌ Job ${job.name} falhou: ${error.message}`);

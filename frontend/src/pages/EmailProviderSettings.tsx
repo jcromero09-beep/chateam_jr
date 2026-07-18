@@ -1,182 +1,243 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from "react"
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-  Input,
-  FormControl,
-  FormLabel,
-  Alert,
-  Divider,
-} from '@mui/joy'
-import {
-  Dns as SmtpIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  Settings as SettingsIcon,
-  Send as SendIcon,
-  Info as InfoIcon,
-  Save as SaveIcon,
-  Email as EmailIcon,
-} from '@mui/icons-material'
-import { toast } from 'sonner'
-import api from '../services/api'
+  ArrowClockwise,
+  CheckCircle,
+  XCircle,
+  PaperPlaneTilt,
+  Info,
+  FloppyDisk,
+  EnvelopeSimple,
+  Cloud,
+  Database,
+  type Icon,
+} from "@phosphor-icons/react"
+// [Rule 3] CircularProgress se conserva como MUI (no hay equivalente en el DS).
+import { CircularProgress } from "@mui/joy"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
+import api from "../services/api"
 
 // ---------------------------------------------------------------------------
-// Types
+// Tipos
 // ---------------------------------------------------------------------------
 
-interface EmailProviderConfig {
+type ProviderKey = "listmonk" | "acelle"
+
+interface BackendProviderConfig {
   id: number
   companyId: number
-  provider: 'carbonio' | 'sendgrid' | 'mailgun' | 'amazon_ses'
-  displayName: string
-  isActive: boolean
-  tier: number
-  smtpHost?: string
-  smtpPort?: number
-  fromEmail?: string
-  fromName?: string
+  provider: string
   apiKey?: string
+  apiSecret?: string
   domain?: string
   region?: string
+  verifiedSenderEmail?: string
+  verifiedSenderName?: string
+  isActive: boolean
+  settings?: Record<string, unknown>
   createdAt?: string
   updatedAt?: string
-}
-
-interface ProviderMeta {
-  key: 'carbonio' | 'sendgrid' | 'mailgun' | 'amazon_ses'
-  name: string
-  description: string
-  tier: number
-  fields: ProviderField[]
 }
 
 interface ProviderField {
   name: string
   label: string
-  type: 'text' | 'password' | 'number'
+  type: "text" | "password" | "number"
   required: boolean
   placeholder?: string
+  helper?: string
+  /** Si true, el valor se guarda dentro de `settings` en vez de top-level */
+  inSettings?: boolean
+}
+
+interface ProviderMeta {
+  key: ProviderKey
+  name: string
+  shortName: string
+  description: string
+  icon: Icon
+  badge: string
+  fields: ProviderField[]
 }
 
 // ---------------------------------------------------------------------------
-// Provider metadata
+// Metadata SOLO de los providers permitidos
 // ---------------------------------------------------------------------------
 
 const PROVIDERS: ProviderMeta[] = [
   {
-    key: 'carbonio',
-    name: 'Carbonio (SMTP Interno)',
-    description: 'Servidor SMTP integrado incluido en tu plan. Sin costo adicional. Ideal para volumenes bajos a medios.',
-    tier: 0,
-    fields: [],
+    key: "listmonk",
+    name: "Listmonk",
+    shortName: "Self-hosted",
+    description:
+      "Servidor de email marketing self-hosted (Docker en tu VM). Open-source, gratis, control total. Maneja listas, campanas masivas, plantillas y tracking. Usa tu SMTP propio para enviar.",
+    icon: Database,
+    badge: "Recomendado",
+    fields: [
+      {
+        name: "listmonkUrl",
+        label: "URL de Listmonk",
+        type: "text",
+        required: true,
+        placeholder: "http://192.168.100.21:9000",
+        helper: "URL base sin /api. Acceso solo LAN o via dominio publico.",
+        inSettings: true
+      },
+      {
+        name: "apiKey",
+        label: "API User",
+        type: "text",
+        required: true,
+        placeholder: "chateam_app",
+        helper: "Username del API user creado en Listmonk → Admin → Users."
+      },
+      {
+        name: "apiSecret",
+        label: "API Token",
+        type: "password",
+        required: true,
+        placeholder: "••••••••••••••••",
+        helper: "Token de acceso del API user."
+      },
+      {
+        name: "fromEmail",
+        label: "Email Remitente",
+        type: "text",
+        required: false,
+        placeholder: "marketing@chateam.ws",
+        inSettings: true
+      },
+      {
+        name: "fromName",
+        label: "Nombre Remitente",
+        type: "text",
+        required: false,
+        placeholder: "ChatEAM Marketing",
+        inSettings: true
+      }
+    ]
   },
   {
-    key: 'sendgrid',
-    name: 'SendGrid',
-    description: 'Servicio de email transaccional de Twilio. Alta entregabilidad y analiticas avanzadas.',
-    tier: 1,
+    key: "acelle",
+    name: "Acelle Mail",
+    shortName: "Externo SaaS",
+    description:
+      "Plataforma SaaS externa (https://emarketing.ariasofts.com). Listas y suscriptores. No soporta envio transaccional directo via API. Util si ya tienes campanas migradas a Acelle.",
+    icon: Cloud,
+    badge: "Externo",
     fields: [
-      { name: 'apiKey', label: 'API Key', type: 'password', required: true, placeholder: 'SG.xxxx...' },
-      { name: 'fromEmail', label: 'Email Remitente', type: 'text', required: false, placeholder: 'noreply@tudominio.com' },
-      { name: 'fromName', label: 'Nombre Remitente', type: 'text', required: false, placeholder: 'Mi Empresa' },
-    ],
-  },
-  {
-    key: 'mailgun',
-    name: 'Mailgun',
-    description: 'Plataforma de email para desarrolladores. Excelente para emails transaccionales y masivos.',
-    tier: 1,
-    fields: [
-      { name: 'apiKey', label: 'API Key', type: 'password', required: true, placeholder: 'key-xxxx...' },
-      { name: 'domain', label: 'Dominio', type: 'text', required: true, placeholder: 'mg.tudominio.com' },
-      { name: 'fromEmail', label: 'Email Remitente', type: 'text', required: false, placeholder: 'noreply@tudominio.com' },
-      { name: 'fromName', label: 'Nombre Remitente', type: 'text', required: false, placeholder: 'Mi Empresa' },
-    ],
-  },
-  {
-    key: 'amazon_ses',
-    name: 'Amazon SES',
-    description: 'Servicio de email de AWS. Bajo costo para alto volumen. Requiere configuracion de identidad.',
-    tier: 1,
-    fields: [
-      { name: 'apiKey', label: 'Access Key ID', type: 'password', required: true, placeholder: 'AKIA...' },
-      { name: 'domain', label: 'Secret Access Key', type: 'password', required: true, placeholder: 'wJalr...' },
-      { name: 'region', label: 'Region AWS', type: 'text', required: true, placeholder: 'us-east-1' },
-      { name: 'fromEmail', label: 'Email Verificado', type: 'text', required: false, placeholder: 'noreply@tudominio.com' },
-    ],
-  },
+      {
+        name: "acelleUrl",
+        label: "URL de Acelle",
+        type: "text",
+        required: true,
+        placeholder: "https://emarketing.ariasofts.com",
+        helper: "URL base sin /api/v1.",
+        inSettings: true
+      },
+      {
+        name: "apiKey",
+        label: "API Token",
+        type: "password",
+        required: true,
+        placeholder: "API token de Acelle",
+        helper: "Token disponible en panel Acelle → Profile → API Token."
+      },
+      {
+        name: "verifiedSenderEmail",
+        label: "Email Remitente",
+        type: "text",
+        required: false,
+        placeholder: "marketing@chateam.ws"
+      },
+      {
+        name: "verifiedSenderName",
+        label: "Nombre Remitente",
+        type: "text",
+        required: false,
+        placeholder: "ChatEAM Marketing"
+      }
+    ]
+  }
 ]
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type ChipColor = 'success' | 'danger' | 'neutral'
-
-function statusColor(isActive: boolean | undefined, isConfigured: boolean): ChipColor {
-  if (isActive) return 'success'
-  if (isConfigured) return 'neutral'
-  return 'danger'
+function statusVariant(isActive: boolean | undefined, isConfigured: boolean): BadgeProps["variant"] {
+  if (isActive) return "success"
+  if (isConfigured) return "neutral"
+  return "warning"
 }
 
 function statusLabel(isActive: boolean | undefined, isConfigured: boolean): string {
-  if (isActive) return 'Activo'
-  if (isConfigured) return 'Inactivo'
-  return 'No configurado'
+  if (isActive) return "Activo"
+  if (isConfigured) return "Configurado (inactivo)"
+  return "Sin configurar"
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Componente principal
 // ---------------------------------------------------------------------------
 
 export default function EmailProviderSettings() {
-  const [configs, setConfigs] = useState<EmailProviderConfig[]>([])
+  const [configs, setConfigs] = useState<BackendProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [testingProvider, setTestingProvider] = useState<string | null>(null)
-  const [savingProvider, setSavingProvider] = useState<string | null>(null)
-  const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
+  const [testingProvider, setTestingProvider] = useState<ProviderKey | null>(null)
+  const [savingProvider, setSavingProvider] = useState<ProviderKey | null>(null)
+  const [activatingProvider, setActivatingProvider] = useState<ProviderKey | null>(null)
+  const [formData, setFormData] = useState<Record<ProviderKey, Record<string, string>>>({
+    listmonk: {},
+    acelle: {}
+  })
 
   // -------------------------------------------------------------------------
-  // Data fetching
+  // Carga
   // -------------------------------------------------------------------------
 
   const fetchConfigs = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const { data } = await api.get('/email-provider-configs')
-      const raw: EmailProviderConfig[] = Array.isArray(data)
+      const { data } = await api.get("/email-provider-configs")
+      const raw: BackendProviderConfig[] = Array.isArray(data)
         ? data
         : (data?.data ?? data?.configs ?? [])
       setConfigs(raw)
 
-      // Initialize form data from existing configs
-      const initial: Record<string, Record<string, string>> = {}
+      // Hidratar form con valores existentes
+      const initial: Record<ProviderKey, Record<string, string>> = {
+        listmonk: {},
+        acelle: {}
+      }
       for (const cfg of raw) {
-        initial[cfg.provider] = {
-          apiKey: cfg.apiKey ?? '',
-          domain: cfg.domain ?? '',
-          region: cfg.region ?? '',
-          fromEmail: cfg.fromEmail ?? '',
-          fromName: cfg.fromName ?? '',
+        if (cfg.provider !== "listmonk" && cfg.provider !== "acelle") continue
+        const key = cfg.provider as ProviderKey
+        const meta = PROVIDERS.find(p => p.key === key)
+        if (!meta) continue
+
+        initial[key] = {}
+        const settings = (cfg.settings || {}) as Record<string, string>
+
+        for (const field of meta.fields) {
+          if (field.inSettings) {
+            initial[key][field.name] = settings[field.name] ?? ""
+          } else {
+            const v = (cfg as unknown as Record<string, string>)[field.name]
+            initial[key][field.name] = v ?? ""
+          }
         }
       }
       setFormData(initial)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error al cargar configuraciones'
+      const message = err instanceof Error ? err.message : "Error al cargar configuraciones"
       setError(message)
     } finally {
       setLoading(false)
@@ -191,76 +252,122 @@ export default function EmailProviderSettings() {
   // Helpers
   // -------------------------------------------------------------------------
 
-  const getConfigFor = (provider: string): EmailProviderConfig | undefined => {
+  const getConfigFor = (provider: ProviderKey): BackendProviderConfig | undefined => {
     return configs.find(c => c.provider === provider)
   }
 
-  const getFormValues = (provider: string): Record<string, string> => {
+  const isProviderActive = (provider: ProviderKey): boolean => {
+    return configs.some(c => c.provider === provider && c.isActive)
+  }
+
+  const getFormValues = (provider: ProviderKey): Record<string, string> => {
     return formData[provider] ?? {}
   }
 
-  const updateFormField = (provider: string, field: string, value: string) => {
+  const updateFormField = (provider: ProviderKey, field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
       [provider]: {
         ...(prev[provider] ?? {}),
-        [field]: value,
-      },
+        [field]: value
+      }
     }))
   }
 
   // -------------------------------------------------------------------------
-  // Actions
+  // Construir payload separando top-level vs settings
   // -------------------------------------------------------------------------
 
-  const handleSave = async (providerKey: string) => {
-    setSavingProvider(providerKey)
+  function buildPayload(provider: ProviderKey): Record<string, unknown> {
+    const meta = PROVIDERS.find(p => p.key === provider)!
+    const values = getFormValues(provider)
+    const top: Record<string, unknown> = { provider }
+    const settings: Record<string, unknown> = {}
+
+    for (const field of meta.fields) {
+      const v = values[field.name]
+      if (v === undefined) continue
+      if (field.inSettings) {
+        settings[field.name] = v
+      } else {
+        top[field.name] = v
+      }
+    }
+
+    if (Object.keys(settings).length > 0) {
+      top.settings = settings
+    }
+
+    return top
+  }
+
+  // -------------------------------------------------------------------------
+  // Acciones
+  // -------------------------------------------------------------------------
+
+  const handleSave = async (provider: ProviderKey) => {
+    setSavingProvider(provider)
     try {
-      const existing = getConfigFor(providerKey)
-      const values = getFormValues(providerKey)
+      const existing = getConfigFor(provider)
+      const payload = buildPayload(provider)
 
       if (existing) {
-        await api.put(`/email-provider-configs/${existing.id}`, {
-          ...values,
-          provider: providerKey,
-        })
+        await api.put(`/email-provider-configs/${existing.id}`, payload)
       } else {
-        await api.post('/email-provider-configs', {
-          ...values,
-          provider: providerKey,
-        })
+        await api.post("/email-provider-configs", payload)
       }
 
-      toast.success(`Configuracion de ${providerKey} guardada correctamente`)
+      toast.success(`Configuracion de ${provider} guardada`)
       await fetchConfigs()
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error al guardar configuracion'
-      toast.error(message)
+      const ax = err as { response?: { data?: { error?: string; message?: string } }; message?: string }
+      const msg = ax.response?.data?.error || ax.response?.data?.message || ax.message || "Error al guardar"
+      toast.error(msg)
     } finally {
       setSavingProvider(null)
     }
   }
 
-  const handleTest = async (providerKey: string) => {
-    setTestingProvider(providerKey)
+  const handleActivate = async (provider: ProviderKey) => {
+    setActivatingProvider(provider)
     try {
-      const existing = getConfigFor(providerKey)
+      const existing = getConfigFor(provider)
+      if (!existing) {
+        toast.error("Primero guarda la configuracion antes de activar")
+        return
+      }
+      await api.put(`/email-provider-configs/${existing.id}`, { isActive: true })
+      toast.success(`${provider} activado`)
+      await fetchConfigs()
+    } catch (err) {
+      const ax = err as { response?: { data?: { error?: string } }; message?: string }
+      toast.error(ax.response?.data?.error || ax.message || "Error al activar")
+    } finally {
+      setActivatingProvider(null)
+    }
+  }
+
+  const handleTest = async (provider: ProviderKey) => {
+    setTestingProvider(provider)
+    try {
+      const existing = getConfigFor(provider)
+      const payload = buildPayload(provider)
+
       const endpoint = existing
         ? `/email-provider-configs/${existing.id}/test`
-        : '/email-provider-configs/test'
+        : "/email-provider-configs/test"
 
-      const payload = existing ? {} : { provider: providerKey, ...getFormValues(providerKey) }
-
-      const { data } = await api.post(endpoint, payload)
+      const { data } = await api.post(endpoint, existing ? {} : payload)
 
       if (data?.success) {
-        toast.success(`Conexion con ${providerKey} exitosa`)
+        toast.success(`Conexion con ${provider}: OK`)
       } else {
-        toast.error(data?.message ?? `Error al probar conexion con ${providerKey}`)
+        toast.error(data?.message ?? `Error al probar ${provider}`)
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error al probar conexion'
-      toast.error(message)
+      const ax = err as { response?: { data?: { error?: string; message?: string } }; message?: string }
+      const msg = ax.response?.data?.error || ax.response?.data?.message || ax.message || "Error al probar"
+      toast.error(msg)
     } finally {
       setTestingProvider(null)
     }
@@ -271,331 +378,194 @@ export default function EmailProviderSettings() {
   // -------------------------------------------------------------------------
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-
-      {/* Header */}
-      <Stack
-        direction="row"
-        spacing={2}
-        alignItems="center"
-        justifyContent="space-between"
-        flexWrap="wrap"
-        sx={{ mb: 3, gap: 1.5 }}
-      >
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 'md',
-              bgcolor: 'primary.softBg',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <SmtpIcon sx={{ color: 'primary.plainColor', fontSize: 24 }} />
-          </Box>
-          <Box>
-            <Typography level="h3" sx={{ fontWeight: 700 }}>
-              Configuracion de Proveedores de Email
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Gestiona tus proveedores SMTP y servicios de envio de email
-            </Typography>
-          </Box>
-        </Stack>
-
-        <Tooltip title="Actualizar datos">
-          <IconButton
-            variant="outlined"
-            color="neutral"
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <EnvelopeSimple className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Proveedor de Email Marketing
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Solo 1 provider puede estar activo a la vez. Acelle o Listmonk.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Actualizar"
+            className="text-muted-foreground"
             onClick={fetchConfigs}
             disabled={loading}
-            size="sm"
           >
-            <RefreshIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Stack>
+            <ArrowClockwise className="size-5" aria-hidden />
+          </Button>
+        </div>
 
-      {/* Info card - Carbonio default */}
-      <Alert
-        variant="soft"
-        color="primary"
-        startDecorator={<InfoIcon />}
-        sx={{ mb: 3, borderRadius: 'lg' }}
-      >
-        <Box>
-          <Typography level="title-sm" sx={{ fontWeight: 600 }}>
-            Carbonio es tu proveedor por defecto (Tier 0)
-          </Typography>
-          <Typography level="body-sm">
-            Tu plan incluye un servidor SMTP Carbonio integrado sin costo adicional.
-            Los proveedores Tier 1 (SendGrid, Mailgun, Amazon SES) ofrecen mayor entregabilidad
-            y analiticas avanzadas para envios de alto volumen.
-          </Typography>
-        </Box>
-      </Alert>
+        {/* Info */}
+        <div className="flex gap-3 rounded-lg border border-border bg-accent/50 p-4">
+          <Info className="mt-0.5 size-5 shrink-0 text-primary" weight="fill" aria-hidden />
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              Listmonk es self-hosted, Acelle es un SaaS externo
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Listmonk corre en tu VM via Docker (sin costos por envio). Acelle requiere suscripcion a Ariasofts.
+              Los proveedores transaccionales (SendGrid, Mailgun, SES, Carbonio) ya no se usan en Email Marketing.
+            </p>
+          </div>
+        </div>
 
-      {/* Loading state */}
-      {loading ? (
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: 320,
-          }}
-        >
-          <Stack spacing={2} alignItems="center">
-            <CircularProgress size="lg" />
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Cargando configuraciones...
-            </Typography>
-          </Stack>
-        </Box>
-      ) : error ? (
-        /* Error state */
-        <Card variant="outlined" sx={{ borderRadius: 'lg', textAlign: 'center', py: 6 }}>
-          <CardContent>
-            <CancelIcon sx={{ fontSize: 52, color: 'danger.plainColor', mb: 2 }} />
-            <Typography level="body-md" sx={{ color: 'text.secondary', mb: 2 }}>
-              {error}
-            </Typography>
-            <Button
-              variant="outlined"
-              color="neutral"
-              size="sm"
-              onClick={fetchConfigs}
-              startDecorator={<RefreshIcon fontSize="small" />}
-            >
+        {loading ? (
+          <div className="flex min-h-80 items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <CircularProgress size="lg" />
+              <p className="text-sm text-muted-foreground">Cargando configuraciones...</p>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-border bg-card px-6 py-12 text-center shadow-sm">
+            <XCircle className="mx-auto mb-3 size-12 text-destructive-text" aria-hidden />
+            <p className="mb-4 text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={fetchConfigs}>
+              <ArrowClockwise className="size-4" aria-hidden />
               Reintentar
             </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        /* Provider cards grid */
-        <Grid container spacing={2.5}>
-          {PROVIDERS.map((provider) => {
-            const existing = getConfigFor(provider.key)
-            const isConfigured = !!existing
-            const isActive = existing?.isActive ?? (provider.key === 'carbonio')
-            const isCarbonio = provider.key === 'carbonio'
-            const values = getFormValues(provider.key)
+          </div>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-2">
+            {PROVIDERS.map(provider => {
+              const existing = getConfigFor(provider.key)
+              const isConfigured = !!existing
+              const isActive = isProviderActive(provider.key)
+              const values = getFormValues(provider.key)
+              const ProviderIcon = provider.icon
 
-            return (
-              <Grid xs={12} md={6} key={provider.key}>
-                <Card
-                  variant="outlined"
-                  sx={{
-                    borderRadius: 'lg',
-                    boxShadow: 'sm',
-                    height: '100%',
-                    transition: 'box-shadow 0.2s, border-color 0.2s',
-                    borderColor: isActive ? 'success.outlinedBorder' : 'divider',
-                    '&:hover': { boxShadow: 'md' },
-                  }}
+              return (
+                <div
+                  key={provider.key}
+                  className={cn(
+                    "flex h-full flex-col rounded-xl bg-card p-5 shadow-sm transition-shadow hover:shadow-md",
+                    isActive ? "border-2 border-success" : "border border-border"
+                  )}
                 >
-                  <CardContent>
-                    {/* Card header */}
-                    <Stack
-                      direction="row"
-                      spacing={1.5}
-                      alignItems="center"
-                      justifyContent="space-between"
-                      sx={{ mb: 2 }}
-                    >
-                      <Stack direction="row" spacing={1.5} alignItems="center">
-                        <Box
-                          sx={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 'md',
-                            bgcolor: isActive ? 'success.softBg' : 'neutral.softBg',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          {isCarbonio ? (
-                            <EmailIcon
-                              sx={{
-                                color: isActive ? 'success.plainColor' : 'neutral.plainColor',
-                                fontSize: 22,
-                              }}
-                            />
-                          ) : (
-                            <SettingsIcon
-                              sx={{
-                                color: isActive ? 'success.plainColor' : 'neutral.plainColor',
-                                fontSize: 22,
-                              }}
-                            />
-                          )}
-                        </Box>
-                        <Box>
-                          <Typography level="title-md" sx={{ fontWeight: 600 }}>
-                            {provider.name}
-                          </Typography>
-                          <Chip
-                            size="sm"
-                            variant="soft"
-                            color={statusColor(isActive, isConfigured)}
-                            startDecorator={
-                              isActive ? (
-                                <CheckCircleIcon sx={{ fontSize: 14 }} />
-                              ) : undefined
-                            }
-                            sx={{ mt: 0.5 }}
-                          >
+                  {/* Card header */}
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "flex size-10 shrink-0 items-center justify-center rounded-lg",
+                          isActive
+                            ? "bg-success/14 text-success-text"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        <ProviderIcon className="size-[22px]" weight="fill" aria-hidden />
+                      </span>
+                      <div>
+                        <p className="font-semibold text-foreground">{provider.name}</p>
+                        <div className="mt-1">
+                          <Badge variant={statusVariant(isActive, isConfigured)}>
+                            {isActive && <CheckCircle className="size-3.5" weight="fill" aria-hidden />}
                             {statusLabel(isActive, isConfigured)}
-                          </Chip>
-                        </Box>
-                      </Stack>
-                      <Chip size="sm" variant="outlined" color="neutral">
-                        Tier {provider.tier}
-                      </Chip>
-                    </Stack>
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                    <Badge variant="primary">{provider.badge}</Badge>
+                  </div>
 
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 2 }}>
-                      {provider.description}
-                    </Typography>
+                  <p className="mb-4 text-sm text-muted-foreground">{provider.description}</p>
 
-                    <Divider sx={{ my: 1.5 }} />
+                  <div className="my-2 border-t border-border" />
 
-                    {/* Carbonio - read-only info */}
-                    {isCarbonio ? (
-                      <Box>
-                        <Typography level="body-xs" sx={{ fontWeight: 600, color: 'text.secondary', mb: 1 }}>
-                          Configuracion Actual
-                        </Typography>
-                        <Stack spacing={1}>
-                          <Stack direction="row" justifyContent="space-between">
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              Host SMTP
-                            </Typography>
-                            <Typography level="body-xs" sx={{ fontWeight: 500 }}>
-                              {existing?.smtpHost ?? 'mail.chateam.ws'}
-                            </Typography>
-                          </Stack>
-                          <Stack direction="row" justifyContent="space-between">
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              Puerto
-                            </Typography>
-                            <Typography level="body-xs" sx={{ fontWeight: 500 }}>
-                              {existing?.smtpPort ?? 587}
-                            </Typography>
-                          </Stack>
-                          <Stack direction="row" justifyContent="space-between">
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              Remitente
-                            </Typography>
-                            <Typography level="body-xs" sx={{ fontWeight: 500 }}>
-                              {existing?.fromEmail ?? 'noreply@chateam.ws'}
-                            </Typography>
-                          </Stack>
-                        </Stack>
-                        <Box sx={{ mt: 2 }}>
-                          <Button
-                            variant="outlined"
-                            color="primary"
-                            size="sm"
-                            fullWidth
-                            startDecorator={
-                              testingProvider === 'carbonio' ? (
-                                <CircularProgress size="sm" />
-                              ) : (
-                                <SendIcon fontSize="small" />
-                              )
-                            }
-                            onClick={() => handleTest('carbonio')}
-                            disabled={testingProvider === 'carbonio'}
-                          >
-                            {testingProvider === 'carbonio'
-                              ? 'Probando conexion...'
-                              : 'Probar Conexion'}
-                          </Button>
-                        </Box>
-                      </Box>
-                    ) : (
-                      /* Tier 1 providers - configurable fields */
-                      <Box>
-                        <Typography level="body-xs" sx={{ fontWeight: 600, color: 'text.secondary', mb: 1.5 }}>
-                          Configuracion
-                        </Typography>
-                        <Stack spacing={1.5}>
-                          {provider.fields.map((field) => (
-                            <FormControl key={field.name} size="sm">
-                              <FormLabel>
-                                {field.label}
-                                {field.required && (
-                                  <Typography
-                                    component="span"
-                                    level="body-xs"
-                                    sx={{ color: 'danger.plainColor', ml: 0.5 }}
-                                  >
-                                    *
-                                  </Typography>
-                                )}
-                              </FormLabel>
-                              <Input
-                                size="sm"
-                                type={field.type}
-                                placeholder={field.placeholder}
-                                value={values[field.name] ?? ''}
-                                onChange={(e) =>
-                                  updateFormField(provider.key, field.name, e.target.value)
-                                }
-                              />
-                            </FormControl>
-                          ))}
-                        </Stack>
-                        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-                          <Button
-                            variant="solid"
-                            color="primary"
-                            size="sm"
-                            fullWidth
-                            startDecorator={
-                              savingProvider === provider.key ? (
-                                <CircularProgress size="sm" />
-                              ) : (
-                                <SaveIcon fontSize="small" />
-                              )
-                            }
-                            onClick={() => handleSave(provider.key)}
-                            disabled={savingProvider === provider.key}
-                          >
-                            {savingProvider === provider.key ? 'Guardando...' : 'Guardar'}
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            color="neutral"
-                            size="sm"
-                            fullWidth
-                            startDecorator={
-                              testingProvider === provider.key ? (
-                                <CircularProgress size="sm" />
-                              ) : (
-                                <SendIcon fontSize="small" />
-                              )
-                            }
-                            onClick={() => handleTest(provider.key)}
-                            disabled={testingProvider === provider.key}
-                          >
-                            {testingProvider === provider.key ? 'Probando...' : 'Test'}
-                          </Button>
-                        </Stack>
-                      </Box>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-            )
-          })}
-        </Grid>
-      )}
-    </Container>
+                  {/* Form */}
+                  <div>
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Configuracion
+                    </p>
+                    <div className="space-y-3">
+                      {provider.fields.map(field => {
+                        const inputId = `${provider.key}-${field.name}`
+                        const commonProps = {
+                          id: inputId,
+                          placeholder: field.placeholder,
+                          required: field.required,
+                          value: values[field.name] ?? "",
+                          onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                            updateFormField(provider.key, field.name, e.target.value)
+                        }
+                        return (
+                          <div key={field.name} className="space-y-1.5">
+                            <Label htmlFor={inputId}>
+                              {field.label}
+                              {field.required && (
+                                <span className="ml-0.5 text-destructive-text">*</span>
+                              )}
+                            </Label>
+                            {field.type === "password" ? (
+                              <PasswordInput {...commonProps} />
+                            ) : (
+                              <Input type={field.type} {...commonProps} />
+                            )}
+                            {field.helper && (
+                              <p className="text-xs text-muted-foreground">{field.helper}</p>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        loading={savingProvider === provider.key}
+                        onClick={() => handleSave(provider.key)}
+                      >
+                        {savingProvider !== provider.key && (
+                          <FloppyDisk className="size-4" aria-hidden />
+                        )}
+                        {savingProvider === provider.key ? "Guardando..." : "Guardar"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        loading={testingProvider === provider.key}
+                        onClick={() => handleTest(provider.key)}
+                      >
+                        {testingProvider !== provider.key && (
+                          <PaperPlaneTilt className="size-4" aria-hidden />
+                        )}
+                        {testingProvider === provider.key ? "Probando..." : "Probar conexion"}
+                      </Button>
+                      {isConfigured && !isActive && (
+                        <Button
+                          size="sm"
+                          className="bg-success text-primary-foreground hover:bg-success/90"
+                          loading={activatingProvider === provider.key}
+                          onClick={() => handleActivate(provider.key)}
+                        >
+                          {activatingProvider !== provider.key && (
+                            <CheckCircle className="size-4" weight="fill" aria-hidden />
+                          )}
+                          {activatingProvider === provider.key
+                            ? "Activando..."
+                            : "Activar este provider"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

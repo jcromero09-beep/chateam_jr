@@ -1,57 +1,55 @@
-import { useState, useEffect, useCallback } from 'react'
 import {
-  Box,
-  Typography,
-  Stack,
-  Card,
-  CardContent,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Input,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Alert,
-  LinearProgress,
-  Divider,
-  Tooltip,
-  Grid,
-  Textarea,
-  CircularProgress,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-} from '@mui/joy'
+  useState,
+  useEffect,
+  useCallback,
+  forwardRef,
+  type ReactNode,
+  type ButtonHTMLAttributes,
+} from 'react'
+// [Migración Tailwind] Se conservan a propósito los indicadores de progreso de MUI Joy
+// (no existe equivalente en el design system). El resto de la pantalla usa tokens + shadcn/Radix.
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Visibility as VisibilityIcon,
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Campaign as CampaignIcon,
-  Cancel as CancelIcon,
-  Replay as ReplayIcon,
-  Schedule as ScheduleIcon,
-  CheckCircle as CheckCircleIcon,
-  PlayArrow as PlayArrowIcon,
-  Block as BlockIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  Message as MessageIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-} from '@mui/icons-material'
+  Megaphone,
+  Plus,
+  PencilSimple,
+  Trash,
+  Eye,
+  MagnifyingGlass,
+  ArrowClockwise,
+  XCircle,
+  ArrowCounterClockwise,
+  Clock,
+  CaretDown,
+  CaretUp,
+  ChatCircleDots,
+  Warning,
+  Info,
+} from '@phosphor-icons/react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'react-toastify'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import socketService from '../services/socket'
@@ -148,9 +146,10 @@ interface Tag {
 // HELPERS
 // ============================================================
 
-function statusColor(
-  status: CampaignStatus
-): 'neutral' | 'primary' | 'warning' | 'success' | 'danger' {
+/** Valor centinela para los <SelectItem> "sin selección": Radix no admite value="". */
+const NONE = '__none__'
+
+function statusVariant(status: CampaignStatus): BadgeProps['variant'] {
   switch (status) {
     case 'INATIVA':
       return 'neutral'
@@ -161,7 +160,7 @@ function statusColor(
     case 'FINALIZADA':
       return 'success'
     case 'CANCELADA':
-      return 'danger'
+      return 'destructive'
   }
 }
 
@@ -180,9 +179,7 @@ function statusLabel(status: CampaignStatus): string {
   }
 }
 
-function channelColor(
-  channel: string
-): 'success' | 'primary' | 'neutral' {
+function channelVariant(channel: string): BadgeProps['variant'] {
   if (channel === 'meta' || channel === 'cloud_api') return 'success'
   if (channel === 'baileys') return 'primary'
   return 'neutral'
@@ -216,6 +213,68 @@ function extractApiError(err: unknown): string {
     return data?.error ?? data?.message ?? 'Error desconocido'
   }
   return 'Error de conexión'
+}
+
+// ============================================================
+// UI LOCAL
+// ============================================================
+
+/** Aviso inline (sustituye <Alert> de Joy). Texto con tokens *-text por contraste. */
+function Callout({
+  tone = 'destructive',
+  children,
+  className,
+}: {
+  tone?: 'destructive' | 'warning'
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        'flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm',
+        tone === 'destructive'
+          ? 'border-destructive/30 bg-destructive/10 text-destructive-text'
+          : 'border-warning/30 bg-warning/12 text-warning-text',
+        className,
+      )}
+    >
+      <Warning className="mt-px size-4 shrink-0" weight="fill" aria-hidden />
+      <span>{children}</span>
+    </div>
+  )
+}
+
+/** Botón de acción de fila (icon button accesible, 32px ≥ objetivo mínimo WCAG 2.5.8).
+ *  forwardRef: se usa como hijo de <Tooltip> (TooltipTrigger asChild) y Radix necesita la ref. */
+const ActionBtn = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & { label: string }
+>(({ label, className, children, ...props }, ref) => (
+  <button
+    ref={ref}
+    type="button"
+    aria-label={label}
+    className={cn(
+      'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </button>
+))
+ActionBtn.displayName = 'ActionBtn'
+
+/** Fila etiqueta/valor del detalle. */
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="min-w-[140px] shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm text-foreground">{children}</span>
+    </div>
+  )
 }
 
 // ============================================================
@@ -355,279 +414,282 @@ function CampaignFormModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog
-        layout="center"
-        sx={{ width: { xs: '95vw', md: 620 }, maxHeight: '90vh', overflow: 'auto' }}
-      >
-        <ModalClose />
-        <DialogTitle>
-          {editing ? 'Editar campaña' : 'Nueva campaña Meta'}
-        </DialogTitle>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-[620px]">
+        <DialogHeader>
+          <DialogTitle>{editing ? 'Editar campaña' : 'Nueva campaña Meta'}</DialogTitle>
+        </DialogHeader>
 
-        <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {formError && (
-            <Alert color="danger" startDecorator={<WarningIcon />}>
-              {formError}
-            </Alert>
-          )}
+        <div className="flex flex-col gap-4">
+          {formError && <Callout tone="destructive">{formError}</Callout>}
 
           {/* === A. OBLIGATORIOS === */}
-          <Typography level="title-sm" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-            Configuración principal
-          </Typography>
+          <p className="text-sm font-bold text-muted-foreground">Configuración principal</p>
 
           {/* Nombre */}
-          <FormControl required>
-            <FormLabel>Nombre de la campaña</FormLabel>
+          <div className="space-y-1.5">
+            <Label htmlFor="campaign-name">Nombre de la campaña</Label>
             <Input
+              id="campaign-name"
+              required
               placeholder="Ej: Promo Verano 2026"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-          </FormControl>
+          </div>
 
           {/* Conexión Meta */}
-          <FormControl required>
-            <FormLabel>Conexión Meta (Cloud API)</FormLabel>
+          <div className="space-y-1.5">
+            <Label htmlFor="campaign-connection">Conexión Meta (Cloud API)</Label>
             {metaConnections.length === 0 ? (
-              <Alert color="warning" startDecorator={<WarningIcon />}>
+              <Callout tone="warning">
                 No hay conexiones Meta configuradas. Configura una conexión Cloud API primero.
-              </Alert>
+              </Callout>
             ) : (
               <Select
-                placeholder="Selecciona una conexión Meta"
-                value={whatsappId}
-                onChange={(_, v) => setWhatsappId(v as number | null)}
+                value={whatsappId != null ? String(whatsappId) : ''}
+                onValueChange={(v) => setWhatsappId(Number(v))}
               >
-                {metaConnections.map((c) => (
-                  <Option key={c.id} value={c.id}>
-                    {c.name}{' '}
-                    <Typography level="body-xs" sx={{ ml: 1, color: 'text.secondary' }}>
-                      {c.channel}
-                    </Typography>
-                  </Option>
-                ))}
+                <SelectTrigger id="campaign-connection" className="h-11">
+                  <SelectValue placeholder="Selecciona una conexión Meta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {metaConnections.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {`${c.name} · ${c.channel}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             )}
-          </FormControl>
+          </div>
 
           {/* Template */}
-          <FormControl required>
-            <FormLabel>Template Meta (APPROVED)</FormLabel>
+          <div className="space-y-1.5">
+            <Label htmlFor="campaign-template">Template Meta (APPROVED)</Label>
             <Select
-              placeholder="Selecciona un template aprobado"
-              value={templateId}
-              onChange={(_, v) => {
-                setTemplateId(v as number | null)
+              value={templateId != null ? String(templateId) : ''}
+              onValueChange={(v) => {
+                setTemplateId(Number(v))
                 setTemplateParams({})
               }}
             >
-              {templates.map((t) => (
-                <Option key={t.id} value={t.id}>
-                  {t.name}
-                  <Typography level="body-xs" sx={{ ml: 1, color: 'text.secondary' }}>
-                    {t.category} · {t.language}
-                  </Typography>
-                </Option>
-              ))}
+              <SelectTrigger id="campaign-template" className="h-11">
+                <SelectValue placeholder="Selecciona un template aprobado" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    {`${t.name} · ${t.category} · ${t.language}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
+          </div>
 
           {/* Preview del template */}
           {selectedTemplate?.bodyContent && (
-            <Card variant="soft" color="neutral" sx={{ p: 1.5 }}>
-              <Typography level="body-xs" sx={{ fontWeight: 700, mb: 0.5 }}>
-                Vista previa del cuerpo
-              </Typography>
-              <Typography level="body-sm" sx={{ whiteSpace: 'pre-wrap' }}>
+            <div className="rounded-lg border border-border bg-muted/40 p-3">
+              <p className="mb-1 text-xs font-bold text-foreground">Vista previa del cuerpo</p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">
                 {selectedTemplate.bodyContent}
-              </Typography>
+              </p>
               {variablesCount > 0 && (
-                <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.secondary' }}>
+                <p className="mt-1 text-xs text-muted-foreground">
                   {variablesCount} variable{variablesCount > 1 ? 's' : ''} detectada
                   {variablesCount > 1 ? 's' : ''}
-                </Typography>
+                </p>
               )}
-            </Card>
+            </div>
           )}
 
           {/* Parámetros del template */}
           {variablesCount > 0 && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                Valores de variables
-              </Typography>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-semibold text-foreground">Valores de variables</p>
               {Array.from({ length: variablesCount }, (_, i) => {
                 const key = String(i + 1)
                 return (
-                  <FormControl key={key}>
-                    <FormLabel>{`Variable {{${key}}}`}</FormLabel>
+                  <div key={key} className="space-y-1.5">
+                    <Label htmlFor={`campaign-var-${key}`}>{`Variable {{${key}}}`}</Label>
                     <Input
+                      id={`campaign-var-${key}`}
                       placeholder={`Valor para {{${key}}}`}
                       value={templateParams[key] ?? ''}
                       onChange={(e) => handleParamChange(key, e.target.value)}
                     />
-                  </FormControl>
+                  </div>
                 )
               })}
-            </Box>
+            </div>
           )}
 
           {/* Fecha programada */}
-          <FormControl>
-            <FormLabel>Fecha y hora de envío</FormLabel>
+          <div className="space-y-1.5">
+            <Label htmlFor="campaign-scheduled">Fecha y hora de envío</Label>
             <Input
+              id="campaign-scheduled"
               type="datetime-local"
               value={scheduledAt}
               onChange={(e) => setScheduledAt(e.target.value)}
             />
-          </FormControl>
+          </div>
 
-          <Divider />
+          <div className="border-t border-border" />
 
           {/* === B. DESTINATARIOS === */}
-          <Typography level="title-sm" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-            Destinatarios
-          </Typography>
+          <p className="text-sm font-bold text-muted-foreground">Destinatarios</p>
 
-          <FormControl>
-            <FormLabel>Lista de contactos</FormLabel>
+          <div className="space-y-1.5">
+            <Label htmlFor="campaign-list">Lista de contactos</Label>
             <Select
-              placeholder="Selecciona una lista"
-              value={contactListId}
-              onChange={(_, v) => setContactListId(v as number | null)}
+              value={contactListId != null ? String(contactListId) : NONE}
+              onValueChange={(v) => setContactListId(v === NONE ? null : Number(v))}
             >
-              <Option value={null as unknown as number}>Sin lista</Option>
-              {contactLists.map((l) => (
-                <Option key={l.id} value={l.id}>
-                  {l.name}
-                  {l.contactsCount !== undefined && (
-                    <Typography level="body-xs" sx={{ ml: 1, color: 'text.secondary' }}>
-                      {l.contactsCount} contactos
-                    </Typography>
-                  )}
-                </Option>
-              ))}
+              <SelectTrigger id="campaign-list" className="h-11">
+                <SelectValue placeholder="Selecciona una lista" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Sin lista</SelectItem>
+                {contactLists.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.contactsCount !== undefined
+                      ? `${l.name} · ${l.contactsCount} contactos`
+                      : l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
+          </div>
 
-          <Divider />
+          <div className="border-t border-border" />
 
           {/* === C. OPCIONALES === */}
           <Button
-            variant="plain"
-            color="neutral"
+            variant="ghost"
             size="sm"
-            startDecorator={showOptional ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            className="self-start px-0 hover:bg-transparent"
+            aria-expanded={showOptional}
             onClick={() => setShowOptional((v) => !v)}
-            sx={{ alignSelf: 'flex-start', px: 0 }}
           >
+            {showOptional ? (
+              <CaretUp className="size-4" aria-hidden />
+            ) : (
+              <CaretDown className="size-4" aria-hidden />
+            )}
             Opciones avanzadas
           </Button>
 
           {showOptional && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <FormControl>
-                <FormLabel>Cola de atención</FormLabel>
+            <div className="flex flex-col gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-queue">Cola de atención</Label>
                 <Select
-                  placeholder="Sin cola"
-                  value={queueId}
-                  onChange={(_, v) => setQueueId(v as number | null)}
+                  value={queueId != null ? String(queueId) : NONE}
+                  onValueChange={(v) => setQueueId(v === NONE ? null : Number(v))}
                 >
-                  <Option value={null as unknown as number}>Sin cola</Option>
-                  {queues.map((q) => (
-                    <Option key={q.id} value={q.id}>
-                      {q.name}
-                    </Option>
-                  ))}
+                  <SelectTrigger id="campaign-queue" className="h-11">
+                    <SelectValue placeholder="Sin cola" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin cola</SelectItem>
+                    {queues.map((q) => (
+                      <SelectItem key={q.id} value={String(q.id)}>
+                        {q.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-              </FormControl>
+              </div>
 
-              <FormControl>
-                <FormLabel>Agente asignado</FormLabel>
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-user">Agente asignado</Label>
                 <Select
-                  placeholder="Sin agente"
-                  value={userId}
-                  onChange={(_, v) => setUserId(v as number | null)}
+                  value={userId != null ? String(userId) : NONE}
+                  onValueChange={(v) => setUserId(v === NONE ? null : Number(v))}
                 >
-                  <Option value={null as unknown as number}>Sin agente</Option>
-                  {users.map((u) => (
-                    <Option key={u.id} value={u.id}>
-                      {u.name}
-                    </Option>
-                  ))}
+                  <SelectTrigger id="campaign-user" className="h-11">
+                    <SelectValue placeholder="Sin agente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin agente</SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-              </FormControl>
+              </div>
 
-              <FormControl>
-                <FormLabel>Tag Kanban</FormLabel>
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-tag">Tag Kanban</Label>
                 <Select
-                  placeholder="Sin tag"
-                  value={tagId}
-                  onChange={(_, v) => setTagId(v as number | null)}
+                  value={tagId != null ? String(tagId) : NONE}
+                  onValueChange={(v) => setTagId(v === NONE ? null : Number(v))}
                 >
-                  <Option value={null as unknown as number}>Sin tag</Option>
-                  {tags.map((t) => (
-                    <Option key={t.id} value={t.id}>
-                      {t.name}
-                    </Option>
-                  ))}
+                  <SelectTrigger id="campaign-tag" className="h-11">
+                    <SelectValue placeholder="Sin tag" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin tag</SelectItem>
+                    {tags.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-              </FormControl>
+              </div>
 
-              <FormControl>
-                <FormLabel>Estado del ticket al responder</FormLabel>
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-status-ticket">Estado del ticket al responder</Label>
                 <Select
-                  placeholder="Sin cambio de estado"
-                  value={statusTicket}
-                  onChange={(_, v) => setStatusTicket(v as string | null)}
+                  value={statusTicket ?? NONE}
+                  onValueChange={(v) => setStatusTicket(v === NONE ? null : v)}
                 >
-                  <Option value={null as unknown as string}>Sin cambio</Option>
-                  <Option value="open">Abierto</Option>
-                  <Option value="pending">Pendiente</Option>
-                  <Option value="closed">Cerrado</Option>
+                  <SelectTrigger id="campaign-status-ticket" className="h-11">
+                    <SelectValue placeholder="Sin cambio de estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin cambio</SelectItem>
+                    <SelectItem value="open">Abierto</SelectItem>
+                    <SelectItem value="pending">Pendiente</SelectItem>
+                    <SelectItem value="closed">Cerrado</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
-            </Box>
+              </div>
+            </div>
           )}
-        </DialogContent>
+        </div>
 
-        <DialogActions>
-          <Button variant="plain" color="neutral" onClick={onClose} disabled={submitting}>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
             Cancelar
           </Button>
           {editing ? (
-            <Button
-              color="primary"
-              onClick={() => submit(editing.status)}
-              loading={submitting}
-            >
+            <Button size="sm" onClick={() => submit(editing.status)} loading={submitting}>
               Guardar cambios
             </Button>
           ) : (
             <>
               <Button
-                variant="outlined"
-                color="neutral"
+                variant="outline"
+                size="sm"
                 onClick={() => submit('INATIVA')}
                 loading={submitting}
               >
                 Guardar borrador
               </Button>
-              <Button
-                color="primary"
-                startDecorator={<ScheduleIcon />}
-                onClick={() => submit('PROGRAMADA')}
-                loading={submitting}
-              >
+              <Button size="sm" onClick={() => submit('PROGRAMADA')} loading={submitting}>
+                <Clock className="size-4" aria-hidden />
                 Programar
               </Button>
             </>
           )}
-        </DialogActions>
-      </ModalDialog>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -670,251 +732,174 @@ function CampaignReviewModal({ open, onClose, campaignId }: CampaignReviewModalP
   const successRate = total > 0 ? ((success / total) * 100).toFixed(1) : '0.0'
 
   return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog
-        layout="center"
-        sx={{ width: { xs: '95vw', md: 640 }, maxHeight: '90vh', overflow: 'auto' }}
-      >
-        <ModalClose />
-        <DialogTitle>Detalle de campaña</DialogTitle>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>Detalle de campaña</DialogTitle>
+        </DialogHeader>
 
-        <DialogContent sx={{ pt: 1 }}>
+        <div>
           {loading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <div className="flex justify-center py-8">
               <CircularProgress />
-            </Box>
+            </div>
           )}
 
-          {error && (
-            <Alert color="danger" startDecorator={<WarningIcon />}>
-              {error}
-            </Alert>
-          )}
+          {error && <Callout tone="destructive">{error}</Callout>}
 
           {campaign && !loading && (
-            <Stack spacing={2.5}>
+            <div className="flex flex-col gap-6">
               {/* Configuración */}
-              <Box>
-                <Typography level="title-sm" sx={{ fontWeight: 700, mb: 1.5 }}>
-                  Configuración
-                </Typography>
-                <Stack spacing={1}>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', minWidth: 140 }}>
-                      Nombre:
-                    </Typography>
-                    <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                      {campaign.name}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', minWidth: 140 }}>
-                      Estado:
-                    </Typography>
-                    <Chip size="sm" color={statusColor(campaign.status)}>
+              <div>
+                <p className="mb-3 text-sm font-bold text-foreground">Configuración</p>
+                <div className="flex flex-col gap-2">
+                  <DetailRow label="Nombre:">
+                    <span className="font-semibold">{campaign.name}</span>
+                  </DetailRow>
+                  <DetailRow label="Estado:">
+                    <Badge variant={statusVariant(campaign.status)}>
                       {statusLabel(campaign.status)}
-                    </Chip>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', minWidth: 140 }}>
-                      Conexión Meta:
-                    </Typography>
-                    <Typography level="body-sm">
-                      {campaign.whatsapp?.name ?? '—'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', minWidth: 140 }}>
-                      Lista de contactos:
-                    </Typography>
-                    <Typography level="body-sm">
-                      {campaign.contactList?.name ?? '—'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Typography level="body-sm" sx={{ color: 'text.secondary', minWidth: 140 }}>
-                      Programada para:
-                    </Typography>
-                    <Typography level="body-sm">{formatDate(campaign.scheduledAt)}</Typography>
-                  </Box>
+                    </Badge>
+                  </DetailRow>
+                  <DetailRow label="Conexión Meta:">{campaign.whatsapp?.name ?? '—'}</DetailRow>
+                  <DetailRow label="Lista de contactos:">
+                    {campaign.contactList?.name ?? '—'}
+                  </DetailRow>
+                  <DetailRow label="Programada para:">{formatDate(campaign.scheduledAt)}</DetailRow>
                   {campaign.completedAt && (
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Typography level="body-sm" sx={{ color: 'text.secondary', minWidth: 140 }}>
-                        Completada en:
-                      </Typography>
-                      <Typography level="body-sm">{formatDate(campaign.completedAt)}</Typography>
-                    </Box>
+                    <DetailRow label="Completada en:">{formatDate(campaign.completedAt)}</DetailRow>
                   )}
-                </Stack>
-              </Box>
+                </div>
+              </div>
 
               {/* Template */}
               {campaign.whastsAppTemplate && (
-                <Box>
-                  <Typography level="title-sm" sx={{ fontWeight: 700, mb: 1 }}>
-                    Template aplicado
-                  </Typography>
-                  <Card variant="soft" color="neutral" sx={{ p: 1.5 }}>
-                    <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-                      <Chip size="sm" color="success">
-                        {campaign.whastsAppTemplate.status}
-                      </Chip>
-                      <Chip size="sm" variant="outlined">
-                        {campaign.whastsAppTemplate.category}
-                      </Chip>
-                      <Chip size="sm" variant="outlined">
-                        {campaign.whastsAppTemplate.language}
-                      </Chip>
-                    </Stack>
-                    <Typography level="body-xs" sx={{ fontWeight: 700, mb: 0.5 }}>
+                <div>
+                  <p className="mb-2 text-sm font-bold text-foreground">Template aplicado</p>
+                  <div className="rounded-lg border border-border bg-muted/40 p-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      <Badge variant="success">{campaign.whastsAppTemplate.status}</Badge>
+                      <Badge variant="outline">{campaign.whastsAppTemplate.category}</Badge>
+                      <Badge variant="outline">{campaign.whastsAppTemplate.language}</Badge>
+                    </div>
+                    <p className="mb-1 text-xs font-bold text-foreground">
                       {campaign.whastsAppTemplate.name}
-                    </Typography>
+                    </p>
                     {campaign.whastsAppTemplate.bodyContent && (
-                      <Typography level="body-sm" sx={{ whiteSpace: 'pre-wrap' }}>
+                      <p className="whitespace-pre-wrap text-sm text-foreground">
                         {campaign.whastsAppTemplate.bodyContent}
-                      </Typography>
+                      </p>
                     )}
-                  </Card>
-                </Box>
+                  </div>
+                </div>
               )}
 
               {/* Parámetros */}
-              {campaign.templateParams &&
-                Object.keys(campaign.templateParams).length > 0 && (
-                  <Box>
-                    <Typography level="title-sm" sx={{ fontWeight: 700, mb: 1 }}>
-                      Parámetros del template
-                    </Typography>
-                    <Sheet
-                      variant="outlined"
-                      sx={{ borderRadius: 'sm', overflow: 'hidden' }}
-                    >
-                      <Table size="sm">
-                        <thead>
-                          <tr>
-                            <th style={{ width: 120 }}>Variable</th>
-                            <th>Valor</th>
+              {campaign.templateParams && Object.keys(campaign.templateParams).length > 0 && (
+                <div>
+                  <p className="mb-2 text-sm font-bold text-foreground">Parámetros del template</p>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40 text-left">
+                          <th className="w-[120px] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Variable
+                          </th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Valor
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {Object.entries(campaign.templateParams).map(([k, v]) => (
+                          <tr key={k}>
+                            <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                              {`{{${k}}}`}
+                            </td>
+                            <td className="px-3 py-2 text-foreground">{v}</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(campaign.templateParams).map(([k, v]) => (
-                            <tr key={k}>
-                              <td>
-                                <Typography level="body-xs" sx={{ fontFamily: 'monospace' }}>
-                                  {`{{${k}}}`}
-                                </Typography>
-                              </td>
-                              <td>
-                                <Typography level="body-sm">{v}</Typography>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </Table>
-                    </Sheet>
-                  </Box>
-                )}
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
-              <Divider />
+              <div className="border-t border-border" />
 
               {/* Métricas */}
-              <Box>
-                <Typography level="title-sm" sx={{ fontWeight: 700, mb: 1.5 }}>
-                  Métricas de envío
-                </Typography>
+              <div>
+                <p className="mb-3 text-sm font-bold text-foreground">Métricas de envío</p>
 
-                <Grid container spacing={1.5} sx={{ mb: 2 }}>
-                  <Grid xs={6} sm={3}>
-                    <Card variant="soft" sx={{ textAlign: 'center', p: 1.5 }}>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        Total
-                      </Typography>
-                      <Typography level="h4">{total}</Typography>
-                    </Card>
-                  </Grid>
-                  <Grid xs={6} sm={3}>
-                    <Card variant="soft" color="success" sx={{ textAlign: 'center', p: 1.5 }}>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        Enviados
-                      </Typography>
-                      <Typography level="h4" sx={{ color: 'success.600' }}>
-                        {success}
-                      </Typography>
-                    </Card>
-                  </Grid>
-                  <Grid xs={6} sm={3}>
-                    <Card variant="soft" color="danger" sx={{ textAlign: 'center', p: 1.5 }}>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        Fallidos
-                      </Typography>
-                      <Typography level="h4" sx={{ color: 'danger.600' }}>
-                        {failed}
-                      </Typography>
-                    </Card>
-                  </Grid>
-                  <Grid xs={6} sm={3}>
-                    <Card variant="soft" color="warning" sx={{ textAlign: 'center', p: 1.5 }}>
-                      <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                        Pendientes
-                      </Typography>
-                      <Typography level="h4" sx={{ color: 'warning.600' }}>
-                        {pending}
-                      </Typography>
-                    </Card>
-                  </Grid>
-                </Grid>
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Total</p>
+                    <p className="text-2xl font-semibold tabular-nums text-foreground">{total}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-success/10 p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Enviados</p>
+                    <p className="text-2xl font-semibold tabular-nums text-success-text">
+                      {success}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-destructive/10 p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Fallidos</p>
+                    <p className="text-2xl font-semibold tabular-nums text-destructive-text">
+                      {failed}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-warning/12 p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Pendientes</p>
+                    <p className="text-2xl font-semibold tabular-nums text-warning-text">
+                      {pending}
+                    </p>
+                  </div>
+                </div>
 
                 {/* Tasa de éxito */}
-                <Box sx={{ mb: 1.5 }}>
-                  <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                    <Typography level="body-sm">Tasa de éxito</Typography>
-                    <Typography level="body-sm" sx={{ fontWeight: 700 }}>
+                <div className="mb-3">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-sm text-foreground">Tasa de éxito</span>
+                    <span className="text-sm font-bold tabular-nums text-foreground">
                       {successRate}%
-                    </Typography>
-                  </Stack>
+                    </span>
+                  </div>
                   <LinearProgress
                     determinate
                     value={total > 0 ? (success / total) * 100 : 0}
                     color="success"
                     sx={{ height: 8, borderRadius: 4 }}
                   />
-                </Box>
+                </div>
 
                 {/* Costo Meta */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                    Costo Meta:
-                  </Typography>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Costo Meta:</span>
                   {campaign.metaCost !== null && campaign.metaCost !== undefined ? (
-                    <Typography level="body-sm" sx={{ fontWeight: 600 }}>
+                    <span className="text-sm font-semibold text-foreground">
                       ${campaign.metaCost.toFixed(4)} USD
-                    </Typography>
+                    </span>
                   ) : (
-                    <Tooltip
-                      title="La integración con Meta Billing aún no está configurada"
-                      placement="top"
-                    >
-                      <Typography
-                        level="body-sm"
-                        sx={{ color: 'text.tertiary', cursor: 'help', display: 'flex', alignItems: 'center', gap: 0.5 }}
-                      >
-                        No disponible <InfoIcon sx={{ fontSize: 14 }} />
-                      </Typography>
+                    <Tooltip title="La integración con Meta Billing aún no está configurada">
+                      <span className="flex cursor-help items-center gap-1 text-sm text-muted-foreground">
+                        No disponible
+                        <Info className="size-3.5" aria-hidden />
+                      </span>
                     </Tooltip>
                   )}
-                </Box>
-              </Box>
-            </Stack>
+                </div>
+              </div>
+            </div>
           )}
-        </DialogContent>
+        </div>
 
-        <DialogActions>
-          <Button variant="plain" color="neutral" onClick={onClose}>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Cerrar
           </Button>
-        </DialogActions>
-      </ModalDialog>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -942,32 +927,58 @@ function ConfirmModal({
   onClose,
 }: ConfirmModalProps) {
   return (
-    <Modal open={open} onClose={onClose}>
-      <ModalDialog variant="outlined" role="alertdialog" sx={{ maxWidth: 420 }}>
-        <DialogTitle>
-          <WarningIcon sx={{ color: `${confirmColor}.500` }} />
-          {title}
-        </DialogTitle>
-        <Divider />
-        <DialogContent>
-          <Typography level="body-md">{description}</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="plain" color="neutral" onClick={onClose}>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-[420px]" role="alertdialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Warning
+              className={cn(
+                'size-5 shrink-0',
+                confirmColor === 'danger'
+                  ? 'text-destructive-text'
+                  : confirmColor === 'warning'
+                    ? 'text-warning-text'
+                    : 'text-muted-foreground',
+              )}
+              weight="fill"
+              aria-hidden
+            />
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="border-t border-border" />
+
+        <p className="text-sm text-foreground">{description}</p>
+
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Cancelar
           </Button>
-          <Button color={confirmColor} onClick={onConfirm}>
+          <Button
+            size="sm"
+            onClick={onConfirm}
+            className={
+              confirmColor === 'danger'
+                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                : confirmColor === 'warning'
+                  ? 'bg-warning text-primary-foreground hover:bg-warning/90'
+                  : undefined
+            }
+          >
             {confirmLabel}
           </Button>
-        </DialogActions>
-      </ModalDialog>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 // ============================================================
 // COMPONENTE PRINCIPAL
 // ============================================================
+
+const columns = ['Nombre', 'Conexión Meta', 'Template', 'Lista', 'Programada', 'Estado', 'Acciones']
 
 export default function Campaigns() {
   const { user } = useAuth()
@@ -1183,362 +1194,336 @@ export default function Campaigns() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto' }}>
-      {/* ========== HEADER ========== */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <CampaignIcon sx={{ fontSize: 32, color: '#3b82f6' }} />
-          <Box>
-            <Typography level="h3" sx={{ fontWeight: 700 }}>
-              Campañas WhatsApp
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-              Campañas masivas vía Meta Cloud API con templates aprobados
-            </Typography>
-          </Box>
-        </Stack>
-        <Stack direction="row" spacing={1}>
-          <Tooltip title="Recargar datos" placement="top">
-            <IconButton variant="outlined" color="neutral" onClick={loadData} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-          <Button
-            startDecorator={<AddIcon />}
-            color="primary"
-            onClick={() => {
-              setEditingCampaign(null)
-              setFormOpen(true)
-            }}
-          >
-            Nueva campaña
-          </Button>
-        </Stack>
-      </Stack>
-
-      {/* ========== STATS CARDS ========== */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: 'Total', value: stats.total, color: undefined },
-          { label: 'Programadas', value: stats.programada, color: '#3b82f6' },
-          { label: 'En ejecución', value: stats.enAndamento, color: '#f3a43b' },
-          { label: 'Finalizadas', value: stats.finalizada, color: '#52b788' },
-          { label: 'Canceladas', value: stats.cancelada, color: '#ef4444' },
-        ].map((s) => (
-          <Grid key={s.label} xs={6} sm={4} md={2.4}>
-            <Card variant="outlined" sx={{ textAlign: 'center', py: 2 }}>
-              <Typography level="body-sm" sx={{ color: 'text.secondary', mb: 0.5 }}>
-                {s.label}
-              </Typography>
-              <Typography
-                level="h3"
-                sx={{ fontWeight: 700, color: s.color ?? 'text.primary' }}
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+          {/* ========== HEADER ========== */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Megaphone className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Campañas WhatsApp
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Campañas masivas vía Meta Cloud API con templates aprobados
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Tooltip title="Recargar datos">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Recargar datos"
+                  className="text-muted-foreground"
+                  onClick={loadData}
+                  disabled={loading}
+                >
+                  <ArrowClockwise className="size-5" aria-hidden />
+                </Button>
+              </Tooltip>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingCampaign(null)
+                  setFormOpen(true)
+                }}
               >
-                {s.value}
-              </Typography>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+                <Plus className="size-4" weight="bold" aria-hidden />
+                Nueva campaña
+              </Button>
+            </div>
+          </div>
 
-      {/* ========== FILTROS ========== */}
-      <Card variant="outlined" sx={{ mb: 2 }}>
-        <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <Input
-              placeholder="Buscar por nombre..."
-              startDecorator={<SearchIcon />}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              sx={{ flexGrow: 1 }}
-            />
-            <Select
-              value={statusFilter}
-              onChange={(_, v) => setStatusFilter(v as string)}
-              sx={{ minWidth: 200 }}
-            >
-              <Option value="all">Todos los estados</Option>
-              <Option value="INATIVA">Borrador</Option>
-              <Option value="PROGRAMADA">Programadas</Option>
-              <Option value="EM_ANDAMENTO">En ejecución</Option>
-              <Option value="FINALIZADA">Finalizadas</Option>
-              <Option value="CANCELADA">Canceladas</Option>
-            </Select>
-          </Stack>
-        </CardContent>
-      </Card>
+          {/* ========== STATS ========== */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <StatTile label="Total" value={String(stats.total)} />
+            <StatTile label="Programadas" value={String(stats.programada)} tone="primary" />
+            <StatTile label="En ejecución" value={String(stats.enAndamento)} tone="warning" />
+            <StatTile label="Finalizadas" value={String(stats.finalizada)} tone="success" />
+            <StatTile label="Canceladas" value={String(stats.cancelada)} tone="destructive" />
+          </div>
 
-      {/* ========== ESTADO: LOADING ========== */}
-      {loading && <LinearProgress sx={{ mb: 2, borderRadius: 4 }} />}
+          {/* ========== FILTROS ========== */}
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="relative flex-1">
+                <MagnifyingGlass
+                  className="pointer-events-none absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <input
+                  placeholder="Buscar por nombre..."
+                  aria-label="Buscar campañas por nombre"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-10 sm:w-[200px]" aria-label="Filtrar por estado">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="INATIVA">Borrador</SelectItem>
+                  <SelectItem value="PROGRAMADA">Programadas</SelectItem>
+                  <SelectItem value="EM_ANDAMENTO">En ejecución</SelectItem>
+                  <SelectItem value="FINALIZADA">Finalizadas</SelectItem>
+                  <SelectItem value="CANCELADA">Canceladas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      {/* ========== ESTADO: ERROR ========== */}
-      {!loading && loadError && (
-        <Alert color="danger" startDecorator={<WarningIcon />} sx={{ mb: 2 }}>
-          {loadError}
-        </Alert>
-      )}
+          {/* ========== ESTADO: LOADING ========== */}
+          {loading && <LinearProgress sx={{ borderRadius: 4 }} />}
 
-      {/* ========== ESTADO: VACÍO ========== */}
-      {!loading && !loadError && filtered.length === 0 && (
-        <Card variant="soft" sx={{ textAlign: 'center', py: 6 }}>
-          <MessageIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 1.5 }} />
-          <Typography level="title-md" sx={{ color: 'text.secondary' }}>
-            {campaigns.length === 0
-              ? 'No hay campañas todavía'
-              : 'No hay campañas que coincidan con el filtro'}
-          </Typography>
-          {campaigns.length === 0 && (
-            <Button
-              sx={{ mt: 2 }}
-              startDecorator={<AddIcon />}
-              onClick={() => {
-                setEditingCampaign(null)
-                setFormOpen(true)
-              }}
-            >
-              Crear primera campaña
-            </Button>
+          {/* ========== ESTADO: ERROR ========== */}
+          {!loading && loadError && <Callout tone="destructive">{loadError}</Callout>}
+
+          {/* ========== ESTADO: VACÍO ========== */}
+          {!loading && !loadError && filtered.length === 0 && (
+            <div className="flex flex-col items-center rounded-xl border border-border bg-muted/40 px-6 py-14 text-center">
+              <ChatCircleDots className="mb-3 size-12 text-muted-foreground" aria-hidden />
+              <p className="text-base font-medium text-muted-foreground">
+                {campaigns.length === 0
+                  ? 'No hay campañas todavía'
+                  : 'No hay campañas que coincidan con el filtro'}
+              </p>
+              {campaigns.length === 0 && (
+                <Button
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => {
+                    setEditingCampaign(null)
+                    setFormOpen(true)
+                  }}
+                >
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                  Crear primera campaña
+                </Button>
+              )}
+            </div>
           )}
-        </Card>
-      )}
 
-      {/* ========== TABLA ========== */}
-      {!loading && !loadError && filtered.length > 0 && (
-        <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-          <Table
-            size="sm"
-            stickyHeader
-            hoverRow
-            sx={{ '& thead th': { fontWeight: 700, fontSize: '0.75rem' } }}
-          >
-            <thead>
-              <tr>
-                <th style={{ minWidth: 200 }}>Nombre</th>
-                <th style={{ minWidth: 160 }}>Conexión Meta</th>
-                <th style={{ minWidth: 180 }}>Template</th>
-                <th style={{ minWidth: 140 }}>Lista</th>
-                <th style={{ minWidth: 150 }}>Programada</th>
-                <th style={{ minWidth: 120 }}>Estado</th>
-                <th style={{ minWidth: 140, textAlign: 'right' }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => {
-                const isLegacy = c.useTemplate === false
-                return (
-                  <tr key={c.id}>
-                    {/* Nombre */}
-                    <td>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography level="body-sm" sx={{ fontWeight: 600 }}>
-                          {c.name}
-                        </Typography>
-                        {isLegacy && (
-                          <Chip size="sm" color="neutral" variant="outlined">
-                            Legacy
-                          </Chip>
-                        )}
-                      </Stack>
-                    </td>
+          {/* ========== TABLA ========== */}
+          {!loading && !loadError && filtered.length > 0 && (
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1000px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left">
+                      {columns.map((c, i) => (
+                        <th
+                          key={c}
+                          className={cn(
+                            'whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+                            i === columns.length - 1 && 'text-right',
+                          )}
+                        >
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filtered.map((c) => {
+                      const isLegacy = c.useTemplate === false
+                      return (
+                        <tr key={c.id} className="transition-colors hover:bg-accent/40">
+                          {/* Nombre */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-foreground">{c.name}</span>
+                              {isLegacy && <Badge variant="outline">Legacy</Badge>}
+                            </div>
+                          </td>
 
-                    {/* Conexión */}
-                    <td>
-                      {c.whatsapp ? (
-                        <Stack spacing={0.5}>
-                          <Typography level="body-sm">{c.whatsapp.name}</Typography>
-                          <Chip
-                            size="sm"
-                            color={channelColor(c.whatsapp.channel)}
-                            variant="soft"
-                          >
-                            {channelLabel(c.whatsapp.channel)}
-                          </Chip>
-                        </Stack>
-                      ) : (
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          —
-                        </Typography>
-                      )}
-                    </td>
+                          {/* Conexión */}
+                          <td className="px-4 py-3">
+                            {c.whatsapp ? (
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="text-foreground">{c.whatsapp.name}</span>
+                                <Badge variant={channelVariant(c.whatsapp.channel)}>
+                                  {channelLabel(c.whatsapp.channel)}
+                                </Badge>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
 
-                    {/* Template */}
-                    <td>
-                      {c.whastsAppTemplate ? (
-                        <Stack spacing={0.5}>
-                          <Typography level="body-sm">{c.whastsAppTemplate.name}</Typography>
-                          <Chip size="sm" color="success" variant="soft">
-                            {c.whastsAppTemplate.status}
-                          </Chip>
-                        </Stack>
-                      ) : (
-                        <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                          —
-                        </Typography>
-                      )}
-                    </td>
+                          {/* Template */}
+                          <td className="px-4 py-3">
+                            {c.whastsAppTemplate ? (
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="text-foreground">{c.whastsAppTemplate.name}</span>
+                                <Badge variant="success">{c.whastsAppTemplate.status}</Badge>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
 
-                    {/* Lista */}
-                    <td>
-                      <Typography level="body-sm">
-                        {c.contactList?.name ?? '—'}
-                      </Typography>
-                    </td>
+                          {/* Lista */}
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {c.contactList?.name ?? '—'}
+                          </td>
 
-                    {/* Programada */}
-                    <td>
-                      <Typography level="body-sm">{formatDate(c.scheduledAt)}</Typography>
-                    </td>
+                          {/* Programada */}
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                            {formatDate(c.scheduledAt)}
+                          </td>
 
-                    {/* Estado */}
-                    <td>
-                      <Chip size="sm" color={statusColor(c.status)} variant="soft">
-                        {statusLabel(c.status)}
-                      </Chip>
-                    </td>
+                          {/* Estado */}
+                          <td className="px-4 py-3">
+                            <Badge variant={statusVariant(c.status)} dot>
+                              {statusLabel(c.status)}
+                            </Badge>
+                          </td>
 
-                    {/* Acciones */}
-                    <td>
-                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                        {/* Revisar — siempre visible */}
-                        <Tooltip title="Revisar campaña" placement="top">
-                          <IconButton
-                            size="sm"
-                            variant="plain"
-                            color="neutral"
-                            onClick={() => setReviewId(c.id)}
-                          >
-                            <VisibilityIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                          {/* Acciones */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-0.5">
+                              {/* Revisar — siempre visible */}
+                              <Tooltip title="Revisar campaña">
+                                <ActionBtn label="Revisar campaña" onClick={() => setReviewId(c.id)}>
+                                  <Eye className="size-[18px]" aria-hidden />
+                                </ActionBtn>
+                              </Tooltip>
 
-                        {/* Editar — INATIVA, PROGRAMADA, y no legacy */}
-                        {(c.status === 'INATIVA' || c.status === 'PROGRAMADA') && (
-                          <Tooltip
-                            title={isLegacy ? 'Campaña legacy no editable en este flujo' : 'Editar'}
-                            placement="top"
-                          >
-                            <span>
-                              <IconButton
-                                size="sm"
-                                variant="plain"
-                                color="primary"
-                                disabled={isLegacy}
-                                onClick={() => {
-                                  setEditingCampaign(c)
-                                  setFormOpen(true)
-                                }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        )}
+                              {/* Editar — INATIVA, PROGRAMADA, y no legacy */}
+                              {(c.status === 'INATIVA' || c.status === 'PROGRAMADA') && (
+                                <Tooltip
+                                  title={
+                                    isLegacy ? 'Campaña legacy no editable en este flujo' : 'Editar'
+                                  }
+                                >
+                                  <span className="inline-flex">
+                                    <ActionBtn
+                                      label="Editar campaña"
+                                      disabled={isLegacy}
+                                      className="hover:bg-primary/10 hover:text-primary"
+                                      onClick={() => {
+                                        setEditingCampaign(c)
+                                        setFormOpen(true)
+                                      }}
+                                    >
+                                      <PencilSimple className="size-[18px]" aria-hidden />
+                                    </ActionBtn>
+                                  </span>
+                                </Tooltip>
+                              )}
 
-                        {/* Cancelar — PROGRAMADA, EM_ANDAMENTO */}
-                        {(c.status === 'PROGRAMADA' || c.status === 'EM_ANDAMENTO') && (
-                          <Tooltip title="Cancelar campaña" placement="top">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="warning"
-                              onClick={() =>
-                                triggerConfirm(
-                                  'Cancelar campaña',
-                                  `¿Estás seguro de cancelar "${c.name}"? Esta acción no se puede deshacer.`,
-                                  'Cancelar campaña',
-                                  'warning',
-                                  () => handleCancelCampaign(c.id)
-                                )
-                              }
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
+                              {/* Cancelar — PROGRAMADA, EM_ANDAMENTO */}
+                              {(c.status === 'PROGRAMADA' || c.status === 'EM_ANDAMENTO') && (
+                                <Tooltip title="Cancelar campaña">
+                                  <ActionBtn
+                                    label="Cancelar campaña"
+                                    className="hover:bg-warning/10 hover:text-warning-text"
+                                    onClick={() =>
+                                      triggerConfirm(
+                                        'Cancelar campaña',
+                                        `¿Estás seguro de cancelar "${c.name}"? Esta acción no se puede deshacer.`,
+                                        'Cancelar campaña',
+                                        'warning',
+                                        () => handleCancelCampaign(c.id)
+                                      )
+                                    }
+                                  >
+                                    <XCircle className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                </Tooltip>
+                              )}
 
-                        {/* Reiniciar — CANCELADA, FINALIZADA */}
-                        {(c.status === 'CANCELADA' || c.status === 'FINALIZADA') && (
-                          <Tooltip title="Reiniciar campaña" placement="top">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="success"
-                              onClick={() =>
-                                triggerConfirm(
-                                  'Reiniciar campaña',
-                                  `¿Deseas reiniciar "${c.name}"? Se creará una nueva campaña basada en esta.`,
-                                  'Reiniciar',
-                                  'neutral',
-                                  () => handleRestartCampaign(c.id)
-                                )
-                              }
-                            >
-                              <ReplayIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
+                              {/* Reiniciar — CANCELADA, FINALIZADA */}
+                              {(c.status === 'CANCELADA' || c.status === 'FINALIZADA') && (
+                                <Tooltip title="Reiniciar campaña">
+                                  <ActionBtn
+                                    label="Reiniciar campaña"
+                                    className="hover:bg-success/10 hover:text-success-text"
+                                    onClick={() =>
+                                      triggerConfirm(
+                                        'Reiniciar campaña',
+                                        `¿Deseas reiniciar "${c.name}"? Se creará una nueva campaña basada en esta.`,
+                                        'Reiniciar',
+                                        'neutral',
+                                        () => handleRestartCampaign(c.id)
+                                      )
+                                    }
+                                  >
+                                    <ArrowCounterClockwise className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                </Tooltip>
+                              )}
 
-                        {/* Eliminar — INATIVA, PROGRAMADA, CANCELADA, FINALIZADA */}
-                        {c.status !== 'EM_ANDAMENTO' && (
-                          <Tooltip title="Eliminar campaña" placement="top">
-                            <IconButton
-                              size="sm"
-                              variant="plain"
-                              color="danger"
-                              onClick={() =>
-                                triggerConfirm(
-                                  'Eliminar campaña',
-                                  `¿Estás seguro de eliminar "${c.name}" permanentemente?`,
-                                  'Eliminar',
-                                  'danger',
-                                  () => handleDeleteCampaign(c.id)
-                                )
-                              }
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </Stack>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </Table>
-        </Sheet>
-      )}
+                              {/* Eliminar — INATIVA, PROGRAMADA, CANCELADA, FINALIZADA */}
+                              {c.status !== 'EM_ANDAMENTO' && (
+                                <Tooltip title="Eliminar campaña">
+                                  <ActionBtn
+                                    label="Eliminar campaña"
+                                    className="hover:bg-destructive/10 hover:text-destructive-text"
+                                    onClick={() =>
+                                      triggerConfirm(
+                                        'Eliminar campaña',
+                                        `¿Estás seguro de eliminar "${c.name}" permanentemente?`,
+                                        'Eliminar',
+                                        'danger',
+                                        () => handleDeleteCampaign(c.id)
+                                      )
+                                    }
+                                  >
+                                    <Trash className="size-[18px]" aria-hidden />
+                                  </ActionBtn>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
 
-      {/* ========== MODALES ========== */}
+        {/* ========== MODALES ========== */}
 
-      <CampaignFormModal
-        open={formOpen}
-        onClose={() => setFormOpen(false)}
-        editing={editingCampaign}
-        whatsappConnections={whatsappConnections}
-        contactLists={contactLists}
-        templates={templates}
-        queues={queues}
-        users={users}
-        tags={tags}
-        onSaved={loadData}
-      />
+        <CampaignFormModal
+          open={formOpen}
+          onClose={() => setFormOpen(false)}
+          editing={editingCampaign}
+          whatsappConnections={whatsappConnections}
+          contactLists={contactLists}
+          templates={templates}
+          queues={queues}
+          users={users}
+          tags={tags}
+          onSaved={loadData}
+        />
 
-      <CampaignReviewModal
-        open={reviewId !== null}
-        onClose={() => setReviewId(null)}
-        campaignId={reviewId}
-      />
+        <CampaignReviewModal
+          open={reviewId !== null}
+          onClose={() => setReviewId(null)}
+          campaignId={reviewId}
+        />
 
-      <ConfirmModal
-        open={confirmAction !== null}
-        title={confirmAction?.title ?? ''}
-        description={confirmAction?.description ?? ''}
-        confirmLabel={confirmAction?.label ?? ''}
-        confirmColor={confirmAction?.color ?? 'danger'}
-        onConfirm={executeConfirm}
-        onClose={() => setConfirmAction(null)}
-      />
-    </Box>
+        <ConfirmModal
+          open={confirmAction !== null}
+          title={confirmAction?.title ?? ''}
+          description={confirmAction?.description ?? ''}
+          confirmLabel={confirmAction?.label ?? ''}
+          confirmColor={confirmAction?.color ?? 'danger'}
+          onConfirm={executeConfirm}
+          onClose={() => setConfirmAction(null)}
+        />
+      </div>
+    </TooltipProvider>
   )
 }

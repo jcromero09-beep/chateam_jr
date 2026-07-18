@@ -1,26 +1,41 @@
 /**
- * LinkService — Módulo Afiliados Independiente
- * create() (slug con crypto), list(), stats(), trackClick() (público).
- * BD SAGRADA: nunca elimina datos.
+ * LinkService — Módulo Afiliados Independiente.
+ *
+ * Cambios 2026-04-29:
+ * - El usuario sólo elige el programa al crear un link.
+ * - El slug se genera automáticamente: <company>-<programa>-<rand6>.
+ * - targetUrl/source/medium se completan internamente (no se piden al usuario).
+ * - trackClick reporta el slug como referencia para signup (?ref=slug).
  */
 
 import crypto from "crypto";
-import { Op } from "sequelize";
 import AffiliateLink from "../../models/AffiliateLink";
 import AIAffiliateProgram from "../../models/AIAffiliateProgram";
+import Company from "../../models/Company";
 import AppError from "../../errors/AppError";
 import logger from "../../utils/logger";
 
 interface CreateLinkParams {
   companyId: number;
   programId: number;
-  targetUrl: string;
+  // Estos son opcionales (legado).
+  targetUrl?: string;
   source?: string;
   medium?: string;
 }
 
+const slugify = (input: string): string =>
+  input
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30) || "x";
+
 /**
- * Crear link de afiliado con slug único
+ * Crear link de afiliado con slug único: <company>-<programa>-<rand6>
  */
 export const createLink = async ({
   companyId,
@@ -29,20 +44,25 @@ export const createLink = async ({
   source,
   medium
 }: CreateLinkParams): Promise<AffiliateLink> => {
-  // Verificar que el programa pertenece a la company
-  const program = await AIAffiliateProgram.findOne({
-    where: { id: programId, companyId }
-  });
-
-  if (!program) {
+  const program = await AIAffiliateProgram.findByPk(programId);
+  if (!program || program.status === "inactive") {
     throw new AppError("ERR_AFFILIATE_PROGRAM_NOT_FOUND", 404);
   }
 
-  // Generar slug único
-  let slug: string;
+  const company = await Company.findByPk(companyId);
+  if (!company) {
+    throw new AppError("ERR_COMPANY_NOT_FOUND", 404);
+  }
+
+  const companySlug = slugify(company.name || `c${companyId}`);
+  const programSlug = slugify(program.name || `p${programId}`);
+
+  let slug = "";
   let attempts = 0;
+  // Hasta 10 intentos para evitar colisiones
   do {
-    slug = crypto.randomBytes(4).toString("hex");
+    const rand = crypto.randomBytes(3).toString("hex"); // 6 chars
+    slug = `${companySlug}-${programSlug}-${rand}`.slice(0, 50);
     const existing = await AffiliateLink.findOne({ where: { slug } });
     if (!existing) break;
     attempts++;
@@ -54,17 +74,19 @@ export const createLink = async ({
 
   const link = await AffiliateLink.create({
     affiliateId: programId,
-    companyId,
+    companyId, // company afiliadora
     slug,
-    targetUrl,
-    source: source || "direct",
+    targetUrl: targetUrl || `/signup?ref=${slug}`,
+    source: source || "affiliate",
     medium: medium || "referral",
     clicks: 0,
     conversions: 0,
     status: "active"
   });
 
-  logger.info(`[LinkService] Link creado — slug: ${slug}, program: ${programId}`);
+  logger.info(
+    `[LinkService] Link creado — slug=${slug}, programId=${programId}, companyId=${companyId}`
+  );
   return link;
 };
 
@@ -73,19 +95,22 @@ interface ListLinksParams {
   programId?: number;
   page?: number;
   limit?: number;
+  /** Si es true, no filtra por companyId (modo superadmin global) */
+  global?: boolean;
 }
 
-/**
- * Listar links de la company (o de un programa específico)
- */
 export const listLinks = async ({
   companyId,
   programId,
   page = 1,
-  limit = 20
+  limit = 20,
+  global = false
 }: ListLinksParams): Promise<{ rows: AffiliateLink[]; count: number; hasMore: boolean }> => {
-  const where: Record<string, unknown> = { companyId };
+  const where: Record<string, unknown> = {};
 
+  if (!global) {
+    where.companyId = companyId;
+  }
   if (programId) {
     where.affiliateId = programId;
   }
@@ -98,7 +123,7 @@ export const listLinks = async ({
       {
         model: AIAffiliateProgram,
         as: "affiliate",
-        attributes: ["id", "name", "referralCode"],
+        attributes: ["id", "name", "referralCode", "rewardType", "rewardTokens", "rewardDays"],
         required: false
       }
     ],
@@ -110,20 +135,23 @@ export const listLinks = async ({
   return { rows, count, hasMore: offset + rows.length < count };
 };
 
-/**
- * Obtener stats de un link específico
- */
 export const getLinkStats = async (
   linkId: number,
-  companyId: number
+  companyId: number,
+  isSuper = false
 ): Promise<AffiliateLink> => {
+  const where: Record<string, unknown> = { id: linkId };
+  if (!isSuper) {
+    where.companyId = companyId;
+  }
+
   const link = await AffiliateLink.findOne({
-    where: { id: linkId, companyId },
+    where,
     include: [
       {
         model: AIAffiliateProgram,
         as: "affiliate",
-        attributes: ["id", "name", "referralCode", "commissionRate"]
+        attributes: ["id", "name", "referralCode", "rewardType", "rewardTokens", "rewardDays"]
       }
     ]
   });
@@ -136,9 +164,12 @@ export const getLinkStats = async (
 };
 
 /**
- * Track click en un link (endpoint público, sin auth)
+ * Track click en un link. Devuelve el slug para que el frontend componga
+ * la URL de signup (?ref=<slug>).
  */
-export const trackClick = async (slug: string): Promise<{ targetUrl: string } | null> => {
+export const trackClick = async (
+  slug: string
+): Promise<{ slug: string; targetUrl: string } | null> => {
   const link = await AffiliateLink.findOne({
     where: { slug, status: "active" }
   });
@@ -147,8 +178,13 @@ export const trackClick = async (slug: string): Promise<{ targetUrl: string } | 
     return null;
   }
 
-  // Incrementar clicks (async, no bloquea)
   await link.increment("clicks", { by: 1 });
 
-  return { targetUrl: link.targetUrl };
+  return { slug: link.slug, targetUrl: link.targetUrl };
+};
+
+/** Resuelve un AffiliateLink activo por slug, sin incrementar nada. */
+export const resolveBySlug = async (slug: string): Promise<AffiliateLink | null> => {
+  if (!slug) return null;
+  return AffiliateLink.findOne({ where: { slug, status: "active" } });
 };

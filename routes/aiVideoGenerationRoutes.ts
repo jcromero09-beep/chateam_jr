@@ -37,7 +37,7 @@ const generateLimiter = rateLimit({
   legacyHeaders: false,  // Deshabilita headers `X-RateLimit-*`
   keyGenerator: (req) => {
     // Usa combinacion de IP + userId para rate limiting mas preciso
-    const userId = (req as any).user?.id || 'anonymous';
+    const userId = req.user?.id || 'anonymous';
     return `${req.ip}-${userId}`;
   }
 });
@@ -225,4 +225,3 @@ aiVideoGenerationRoutes.get(
 // ============================================================================
 
 export default aiVideoGenerationRoutes;
-// console.log("📄 AI-VIDEO-ROUTES.TS LOADED\!");

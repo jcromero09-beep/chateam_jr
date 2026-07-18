@@ -65,15 +65,12 @@ export const agregarAColaDeClasificacion = async ({
 
 // const stageClassifierQueue = new Queue("StageClassifierQueue", process.env.REDIS_URI);
 // stageClassifierQueue.on("error", (err) => {
-//   console.error("❌ Error en StageClassifierQueue:", err);
 // });
 
 // stageClassifierQueue.on("waiting", (jobId) => {
-//   console.log("⏳ Job esperando ejecución:", jobId);
 // });
 
 // stageClassifierQueue.on("active", (job) => {
-//   console.log("🏃 Procesando job:", job.id);
 // });
 
 // // export const clasificarEtapaCliente = async (
@@ -98,7 +95,6 @@ export const agregarAColaDeClasificacion = async ({
     
 //     const textoIA = messages.map(m => `${m.fromMe ? "IA" : "Cliente"}: ${m.body}`).join("\n") + "\nCliente: " + texto;
   
-//     console.log('conversacion', textoIA)
 
 //     const prompt = `Actúa como un asistente comercial experto en identificar en qué etapa del funnel se encuentra un cliente dentro del proceso de venta, basándote únicamente en el historial de conversación entre el cliente y un asesor:
 // ${textoIA}
@@ -164,10 +160,8 @@ export const agregarAColaDeClasificacion = async ({
 //     //     console.error("❌ Error al clasificar la etapa del cliente:", error);
 //     //   }
 //     // };
-//     console.log(`🏷️ Ticket ${ticketId} clasificado como: ${key}`);
 //     return done();
 //   } catch (error) {
-//     console.error("❌ Error al clasificar etapa:", error);
 //     return done(error);
 //   }
 // });
@@ -223,10 +217,15 @@ export const marcarTicketsDormant = async () => {
         const tag = await Tag.findOne({ where: { key: "dormant", companyId: company.id } });
         if (!tag) continue;
 
-        await TicketTag.destroy({ where: { ticketId: ticket.id } });
-        await TicketTag.create({
-          ticketId: ticket.id,
-          tagId: tag.id,
+        await TicketTag.findOrCreate({
+          where: {
+            ticketId: ticket.id,
+            tagId: tag.id
+          },
+          defaults: {
+            ticketId: ticket.id,
+            tagId: tag.id
+          }
         });
 
         
@@ -244,7 +243,6 @@ export const marcarTicketsDormant = async () => {
           followupCount: 0
         });
 
-      //  console.log(`📌 Ticket ${ticket.id} marcado como 'dormant' para la empresa ${company.name}`);
       }
     }
   } catch (error) {
@@ -267,10 +265,21 @@ export const actualizarRetargetingSiEsDormant = async (
     const tieneDormant = ticketTags.some(t => t.tagId === dormantTag.id);
 
     if (tieneDormant) {
-      await TicketTag.destroy({ where: { ticketId } });
-      await TicketTag.create({
-        ticketId,
-        tagId: retargetingTag.id,
+      await TicketTag.destroy({
+        where: {
+          ticketId,
+          tagId: dormantTag.id
+        }
+      });
+      await TicketTag.findOrCreate({
+        where: {
+          ticketId,
+          tagId: retargetingTag.id
+        },
+        defaults: {
+          ticketId,
+          tagId: retargetingTag.id
+        }
       });
       // Reset followup_count al re-activar desde dormant
       await Ticket.update({ followup_count: 0 }, { where: { id: ticketId } });
@@ -291,7 +300,6 @@ export const actualizarRetargetingSiEsDormant = async (
         followupDelay1: 0,
         followupCount: 0
       });
-     // console.log(`🔁 Ticket ${ticketId} movido a 'retargeting' automáticamente`);
     }
   } catch (error) {
     console.error("❌ Error al actualizar retargeting:", error);

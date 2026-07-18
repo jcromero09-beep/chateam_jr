@@ -1,4 +1,5 @@
-import { verify } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+const { verify } = jwt;
 import authConfig from "../config/auth";
 import * as Yup from "yup";
 import { Request, Response } from "express";
@@ -48,6 +49,7 @@ type StorePlanData = {
   useIntegrations?: boolean;
   isPublic?: boolean;
   stripePriceId?: string;
+  allowRecurringPayments?: boolean;
 };
 
 type UpdatePlanData = {
@@ -69,6 +71,7 @@ type UpdatePlanData = {
   useIntegrations?: boolean;
   isPublic?: boolean;
   stripePriceId?: string;
+  allowRecurringPayments?: boolean;
   interfacePermissions?: string;
 };
 
@@ -203,7 +206,6 @@ export const update = async (
   const PlanCompany = company.planId;
 
   if (requestUser.super === true) {
-    //console.log('planData', planData)
     const plan = await UpdatePlanService({ ...planData, id: planData.id ? Number(planData.id) : undefined }
       // id,
       // name,

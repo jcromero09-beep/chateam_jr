@@ -1,48 +1,45 @@
 import { useState, useEffect } from 'react'
+// [migración Tailwind] CircularProgress se conserva en MUI Joy a propósito
+// (no hay equivalente en el design system; ver reglas de migración).
+import { CircularProgress } from '@mui/joy'
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Button,
-  Table,
-  Sheet,
-  Chip,
-  IconButton,
-  Modal,
-  ModalDialog,
-  Input,
-  FormControl,
-  FormLabel,
-  Select,
-  Option,
-  Textarea,
-  Grid,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanel,
-  CircularProgress,
-  Alert,
-  Divider,
-} from '@mui/joy'
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Send as SendIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Schedule as ScheduleIcon,
-  Description as DescriptionIcon,
-  Refresh as RefreshIcon,
-  Sync as SyncIcon,
-  CloudUpload as CloudUploadIcon,
-  TouchApp as TouchAppIcon,
+  FileText,
+  Plus,
+  PencilSimple,
+  Trash,
+  PaperPlaneTilt,
+  CheckCircle,
+  WarningCircle,
+  Clock,
+  ArrowClockwise,
+  ArrowsClockwise,
+  CloudArrowUp,
+  HandTap,
   Link as LinkIcon,
-  Phone as PhoneIcon,
-  ContentCopy as ContentCopyIcon,
-} from '@mui/icons-material'
+  Phone,
+  Copy,
+} from '@phosphor-icons/react'
+import { StatTile } from '@/components/ui/stat-tile'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 // Interfaces
@@ -118,6 +115,51 @@ const initialFormData: FormData = {
   footerContent: '',
   variableExamples: [],
   buttons: [],
+}
+
+const columns = [
+  'Nombre',
+  'Estado',
+  'Categoría',
+  'Idioma',
+  'Variables',
+  'Uso',
+  'Último uso',
+  '',
+]
+
+const TEXTAREA_CLS =
+  'min-h-[7rem] w-full resize-y rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30'
+
+// Botón de acción de fila (mismo look que RowAction del design system, con onClick)
+function ActionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string
+  onClick?: () => void
+  disabled?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
 }
 
 export default function WhatsAppTemplates() {
@@ -348,11 +390,11 @@ export default function WhatsAppTemplates() {
     }
   }
 
-  const getStatusColor = (status: Template['status']) => {
+  const getStatusVariant = (status: Template['status']): BadgeProps['variant'] => {
     switch (status) {
       case 'APPROVED': return 'success'
       case 'PENDING': return 'warning'
-      case 'REJECTED': return 'danger'
+      case 'REJECTED': return 'destructive'
       case 'PAUSED': return 'neutral'
       case 'DISABLED': return 'neutral'
       default: return 'neutral'
@@ -370,7 +412,7 @@ export default function WhatsAppTemplates() {
     }
   }
 
-  const getCategoryColor = (category: Template['category']) => {
+  const getCategoryVariant = (category: Template['category']): BadgeProps['variant'] => {
     switch (category) {
       case 'MARKETING': return 'primary'
       case 'UTILITY': return 'success'
@@ -405,387 +447,381 @@ export default function WhatsAppTemplates() {
   }
 
   const renderTemplatesList = (templatesList: Template[]) => (
-    <Sheet sx={{ overflow: 'auto' }}>
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm shadow-black/[0.02]">
       {templatesList.length === 0 ? (
-        <Box sx={{ textAlign: 'center', py: 4 }}>
-          <DescriptionIcon sx={{ fontSize: 48, color: 'text.tertiary', mb: 2 }} />
-          <Typography level="body-md" sx={{ color: 'text.tertiary' }}>
+        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+          <FileText className="size-12 text-muted-foreground" aria-hidden />
+          <p className="text-sm text-muted-foreground">
             No hay plantillas en esta categoría
-          </Typography>
-        </Box>
+          </p>
+        </div>
       ) : (
-        <Table>
-          <thead>
-            <tr>
-              <th style={{ width: 200 }}>Nombre</th>
-              <th style={{ width: 100 }}>Estado</th>
-              <th style={{ width: 100 }}>Categoría</th>
-              <th style={{ width: 80 }}>Idioma</th>
-              <th style={{ width: 80 }}>Variables</th>
-              <th style={{ width: 80 }}>Uso</th>
-              <th style={{ width: 140 }}>Último Uso</th>
-              <th style={{ width: 140, textAlign: 'center' }}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {templatesList.map((template) => (
-              <tr key={template.id}>
-                <td>
-                  <Box>
-                    <Typography level="body-sm" fontWeight="lg">
-                      {template.name}
-                    </Typography>
-                    <Typography level="body-xs" sx={{ color: 'text.tertiary', mt: 0.5 }}>
-                      {template.bodyContent.substring(0, 50)}...
-                    </Typography>
-                    {template.rejectedReason && (
-                      <Typography level="body-xs" sx={{ color: 'danger.500', mt: 0.5 }}>
-                        Razón: {template.rejectedReason}
-                      </Typography>
-                    )}
-                  </Box>
-                </td>
-                <td>
-                  <Chip
-                    size="sm"
-                    color={getStatusColor(template.status)}
-                    startDecorator={
-                      template.status === 'APPROVED' ? <CheckCircleIcon /> :
-                      template.status === 'PENDING' ? <ScheduleIcon /> :
-                      <ErrorIcon />
-                    }
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40 text-left">
+                {columns.map((c, i) => (
+                  <th
+                    key={i}
+                    className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                   >
-                    {getStatusText(template.status)}
-                  </Chip>
-                </td>
-                <td>
-                  <Chip size="sm" color={getCategoryColor(template.category)}>
-                    {getCategoryText(template.category)}
-                  </Chip>
-                </td>
-                <td>
-                  <Chip size="sm" variant="outlined">
-                    {template.language.toUpperCase()}
-                  </Chip>
-                </td>
-                <td>
-                  <Typography level="body-sm">{template.variablesCount}</Typography>
-                </td>
-                <td>
-                  <Typography level="body-sm" fontWeight="lg">
-                    {template.usageCount.toLocaleString()}
-                  </Typography>
-                </td>
-                <td>
-                  <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                    {formatDate(template.lastUsedAt)}
-                  </Typography>
-                </td>
-                <td>
-                  <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                    <IconButton
-                      size="sm"
-                      variant="plain"
-                      onClick={() => handleEdit(template)}
-                      title="Editar"
-                      disabled={template.status === 'APPROVED'}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    {template.status === 'PENDING' && !template.metaTemplateId && (
-                      <IconButton
-                        size="sm"
-                        variant="plain"
-                        color="primary"
-                        onClick={() => handleSubmitToMeta(template.id)}
-                        title="Enviar a Meta"
-                        disabled={submitting}
-                      >
-                        <CloudUploadIcon />
-                      </IconButton>
-                    )}
-                    {template.status === 'APPROVED' && (
-                      <IconButton
-                        size="sm"
-                        variant="plain"
-                        color="success"
-                        title="Usar plantilla"
-                      >
-                        <SendIcon />
-                      </IconButton>
-                    )}
-                    <IconButton
-                      size="sm"
-                      variant="plain"
-                      color="danger"
-                      onClick={() => handleDelete(template.id)}
-                      title="Eliminar"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                </td>
+                    {c}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </Table>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {templatesList.map((template) => (
+                <tr key={template.id} className="transition-colors hover:bg-accent/40">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-foreground">{template.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {template.bodyContent.substring(0, 50)}...
+                    </p>
+                    {template.rejectedReason && (
+                      <p className="mt-0.5 text-xs text-destructive-text">
+                        Razón: {template.rejectedReason}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant={getStatusVariant(template.status)}>
+                      {template.status === 'APPROVED' ? (
+                        <CheckCircle className="size-3.5" weight="fill" aria-hidden />
+                      ) : template.status === 'PENDING' ? (
+                        <Clock className="size-3.5" weight="fill" aria-hidden />
+                      ) : (
+                        <WarningCircle className="size-3.5" weight="fill" aria-hidden />
+                      )}
+                      {getStatusText(template.status)}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant={getCategoryVariant(template.category)}>
+                      {getCategoryText(template.category)}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant="outline">{template.language.toUpperCase()}</Badge>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                    {template.variablesCount}
+                  </td>
+                  <td className="px-4 py-3 font-medium tabular-nums text-foreground">
+                    {template.usageCount.toLocaleString()}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                    {formatDate(template.lastUsedAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-0.5">
+                      <ActionBtn
+                        label="Editar"
+                        onClick={() => handleEdit(template)}
+                        disabled={template.status === 'APPROVED'}
+                      >
+                        <PencilSimple className="size-[18px]" aria-hidden />
+                      </ActionBtn>
+                      {template.status === 'PENDING' && !template.metaTemplateId && (
+                        <ActionBtn
+                          label="Enviar a Meta"
+                          onClick={() => handleSubmitToMeta(template.id)}
+                          disabled={submitting}
+                          className="text-primary hover:bg-primary/10 hover:text-primary"
+                        >
+                          <CloudArrowUp className="size-[18px]" aria-hidden />
+                        </ActionBtn>
+                      )}
+                      {template.status === 'APPROVED' && (
+                        <ActionBtn
+                          label="Usar plantilla"
+                          className="text-success-text hover:bg-success/10 hover:text-success-text"
+                        >
+                          <PaperPlaneTilt className="size-[18px]" aria-hidden />
+                        </ActionBtn>
+                      )}
+                      <ActionBtn
+                        label="Eliminar"
+                        onClick={() => handleDelete(template.id)}
+                        className="hover:bg-destructive/10 hover:text-destructive-text"
+                      >
+                        <Trash className="size-[18px]" aria-hidden />
+                      </ActionBtn>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </Sheet>
+    </div>
   )
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress size="lg" />
-      </Box>
+      </div>
     )
   }
 
+  const lastButton =
+    formData.buttons && formData.buttons.length > 0
+      ? formData.buttons[formData.buttons.length - 1]
+      : null
+
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
-        <Box>
-          <Typography level="h2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <DescriptionIcon sx={{ fontSize: 32 }} />
-            Plantillas de WhatsApp
-          </Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Gestiona las plantillas aprobadas por Meta para envío fuera de la ventana de 24 horas
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {connections.length > 0 && (
-            <Select
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <FileText className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Plantillas de WhatsApp
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestiona las plantillas aprobadas por Meta para envío fuera de la ventana de 24 horas
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {connections.length > 0 && (
+              <Select
+                value={selectedWhatsappId != null ? String(selectedWhatsappId) : undefined}
+                onValueChange={(val) => setSelectedWhatsappId(Number(val))}
+              >
+                <SelectTrigger className="w-[220px]" aria-label="Conexión de WhatsApp">
+                  <SelectValue placeholder="Selecciona una conexión" />
+                </SelectTrigger>
+                <SelectContent>
+                  {connections.map((conn) => (
+                    <SelectItem key={conn.id} value={String(conn.id)}>
+                      {conn.name} ({conn.number})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              variant="outline"
               size="sm"
-              value={selectedWhatsappId}
-              onChange={(_, val) => setSelectedWhatsappId(val as number)}
-              sx={{ minWidth: 200 }}
+              loading={syncing}
+              onClick={handleSyncFromMeta}
+              disabled={!selectedWhatsappId}
             >
-              {connections.map(conn => (
-                <Option key={conn.id} value={conn.id}>
-                  {conn.name} ({conn.number})
-                </Option>
-              ))}
-            </Select>
-          )}
-          <Button
-            size="sm"
-            variant="outlined"
-            startDecorator={syncing ? <CircularProgress size="sm" /> : <SyncIcon />}
-            onClick={handleSyncFromMeta}
-            disabled={syncing || !selectedWhatsappId}
+              {!syncing && <ArrowsClockwise className="size-4" aria-hidden />}
+              Sincronizar
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Actualizar"
+              className="text-muted-foreground"
+              onClick={loadData}
+            >
+              <ArrowClockwise className="size-5" aria-hidden />
+            </Button>
+            <Button size="sm" onClick={handleAdd}>
+              <Plus className="size-4" weight="bold" aria-hidden />
+              Nueva plantilla
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/30 bg-destructive/12 px-4 py-3 text-sm text-destructive-text"
           >
-            Sincronizar
-          </Button>
-          <IconButton
-            variant="outlined"
-            color="neutral"
-            onClick={loadData}
-            title="Actualizar"
-          >
-            <RefreshIcon />
-          </IconButton>
-          <Button startDecorator={<AddIcon />} onClick={handleAdd}>
-            Nueva Plantilla
-          </Button>
-        </Box>
-      </Box>
+            {error}
+          </div>
+        )}
 
-      {error && (
-        <Alert color="danger" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Total plantillas" value={String(templates.length)} />
+          <StatTile
+            label="Aprobadas"
+            value={String(templates.filter((t) => t.status === 'APPROVED').length)}
+            tone="success"
+          />
+          <StatTile
+            label="Pendientes"
+            value={String(templates.filter((t) => t.status === 'PENDING').length)}
+            tone="warning"
+          />
+          <StatTile
+            label="Uso total"
+            value={templates.reduce((acc, t) => acc + t.usageCount, 0).toLocaleString()}
+            tone="primary"
+          />
+        </div>
 
-      {/* Stats */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Total Plantillas
-              </Typography>
-              <Typography level="h3">{templates.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Aprobadas
-              </Typography>
-              <Typography level="h3" sx={{ color: 'success.500' }}>
-                {templates.filter((t) => t.status === 'APPROVED').length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Pendientes
-              </Typography>
-              <Typography level="h3" sx={{ color: 'warning.500' }}>
-                {templates.filter((t) => t.status === 'PENDING').length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography level="body-sm" sx={{ color: 'text.tertiary', mb: 0.5 }}>
-                Uso Total
-              </Typography>
-              <Typography level="h3" sx={{ color: 'primary.500' }}>
-                {templates.reduce((acc, t) => acc + t.usageCount, 0).toLocaleString()}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* Tabs por categoría */}
+        <Tabs value={String(tabValue)} onValueChange={(val) => setTabValue(Number(val))}>
+          <TabsList>
+            <TabsTrigger value="0">Todas ({templates.length})</TabsTrigger>
+            <TabsTrigger value="1">
+              Marketing ({templates.filter((t) => t.category === 'MARKETING').length})
+            </TabsTrigger>
+            <TabsTrigger value="2">
+              Utilidad ({templates.filter((t) => t.category === 'UTILITY').length})
+            </TabsTrigger>
+            <TabsTrigger value="3">
+              Autenticación ({templates.filter((t) => t.category === 'AUTHENTICATION').length})
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Tabs por categoría */}
-      <Card>
-        <CardContent>
-          <Tabs value={tabValue} onChange={(_e, val) => setTabValue(val as number)}>
-            <TabList>
-              <Tab>Todas ({templates.length})</Tab>
-              <Tab>Marketing ({templates.filter((t) => t.category === 'MARKETING').length})</Tab>
-              <Tab>Utilidad ({templates.filter((t) => t.category === 'UTILITY').length})</Tab>
-              <Tab>Autenticación ({templates.filter((t) => t.category === 'AUTHENTICATION').length})</Tab>
-            </TabList>
-
-            <TabPanel value={0}>{renderTemplatesList(templates)}</TabPanel>
-            <TabPanel value={1}>{renderTemplatesList(filterByCategory('MARKETING'))}</TabPanel>
-            <TabPanel value={2}>{renderTemplatesList(filterByCategory('UTILITY'))}</TabPanel>
-            <TabPanel value={3}>{renderTemplatesList(filterByCategory('AUTHENTICATION'))}</TabPanel>
-          </Tabs>
-        </CardContent>
-      </Card>
+          <TabsContent value="0" className="mt-4">{renderTemplatesList(templates)}</TabsContent>
+          <TabsContent value="1" className="mt-4">{renderTemplatesList(filterByCategory('MARKETING'))}</TabsContent>
+          <TabsContent value="2" className="mt-4">{renderTemplatesList(filterByCategory('UTILITY'))}</TabsContent>
+          <TabsContent value="3" className="mt-4">{renderTemplatesList(filterByCategory('AUTHENTICATION'))}</TabsContent>
+        </Tabs>
+      </div>
 
       {/* Modal Crear/Editar */}
-      <Modal open={openModal} onClose={() => setOpenModal(false)}>
-        <ModalDialog sx={{ minWidth: 650, maxHeight: '90vh', overflow: 'auto' }}>
-          <Typography level="h4" sx={{ mb: 2 }}>
-            {editingTemplate ? 'Editar Plantilla' : 'Nueva Plantilla'}
-          </Typography>
+      <Dialog open={openModal} onOpenChange={setOpenModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingTemplate ? 'Editar plantilla' : 'Nueva plantilla'}
+            </DialogTitle>
+          </DialogHeader>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Nombre del Template *</FormLabel>
-            <Input
-              placeholder="nombre_template (solo minúsculas, números y _)"
-              value={formData.name}
-              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))}
-              disabled={!!editingTemplate}
-            />
-            <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-              Solo letras minúsculas, números y guiones bajos. No se puede cambiar después.
-            </Typography>
-          </FormControl>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-name">Nombre del template *</Label>
+              <Input
+                id="tpl-name"
+                placeholder="nombre_template (solo minúsculas, números y _)"
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))}
+                disabled={!!editingTemplate}
+              />
+              <p className="text-xs text-muted-foreground">
+                Solo letras minúsculas, números y guiones bajos. No se puede cambiar después.
+              </p>
+            </div>
 
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid xs={6}>
-              <FormControl>
-                <FormLabel>Categoría *</FormLabel>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-category">Categoría *</Label>
                 <Select
                   value={formData.category}
-                  onChange={(_, val) => setFormData(prev => ({ ...prev, category: val as any }))}
+                  onValueChange={(val) => setFormData(prev => ({ ...prev, category: val as any }))}
                 >
-                  <Option value="UTILITY">Utilidad</Option>
-                  <Option value="MARKETING">Marketing</Option>
-                  <Option value="AUTHENTICATION">Autenticación</Option>
+                  <SelectTrigger id="tpl-category" className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UTILITY">Utilidad</SelectItem>
+                    <SelectItem value="MARKETING">Marketing</SelectItem>
+                    <SelectItem value="AUTHENTICATION">Autenticación</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
-            </Grid>
-            <Grid xs={6}>
-              <FormControl>
-                <FormLabel>Idioma *</FormLabel>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-language">Idioma *</Label>
                 <Select
                   value={formData.language}
-                  onChange={(_, val) => setFormData(prev => ({ ...prev, language: val as string }))}
+                  onValueChange={(val) => setFormData(prev => ({ ...prev, language: val }))}
                 >
-                  <Option value="es">Español (es)</Option>
-                  <Option value="es_MX">Español México (es_MX)</Option>
-                  <Option value="es_AR">Español Argentina (es_AR)</Option>
-                  <Option value="en">Inglés (en)</Option>
-                  <Option value="en_US">Inglés US (en_US)</Option>
-                  <Option value="pt_BR">Portugués Brasil (pt_BR)</Option>
+                  <SelectTrigger id="tpl-language" className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="es">Español (es)</SelectItem>
+                    <SelectItem value="es_MX">Español México (es_MX)</SelectItem>
+                    <SelectItem value="es_AR">Español Argentina (es_AR)</SelectItem>
+                    <SelectItem value="en">Inglés (en)</SelectItem>
+                    <SelectItem value="en_US">Inglés US (en_US)</SelectItem>
+                    <SelectItem value="pt_BR">Portugués Brasil (pt_BR)</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
+              </div>
+            </div>
 
-          <Divider sx={{ my: 2 }} />
+            <div className="border-t border-border" />
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Encabezado (Opcional)</FormLabel>
-            <Select
-              value={formData.headerType}
-              onChange={(_, val) => setFormData(prev => ({ ...prev, headerType: val as any }))}
-            >
-              <Option value="NONE">Sin encabezado</Option>
-              <Option value="TEXT">Texto</Option>
-              <Option value="IMAGE">Imagen</Option>
-              <Option value="VIDEO">Video</Option>
-              <Option value="DOCUMENT">Documento</Option>
-            </Select>
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-header-type">Encabezado (opcional)</Label>
+              <Select
+                value={formData.headerType}
+                onValueChange={(val) => setFormData(prev => ({ ...prev, headerType: val as any }))}
+              >
+                <SelectTrigger id="tpl-header-type" className="h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">Sin encabezado</SelectItem>
+                  <SelectItem value="TEXT">Texto</SelectItem>
+                  <SelectItem value="IMAGE">Imagen</SelectItem>
+                  <SelectItem value="VIDEO">Video</SelectItem>
+                  <SelectItem value="DOCUMENT">Documento</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          {formData.headerType !== 'NONE' && (
-            <FormControl sx={{ mb: 2 }}>
-              <FormLabel>
-                {formData.headerType === 'TEXT' ? 'Texto del encabezado' : 'URL del archivo'}
-              </FormLabel>
-              <Input
-                placeholder={formData.headerType === 'TEXT' ? 'Título del mensaje' : 'https://example.com/imagen.jpg'}
-                value={formData.headerContent}
-                onChange={(e) => setFormData(prev => ({ ...prev, headerContent: e.target.value }))}
+            {formData.headerType !== 'NONE' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="tpl-header-content">
+                  {formData.headerType === 'TEXT' ? 'Texto del encabezado' : 'URL del archivo'}
+                </Label>
+                <Input
+                  id="tpl-header-content"
+                  placeholder={formData.headerType === 'TEXT' ? 'Título del mensaje' : 'https://example.com/imagen.jpg'}
+                  value={formData.headerContent}
+                  onChange={(e) => setFormData(prev => ({ ...prev, headerContent: e.target.value }))}
+                />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-body">Contenido del mensaje *</Label>
+              <textarea
+                id="tpl-body"
+                rows={4}
+                className={TEXTAREA_CLS}
+                placeholder="Tu mensaje aquí. Usa {{1}}, {{2}} para variables dinámicas."
+                value={formData.bodyContent}
+                onChange={(e) => setFormData(prev => ({ ...prev, bodyContent: e.target.value }))}
               />
-            </FormControl>
-          )}
+              <p className="text-xs text-muted-foreground">
+                Usa {'{{1}}'}, {'{{2}}'}, etc. para variables. Máximo 1024 caracteres.
+              </p>
+            </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Contenido del Mensaje *</FormLabel>
-            <Textarea
-              minRows={4}
-              placeholder="Tu mensaje aquí. Usa {{1}}, {{2}} para variables dinámicas."
-              value={formData.bodyContent}
-              onChange={(e) => setFormData(prev => ({ ...prev, bodyContent: e.target.value }))}
-            />
-            <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-              Usa {'{{1}}'}, {'{{2}}'}, etc. para variables. Máximo 1024 caracteres.
-            </Typography>
-          </FormControl>
+            <div className="space-y-1.5">
+              <Label htmlFor="tpl-footer">Pie de página (opcional)</Label>
+              <Input
+                id="tpl-footer"
+                placeholder="Texto pequeño al final del mensaje"
+                value={formData.footerContent}
+                onChange={(e) => setFormData(prev => ({ ...prev, footerContent: e.target.value.slice(0, 60) }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Máximo 60 caracteres. {formData.footerContent.length}/60
+              </p>
+            </div>
 
-          <FormControl sx={{ mb: 2 }}>
-            <FormLabel>Pie de página (Opcional)</FormLabel>
-            <Input
-              placeholder="Texto pequeño al final del mensaje"
-              value={formData.footerContent}
-              onChange={(e) => setFormData(prev => ({ ...prev, footerContent: e.target.value.slice(0, 60) }))}
-            />
-            <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
-              Máximo 60 caracteres. {formData.footerContent.length}/60
-            </Typography>
-          </FormControl>
-
-          {/* Ejemplos de variables */}
-          {formData.variableExamples.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              <Typography level="title-sm" sx={{ mb: 1 }}>
-                Ejemplos de Variables (requeridos por Meta)
-              </Typography>
-              <Grid container spacing={1}>
-                {formData.variableExamples.map((example, idx) => (
-                  <Grid xs={6} key={idx}>
-                    <FormControl size="sm">
-                      <FormLabel>{`{{${idx + 1}}}`}</FormLabel>
+            {/* Ejemplos de variables */}
+            {formData.variableExamples.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">
+                  Ejemplos de variables (requeridos por Meta)
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {formData.variableExamples.map((example, idx) => (
+                    <div key={idx} className="space-y-1.5">
+                      <Label htmlFor={`tpl-var-${idx}`}>{`{{${idx + 1}}}`}</Label>
                       <Input
-                        size="sm"
+                        id={`tpl-var-${idx}`}
+                        className="h-9"
                         placeholder={`Ejemplo para variable ${idx + 1}`}
                         value={example}
                         onChange={(e) => {
@@ -794,109 +830,103 @@ export default function WhatsAppTemplates() {
                           setFormData(prev => ({ ...prev, variableExamples: newExamples }))
                         }}
                       />
-                    </FormControl>
-                  </Grid>
-                ))}
-              </Grid>
-            </Box>
-          )}
-
-          {/* Botones interactivos */}
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <TouchAppIcon sx={{ fontSize: 20 }} />
-              <Typography level="title-sm">
-                Botones Interactivos (Opcional)
-              </Typography>
-              <Chip size="sm" variant="outlined">
-                {formData.buttons?.length || 0}/10
-              </Chip>
-            </Box>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary', mb: 1 }}>
-              Agrega hasta 10 botones para que el usuario interactúe (Aceptar, Rechazar, etc.)
-            </Typography>
-
-            {/* Lista de botones agregados */}
-            {formData.buttons && formData.buttons.length > 0 && (
-              <Sheet variant="outlined" sx={{ p: 1.5, mb: 1, borderRadius: 'sm' }}>
-                {formData.buttons?.map((btn, idx) => (
-                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Chip
-                      size="sm"
-                      color={btn.type === 'QUICK_REPLY' ? 'primary' : btn.type === 'URL' ? 'success' : 'warning'}
-                      startDecorator={
-                        btn.type === 'QUICK_REPLY' ? <TouchAppIcon /> :
-                        btn.type === 'URL' ? <LinkIcon /> :
-                        btn.type === 'PHONE_NUMBER' ? <PhoneIcon /> :
-                        <ContentCopyIcon />
-                      }
-                    >
-                      {btn.type === 'QUICK_REPLY' ? 'Respuesta rápida' :
-                       btn.type === 'URL' ? 'Enlace' :
-                       btn.type === 'PHONE_NUMBER' ? 'Teléfono' : 'Copiar código'}
-                    </Chip>
-                    <Typography level="body-sm" sx={{ flex: 1 }}>
-                      {btn.text}
-                    </Typography>
-                    {btn.type === 'URL' && btn.url && (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {btn.url}
-                      </Typography>
-                    )}
-                    {btn.type === 'PHONE_NUMBER' && btn.phoneNumber && (
-                      <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                        {btn.phoneNumber}
-                      </Typography>
-                    )}
-                    <IconButton
-                      size="sm"
-                      variant="plain"
-                      color="danger"
-                      onClick={() => {
-                        const newButtons = [...(formData.buttons || [])]
-                        newButtons.splice(idx, 1)
-                        setFormData(prev => ({ ...prev, buttons: newButtons }))
-                      }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                ))}
-              </Sheet>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
-            {/* Agregar nuevo botón */}
-            {(!formData.buttons || formData.buttons.length < 10) && (
-              <Button
-                size="sm"
-                variant="outlined"
-                startDecorator={<AddIcon />}
-                onClick={() => {
-                  const newButton: TemplateButton = {
-                    type: 'QUICK_REPLY',
-                    text: ''
-                  }
-                  setFormData(prev => ({
-                    ...prev,
-                    buttons: [...(prev.buttons || []), newButton]
-                  }))
-                }}
-              >
-                Agregar Botón
-              </Button>
-            )}
+            {/* Botones interactivos */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <HandTap className="size-5 text-muted-foreground" aria-hidden />
+                <p className="text-sm font-medium text-foreground">
+                  Botones interactivos (opcional)
+                </p>
+                <Badge variant="outline">{formData.buttons?.length || 0}/10</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Agrega hasta 10 botones para que el usuario interactúe (Aceptar, Rechazar, etc.)
+              </p>
 
-            {/* Formulario para editar el último botón */}
-            {formData.buttons && formData.buttons.length > 0 && (
-              <Box sx={{ mt: 1.5, p: 1.5, bgcolor: 'background.level1', borderRadius: 'sm' }}>
-                <Grid container spacing={1}>
-                  <Grid xs={4}>
-                    <FormControl size="sm">
-                      <FormLabel>Tipo</FormLabel>
+              {/* Lista de botones agregados */}
+              {formData.buttons && formData.buttons.length > 0 && (
+                <div className="space-y-2 rounded-md border border-border p-3">
+                  {formData.buttons?.map((btn, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <Badge
+                        variant={
+                          btn.type === 'QUICK_REPLY' ? 'primary' : btn.type === 'URL' ? 'success' : 'warning'
+                        }
+                      >
+                        {btn.type === 'QUICK_REPLY' ? (
+                          <HandTap className="size-3.5" aria-hidden />
+                        ) : btn.type === 'URL' ? (
+                          <LinkIcon className="size-3.5" aria-hidden />
+                        ) : btn.type === 'PHONE_NUMBER' ? (
+                          <Phone className="size-3.5" aria-hidden />
+                        ) : (
+                          <Copy className="size-3.5" aria-hidden />
+                        )}
+                        {btn.type === 'QUICK_REPLY' ? 'Respuesta rápida' :
+                         btn.type === 'URL' ? 'Enlace' :
+                         btn.type === 'PHONE_NUMBER' ? 'Teléfono' : 'Copiar código'}
+                      </Badge>
+                      <span className="flex-1 truncate text-sm text-foreground">{btn.text}</span>
+                      {btn.type === 'URL' && btn.url && (
+                        <span className="max-w-[150px] truncate text-xs text-muted-foreground">
+                          {btn.url}
+                        </span>
+                      )}
+                      {btn.type === 'PHONE_NUMBER' && btn.phoneNumber && (
+                        <span className="text-xs text-muted-foreground">{btn.phoneNumber}</span>
+                      )}
+                      <ActionBtn
+                        label={`Quitar botón ${idx + 1}`}
+                        onClick={() => {
+                          const newButtons = [...(formData.buttons || [])]
+                          newButtons.splice(idx, 1)
+                          setFormData(prev => ({ ...prev, buttons: newButtons }))
+                        }}
+                        className="hover:bg-destructive/10 hover:text-destructive-text"
+                      >
+                        <Trash className="size-4" aria-hidden />
+                      </ActionBtn>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Agregar nuevo botón */}
+              {(!formData.buttons || formData.buttons.length < 10) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const newButton: TemplateButton = {
+                      type: 'QUICK_REPLY',
+                      text: ''
+                    }
+                    setFormData(prev => ({
+                      ...prev,
+                      buttons: [...(prev.buttons || []), newButton]
+                    }))
+                  }}
+                >
+                  <Plus className="size-4" weight="bold" aria-hidden />
+                  Agregar botón
+                </Button>
+              )}
+
+              {/* Formulario para editar el último botón */}
+              {lastButton && (
+                <div className="rounded-md bg-muted p-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="tpl-btn-type">Tipo</Label>
                       <Select
-                        size="sm"
-                        value={formData.buttons[formData.buttons.length - 1].type}
-                        onChange={(_, val) => {
+                        value={lastButton.type}
+                        onValueChange={(val) => {
                           const newButtons = [...formData.buttons!]
                           newButtons[newButtons.length - 1] = {
                             ...newButtons[newButtons.length - 1],
@@ -907,20 +937,29 @@ export default function WhatsAppTemplates() {
                           setFormData(prev => ({ ...prev, buttons: newButtons }))
                         }}
                       >
-                        <Option value="QUICK_REPLY">💬 Respuesta rápida</Option>
-                        <Option value="URL">🔗 Enlace (URL)</Option>
-                        <Option value="PHONE_NUMBER">📞 Teléfono</Option>
-                        <Option value="COPY_CODE">📋 Copiar código</Option>
+                        <SelectTrigger id="tpl-btn-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="QUICK_REPLY">💬 Respuesta rápida</SelectItem>
+                          <SelectItem value="URL">🔗 Enlace (URL)</SelectItem>
+                          <SelectItem value="PHONE_NUMBER">📞 Teléfono</SelectItem>
+                          <SelectItem value="COPY_CODE">📋 Copiar código</SelectItem>
+                        </SelectContent>
                       </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={formData.buttons[formData.buttons.length - 1].type === 'QUICK_REPLY' ? 8 : 4}>
-                    <FormControl size="sm">
-                      <FormLabel>Texto del botón</FormLabel>
+                    </div>
+                    <div
+                      className={cn(
+                        'space-y-1.5',
+                        lastButton.type === 'QUICK_REPLY' && 'sm:col-span-2',
+                      )}
+                    >
+                      <Label htmlFor="tpl-btn-text">Texto del botón</Label>
                       <Input
-                        size="sm"
+                        id="tpl-btn-text"
+                        className="h-9"
                         placeholder="Ej: Aceptar, Rechazar, Ver más..."
-                        value={formData.buttons[formData.buttons.length - 1].text}
+                        value={lastButton.text}
                         onChange={(e) => {
                           const newButtons = [...formData.buttons!]
                           newButtons[newButtons.length - 1] = {
@@ -930,16 +969,15 @@ export default function WhatsAppTemplates() {
                           setFormData(prev => ({ ...prev, buttons: newButtons }))
                         }}
                       />
-                    </FormControl>
-                  </Grid>
-                  {formData.buttons[formData.buttons.length - 1].type === 'URL' && (
-                    <Grid xs={4}>
-                      <FormControl size="sm">
-                        <FormLabel>URL</FormLabel>
+                    </div>
+                    {lastButton.type === 'URL' && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="tpl-btn-url">URL</Label>
                         <Input
-                          size="sm"
+                          id="tpl-btn-url"
+                          className="h-9"
                           placeholder="https://..."
-                          value={formData.buttons[formData.buttons.length - 1].url || ''}
+                          value={lastButton.url || ''}
                           onChange={(e) => {
                             const newButtons = [...formData.buttons!]
                             newButtons[newButtons.length - 1] = {
@@ -949,17 +987,16 @@ export default function WhatsAppTemplates() {
                             setFormData(prev => ({ ...prev, buttons: newButtons }))
                           }}
                         />
-                      </FormControl>
-                    </Grid>
-                  )}
-                  {formData.buttons[formData.buttons.length - 1].type === 'PHONE_NUMBER' && (
-                    <Grid xs={4}>
-                      <FormControl size="sm">
-                        <FormLabel>Teléfono</FormLabel>
+                      </div>
+                    )}
+                    {lastButton.type === 'PHONE_NUMBER' && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="tpl-btn-phone">Teléfono</Label>
                         <Input
-                          size="sm"
+                          id="tpl-btn-phone"
+                          className="h-9"
                           placeholder="+1234567890"
-                          value={formData.buttons[formData.buttons.length - 1].phoneNumber || ''}
+                          value={lastButton.phoneNumber || ''}
                           onChange={(e) => {
                             const newButtons = [...formData.buttons!]
                             newButtons[newButtons.length - 1] = {
@@ -969,88 +1006,80 @@ export default function WhatsAppTemplates() {
                             setFormData(prev => ({ ...prev, buttons: newButtons }))
                           }}
                         />
-                      </FormControl>
-                    </Grid>
-                  )}
-                </Grid>
-              </Box>
-            )}
-          </Box>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 3 }}>
-            <Button variant="outlined" color="neutral" onClick={() => setOpenModal(false)}>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setOpenModal(false)}>
               Cancelar
             </Button>
-            <Button
-              onClick={handleSubmit}
-              loading={submitting}
-            >
-              {editingTemplate ? 'Actualizar' : 'Crear Plantilla'}
+            <Button size="sm" onClick={handleSubmit} loading={submitting}>
+              {editingTemplate ? 'Actualizar' : 'Crear plantilla'}
             </Button>
-          </Box>
-        </ModalDialog>
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de Error/Éxito de Meta */}
-      <Modal open={metaError.show} onClose={() => setMetaError(prev => ({ ...prev, show: false }))}>
-        <ModalDialog
-          color={metaError.title === '¡Éxito!' ? 'success' : 'danger'}
-          variant="soft"
-          sx={{ maxWidth: 500 }}
-        >
-          <Typography
-            level="h4"
-            startDecorator={metaError.title === '¡Éxito!' ? <CheckCircleIcon /> : <ErrorIcon />}
-            sx={{ mb: 2 }}
-          >
-            {metaError.title}
-          </Typography>
+      <Dialog
+        open={metaError.show}
+        onOpenChange={(open) => {
+          if (!open) setMetaError(prev => ({ ...prev, show: false }))
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {metaError.title === '¡Éxito!' ? (
+                <CheckCircle className="size-5 text-success-text" weight="fill" aria-hidden />
+              ) : (
+                <WarningCircle className="size-5 text-destructive-text" weight="fill" aria-hidden />
+              )}
+              {metaError.title}
+            </DialogTitle>
+          </DialogHeader>
 
-          {metaError.userMessage && (
-            <Alert color="warning" sx={{ mb: 2 }}>
-              <Typography level="body-sm" fontWeight="lg">
+          <div className="space-y-3">
+            {metaError.userMessage && (
+              <div className="rounded-md border border-warning/30 bg-warning/16 px-3 py-2.5 text-sm font-medium text-warning-text">
                 {metaError.userMessage}
-              </Typography>
-            </Alert>
-          )}
+              </div>
+            )}
 
-          <Typography level="body-md" sx={{ mb: 2 }}>
-            {metaError.message}
-          </Typography>
+            <p className="text-sm text-foreground">{metaError.message}</p>
 
-          {metaError.code && (
-            <Box sx={{
-              bgcolor: 'background.level1',
-              p: 1.5,
-              borderRadius: 'sm',
-              mb: 2
-            }}>
-              <Typography level="body-xs" sx={{ fontFamily: 'monospace' }}>
-                Código: {metaError.code}
-                {metaError.subcode && ` (${metaError.subcode})`}
-              </Typography>
-            </Box>
-          )}
+            {metaError.code && (
+              <div className="rounded-md bg-muted px-3 py-2.5">
+                <p className="font-mono text-xs text-muted-foreground">
+                  Código: {metaError.code}
+                  {metaError.subcode && ` (${metaError.subcode})`}
+                </p>
+              </div>
+            )}
 
-          {metaError.title !== '¡Éxito!' && metaError.code === 100 && metaError.subcode === 2388299 && (
-            <Alert color="neutral" size="sm" sx={{ mb: 2 }}>
-              <Typography level="body-xs">
-                <strong>Tip:</strong> Las variables {'{{1}}'}, {'{{2}}'}, etc. no pueden estar al inicio ni al final del texto.
+            {metaError.title !== '¡Éxito!' && metaError.code === 100 && metaError.subcode === 2388299 && (
+              <div className="rounded-md border border-border bg-muted px-3 py-2.5 text-xs text-muted-foreground">
+                <strong className="text-foreground">Tip:</strong> Las variables {'{{1}}'}, {'{{2}}'}, etc. no pueden estar al inicio ni al final del texto.
                 Agrega texto antes y después de las variables.
-              </Typography>
-            </Alert>
-          )}
+              </div>
+            )}
+          </div>
 
-          <Button
-            variant="solid"
-            color={metaError.title === '¡Éxito!' ? 'success' : 'neutral'}
-            onClick={() => setMetaError(prev => ({ ...prev, show: false }))}
-            sx={{ mt: 1 }}
-          >
-            Entendido
-          </Button>
-        </ModalDialog>
-      </Modal>
-    </Box>
+          <DialogFooter>
+            <Button
+              size="sm"
+              onClick={() => setMetaError(prev => ({ ...prev, show: false }))}
+            >
+              Entendido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

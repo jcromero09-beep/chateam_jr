@@ -1,4 +1,10 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from "../../utils/logger";
+import AppError from "../../errors/AppError";
+import { chargeMessage } from "../AICreditServices/AIUsagePricingService";
 
 /**
  * ToolRegistry — Registro centralizado de herramientas disponibles para agentes IA
@@ -28,7 +34,13 @@ export interface ToolDefinition {
     required: string[];
   };
   handler: (args: Record<string, any>, context: ToolContext) => Promise<ToolResult>;
-  allowedAgents: string[]; // 'all' | 'sales' | 'support' | 'rag' | 'escalation'
+  allowedAgents: string[]; // 'all' | 'sales' | 'support' | 'rag' | 'escalation' | 'meta_ads_optimizer'
+  /**
+   * read  → Lectura, siempre se ejecuta.
+   * write → Escritura, en modo dryRun se intercepta y se devuelve como proposedAction.
+   * Default: 'read' (backwards-compatible con herramientas existentes).
+   */
+  kind?: 'read' | 'write';
 }
 
 export interface ToolContext {
@@ -37,6 +49,9 @@ export interface ToolContext {
   contactId?: number;
   whatsappId?: number;
   userId?: number;
+  // Campos para herramientas Meta Ads (opcionales)
+  adAccountId?: string;
+  metaWhatsappName?: string;
 }
 
 export interface ToolResult {
@@ -182,8 +197,99 @@ registerTool({
 });
 
 registerTool({
+  name: 'list_appointment_users',
+  description: 'Lista los usuarios/asesores con disponibilidad configurada para un servicio de cita. USAR después de elegir serviceId y antes de consultar horarios.',
+  parameters: {
+    type: 'object',
+    properties: {
+      serviceId: {
+        type: 'number',
+        description: 'ID del servicio/tipo de cita ya elegido por el cliente.'
+      }
+    },
+    required: ['serviceId']
+  },
+  allowedAgents: ['all'],
+  handler: async (args, context) => {
+    try {
+      const AppointmentAvailability = require("../../models/Appointments/AppointmentAvailability").default;
+      const User = require("../../models/User").default;
+      const { Op } = require("sequelize");
+
+      if (!context.companyId) {
+        return { success: false, data: null, message: 'Error: falta companyId en el contexto.' };
+      }
+      if (!args.serviceId) {
+        return { success: false, data: null, message: 'Falta serviceId. Primero selecciona el servicio de la cita.' };
+      }
+
+      const specificRows = await AppointmentAvailability.findAll({
+        where: {
+          companyId: context.companyId,
+          serviceId: args.serviceId,
+          isAvailable: true
+        },
+        attributes: ['userId'],
+        order: [['userId', 'ASC']]
+      });
+
+      const availabilityRows = specificRows.length > 0 ? specificRows : await AppointmentAvailability.findAll({
+        where: {
+          companyId: context.companyId,
+          serviceId: { [Op.is]: null },
+          isAvailable: true
+        },
+        attributes: ['userId'],
+        order: [['userId', 'ASC']]
+      });
+
+      const userIds = Array.from(new Set(
+        availabilityRows
+          .map((row: any) => Number(row.userId))
+          .filter((userId: number) => Number.isFinite(userId) && userId > 0)
+      ));
+
+      if (userIds.length === 0) {
+        return {
+          success: true,
+          data: { users: [], serviceId: args.serviceId },
+          message: 'No hay usuarios con disponibilidad configurada para ese servicio. No consultes horarios; ofrece escalar a humano.'
+        };
+      }
+
+      const users = await User.findAll({
+        where: {
+          companyId: context.companyId,
+          id: { [Op.in]: userIds }
+        },
+        attributes: ['id', 'name'],
+        order: [['name', 'ASC']]
+      });
+
+      const list = users.map((user: any) => ({
+        id: user.id,
+        name: user.name
+      }));
+
+      return {
+        success: true,
+        data: { users: list, total: list.length, serviceId: args.serviceId },
+        message: `Usuarios disponibles para el servicio ${args.serviceId}: ${list.map((u: any) => `${u.name} [id:${u.id}]`).join('; ')}`
+      };
+    } catch (error: any) {
+      logger.error(`[Tool:list_appointment_users] Error: ${error.message}`);
+      return {
+        success: false,
+        data: null,
+        message: `Error al listar usuarios de cita: ${error.message}`
+      };
+    }
+  }
+});
+
+registerTool({
   name: 'check_availability',
-  description: 'Consulta los horarios disponibles para agendar una cita. Devuelve los slots libres para una fecha y servicio específicos.',
+  description: 'Consulta horarios disponibles para agendar una cita. Requiere fecha, servicio y usuario ya seleccionados; no usar defaults.',
   parameters: {
     type: 'object',
     properties: {
@@ -193,15 +299,27 @@ registerTool({
       },
       serviceId: {
         type: 'number',
-        description: 'ID del servicio/tipo de cita. Si no se conoce, usar 1 como default.'
+        description: 'ID del servicio/tipo de cita ya elegido.'
+      },
+      userId: {
+        type: 'number',
+        description: 'ID del usuario/asesor ya elegido para atender la cita.'
       }
     },
-    required: ['date']
+    required: ['date', 'serviceId', 'userId']
   },
   allowedAgents: ['all'],
   handler: async (args, context) => {
     try {
       const AvailabilityService = require("../AppointmentServices/AvailabilityService").default;
+
+      if (!args.serviceId || !args.userId) {
+        return {
+          success: false,
+          data: null,
+          message: 'Para consultar horarios primero debes seleccionar serviceId y userId. Usa list_appointment_services y list_appointment_users.'
+        };
+      }
 
       const date = new Date(args.date);
       const dayStart = new Date(date);
@@ -211,7 +329,8 @@ registerTool({
 
       const slots = await AvailabilityService.getAvailableSlots({
         companyId: context.companyId,
-        serviceId: args.serviceId || 1,
+        serviceId: args.serviceId,
+        userId: args.userId,
         startDate: dayStart,
         endDate: dayEnd
       });
@@ -229,13 +348,13 @@ registerTool({
         return {
           success: true,
           data: { slots: [], date: args.date },
-          message: `No hay horarios disponibles para el ${args.date}. Sugiere al cliente otra fecha.`
+          message: `No hay horarios disponibles para el ${args.date} con el usuario seleccionado. Sugiere otra fecha u otro usuario.`
         };
       }
 
       return {
         success: true,
-        data: { slots: availableSlots, date: args.date, totalSlots: availableSlots.length },
+        data: { slots: availableSlots, date: args.date, serviceId: args.serviceId, userId: args.userId, totalSlots: availableSlots.length },
         message: `Hay ${availableSlots.length} horarios disponibles para el ${args.date}: ${availableSlots.map((s: any) => s.startHour).join(', ')}`
       };
     } catch (error: any) {
@@ -251,7 +370,7 @@ registerTool({
 
 registerTool({
   name: 'schedule_appointment',
-  description: 'Agenda una cita nueva para el cliente. Requiere fecha, hora y datos del contacto.',
+  description: 'Agenda una cita nueva para el cliente. Requiere fecha, hora, servicio y usuario ya seleccionados.',
   parameters: {
     type: 'object',
     properties: {
@@ -265,7 +384,11 @@ registerTool({
       },
       serviceId: {
         type: 'number',
-        description: 'ID del servicio/tipo de cita. Si no se conoce, usar 1.'
+        description: 'ID del servicio/tipo de cita ya elegido.'
+      },
+      userId: {
+        type: 'number',
+        description: 'ID del usuario/asesor ya elegido para atender la cita.'
       },
       title: {
         type: 'string',
@@ -276,15 +399,13 @@ registerTool({
         description: 'Notas adicionales para la cita'
       }
     },
-    required: ['date', 'time']
+    required: ['date', 'time', 'serviceId', 'userId']
   },
   allowedAgents: ['sales', 'support', 'all'],
   handler: async (args, context) => {
     try {
       const BookingService = require("../AppointmentServices/BookingService").default;
       const Contact = require("../../models/Contact").default;
-      const Ticket = require("../../models/Ticket").default;
-      const User = require("../../models/User").default;
 
       // Validaciones de contexto obligatorio
       if (!context.companyId) {
@@ -292,6 +413,13 @@ registerTool({
       }
       if (!context.contactId) {
         return { success: false, data: null, message: 'No hay contacto asociado — no puedo agendar sin un contacto válido.' };
+      }
+      if (!args.serviceId || !args.userId) {
+        return {
+          success: false,
+          data: null,
+          message: 'No puedo agendar sin serviceId y userId. Primero selecciona servicio y usuario, luego consulta disponibilidad.'
+        };
       }
 
       // Obtener datos del contacto
@@ -305,33 +433,14 @@ registerTool({
         };
       }
 
-      // 🆕 Resolver userId de forma segura:
-      // 1) context.userId explícito
-      // 2) user asignado al ticket
-      // 3) primer user activo del company (fallback)
-      let resolvedUserId = context.userId;
-      if (!resolvedUserId && context.ticketId) {
-        const ticket = await Ticket.findByPk(context.ticketId);
-        if (ticket?.userId) resolvedUserId = ticket.userId;
-      }
-      if (!resolvedUserId) {
-        const firstUser = await User.findOne({
-          where: { companyId: context.companyId },
-          order: [['id', 'ASC']]
-        });
-        if (firstUser) resolvedUserId = firstUser.id;
-      }
-      if (!resolvedUserId) {
-        return { success: false, data: null, message: 'No encontré un asesor disponible para asignar la cita.' };
-      }
-
       const startTime = new Date(`${args.date}T${args.time}:00`);
 
       const appointment = await BookingService.createBooking({
         companyId: context.companyId,
-        serviceId: args.serviceId || 1,
-        userId: resolvedUserId,
+        serviceId: args.serviceId,
+        userId: args.userId,
         contactId: context.contactId,
+        ticketId: context.ticketId,
         startTime,
         title: args.title || 'Cita agendada por asistente IA',
         notes: args.notes || 'Cita creada automáticamente por el agente de IA',
@@ -709,7 +818,10 @@ registerTool({
   allowedAgents: ['sales', 'support'],
   handler: async (args, context) => {
     try {
-      const SendMail = require("../../helpers/SendMail").default;
+      // Fix: helpers/SendMail exporta `SendMail` con NAMED export (no default).
+      // Antes se hacía require(...).default → undefined → "SendMail is not a function"
+      // y la tool NUNCA enviaba (el catch devolvía success:false silenciosamente).
+      const { SendMail } = require("../../helpers/SendMail");
       const Contact = require("../../models/Contact").default;
 
       let toEmail = args.to;
@@ -951,72 +1063,74 @@ registerTool({
   allowedAgents: ['sales', 'support'],
   handler: async (args, context) => {
     try {
-      const TicketTag = require("../../models/TicketTag").default;
-      const Tag = require("../../models/Tag").default;
-      const KanbanMovementLog = require("../../models/KanbanMovementLog").default;
-
       if (!context.ticketId) {
         return { success: false, data: null, message: 'No hay ticket asociado.' };
       }
 
-      // Verificar que la etapa destino existe y es kanban
-      const targetStage = await Tag.findOne({
-        where: { id: args.stageId, kanban: 1 }
+      // ─── Sprint Kanban (2026-05-20): delegar al helper único ───
+      // El helper hace TODO: scoping multi-tenant (lo que ANTES era un BUG
+      // aquí — Tag.findOne sin companyId podía leer tags de otra empresa),
+      // limpiar otras Kanban, crear TicketTag, registrar log, programar
+      // followups y disparar conversion CAPI.
+      const KanbanStageTransitionService = require(
+        "../KanbanServices/KanbanStageTransitionService"
+      ).default;
+
+      const result = await KanbanStageTransitionService.move({
+        companyId: context.companyId,
+        ticketId: context.ticketId,
+        toTagId: args.stageId,
+        movedBy: 'ai',
+        source: 'tool_move_ticket_to_stage',
+        reason: args.reason || 'Movido por agente IA via tool',
+        triggerFollowups: true,
+        triggerLeadConversion: false,
+        conversionSource: 'tool_move_ticket_to_stage'
       });
 
-      if (!targetStage) {
+      if (result.skippedReason === 'tag_not_found') {
         return {
           success: false,
           data: null,
-          message: `La etapa ID=${args.stageId} no existe o no es una etapa Kanban. Usa get_kanban_stages para ver las etapas disponibles.`
+          message: `La etapa ID=${args.stageId} no existe. Usa get_kanban_stages para ver las etapas disponibles.`
         };
       }
-
-      // Obtener etapa actual (si existe)
-      const currentTicketTag = await TicketTag.findOne({
-        where: { ticketId: context.ticketId },
-        include: [{ model: Tag, as: 'tag', where: { kanban: 1 }, required: true }]
-      });
-
-      const fromTagId = currentTicketTag?.tagId || null;
-
-      // Remover etapa kanban actual
-      if (currentTicketTag) {
-        await TicketTag.destroy({
-          where: { ticketId: context.ticketId, tagId: currentTicketTag.tagId }
-        });
+      if (result.skippedReason === 'tag_other_company') {
+        return {
+          success: false,
+          data: null,
+          message: `La etapa ID=${args.stageId} pertenece a otra empresa.`
+        };
       }
-
-      // Asignar nueva etapa
-      await TicketTag.findOrCreate({
-        where: { ticketId: context.ticketId, tagId: args.stageId },
-        defaults: { ticketId: context.ticketId, tagId: args.stageId }
-      });
-
-      // Registrar movimiento en log
-      await KanbanMovementLog.create({
-        ticketId: context.ticketId,
-        companyId: context.companyId,
-        fromTagId,
-        toTagId: args.stageId,
-        movedBy: 'ai',
-        reason: args.reason || 'Movido por agente IA'
-      });
-
-      logger.info(
-        `[Tool:move_ticket_to_stage] Ticket ${context.ticketId} movido: ` +
-        `${fromTagId || 'sin etapa'} → ${targetStage.name} (${args.stageId})`
-      );
+      if (result.skippedReason === 'tag_not_kanban') {
+        return {
+          success: false,
+          data: null,
+          message: `La etapa ID=${args.stageId} no es una etapa Kanban. Usa get_kanban_stages para ver las etapas disponibles.`
+        };
+      }
+      if (result.skippedReason === 'error') {
+        return {
+          success: false,
+          data: null,
+          message: `Error: ${result.errorMessage || 'no se pudo mover el ticket'}`
+        };
+      }
 
       return {
         success: true,
         data: {
           ticketId: context.ticketId,
-          fromStage: fromTagId,
-          toStage: targetStage.name,
-          toStageId: args.stageId
+          fromStage: result.fromTagId,
+          toStage: result.toTagKey,
+          toStageId: result.toTagId,
+          followupsTriggered: result.followupsTriggered,
+          leadConversionQueued: result.leadConversionQueued,
+          alreadyInStage: result.alreadyInStage
         },
-        message: `Ticket movido a la etapa "${targetStage.name}" correctamente.`
+        message: result.alreadyInStage
+          ? `El ticket ya estaba en la etapa "${result.toTagKey}".`
+          : `Ticket movido a la etapa "${result.toTagKey}" correctamente.`
       };
     } catch (error: any) {
       logger.error(`[Tool:move_ticket_to_stage] Error: ${error.message}`);
@@ -1072,6 +1186,48 @@ registerTool({
         sendAt = new Date(Date.now() + 60 * 60 * 1000);
       }
 
+      // 💳 COBRO UNIFICADO (fail-closed): un mensaje programado generado por IA
+      // cobra como 'message' al MOMENTO DE ENCOLAR (porque el contenido ya fue
+      // generado por el agente IA y queda fijado para envio posterior).
+      try {
+        await chargeMessage({
+          companyId: context.companyId,
+          units: 1,
+          source: "ai_scheduled_message",
+          sourceId: context.ticketId || context.contactId,
+          description: `Mensaje programado IA contacto=${context.contactId}`,
+          metadata: {
+            sendAtIso: sendAt.toISOString(),
+            via: "tool:schedule_followup_message"
+          }
+        });
+      } catch (creditErr: any) {
+        const isInsufficient =
+          creditErr instanceof AppError &&
+          (creditErr.message === "ERR_AI_INSUFFICIENT_CREDITS" ||
+            creditErr.message === "ERR_AI_NO_CREDIT_BALANCE");
+        if (isInsufficient) {
+          logger.warn(
+            `[Tool:schedule_followup] Sin creditos para message (company=${context.companyId}); no se programa`
+          );
+          return {
+            success: false,
+            data: null,
+            message:
+              'No fue posible programar el mensaje: la empresa no tiene creditos IA suficientes.'
+          };
+        }
+        logger.warn(
+          `[Tool:schedule_followup] Error cobrando message: ${creditErr?.message || creditErr}; no se programa por seguridad`
+        );
+        return {
+          success: false,
+          data: null,
+          message:
+            'No fue posible programar el mensaje: no se pudo validar el cobro IA.'
+        };
+      }
+
       // Crear el registro
       const schedule = await Schedule.create({
         body: args.message,
@@ -1087,7 +1243,9 @@ registerTool({
 
       // Encolar en BullMQ para envío
       try {
-        const { enqueueScheduledMessageOccurrence } = require("../../queues");
+        // Fix (2026-07-09): await import (no require CJS) — evita "No exports main defined"
+        // de whatsapp-rust-bridge (Baileys ESM) al re-resolver ../../queues bajo CJS.
+        const { enqueueScheduledMessageOccurrence } = await import("../../queues");
         await enqueueScheduledMessageOccurrence({
           id: schedule.id,
           companyId: context.companyId,

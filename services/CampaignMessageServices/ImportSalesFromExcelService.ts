@@ -1,4 +1,5 @@
-import { head } from "lodash";
+import lodash from "lodash";
+const { head } = lodash;
 import XLSX from "xlsx";
 import { Op } from "sequelize";
 import Contact from "../../models/Contact";
@@ -70,7 +71,7 @@ const AD_SOURCE_TYPES = ["EXTERNAL_AD", "ad", "MANUAL_ASSIGNMENT"];
  * "+593982220025" → "593982220025"
  */
 function normalizeEcuadorPhone(raw: string | number): string {
-  let phone = String(raw).replace(/\D/g, "");
+  const phone = String(raw).replace(/\D/g, "");
 
   if (!phone || phone.length < 7) return "";
 

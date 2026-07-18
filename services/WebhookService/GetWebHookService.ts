@@ -24,7 +24,7 @@ const GetWebHookService = async ({
             hash_id: hashId
           }
         });
-        let hook = rows[0]
+        const hook = rows[0]
 
         return {
             webhook: hook

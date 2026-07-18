@@ -5,17 +5,12 @@
 
 import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import {
-  Box, Sheet, Typography, FormControl, FormLabel, Input, Button,
-  Stack, Divider, Alert
-} from '@mui/joy'
-import {
-  Lock as LockIcon,
-  CheckCircle as SuccessIcon,
-  ErrorOutline as ErrorIcon,
-  Login as LoginIcon
-} from '@mui/icons-material'
+import { Lock, CheckCircle, WarningCircle, SignIn } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
+import { cn } from '@/lib/utils'
 import api from '../services/api'
 
 export default function ResetPassword() {
@@ -32,38 +27,31 @@ export default function ResetPassword() {
   // Si no hay token en la URL, mostrar error
   if (!token) {
     return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'linear-gradient(135deg, #1e293b 0%, #152030 40%, #1a2535 100%)',
-        }}
-      >
-        <Sheet sx={{
-          maxWidth: 420, width: '100%', mx: 2, p: 4,
-          borderRadius: 'xl', bgcolor: 'background.surface',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-          border: '1px solid', borderColor: 'divider',
-        }}>
-          <Stack spacing={3} alignItems="center">
-            <ErrorIcon sx={{ fontSize: 56, color: 'danger.500' }} />
-            <Typography level="title-lg" sx={{ textAlign: 'center' }}>
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-[420px] rounded-lg border border-border bg-card p-8 shadow-lg">
+          <div className="flex flex-col items-center gap-6">
+            <WarningCircle className="size-14 text-destructive-text" weight="fill" aria-hidden />
+            <h1 className="text-center text-lg font-semibold text-foreground">
               Enlace invalido
-            </Typography>
-            <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
+            </h1>
+            <p className="text-center text-sm text-muted-foreground">
               Este enlace no contiene un token valido. Solicita un nuevo enlace de recuperacion.
-            </Typography>
-            <Button fullWidth component={Link} to="/forgot-password">
+            </p>
+            <Link
+              to="/forgot-password"
+              className={cn(buttonVariants({ size: 'lg' }), 'w-full')}
+            >
               Solicitar nuevo enlace
-            </Button>
-            <Button variant="plain" color="neutral" fullWidth component={Link} to="/login">
+            </Link>
+            <Link
+              to="/login"
+              className={cn(buttonVariants({ variant: 'ghost', size: 'lg' }), 'w-full')}
+            >
               Volver al login
-            </Button>
-          </Stack>
-        </Sheet>
-      </Box>
+            </Link>
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -98,147 +86,124 @@ export default function ResetPassword() {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #1e293b 0%, #152030 40%, #1a2535 100%)',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Burbujas decorativas */}
-      <Box sx={{
-        position: 'absolute', top: '-10%', right: '-5%',
-        width: 400, height: 400, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)',
-        pointerEvents: 'none',
-      }} />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+      {/* Burbuja decorativa (token de marca) */}
+      <div
+        className="pointer-events-none absolute -right-[5%] -top-[10%] size-[400px] rounded-full bg-brand-cyan/8 blur-3xl"
+        aria-hidden
+      />
 
-      <Sheet
-        sx={{
-          maxWidth: 420,
-          width: '100%',
-          mx: 2,
-          p: { xs: 3, sm: 4 },
-          borderRadius: 'xl',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3), 0 0 40px rgba(59,130,246,0.08)',
-          bgcolor: 'background.surface',
-          position: 'relative',
-          zIndex: 1,
-          border: '1px solid',
-          borderColor: 'divider',
-        }}
-      >
-        <Stack spacing={3}>
+      <div className="relative z-[1] w-full max-w-[420px] rounded-lg border border-border bg-card p-6 shadow-lg sm:p-8">
+        <div className="flex flex-col gap-6">
           {/* Logo */}
-          <Stack spacing={2} alignItems="center" sx={{ pt: 1 }}>
-            <Box
-              component="img"
+          <div className="flex flex-col items-center gap-2 pt-1">
+            <img
               src="/logo.png"
               alt="Chateam"
-              sx={{ width: 64, height: 64, filter: 'drop-shadow(0 4px 12px rgba(59,130,246,0.3))' }}
+              width={64}
+              height={64}
+              className="size-16"
             />
-            <Box
-              component="img"
+            <img
               src="/chateam-logo.png"
               alt="Chateam Pro"
-              sx={{ height: 32, objectFit: 'contain' }}
+              height={32}
+              className="h-8 object-contain"
             />
-            <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center' }}>
+            <p className="text-center text-sm text-muted-foreground">
               {success ? 'Contrasena actualizada' : 'Establece tu nueva contrasena'}
-            </Typography>
-          </Stack>
+            </p>
+          </div>
 
-          <Divider />
+          <hr className="border-border" />
 
           {success ? (
             /* ═══ ESTADO: EXITO ═══ */
-            <Stack spacing={2.5} alignItems="center" sx={{ py: 2 }}>
-              <SuccessIcon sx={{ fontSize: 56, color: 'success.500' }} />
-              <Typography level="title-lg" sx={{ textAlign: 'center', fontWeight: 700 }}>
+            <div className="flex flex-col items-center gap-5 py-2">
+              <CheckCircle className="size-14 text-success-text" weight="fill" aria-hidden />
+              <h1 className="text-center text-lg font-bold text-foreground">
                 Contrasena actualizada
-              </Typography>
-              <Alert color="success" variant="soft" sx={{ width: '100%' }}>
-                Tu contrasena se ha restablecido correctamente. Ya puedes iniciar sesion con tu nueva contrasena.
-              </Alert>
+              </h1>
+              <div className="flex w-full items-start gap-2 rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success-text">
+                <CheckCircle className="mt-0.5 size-5 shrink-0" aria-hidden />
+                <span>
+                  Tu contrasena se ha restablecido correctamente. Ya puedes iniciar sesion con tu nueva contrasena.
+                </span>
+              </div>
               <Button
-                fullWidth
                 size="lg"
-                startDecorator={<LoginIcon />}
                 onClick={() => navigate('/login')}
-                sx={{ fontWeight: 700, py: 1.5 }}
+                className="w-full font-bold"
               >
+                <SignIn className="size-5" aria-hidden />
                 IR A INICIAR SESION
               </Button>
-            </Stack>
+            </div>
           ) : (
             /* ═══ ESTADO: FORMULARIO ═══ */
             <form onSubmit={handleSubmit}>
-              <Stack spacing={2.5}>
+              <div className="flex flex-col gap-5">
                 {error && (
-                  <Alert color="danger" variant="soft" startDecorator={<ErrorIcon />}>
-                    {error}
-                  </Alert>
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive-text"
+                  >
+                    <WarningCircle className="mt-0.5 size-5 shrink-0" aria-hidden />
+                    <span>{error}</span>
+                  </div>
                 )}
 
-                <FormControl required>
-                  <FormLabel>Nueva Contrasena</FormLabel>
-                  <Input
-                    type="password"
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="new-password">Nueva Contrasena</Label>
+                  <PasswordInput
+                    id="new-password"
+                    required
                     placeholder="Minimo 6 caracteres"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={loading}
-                    startDecorator={<LockIcon sx={{ color: 'neutral.400' }} />}
-                    sx={{ '--Input-focusedThickness': '2px' }}
+                    leftIcon={<Lock aria-hidden />}
                     autoFocus
                   />
-                </FormControl>
+                </div>
 
-                <FormControl required>
-                  <FormLabel>Confirmar Contrasena</FormLabel>
-                  <Input
-                    type="password"
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="confirm-password">Confirmar Contrasena</Label>
+                  <PasswordInput
+                    id="confirm-password"
+                    required
                     placeholder="Repite tu contrasena"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     disabled={loading}
-                    startDecorator={<LockIcon sx={{ color: 'neutral.400' }} />}
-                    sx={{ '--Input-focusedThickness': '2px' }}
+                    leftIcon={<Lock aria-hidden />}
                   />
-                </FormControl>
+                </div>
 
                 <Button
                   type="submit"
-                  fullWidth
                   loading={loading}
                   size="lg"
-                  sx={{ fontWeight: 700, py: 1.5 }}
+                  className="w-full font-bold"
                 >
                   RESTABLECER CONTRASENA
                 </Button>
 
-                <Button
-                  variant="plain"
-                  color="neutral"
-                  fullWidth
-                  component={Link}
+                <Link
                   to="/login"
+                  className={cn(buttonVariants({ variant: 'ghost', size: 'lg' }), 'w-full')}
                 >
                   Volver al inicio de sesion
-                </Button>
-              </Stack>
+                </Link>
+              </div>
             </form>
           )}
 
-          <Typography level="body-xs" sx={{ textAlign: 'center', color: 'text.tertiary' }}>
+          <p className="text-center text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} CodigoPlus — Todos los derechos reservados
-          </Typography>
-        </Stack>
-      </Sheet>
-    </Box>
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }

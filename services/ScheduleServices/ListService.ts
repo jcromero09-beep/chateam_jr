@@ -18,6 +18,13 @@ interface Response {
   hasMore: boolean;
 }
 
+const normalizeSearch = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
 const ListService = async ({
   searchParam,
   contactId = "",
@@ -30,24 +37,33 @@ const ListService = async ({
   const offset = limit * (+pageNumber - 1);
 
   if (searchParam) {
+    const normalizedSearchParam = normalizeSearch(searchParam);
+
     whereCondition = {
       [Op.or]: [
         {
           "$Schedule.body$": where(
-            fn("LOWER", col("Schedule.body")),
+            fn("LOWER", fn("unaccent", col("Schedule.body"))),
             "LIKE",
-            `%${searchParam.toLowerCase()}%`
+            `%${normalizedSearchParam}%`
           )
         },
         {
           "$Contact.name$": where(
             fn("LOWER", fn("unaccent", col("contact.name"))),
             "LIKE",
-            `%${searchParam.toLowerCase()}%`
+            `%${normalizedSearchParam}%`
           )
         },
-      ],
-    }
+        {
+          "$Whatsapp.name$": where(
+            fn("LOWER", fn("unaccent", col("whatsapp.name"))),
+            "LIKE",
+            `%${normalizedSearchParam}%`
+          )
+        }
+      ]
+    };
   }
 
   if (contactId !== "") {

@@ -104,7 +104,7 @@ const LearningExtractionService = async (
 
     // Llamar a GPT-4o-mini para generar learnings
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5.5",
       messages: [
         {
           role: "system",
@@ -199,7 +199,7 @@ Genera entre 2 y 5 insights basados en los datos.`
         confidence,
         recommendation: item.recommendation || undefined,
         source: "ai_analysis",
-        extractedBy: "gpt-4o-mini",
+        extractedBy: "gpt-5.5",
         evidence: {
           totalSnapshots,
           avgViews,

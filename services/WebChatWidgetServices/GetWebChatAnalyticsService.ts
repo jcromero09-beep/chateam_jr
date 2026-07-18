@@ -1,9 +1,9 @@
-import { Op, fn, col, literal } from "sequelize";
+import { Op } from "sequelize";
 import WebChatWidget from "../../models/WebChatWidget";
-import Ticket from "../../models/Ticket";
-import Message from "../../models/Message";
 import Company from "../../models/Company";
 import Whatsapp from "../../models/Whatsapp";
+import WebChatConversation from "../../models/WebChatConversation";
+import WebChatConversationMessage from "../../models/WebChatConversationMessage";
 
 interface Request {
   companyId?: number; // Si es null, es super admin y ve todo
@@ -74,64 +74,62 @@ const GetWebChatAnalyticsService = async ({
   // Obtener estadísticas por widget
   const widgetStats: WidgetStats[] = await Promise.all(
     widgets.map(async (widget) => {
-      // Contar tickets creados desde este widget (por channel webchat y whatsappId)
-      const ticketsCreated = await Ticket.count({
+      const ticketsCreated = await WebChatConversation.count({
         where: {
           companyId: widget.companyId,
-          whatsappId: widget.whatsappId,
-          channel: "webchat",
+          widgetId: widget.id,
           createdAt: { [Op.between]: [start, end] }
         }
       });
 
-      // Contar mensajes recibidos (fromMe = false)
-      const messagesReceived = await Message.count({
-        include: [{
-          model: Ticket,
-          as: "ticket",
-          where: {
-            companyId: widget.companyId,
-            whatsappId: widget.whatsappId,
-            channel: "webchat"
-          },
-          required: true
-        }],
+      const messagesReceived = await WebChatConversationMessage.count({
+        include: [
+          {
+            model: WebChatConversation,
+            as: "conversation",
+            where: {
+              companyId: widget.companyId,
+              widgetId: widget.id
+            },
+            required: true
+          }
+        ],
         where: {
-          fromMe: false,
+          direction: "inbound",
           createdAt: { [Op.between]: [start, end] }
         }
       });
 
-      // Contar mensajes enviados (fromMe = true)
-      const messagesSent = await Message.count({
-        include: [{
-          model: Ticket,
-          as: "ticket",
-          where: {
-            companyId: widget.companyId,
-            whatsappId: widget.whatsappId,
-            channel: "webchat"
-          },
-          required: true
-        }],
+      const messagesSent = await WebChatConversationMessage.count({
+        include: [
+          {
+            model: WebChatConversation,
+            as: "conversation",
+            where: {
+              companyId: widget.companyId,
+              widgetId: widget.id
+            },
+            required: true
+          }
+        ],
         where: {
-          fromMe: true,
+          direction: "outbound",
           createdAt: { [Op.between]: [start, end] }
         }
       });
 
-      // Última actividad
-      const lastMessage = await Message.findOne({
-        include: [{
-          model: Ticket,
-          as: "ticket",
-          where: {
-            companyId: widget.companyId,
-            whatsappId: widget.whatsappId,
-            channel: "webchat"
-          },
-          required: true
-        }],
+      const lastMessage = await WebChatConversationMessage.findOne({
+        include: [
+          {
+            model: WebChatConversation,
+            as: "conversation",
+            where: {
+              companyId: widget.companyId,
+              widgetId: widget.id
+            },
+            required: true
+          }
+        ],
         order: [["createdAt", "DESC"]]
       });
 
@@ -171,10 +169,9 @@ const GetWebChatAnalyticsService = async ({
     const dayEnd = new Date(dayStart);
     dayEnd.setHours(23, 59, 59, 999);
 
-    const count = await Ticket.count({
+    const count = await WebChatConversation.count({
       where: {
         ...whereCompany,
-        channel: "webchat",
         createdAt: { [Op.between]: [dayStart, dayEnd] }
       }
     });
@@ -195,34 +192,28 @@ const GetWebChatAnalyticsService = async ({
     const dayEnd = new Date(dayStart);
     dayEnd.setHours(23, 59, 59, 999);
 
-    const sent = await Message.count({
+    const sent = await WebChatConversationMessage.count({
       include: [{
-        model: Ticket,
-        as: "ticket",
-        where: {
-          ...whereCompany,
-          channel: "webchat"
-        },
+        model: WebChatConversation,
+        as: "conversation",
+        where: whereCompany,
         required: true
       }],
       where: {
-        fromMe: true,
+        direction: "outbound",
         createdAt: { [Op.between]: [dayStart, dayEnd] }
       }
     });
 
-    const received = await Message.count({
+    const received = await WebChatConversationMessage.count({
       include: [{
-        model: Ticket,
-        as: "ticket",
-        where: {
-          ...whereCompany,
-          channel: "webchat"
-        },
+        model: WebChatConversation,
+        as: "conversation",
+        where: whereCompany,
         required: true
       }],
       where: {
-        fromMe: false,
+        direction: "inbound",
         createdAt: { [Op.between]: [dayStart, dayEnd] }
       }
     });

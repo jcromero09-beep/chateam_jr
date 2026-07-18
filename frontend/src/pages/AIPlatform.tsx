@@ -4,32 +4,26 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+// [Migración] CircularProgress se conserva como MUI Joy (sin equivalente shadcn/Radix).
+import { CircularProgress } from '@mui/joy';
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  Alert,
-  IconButton,
-} from '@mui/joy';
-import {
-  Bot,
+  Robot,
   CreditCard,
-  DollarSign,
-  Zap,
+  CurrencyDollar,
+  Lightning,
   BookOpen,
   Users,
-  MessageSquare,
-  PenLine,
+  ChatCircle,
+  PencilLine,
   Headphones,
-  Layers,
+  Stack,
   Coins,
-  Calendar,
-  LayoutDashboard,
+  CalendarBlank,
+  SquaresFour,
   X,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
+import { RowAction } from '@/components/ui/row-action';
+import { cn } from '@/lib/utils';
 import api from '../services/api';
 
 // Helpers de logging para desarrollo
@@ -68,13 +62,24 @@ interface PlatformStats {
   cacheHitRate: number;
 }
 
+type ModuleTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
+
 interface QuickLink {
   label: string;
   description: string;
   icon: React.ReactNode;
-  color: 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
+  color: ModuleTone;
   permission: string;
 }
+
+// Clases del tile de ícono por tono (superficie tintada + texto con contraste a11y).
+const moduleTileClasses: Record<ModuleTone, string> = {
+  primary: 'bg-primary/10 text-primary',
+  success: 'bg-success/10 text-success-text',
+  warning: 'bg-warning/10 text-warning-text',
+  danger: 'bg-destructive/10 text-destructive-text',
+  neutral: 'bg-muted text-muted-foreground',
+};
 
 // ---------------------------------------------------------------------------
 // Quick links de módulos
@@ -84,56 +89,56 @@ const MODULE_LINKS: QuickLink[] = [
   {
     label: 'Base de Conocimiento',
     description: 'Gestiona documentos RAG para respuestas contextuales',
-    icon: <BookOpen size={28} />,
+    icon: <BookOpen size={28} aria-hidden />,
     color: 'primary',
     permission: 'ai_knowledge_base',
   },
   {
     label: 'Agentes IA',
     description: 'Configura y contrata agentes especializados',
-    icon: <Users size={28} />,
+    icon: <Users size={28} aria-hidden />,
     color: 'success',
     permission: 'ai_agents',
   },
   {
     label: 'Constructor de Chatbots',
     description: 'Crea y entrena chatbots personalizados',
-    icon: <MessageSquare size={28} />,
+    icon: <ChatCircle size={28} aria-hidden />,
     color: 'warning',
     permission: 'ai_chatbot_builder',
   },
   {
     label: 'Escritor IA',
     description: 'Genera texto asistido con modelos avanzados',
-    icon: <PenLine size={28} />,
+    icon: <PencilLine size={28} aria-hidden />,
     color: 'primary',
     permission: 'ai_writer',
   },
   {
     label: 'Generación de Audio',
     description: 'Convierte texto a voz y transcribe audio',
-    icon: <Headphones size={28} />,
+    icon: <Headphones size={28} aria-hidden />,
     color: 'danger',
     permission: 'ai_audio',
   },
   {
     label: 'Multimodal',
     description: 'Análisis de imágenes y contenido visual',
-    icon: <Layers size={28} />,
+    icon: <Stack size={28} aria-hidden />,
     color: 'neutral',
     permission: 'ai_multimodal',
   },
   {
     label: 'Créditos',
     description: 'Administra y recarga tus créditos IA',
-    icon: <Coins size={28} />,
+    icon: <Coins size={28} aria-hidden />,
     color: 'success',
     permission: 'ai_credits',
   },
   {
     label: 'Programador',
     description: 'Automatiza tareas con el scheduler de IA',
-    icon: <Calendar size={28} />,
+    icon: <CalendarBlank size={28} aria-hidden />,
     color: 'warning',
     permission: 'ai_scheduler',
   },
@@ -239,109 +244,115 @@ export default function AIPlatform() {
     {
       label: 'Agentes Activos',
       value: loading ? null : formatNumber(stats.totalAgentes),
-      icon: <Bot size={20} color="var(--joy-palette-primary-500)" />,
+      icon: <Robot size={20} className="text-primary" aria-hidden />,
     },
     {
       label: 'Créditos Disponibles',
       value: loading ? null : formatNumber(stats.creditosDisponibles),
-      icon: <CreditCard size={20} color="var(--joy-palette-success-500)" />,
+      icon: <CreditCard size={20} className="text-success-text" aria-hidden />,
     },
     {
       label: 'Costo Mensual (30d)',
       value: loading ? null : formatCurrency(stats.costoMensual),
-      icon: <DollarSign size={20} color="var(--joy-palette-warning-500)" />,
+      icon: <CurrencyDollar size={20} className="text-warning-text" aria-hidden />,
     },
     {
       label: 'Cache Hit Rate',
       value: loading ? null : formatPercent(stats.cacheHitRate),
-      icon: <Zap size={20} color="var(--joy-palette-danger-500)" />,
+      icon: <Lightning size={20} className="text-destructive-text" aria-hidden />,
     },
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-        <LayoutDashboard size={32} color="var(--joy-palette-primary-500)" />
-        <Box>
-          <Typography level="h2">Plataforma IA</Typography>
-          <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-            Panel central de todos los módulos de inteligencia artificial
-          </Typography>
-        </Box>
-      </Box>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+            <SquaresFour className="size-6" weight="fill" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Plataforma IA
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Panel central de todos los módulos de inteligencia artificial
+            </p>
+          </div>
+        </div>
 
-      {/* Error */}
-      {error && (
-        <Alert
-          color="danger"
-          sx={{ mb: 3, mt: 2 }}
-          endDecorator={
-            <IconButton size="sm" variant="plain" color="danger" onClick={() => setError(null)}>
-              <X size={16} />
-            </IconButton>
-          }
-        >
-          {error}
-        </Alert>
-      )}
-
-      {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 4, mt: 1 }}>
-        {statCards.map((card) => (
-          <Grid key={card.label} xs={12} sm={6} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  {card.icon}
-                  <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                    {card.label}
-                  </Typography>
-                </Box>
-                {loading ? (
-                  <CircularProgress size="sm" />
-                ) : (
-                  <Typography level="h3">{card.value}</Typography>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Módulos — Quick Links */}
-      <Typography level="title-lg" sx={{ mb: 2 }}>
-        Módulos disponibles
-      </Typography>
-
-      <Grid container spacing={2}>
-        {MODULE_LINKS.map((mod) => (
-          <Grid key={mod.permission} xs={12} sm={6} md={3}>
-            <Card
-              variant="soft"
-              color={mod.color}
-              sx={{
-                cursor: 'pointer',
-                transition: 'transform 0.15s, box-shadow 0.15s',
-                '&:hover': {
-                  transform: 'translateY(-2px)',
-                  boxShadow: 'md',
-                },
-              }}
+        {/* Error */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive-text"
+          >
+            <span>{error}</span>
+            <RowAction
+              label="Cerrar aviso"
+              className="-my-1 -mr-1 shrink-0 text-destructive-text hover:bg-destructive/15 hover:text-destructive-text"
             >
-              <CardContent>
-                <Box sx={{ mb: 1.5 }}>{mod.icon}</Box>
-                <Typography level="title-md" sx={{ mb: 0.5 }}>
+              <button
+                type="button"
+                aria-label="Cerrar aviso"
+                onClick={() => setError(null)}
+                className="flex size-full items-center justify-center"
+              >
+                <X className="size-[18px]" aria-hidden />
+              </button>
+            </RowAction>
+          </div>
+        )}
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {statCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                {card.icon}
+                <span className="text-sm text-muted-foreground">{card.label}</span>
+              </div>
+              {loading ? (
+                <CircularProgress size="sm" />
+              ) : (
+                <p className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                  {card.value}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Módulos — Quick Links */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-foreground">Módulos disponibles</h2>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {MODULE_LINKS.map((mod) => (
+              <div
+                key={mod.permission}
+                className="group rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02] transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span
+                  className={cn(
+                    'mb-3 flex size-12 items-center justify-center rounded-lg',
+                    moduleTileClasses[mod.color],
+                  )}
+                >
+                  {mod.icon}
+                </span>
+                <p className="mb-0.5 text-base font-semibold text-foreground">
                   {mod.label}
-                </Typography>
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                  {mod.description}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-    </Box>
+                </p>
+                <p className="text-xs text-muted-foreground">{mod.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

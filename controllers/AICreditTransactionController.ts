@@ -50,7 +50,7 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
   }
 
   // Filtro por creditType (por key)
-  let creditTypeInclude: any = {
+  const creditTypeInclude: any = {
     model: AICreditType,
     as: "creditType",
     attributes: ["id", "key", "name", "category"]
@@ -107,7 +107,7 @@ export const analytics = async (req: Request, res: Response): Promise<Response> 
     attributes: [
       "creditTypeId",
       [fn("SUM", col("amount")), "totalAmount"],
-      [fn("COUNT", col("id")), "transactionCount"]
+      [fn("COUNT", col("AICreditTransaction.id")), "transactionCount"]
     ],
     include: [{
       model: AICreditType,
@@ -145,7 +145,7 @@ export const analytics = async (req: Request, res: Response): Promise<Response> 
     attributes: [
       [fn("DATE", col("createdAt")), "date"],
       [fn("SUM", col("amount")), "totalAmount"],
-      [fn("COUNT", col("id")), "transactionCount"]
+      [fn("COUNT", col("AICreditTransaction.id")), "transactionCount"]
     ],
     group: [fn("DATE", col("createdAt"))],
     order: [[fn("DATE", col("createdAt")), "ASC"]],

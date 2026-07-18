@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * AutomationEngineService — Motor de automatizaciones de email marketing
  *
@@ -177,10 +181,11 @@ export const executeAutomation = async (
       personalizationData: { automationId, triggerType: automation.triggerType }
     } as Partial<EmailCampaignRecipient>);
 
-    // Enviar via ProviderFactory
+    // Enviar via EmailMarketingFactory (estricto). C8 fix: ProviderFactory caía silenciosamente
+    // a Carbonio ante error/sin-config (canal equivocado, sin tracking).
     try {
-      const { ProviderFactory } = require("./providers/ProviderFactory");
-      const provider = await ProviderFactory.getProvider(Number(automation.companyId));
+      const { EmailMarketingFactory } = require("./providers/EmailMarketingFactory");
+      const provider = await EmailMarketingFactory.getProvider(Number(automation.companyId));
 
       const result = await provider.sendEmail({
         to: contact.email,
@@ -218,9 +223,15 @@ export const executeAutomation = async (
           `[AutomationEngine] Error enviando email: automationId=${automationId}, ` +
           `contactId=${contactId}, error=${result.error}`
         );
-        return false;
+        // C5 fix: propagar el fallo de ENVÍO (retriable) para que el job de Bull reintente,
+        // en vez de retornar false (que marcaba el job "completado" y perdía el email).
+        const sendFail: any = new Error(result.error || "Error enviando email en automatización");
+        sendFail.retriable = true;
+        throw sendFail;
       }
     } catch (sendError: unknown) {
+      // Si ya viene marcado retriable (del else de arriba), re-lanzar sin doble update.
+      if ((sendError as any)?.retriable) throw sendError;
       const sendMsg = sendError instanceof Error ? sendError.message : String(sendError);
       await recipient.update({
         status: "failed",
@@ -229,11 +240,17 @@ export const executeAutomation = async (
       logger.error(
         `[AutomationEngine] Excepcion enviando email: automationId=${automationId}, error=${sendMsg}`
       );
-      return false;
+      // C5 fix: propagar (retriable) para que el job reintente (antes retornaba false).
+      const sendFail: any = sendError instanceof Error ? sendError : new Error(sendMsg);
+      sendFail.retriable = true;
+      throw sendFail;
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error(`[AutomationEngine] Error ejecutando automatizacion: id=${automationId}, error=${msg}`);
+    // C5 fix: si es un fallo de ENVÍO (retriable), propagar para que el job de Bull reintente.
+    // Los "skips" (automation inactiva, contacto sin email, etc.) siguen retornando false.
+    if ((error as any)?.retriable) throw error;
     return false;
   }
 };

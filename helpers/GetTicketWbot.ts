@@ -1,4 +1,4 @@
-import { WASocket } from "@whiskeysockets/baileys";
+import { WASocket } from "baileys";
 import GetWhatsappWbot from "./GetWhatsappWbot";
 import GetDefaultWhatsApp from "./GetDefaultWhatsApp";
 import Ticket from "../models/Ticket";

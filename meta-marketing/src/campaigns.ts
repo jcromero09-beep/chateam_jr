@@ -61,9 +61,12 @@ export class CampaignManager {
       fields: (fields || defaultFields).join(','),
     });
 
-    return response.data[0];
+    return (response as any)?.data?.[0] ?? (response as any);
   }
 
+  // OJO: los POST de creacion devuelven {"id":"..."} directamente, no {data:[...]}.
+  // Acceder con response.data[0] lanza TypeError *despues* de que Meta ya creo el
+  // objeto => queda huerfano en la cuenta. Siempre acceso opcional aqui.
   async createCampaign(accountId: string, campaignData: {
     name: string;
     objective: string;
@@ -88,7 +91,7 @@ export class CampaignManager {
     };
 
     const response = await this.client.post<{ id: string }>(`/act_${accountId}/campaigns`, data);
-    const campaignId = response.data[0]?.id || response.id;
+    const campaignId = (response as any)?.data?.[0]?.id || (response as any)?.id;
 
     if (!campaignId) {
       throw new Error('Failed to create campaign: no ID returned from API');
@@ -137,7 +140,10 @@ export class CampaignManager {
     const defaultFields = [
       'id', 'name', 'campaign_id', 'status', 'created_time', 'updated_time',
       'start_time', 'end_time', 'daily_budget', 'lifetime_budget',
-      'optimization_goal', 'billing_event', 'targeting'
+      'optimization_goal', 'billing_event', 'targeting',
+      // [Fase2·D3.1] Sin estos, graduar un ganador CTWA lo clonaba como trafico
+      // normal (destination_type se perdia): la campaña de escalado no abriria WhatsApp.
+      'destination_type', 'promoted_object'
     ];
 
     const fields = options?.fields || defaultFields;
@@ -178,6 +184,10 @@ export class CampaignManager {
     end_time?: string;
     targeting: any;
     status?: 'ACTIVE' | 'PAUSED';
+    // [Fase2·D1.1] Necesarios para Click-to-WhatsApp: sin destination_type=WHATSAPP
+    // y promoted_object.page_id, Meta rechaza el adset o lo crea como trafico normal.
+    destination_type?: string;
+    promoted_object?: { page_id?: string; whatsapp_phone_number?: string; [k: string]: any };
   }): Promise<AdSet> {
     const data = {
       name: adsetData.name,
@@ -191,13 +201,15 @@ export class CampaignManager {
       ...adsetData.lifetime_budget && { lifetime_budget: adsetData.lifetime_budget },
       ...adsetData.start_time && { start_time: adsetData.start_time },
       ...adsetData.end_time && { end_time: adsetData.end_time },
+      ...adsetData.destination_type && { destination_type: adsetData.destination_type },
+      ...adsetData.promoted_object && { promoted_object: adsetData.promoted_object },
     };
 
     const campaign = await this.getCampaign(campaignId);
     const accountId = campaign.account_id;
 
     const response = await this.client.post<{ id: string }>(`/act_${accountId}/adsets`, data);
-    const adsetId = response.data[0]?.id || response.id;
+    const adsetId = (response as any)?.data?.[0]?.id || (response as any)?.id;
 
     if (!adsetId) {
       throw new Error('Failed to create ad set: no ID returned from API');
@@ -210,14 +222,22 @@ export class CampaignManager {
     const defaultFields = [
       'id', 'name', 'campaign_id', 'status', 'created_time', 'updated_time',
       'start_time', 'end_time', 'daily_budget', 'lifetime_budget',
-      'optimization_goal', 'billing_event', 'targeting'
+      'optimization_goal', 'billing_event', 'targeting',
+      // [Fase2·D1.1] Sin estos campos no se puede distinguir un adset CTWA de uno
+      // de trafico normal: son lo unico que diferencia "abre WhatsApp" de "abre un link".
+      'destination_type', 'promoted_object',
+      // [Fase2·D4.1] learning_stage_info lo reporta la PROPIA Meta: status
+      // (LEARNING / SUCCESS / LEARNING_LIMITED) y last_sig_edit_ts, la marca de la
+      // ultima edicion significativa (la que reinicia el aprendizaje). Sin esto
+      // habria que adivinar la fase; con esto se pregunta a la fuente.
+      'learning_stage_info'
     ];
 
     const response = await this.client.get<AdSet>(`/${adsetId}`, {
       fields: (fields || defaultFields).join(','),
     });
 
-    return response.data[0];
+    return (response as any)?.data?.[0] ?? (response as any);
   }
 
   async updateAdSet(adsetId: string, updates: {
@@ -268,7 +288,7 @@ export class CampaignManager {
     };
 
     const response = await this.client.post<{ id: string }>(`/act_${accountId}/ads`, data);
-    const adId = response.data[0]?.id || response.id;
+    const adId = (response as any)?.data?.[0]?.id || (response as any)?.id;
 
     if (!adId) {
       throw new Error('Failed to create ad: no ID returned from API');
@@ -287,7 +307,7 @@ export class CampaignManager {
       fields: (fields || defaultFields).join(','),
     });
 
-    return response.data[0];
+    return (response as any)?.data?.[0] ?? (response as any);
   }
 
   async updateAd(adId: string, updates: {

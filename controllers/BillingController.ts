@@ -33,7 +33,7 @@ export class BillingController {
         // Crear customer en Stripe
         const customerResult = await this.stripeService.createCustomer({
           name: req.tenant?.name || 'Company',
-          email: (req as any).user?.email || 'admin@company.com',
+          email: req.user?.email || 'admin@company.com',
           metadata: { company_id: companyId.toString() }
         });
 
@@ -288,7 +288,7 @@ export class BillingController {
     try {
       const { invoiceId, amountCents, reason, description } = req.body;
       const companyId = req.tenant?.id || 1;
-      const userId = (req as any).user?.id || 1;
+      const userId = req.user?.id || 1;
 
       if (!invoiceId) {
         res.status(400).json({ error: 'invoiceId is required' });

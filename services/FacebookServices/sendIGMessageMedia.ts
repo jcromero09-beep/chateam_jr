@@ -31,7 +31,6 @@ export const sendFacebookMessageMedia = async ({
   body
 }: Request): Promise<any> => {
   try {
-  //  console.log('sendig', media)
     const type = typeAttachment(media);
     console.log('type', type)
     const url = `${process.env.BACKEND_URL}/public/company${ticket.companyId}/${media.filename}`

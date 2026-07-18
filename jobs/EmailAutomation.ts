@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 /**
  * Job: EmailAutomation
  * Worker que procesa automatizaciones de email marketing.

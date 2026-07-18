@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import logger from '../../../utils/logger';
 import EmailProviderConfig from '../../../models/EmailMarketing/EmailProviderConfig';
 import { BaseEmailProvider } from './BaseEmailProvider';
@@ -160,6 +164,28 @@ export class ProviderFactory {
       case 'carbonio':
       case 'smtp':
         return new CarbonioProvider(apiKey, apiSecret, config);
+
+      case 'listmonk': {
+        try {
+          const { ListmonkProvider } = require('./ListmonkProvider');
+          return new ListmonkProvider(apiKey, apiSecret, config);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          logger.error(`[ProviderFactory] Error cargando ListmonkProvider: ${msg}`);
+          throw new Error(`Listmonk no disponible: ${msg}`);
+        }
+      }
+
+      case 'acelle': {
+        try {
+          const { AcelleProvider } = require('./AcelleProvider');
+          return new AcelleProvider(apiKey, apiSecret, config);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          logger.error(`[ProviderFactory] Error cargando AcelleProvider: ${msg}`);
+          throw new Error(`Acelle no disponible: ${msg}`);
+        }
+      }
 
       default:
         logger.warn(`[ProviderFactory] Proveedor '${providerName}' no reconocido, usando Carbonio`);

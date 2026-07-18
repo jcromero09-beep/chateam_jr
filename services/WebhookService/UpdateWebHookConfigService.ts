@@ -11,7 +11,7 @@ const UpdateWebHookConfigService = async ({
   companyId,
   details,
   webhookId
-}: Request): Promise<String> => {
+}: Request): Promise<string> => {
   try {
 
     const webhookOld = await WebhookModel.findOne({

@@ -1,3 +1,13 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = dirname(currentFile);
+
 import { Job } from "bull";
 import * as XLSX from "xlsx";
 import { writeFileSync } from "fs";
@@ -38,7 +48,7 @@ export default {
       XLSX.utils.book_append_sheet(workbook, worksheet, "Contatos");
        
       // ✅ Usar el timestamp pasado desde el controller
-      const exportDir = path.resolve(__dirname, "..", "..", "..", "backend", "public", `company${companyId}`, "exportcontact");
+      const exportDir = path.resolve(currentDir, "..", "..", "..", "backend", "public", `company${companyId}`, "exportcontact");
       const filename = `export-contacts-${timestamp}.xlsx`; // ✅ Mismo timestamp
       const filepath = path.join(exportDir, filename);
        

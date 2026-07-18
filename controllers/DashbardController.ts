@@ -42,9 +42,18 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
+// [Seguridad C-1/S] `companyId` SIEMPRE del token, NUNCA del query string.
+// Antes se leía de req.query y la ruta no tenía isAuth => cualquiera sin token podía pedir
+// los reportes de cualquier empresa (fuga cross-tenant verificada). El query `companyId`
+// se ignora deliberadamente; el tenant lo decide el JWT.
 export const reportsUsers = async (req: Request, res: Response): Promise<Response> => {
 
-  const { initialDate, finalDate, companyId } = req.query as IndexQuery
+  if (!req.user || !req.user.companyId) {
+    return res.status(401).json({ error: "Usuario no autenticado o sin companyId" });
+  }
+
+  const { initialDate, finalDate } = req.query as IndexQuery
+  const { companyId } = req.user;
 
   const { data } = await TicketsAttendance({ initialDate, finalDate, companyId });
 
@@ -54,7 +63,12 @@ export const reportsUsers = async (req: Request, res: Response): Promise<Respons
 
 export const reportsDay = async (req: Request, res: Response): Promise<Response> => {
 
-  const { initialDate, finalDate, companyId } = req.query as IndexQuery
+  if (!req.user || !req.user.companyId) {
+    return res.status(401).json({ error: "Usuario no autenticado o sin companyId" });
+  }
+
+  const { initialDate, finalDate } = req.query as IndexQuery
+  const { companyId } = req.user;
 
   const { count, data } = await TicketsDayService({ initialDate, finalDate, companyId });
 

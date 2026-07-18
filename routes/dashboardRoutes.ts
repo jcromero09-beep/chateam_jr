@@ -6,8 +6,10 @@ import * as DashboardController from "../controllers/DashbardController";
 const routes = express.Router();
 
 routes.get("/dashboard", isAuth, DashboardController.index);
-routes.get("/dashboard/ticketsUsers", DashboardController.reportsUsers);
-routes.get("/dashboard/ticketsDay", DashboardController.reportsDay);
+// [Seguridad] Faltaba isAuth en estas dos: sin él no había req.user, el controlador caía al
+// `companyId` del query y devolvía datos de CUALQUIER empresa sin token (fuga verificada).
+routes.get("/dashboard/ticketsUsers", isAuth, DashboardController.reportsUsers);
+routes.get("/dashboard/ticketsDay", isAuth, DashboardController.reportsDay);
 routes.get("/dashboard/moments",isAuth, DashboardController.DashTicketsQueues);
 
 export default routes;

@@ -214,7 +214,8 @@ class UGCSocialPost extends Model<UGCSocialPost> {
   @BelongsTo(() => AgentIdentity)
   agentIdentity?: AgentIdentity;
 
-  // HasMany UGCPostComment se registra via lazy import
+  // OJO: NO hay HasMany UGCPostComment registrado (el "lazy import" nunca existio).
+  // Un include con alias "comments" fallaria con 500. Declararlo aqui si se necesita.
   // La relacion se declara en el init del modelo
 
   // --- Metodos auxiliares ---

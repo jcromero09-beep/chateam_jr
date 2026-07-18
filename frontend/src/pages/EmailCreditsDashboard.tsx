@@ -1,31 +1,17 @@
 import { useState, useEffect } from 'react'
+// [Fase2·G] Conservados como MUI Joy a propósito: no hay equivalente en el DS.
+import { CircularProgress, LinearProgress } from '@mui/joy'
 import {
-  Typography,
-  Stack,
-  Container,
-  Card,
-  CardContent,
-  Box,
-  Grid,
-  Button,
-  CircularProgress,
-  LinearProgress,
-  Chip,
-  Modal,
-  ModalDialog,
-  ModalClose,
-  DialogContent,
-  Alert
-} from '@mui/joy'
-import {
-  Email as EmailIcon,
-  CreditCard as CreditIcon,
-  Send as SendIcon,
-  Description as TemplateIcon,
-  Refresh as RefreshIcon,
-  Warning as WarningIcon,
-  ShoppingCart as BuyIcon
-} from '@mui/icons-material'
+  Envelope,
+  CreditCard,
+  PaperPlaneTilt,
+  FileText,
+  ArrowClockwise,
+  ShoppingCart,
+} from '@phosphor-icons/react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'react-toastify'
 import api from '../services/api'
 import CheckoutPage from '../components/CheckoutPage'
@@ -53,6 +39,69 @@ interface Invoice {
   queues: number
   planId?: number
   recurrence?: string
+}
+
+// Tarjeta de métrica con icono + subtítulo (StatTile no admite decorador ni caption).
+function MetricCard({
+  icon,
+  label,
+  value,
+  caption,
+  valueClassName,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  caption: string
+  valueClassName?: string
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <div className="flex items-center gap-2">
+        {icon}
+        <p className="text-sm text-muted-foreground">{label}</p>
+      </div>
+      <p
+        className={`mt-1.5 text-3xl font-semibold tracking-tight tabular-nums ${
+          valueClassName ?? 'text-foreground'
+        }`}
+      >
+        {value}
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{caption}</p>
+    </div>
+  )
+}
+
+// Tarjeta de plan (estado sin plan activo).
+function PlanCard({
+  name,
+  price,
+  features,
+}: {
+  name: string
+  price: string
+  features: string[]
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+      <h3 className="text-base font-semibold text-foreground">{name}</h3>
+      <p className="mt-2 text-3xl font-semibold tracking-tight text-primary">
+        {price}
+        <span className="ml-0.5 text-xs font-normal text-muted-foreground">/mes</span>
+      </p>
+      <ul className="mt-4 space-y-1.5">
+        {features.map((f) => (
+          <li key={f} className="flex items-start gap-1.5 text-sm text-foreground">
+            <span className="text-success-text" aria-hidden>
+              ✓
+            </span>
+            {f}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 export default function EmailCreditsDashboard() {
@@ -125,111 +174,88 @@ export default function EmailCreditsDashboard() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+      <div className="flex min-h-[400px] items-center justify-center">
         <CircularProgress />
-      </Box>
+      </div>
     )
   }
 
   if (!balance?.isActive) {
     return (
-      <Container maxWidth="xl">
-        <Stack spacing={3}>
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
           {/* Header */}
-          <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-            <Stack direction="row" spacing={2} alignItems="center">
-              <EmailIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-              <Box>
-                <Typography level="h2">Planes de Email</Typography>
-                <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                <Envelope className="size-6" weight="fill" aria-hidden />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Planes de Email
+                </h1>
+                <p className="text-sm text-muted-foreground">
                   Adquiere un plan para enviar campañas de email
-                </Typography>
-              </Box>
-            </Stack>
-          </Stack>
+                </p>
+              </div>
+            </div>
+          </div>
 
           {/* No Active Plan Card */}
-          <Card>
-            <CardContent>
-              <Stack spacing={3} alignItems="center" sx={{ py: 6 }}>
-                <EmailIcon sx={{ fontSize: 80, color: 'neutral' }} />
-                <Typography level="h3">No tienes un plan de email activo</Typography>
-                <Typography level="body-md" sx={{ color: 'neutral', textAlign: 'center', maxWidth: 500 }}>
-                  Adquiere un plan de email para comenzar a enviar campañas,
-                  gestionar plantillas y más.
-                </Typography>
-                <Button
-                  size="lg"
-                  color="primary"
-                  startDecorator={<BuyIcon />}
-                  onClick={handleBuyPlan}
-                >
-                  Adquirir Plan de Email
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm shadow-black/[0.02]">
+            <div className="flex flex-col items-center gap-4 py-12 text-center">
+              <Envelope className="size-20 text-muted-foreground" aria-hidden />
+              <h2 className="text-xl font-semibold text-foreground">
+                No tienes un plan de email activo
+              </h2>
+              <p className="max-w-[500px] text-sm text-muted-foreground">
+                Adquiere un plan de email para comenzar a enviar campañas,
+                gestionar plantillas y más.
+              </p>
+              <Button size="lg" onClick={handleBuyPlan}>
+                <ShoppingCart className="size-5" aria-hidden />
+                Adquirir Plan de Email
+              </Button>
+            </div>
+          </div>
 
           {/* Plans Info */}
-          <Grid container spacing={2}>
-            <Grid xs={12} md={4}>
-              <Card>
-                <CardContent>
-                  <Typography level="h4" sx={{ mb: 2 }}>Email Básico</Typography>
-                  <Typography level="h2" color="primary">$9.99<Typography level="body-xs">/mes</Typography></Typography>
-                  <Stack spacing={1} sx={{ mt: 2 }}>
-                    <Typography level="body-sm">✓ 100 créditos/mes</Typography>
-                    <Typography level="body-sm">✓ 50 envíos/día</Typography>
-                    <Typography level="body-sm">✓ 5 plantillas</Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid xs={12} md={4}>
-              <Card>
-                <CardContent>
-                  <Typography level="h4" sx={{ mb: 2 }}>Email Profesional</Typography>
-                  <Typography level="h2" color="primary">$29.99<Typography level="body-xs">/mes</Typography></Typography>
-                  <Stack spacing={1} sx={{ mt: 2 }}>
-                    <Typography level="body-sm">✓ 500 créditos/mes</Typography>
-                    <Typography level="body-sm">✓ 200 envíos/día</Typography>
-                    <Typography level="body-sm">✓ 20 plantillas</Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid xs={12} md={4}>
-              <Card>
-                <CardContent>
-                  <Typography level="h4" sx={{ mb: 2 }}>Email Enterprise</Typography>
-                  <Typography level="h2" color="primary">$99.99<Typography level="body-xs">/mes</Typography></Typography>
-                  <Stack spacing={1} sx={{ mt: 2 }}>
-                    <Typography level="body-sm">✓ 2000 créditos/mes</Typography>
-                    <Typography level="body-sm">✓ 1000 envíos/día</Typography>
-                    <Typography level="body-sm">✓ 100 plantillas</Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+          <div className="grid gap-4 md:grid-cols-3">
+            <PlanCard
+              name="Email Básico"
+              price="$9.99"
+              features={['100 créditos/mes', '50 envíos/día', '5 plantillas']}
+            />
+            <PlanCard
+              name="Email Profesional"
+              price="$29.99"
+              features={['500 créditos/mes', '200 envíos/día', '20 plantillas']}
+            />
+            <PlanCard
+              name="Email Enterprise"
+              price="$99.99"
+              features={['2000 créditos/mes', '1000 envíos/día', '100 plantillas']}
+            />
+          </div>
 
           {/* Checkout Modal */}
-          <Modal open={checkoutOpen} onClose={() => setCheckoutOpen(false)}>
-            <ModalDialog sx={{ minWidth: { xs: '95vw', md: 800 }, maxWidth: '95vw', maxHeight: '95vh', overflow: 'auto', p: 3 }}>
-              <ModalClose />
-              <DialogContent sx={{ overflow: 'visible' }}>
-                {invoice && (
-                  <CheckoutPage
-                    invoice={invoice}
-                    onClose={() => setCheckoutOpen(false)}
-                    onSuccess={handleCheckoutSuccess}
-                  />
-                )}
-              </DialogContent>
-            </ModalDialog>
-          </Modal>
-        </Stack>
-      </Container>
+          <Dialog open={checkoutOpen} onOpenChange={(open) => !open && setCheckoutOpen(false)}>
+            <DialogContent
+              className="w-[calc(100%-2rem)] max-w-[900px] max-h-[95dvh]"
+              aria-describedby={undefined}
+            >
+              <DialogTitle className="sr-only">Adquirir plan de email</DialogTitle>
+              {invoice && (
+                <CheckoutPage
+                  invoice={invoice}
+                  onClose={() => setCheckoutOpen(false)}
+                  onSuccess={handleCheckoutSuccess}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
     )
   }
 
@@ -239,136 +265,114 @@ export default function EmailCreditsDashboard() {
     : 0
 
   return (
-    <Container maxWidth="xl">
-      <Stack spacing={3}>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-6 lg:p-8">
         {/* Header */}
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <EmailIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-            <Box>
-              <Typography level="h2">Mis Créditos de Email</Typography>
-              <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+              <Envelope className="size-6" weight="fill" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Mis Créditos de Email
+              </h1>
+              <p className="text-sm text-muted-foreground">
                 Plan: {balance.planName || 'Sin plan'}
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <Button variant="outlined" startDecorator={<RefreshIcon />} onClick={fetchData}>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <ArrowClockwise className="size-4" aria-hidden />
               Actualizar
             </Button>
-            <Button color="primary" startDecorator={<BuyIcon />} onClick={handleBuyPlan}>
+            <Button size="sm" onClick={handleBuyPlan}>
+              <ShoppingCart className="size-4" aria-hidden />
               Cambiar Plan
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </div>
 
         {/* Stats Cards */}
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                  <CreditIcon color="primary" />
-                  <Typography level="body-sm">Créditos Totales</Typography>
-                </Stack>
-                <Typography level="h2">{balance.emailCreditsTotal}</Typography>
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>por ciclo</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                  <SendIcon color="success" />
-                  <Typography level="body-sm">Créditos Usados</Typography>
-                </Stack>
-                <Typography level="h2" color="success">{balance.emailCreditsUsed}</Typography>
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>este ciclo</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                  <EmailIcon color="warning" />
-                  <Typography level="body-sm">Créditos Restantes</Typography>
-                </Stack>
-                <Typography level="h2" color="warning">{balance.remainingCredits}</Typography>
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>disponibles</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                  <TemplateIcon color="info" />
-                  <Typography level="body-sm">Próximo Reset</Typography>
-                </Stack>
-                <Typography level="h4">{formatDate(balance.dueDate)}</Typography>
-                <Typography level="body-xs" sx={{ color: 'text.secondary' }}>fecha de facturación</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            icon={<CreditCard className="size-5 text-primary" aria-hidden />}
+            label="Créditos Totales"
+            value={String(balance.emailCreditsTotal)}
+            caption="por ciclo"
+          />
+          <MetricCard
+            icon={<PaperPlaneTilt className="size-5 text-success-text" aria-hidden />}
+            label="Créditos Usados"
+            value={String(balance.emailCreditsUsed)}
+            caption="este ciclo"
+            valueClassName="text-success-text"
+          />
+          <MetricCard
+            icon={<Envelope className="size-5 text-warning-text" aria-hidden />}
+            label="Créditos Restantes"
+            value={String(balance.remainingCredits)}
+            caption="disponibles"
+            valueClassName="text-warning-text"
+          />
+          <MetricCard
+            icon={<FileText className="size-5 text-primary" aria-hidden />}
+            label="Próximo Reset"
+            value={formatDate(balance.dueDate)}
+            caption="fecha de facturación"
+            valueClassName="text-foreground text-xl"
+          />
+        </div>
 
         {/* Usage Progress */}
-        <Card>
-          <CardContent>
-            <Typography level="h4" sx={{ mb: 2 }}>Uso del Ciclo Actual</Typography>
-            <Stack spacing={3}>
-              <Box>
-                <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-                  <Typography level="body-md">
-                    <strong>{balance.emailCreditsUsed}</strong> / {balance.emailCreditsTotal} créditos usados
-                  </Typography>
-                  <Chip size="sm" color={percentage > 80 ? 'warning' : 'success'}>
-                    {percentage}%
-                  </Chip>
-                </Stack>
-                <LinearProgress
-                  determinate
-                  value={percentage}
-                  color={percentage > 80 ? 'warning' : 'success'}
-                  sx={{ height: 10, borderRadius: 5 }}
-                />
-              </Box>
-            </Stack>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-base font-semibold text-foreground">
+            Uso del Ciclo Actual
+          </h2>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-sm text-foreground">
+              <strong className="font-semibold tabular-nums">{balance.emailCreditsUsed}</strong>
+              {' / '}
+              <span className="tabular-nums">{balance.emailCreditsTotal}</span> créditos usados
+            </p>
+            <Badge variant={percentage > 80 ? 'warning' : 'success'}>{percentage}%</Badge>
+          </div>
+          <LinearProgress
+            determinate
+            value={percentage}
+            color={percentage > 80 ? 'warning' : 'success'}
+            sx={{ height: 10, borderRadius: 5 }}
+          />
+        </div>
 
         {/* Limits */}
-        <Card>
-          <CardContent>
-            <Typography level="h4" sx={{ mb: 2 }}>Límites del Plan</Typography>
-            <Grid container spacing={2}>
-              <Grid xs={6} md={4}>
-                <Stack spacing={1}>
-                  <Typography level="body-xs" sx={{ color: 'text.secondary' }}>Envíos por día</Typography>
-                  <Typography level="h3">{balance.maxEmailSendsPerDay}</Typography>
-                </Stack>
-              </Grid>
-              <Grid xs={6} md={4}>
-                <Stack spacing={1}>
-                  <Typography level="body-xs" sx={{ color: 'text.secondary' }}>Plantillas disponibles</Typography>
-                  <Typography level="h3">{balance.maxTemplates}</Typography>
-                </Stack>
-              </Grid>
-              <Grid xs={6} md={4}>
-                <Stack spacing={1}>
-                  <Typography level="body-xs" sx={{ color: 'text.secondary' }}>Próximo ciclo</Typography>
-                  <Typography level="h3">{formatDate(balance.dueDate)}</Typography>
-                </Stack>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-      </Stack>
-    </Container>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm shadow-black/[0.02]">
+          <h2 className="mb-4 text-base font-semibold text-foreground">
+            Límites del Plan
+          </h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Envíos por día</p>
+              <p className="text-xl font-semibold tracking-tight tabular-nums text-foreground">
+                {balance.maxEmailSendsPerDay}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Plantillas disponibles</p>
+              <p className="text-xl font-semibold tracking-tight tabular-nums text-foreground">
+                {balance.maxTemplates}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Próximo ciclo</p>
+              <p className="text-xl font-semibold tracking-tight text-foreground">
+                {formatDate(balance.dueDate)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

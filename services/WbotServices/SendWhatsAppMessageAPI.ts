@@ -1,4 +1,4 @@
-import { delay, WAMessage } from "@whiskeysockets/baileys";
+import { delay, WAMessage } from "baileys";
 import * as Sentry from "@sentry/node";
 import AppError from "../../errors/AppError";
 import GetTicketWbot from "../../helpers/GetTicketWbot";
@@ -8,6 +8,7 @@ import Ticket from "../../models/Ticket";
 import formatBody from "../../helpers/Mustache";
 import Contact from "../../models/Contact";
 import { getWbot } from "../../libs/wbot";
+import ResolveOutboundJid from "./ResolveOutboundJid";
 
 interface Request {
   body: string;
@@ -15,6 +16,7 @@ interface Request {
   contact: Contact;
   quotedMsg?: Message;
   msdelay?: number;
+  wbot?: any;
 }
 
 const SendWhatsAppMessage = async ({
@@ -22,11 +24,16 @@ const SendWhatsAppMessage = async ({
   whatsappId,
   contact,
   quotedMsg,
-  msdelay
+  msdelay,
+  wbot: resolvedWbot
 }: Request): Promise<WAMessage> => {
   let options = {};
-  const wbot = await getWbot(whatsappId);
-  const number = `${contact.number}@${contact.isGroup ? "g.us" : "s.whatsapp.net"}`;
+  const wbot = resolvedWbot || await getWbot(whatsappId);
+  const number = await ResolveOutboundJid({
+    wbot,
+    contact,
+    isGroup: contact.isGroup
+  });
 
   if (quotedMsg) {
     const chatMessages = await Message.findOne({

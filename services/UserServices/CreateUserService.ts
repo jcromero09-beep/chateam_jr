@@ -27,6 +27,7 @@ interface Request {
   defaultTicketsManagerWidth?: number;
   allowRealTime?: string;
   allowConnections?: string;
+  notifyNewAppointments?: boolean;
 }
 
 interface Response {
@@ -56,7 +57,8 @@ const CreateUserService = async ({
   showDashboard,
   defaultTicketsManagerWidth = 550,
   allowRealTime,
-  allowConnections
+  allowConnections,
+  notifyNewAppointments
 }: Request): Promise<Response> => {
   if (companyId !== undefined) {
     const company = await Company.findOne({
@@ -73,9 +75,11 @@ const CreateUserService = async ({
         }
       });
 
-      if (usersCount >= company.plan.users) {
+      // [Fase3·N2.0] Enforcement de asientos por plan. users<=0 => sin límite configurado.
+      if (company.plan.users > 0 && usersCount >= company.plan.users) {
         throw new AppError(
-          `Número máximo de usuários já alcançado: ${usersCount}`
+          `ERR_SEAT_LIMIT: límite de usuarios del plan alcanzado (${usersCount}/${company.plan.users})`,
+          409
         );
       }
     }
@@ -127,14 +131,36 @@ const CreateUserService = async ({
       showDashboard,
       defaultTicketsManagerWidth,
       allowRealTime,
-      allowConnections
-    },
+      allowConnections,
+      notifyNewAppointments
+    } as any,
     { include: ["queues", "company"] }
   );
 
   await user.$set("queues", queueIds);
 
   await user.reload();
+
+  // [Multi-empresa] Crear la membresía del usuario en su empresa home, para que
+  // los usuarios nuevos sean consistentes con el modelo CompanyUsers (selector
+  // de empresa, switch, roles por empresa). Idempotente y no bloqueante.
+  if (companyId) {
+    try {
+      const CompanyUser = (await import("../../models/CompanyUser")).default;
+      await CompanyUser.findOrCreate({
+        where: { userId: user.id, companyId },
+        defaults: {
+          userId: user.id,
+          companyId,
+          profile: profile || "user",
+          roleId: (user as any).roleId ?? null,
+          active: true
+        } as any
+      });
+    } catch {
+      /* no romper la creación del usuario si falla la membresía */
+    }
+  }
 
   const serializedUser = SerializeUser(user);
 

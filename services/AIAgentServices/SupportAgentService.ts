@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 import RAGAgentService from "./RAGAgentService";
 import { selectModel } from "./ModelRouterService";
 import AgentLogService from "./AgentLogService";
@@ -56,7 +60,7 @@ const processRequest = async (
 
   // 1. Seleccionar modelo (mini para soporte general, full para diagnóstico complejo)
   const modelSelection = await selectModel('support', input);
-  const modelKey = modelSelection?.entity.key || 'gpt-4.1-mini';
+  const modelKey = modelSelection?.entity.key || 'gpt-5.5';
 
   // 2. Buscar información relevante en KB vía RAG
   let ragContext = '';
