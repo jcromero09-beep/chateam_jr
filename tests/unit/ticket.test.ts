@@ -5,6 +5,8 @@ import ShowContactService from '../../services/ContactServices/ShowContactServic
 import GetDefaultWhatsApp from '../../helpers/GetDefaultWhatsApp';
 import GetDefaultWhatsAppByUser from '../../helpers/GetDefaultWhatsAppByUser';
 import CheckContactOpenTickets from '../../helpers/CheckContactOpenTickets';
+import ShowWhatsAppService from '../../services/WhatsappService/ShowWhatsAppService';
+import ShowTicketService from '../../services/TicketServices/ShowTicketService';
 
 // Mock dependencies
 jest.mock('../../models/Ticket');
@@ -12,9 +14,17 @@ jest.mock('../../services/ContactServices/ShowContactService');
 jest.mock('../../helpers/GetDefaultWhatsApp');
 jest.mock('../../helpers/GetDefaultWhatsAppByUser');
 jest.mock('../../helpers/CheckContactOpenTickets');
-jest.mock('../../libs/socket');
+// socket con getIO funcional (CreateTicketService hace io.of(companyId).emit(...) al final).
+jest.mock('../../libs/socket', () => ({
+  getIO: jest.fn(() => ({ of: jest.fn(() => ({ emit: jest.fn() })) })),
+}));
 jest.mock('../../services/TicketServices/ShowTicketService');
 jest.mock('../../services/TicketServices/CreateLogTicketService');
+// Deps que CreateTicketService adquirió al evolucionar y el test no mockeaba (drift):
+// ShowWhatsAppService (si se pasa whatsappId), + reglas de automatización y notificación [Fase E].
+jest.mock('../../services/WhatsappService/ShowWhatsAppService');
+jest.mock('../../services/AutomationServices/RunTicketAutomationRules');
+jest.mock('../../services/NotificationServices/NotifyTicketEventService');
 
 describe('CreateTicketService - Ticket Creation Tests', () => {
   const mockWhatsApp = {
@@ -44,6 +54,16 @@ describe('CreateTicketService - Ticket Creation Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (ShowWhatsAppService as jest.MockedFunction<typeof ShowWhatsAppService>).mockResolvedValue(mockWhatsApp as any);
+    // CreateTicketService recarga el ticket vía ShowTicketService(id) y usa .reload()/.setDataValue();
+    // devolvemos un ticket-like a partir del create mockeado para que el flujo complete.
+    (ShowTicketService as jest.MockedFunction<typeof ShowTicketService>).mockImplementation(
+      (async (id: number) => ({
+        id,
+        reload: jest.fn().mockResolvedValue(undefined),
+        setDataValue: jest.fn(),
+      })) as any
+    );
   });
 
   test('should create ticket successfully with valid data', async () => {
@@ -231,8 +251,11 @@ describe('CreateTicketService - Ticket Creation Tests', () => {
       whatsappId: '1'
     });
 
-    // Assert
-    expect(mockCheckContactOpenTickets).toHaveBeenCalledWith(1, '1', 1);
+    // Assert: el dedup ya NO usa CheckContactOpenTickets — CreateTicketService busca inline con
+    // Ticket.findOne (contactId+companyId+whatsappId, status abierto) antes de crear. Se verifica eso.
+    expect(Ticket.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ contactId: 1, companyId: 1 }) })
+    );
   });
 
   test('should inherit channel from whatsapp connection', async () => {
@@ -241,6 +264,9 @@ describe('CreateTicketService - Ticket Creation Tests', () => {
 
     const mockGetDefaultWhatsAppByUser = GetDefaultWhatsAppByUser as jest.MockedFunction<typeof GetDefaultWhatsAppByUser>;
     mockGetDefaultWhatsAppByUser.mockResolvedValue(telegramWhatsApp as any);
+    // Se pasa whatsappId → CreateTicketService toma la conexión de ShowWhatsAppService (no del helper),
+    // así que el canal telegram debe venir de ahí (si no, el default del beforeEach lo pisaría).
+    (ShowWhatsAppService as jest.MockedFunction<typeof ShowWhatsAppService>).mockResolvedValue(telegramWhatsApp as any);
 
     const mockShowContactService = ShowContactService as jest.MockedFunction<typeof ShowContactService>;
     mockShowContactService.mockResolvedValue(mockContact as any);
