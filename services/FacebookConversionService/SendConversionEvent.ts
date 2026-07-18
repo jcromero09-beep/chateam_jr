@@ -450,12 +450,22 @@ const SendConversionEvent = async (data: SendConversionEventData): Promise<Faceb
         responseStatus: "pending"
     });
 
+    // [I7/AC9] test_event_code JAMÁS en producción: los eventos de prueba van a "Test Events" y
+    // NO cuentan para campañas (verde en logs, ficticio en Meta). Gate por entorno en el punto único de envío.
+    const effectiveTestEventCode =
+        process.env.NODE_ENV === "production" ? undefined : testEventCode;
+    if (process.env.NODE_ENV === "production" && testEventCode) {
+        console.warn(
+            `[CAPI][I7] test_event_code descartado en producción (company=${companyId}, event=${eventName})`
+        );
+    }
+
     // 10. Send to Facebook Conversions API
     try {
         const response = await metaClient.conversions.sendEvent(
             destinationId,
             conversionEvent,
-            testEventCode
+            effectiveTestEventCode
         );
 
         // Update event as successful
