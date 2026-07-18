@@ -100,8 +100,14 @@ export function getFallbackMetaRecommendation(
   name: string,
   key?: string
 ): MetaConversionRecommendation {
-  const lower = `${name} ${key || ""}`.toLowerCase();
+  // Normaliza tildes: 'Interés' → 'interes' para que matchee la rama /interes/ (y no caiga al default).
+  const lower = `${name} ${key || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, ""); // combining diacritics (post-NFD)
 
+  // Default (etapa sin keyword reconocida) queda en LeadSubmitted; solo el tier de entrada/interés
+  // pasa a Contact (decisión JC 2026-07-18, cambio quirúrgico — ver la rama /interes/ abajo).
   let eventName = "LeadSubmitted";
   let leadStatus = "interest";
   let eventType = "LEAD";
@@ -123,7 +129,9 @@ export function getFallbackMetaRecommendation(
     leadStatus = "registered";
     eventType = "COMPLETE_REGISTRATION";
   } else if (/(interes|atrac|nuevo|lead|contacto)/.test(lower)) {
-    eventName = "LeadSubmitted";
+    // Decisión JC (2026-07-18): tier de ENTRADA/interés → Meta `Contact` (antes "LeadSubmitted").
+    // Embudo escalonado: Contact(interés) → Lead(calificado) → Schedule → CompleteRegistration → Purchase.
+    eventName = "Contact";
     leadStatus = "interest";
     eventType = "LEAD";
   }
