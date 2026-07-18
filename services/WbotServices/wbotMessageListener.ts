@@ -4773,6 +4773,36 @@ const checkInboundDedupe = async (
   return { drop: false, ledgerEntryId: ledger.id };
 };
 
+const recordCoexistenceBinding = async (params: {
+  coexConversationId: any; companyId: number; contact: any; whatsapp: any;
+  msg: proto.IWebMessageInfo; coexCanonicalNumber: any; ticket: any;
+}): Promise<void> => {
+  // [Tier 11] Slice in-situ: binding de conversacion unificada (side-effects, defensa en profundidad).
+  const { coexConversationId, companyId, contact, whatsapp, msg, coexCanonicalNumber, ticket } = params;
+  try {
+    if (coexConversationId) {
+      await ConversationResolverService.upsertBinding({
+        conversationId: coexConversationId,
+        companyId,
+        contactId: (contact as any).id,
+        whatsappId: (whatsapp as any)?.id ?? null,
+        provider: "baileys",
+        providerIdentifier: msg.key.remoteJid || coexCanonicalNumber || ""
+      });
+      await ConversationResolverService.recordInbound(coexConversationId, "baileys");
+      if (!(ticket as any).conversationId) {
+        try {
+          await (ticket as any).update({ conversationId: coexConversationId, inboundChannelHint: "baileys" });
+        } catch (linkErr: any) {
+          logError(`[Baileys] no se pudo enlazar ticket ${ticket.id} con conversacion: ${linkErr?.message}`);
+        }
+      }
+    }
+  } catch (convErr: any) {
+    logError(`[Baileys] error en upsertBinding/recordInbound: ${convErr?.message}`);
+  }
+};
+
 const handleMessage = async (
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -4993,37 +5023,7 @@ const handleMessage = async (
     // FASE 3 Coexistencia — upsertBinding + recordInbound (defensa en profundidad).
     // El ticket ya quedó persistido con conversationId en Find/Create; aquí sólo
     // mantenemos los side effects que NO modifican el ticket (binding + last channel).
-    try {
-      if (coexConversationId) {
-        await ConversationResolverService.upsertBinding({
-          conversationId: coexConversationId,
-          companyId,
-          contactId: (contact as any).id,
-          whatsappId: (whatsapp as any)?.id ?? null,
-          provider: "baileys",
-          providerIdentifier: msg.key.remoteJid || coexCanonicalNumber || ""
-        });
-        await ConversationResolverService.recordInbound(
-          coexConversationId,
-          "baileys"
-        );
-        // Fallback: si por alguna razón el ticket no quedó enlazado (lookup legacy
-        // golpeó un ticket pre-coexistencia), lo enlazamos ahora idempotentemente.
-        if (!(ticket as any).conversationId) {
-          try {
-            await (ticket as any).update({
-              conversationId: coexConversationId,
-              inboundChannelHint: "baileys"
-            });
-          } catch (linkErr: any) {
-            logError(`[Baileys] ⚠️  No se pudo enlazar ticket ${ticket.id} con conversación: ${linkErr?.message}`);
-          }
-        }
-      }
-    } catch (convErr: any) {
-      logError(`[Baileys] ⚠️  Error en upsertBinding/recordInbound: ${convErr?.message}`);
-      // Silencioso: no bloquear flujo legacy.
-    }
+    await recordCoexistenceBinding({ coexConversationId, companyId, contact, whatsapp, msg, coexCanonicalNumber, ticket });
 
     // FASE 1 Coexistencia — log estructurado de inbound Baileys
     updateTraceContext({ ticketId: ticket.id });

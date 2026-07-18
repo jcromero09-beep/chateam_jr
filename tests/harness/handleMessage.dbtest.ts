@@ -88,4 +88,7 @@ describe("handleMessage (characterization DB)", () => {
     await handleMessage(fixtures.imageWithCaption(), { id: (whatsapp as any).id } as any, (company as any).id);
     expect(await Message.count({ where: { companyId: (company as any).id } })).toBe(1);
   });
+
+  // TODO campaña: el fixture externalAdReply necesita thumbnail (si no, getBodyMessage→undefined→
+  // body null viola NOT NULL). Requiere fixture más completo. Diferido.
 });

@@ -88,6 +88,18 @@ export const fixtures = {
   ciphertext: () => wrap({ senderKeyDistributionMessage: { groupId: "593000000000-123456@g.us" } }),
 
   fromMe: () => wrap({ conversation: "respuesta del agente" }, { fromMe: true }),
+
+  // Mensaje que viene de un anuncio (externalAdReply) → detección de campaña.
+  adCampaign: () =>
+    wrap({
+      extendedTextMessage: {
+        text: "Vi tu anuncio, me interesa",
+        contextInfo: {
+          externalAdReply: { title: "Oferta especial", body: "50% off", sourceUrl: "https://fb.com/ad/123", mediaType: 1 },
+          conversionSource: "FB_Ads",
+        },
+      },
+    }),
 };
 
 export type FixtureName = keyof typeof fixtures;
