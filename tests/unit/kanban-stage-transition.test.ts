@@ -58,6 +58,13 @@ jest.mock("../../services/FacebookConversionService/KanbanCustomConversionDispat
   __esModule: true,
   dispatchKanbanCustomConversionAsync: dispatchKanbanCustomConversionMock
 }));
+// triggerLeadConversionIfWanted gatea en shouldSendMetaConversion (política real → CompanyMetaConversionSetting
+// no inicializado en unit → fallback disabled → leadConversionQueued=false). Se mockea a enabled=true para
+// aislar el SUT de la política (los tests con triggerLeadConversion=false ni llegan a este gate).
+jest.mock("../../services/FacebookConversionService/MetaConversionPolicyService", () => ({
+  __esModule: true,
+  shouldSendMetaConversion: jest.fn(async () => ({ enabled: true }))
+}));
 
 // Carga el SUT después de configurar los mocks
 import KanbanStageTransitionService from "../../services/KanbanServices/KanbanStageTransitionService";
