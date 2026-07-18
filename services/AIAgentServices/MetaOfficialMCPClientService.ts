@@ -1,7 +1,3 @@
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-
 /**
  * MetaOfficialMCPClientService — Cliente MCP REAL para Meta Ads.
  *
@@ -29,11 +25,10 @@ import MetaOfficialMcpConnection, {
 } from "../../models/MetaOfficialMcpConnection";
 import CompaniesSettings from "../../models/CompaniesSettings";
 
-// SDK MCP — require dinámico para evitar problemas de moduleResolution con exports map
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { StreamableHTTPClientTransport } = require("@modelcontextprotocol/sdk/client/streamableHttp.js");
+// SDK MCP — import top-level (Recipe A, reemplaza el createRequire dinámico). El exports map del
+// paquete se resuelve con el moduleResolution del tsconfig (verificado con smoke-test tsx en prod).
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 // ---------------------------------------------------------------------------
 // Configuración (todo desde .env, NUNCA hardcoded)
