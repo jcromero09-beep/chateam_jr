@@ -89,6 +89,9 @@ describe("handleMessage (characterization DB)", () => {
     expect(await Message.count({ where: { companyId: (company as any).id } })).toBe(1);
   });
 
-  // TODO campaña: el fixture externalAdReply necesita thumbnail (si no, getBodyMessage→undefined→
-  // body null viola NOT NULL). Requiere fixture más completo. Diferido.
+  it("un mensaje de anuncio (externalAdReply) persiste + no rompe la detección de campaña", async () => {
+    const { company, whatsapp } = await seedTenant();
+    await handleMessage(fixtures.adCampaign(), { id: (whatsapp as any).id } as any, (company as any).id);
+    expect(await Message.count({ where: { companyId: (company as any).id } })).toBe(1);
+  });
 });

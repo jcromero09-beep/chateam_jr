@@ -95,7 +95,7 @@ export const fixtures = {
       extendedTextMessage: {
         text: "Vi tu anuncio, me interesa",
         contextInfo: {
-          externalAdReply: { title: "Oferta especial", body: "50% off", sourceUrl: "https://fb.com/ad/123", mediaType: 1 },
+          externalAdReply: { title: "Oferta especial", body: "50% off", sourceUrl: "https://fb.com/ad/123", mediaType: 1, thumbnail: Buffer.from([1, 2, 3]) },
           conversionSource: "FB_Ads",
         },
       },
