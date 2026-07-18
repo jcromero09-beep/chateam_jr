@@ -284,3 +284,16 @@ Pendiente: golden grupo/media, mas slices de handleMessage, verifyQueue (T10).
   clasificarEtapaCliente, OpenAi), NO el await atascado. Pinpointing = probes en handleMessage = tarea dedicada.
 - Verificado: harness no-DB **32/32**, harness DB **9 passed + 1 skip**. `makeWbot` (verifyQueue.dbtest)
   también de-thenabled (defensivo). El fix del stub es lo que desbloqueó el golden media.
+
+
+## ✅ verifyQueue VERDE (2026-07-18, commit 2c57988) — harness DB 10/10
+Cerrado el último golden aparcado. La causa del cuelgue de verifyQueue (2 colas) NO era el delay
+(ya resuelto) sino **UpdateTicketService await-eando colas Bull** (`stageClassifierQueue.add`, etc.)
+que colgaban esperando conexión Redis. **Fix real (no árbol de mocks):** el harness DB arranca un
+**Redis EFÍMERO en 6399** (`tests/harness/globalSetup.cjs`, aislado del de prod 5000, sin
+persistencia; `globalTeardown.cjs` lo mata) y `dbEnv` apunta `REDIS_URI` ahí → los `queue.add()`
+resuelven. verifyQueue lockea: 2 colas ⇒ 1er msg muestra menú (queueId null), "1" selecciona la 1ª.
+Gotchas: `makeWbot.sendMessage` devuelve mensaje realista (el callback debounced tardío pasa por
+verifyMessage y crasheaba con `{}`); flush de 1.5s para drenar `debounce(1000)`; `connection.dbtest`
+auto-aislado (jest ordena suites por duración → truncar antes de aseverar). **DB 10/10, no-DB 32/32.**
+El "pre-requisito innegociable" (golden de handleMessage + verifyQueue) está COMPLETO.
