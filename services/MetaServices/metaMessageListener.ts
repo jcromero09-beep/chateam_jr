@@ -63,6 +63,7 @@ import MetaMarketingService from "../MetaMarketingService";
 // Handlers de coexistencia (ya existen, solo faltaba importarlos)
 import { handleSmbMessageEchoes } from "./metaSmbMessageEchoesService";
 import { handleSmbAppStateSync } from "./metaSmbAppStateSyncService";
+import { handleHistorySync } from "./metaHistorySyncService"; // [CX-6] estaba huérfano: topic history se ignoraba
 // Handler de mensajes editados (type: "edit")
 import { processMetaMessageEdit } from "./processMetaMessageEdit";
 import { sendButtonResponseWebhook } from "./sendButtonResponseWebhook";
@@ -831,7 +832,19 @@ export const handleMetaWebhookMessage = async (body: any) => {
           continue;
         }
 
-        // Ignorar campos que no procesamos (account_update, security, history, etc.)
+        // [CX-6] Ingesta de historial (≤6 meses) de coexistencia. handleHistorySync ya deduplica por
+        // `wid` (Message.findOne) y usa find-or-create de contacto/ticket → idempotente (CX-B4/CX-G4).
+        if (change?.field === "history") {
+          logInfo(`[META] 📜 Webhook tipo history — delegando a handleHistorySync`);
+          try {
+            await handleHistorySync(entry, change.value);
+          } catch (histErr: any) {
+            logError(`[META] ❌ Error en handleHistorySync: ${histErr.message}`);
+          }
+          continue;
+        }
+
+        // Ignorar campos que no procesamos (account_update, security, etc.)
         if (change?.field !== "messages") continue;
 
         const value = change?.value;
