@@ -19,6 +19,17 @@ jest.mock("../../libs/cache", () => {
 jest.mock("../../queues", () => ({ campaignQueue: { add: jest.fn() }, parseToMilliseconds: jest.fn(() => 0), randomValue: jest.fn(() => 0) }));
 jest.mock("../../utils/coexistenceLogger", () => ({ __esModule: true, logInbound: jest.fn(), logOutbound: jest.fn(), logDedupe: jest.fn(), logRoute: jest.fn(), logFallback: jest.fn(), logLoopPrevent: jest.fn(), logAck: jest.fn(), logRetry: jest.fn(), logCoexError: jest.fn() }));
 jest.mock("@sentry/node", () => ({ setExtra: jest.fn(), captureException: jest.fn(), startTransaction: jest.fn() }));
+// Media: evitar escribir en public/ real. writeFile → no-op; existsSync miente (true) SOLO para
+// la carpeta public/companyX, así verifyMediaMessage NO hace mkdirSync/chmodSync. Todo lo demás
+// (pg, sequelize, pino) usa el fs real.
+jest.mock("fs/promises", () => ({ ...jest.requireActual("fs/promises"), writeFile: jest.fn(async () => {}) }));
+jest.mock("fs", () => {
+  const real = jest.requireActual("fs");
+  return {
+    ...real,
+    existsSync: (p: string) => (typeof p === "string" && /public[\\/]company/.test(p) ? true : real.existsSync(p)),
+  };
+});
 
 import sequelize from "../../database";
 import cacheLayer from "../../libs/cache";
@@ -81,12 +92,14 @@ describe("handleMessage (characterization DB)", () => {
     expect(await Ticket.count({ where: { companyId: (company as any).id } })).toBeGreaterThanOrEqual(1);
   });
 
-  // TODO media: verifyMediaMessage llama downloadMediaMessage (baileys) + guarda archivo →
-  // necesita stub de descarga que devuelva Buffer + evitar red/fs. Diferido (iteracion dedicada).
-  it.skip("una imagen con caption persiste el mensaje", async () => {
+  // Media: el stub de baileys ahora devuelve un Buffer real (downloadMediaMessage) y `delay` es
+  // no-op; los mocks de fs (arriba) evitan tocar public/. verifyMediaMessage persiste el mensaje.
+  it("una imagen con caption persiste el mensaje (mediaType=image)", async () => {
     const { company, whatsapp } = await seedTenant();
     await handleMessage(fixtures.imageWithCaption(), { id: (whatsapp as any).id } as any, (company as any).id);
-    expect(await Message.count({ where: { companyId: (company as any).id } })).toBe(1);
+    const msgs = await Message.findAll({ where: { companyId: (company as any).id } });
+    expect(msgs.length).toBe(1);
+    expect((msgs[0] as any).mediaType).toBe("image");
   });
 
   it("un mensaje de anuncio (externalAdReply) persiste + no rompe la detección de campaña", async () => {

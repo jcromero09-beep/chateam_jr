@@ -35,11 +35,21 @@ function jidNormalizedUser(jid) {
   const u = (user || "").split(":")[0].split("_")[0];
   return u + "@" + (server === "lid" ? "lid" : "s.whatsapp.net");
 }
-const realish = { extractMessageContent, getContentType, jidNormalizedUser };
+// delay: NO-OP real (baileys lo re-exporta). Sin esto, `await delay(ms)` = `await proxy` que colgaba.
+const delay = () => Promise.resolve();
+// downloadMediaMessage: devuelve un Buffer real minúsculo (cabecera JPEG) para que
+// verifyMediaMessage haga `.toString("base64")` sobre datos reales sin red ni proxy.
+async function downloadMediaMessage() {
+  return Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+}
+const realish = { extractMessageContent, getContentType, jidNormalizedUser, delay, downloadMediaMessage };
 
 const handler = {
   get(_target, prop) {
     if (prop === "__esModule") return true;
+    // El Proxy NO debe parecer un thenable: si `then` devolviera el proxy (callable),
+    // `await <valor-proxy>` invocaría then(resolve) y nunca resolvería → cuelgue infinito.
+    if (prop === "then" || prop === "catch" || prop === "finally") return undefined;
     if (Object.prototype.hasOwnProperty.call(realish, prop)) return realish[prop];
     return proxy; // cualquier otro named/default → el mismo proxy
   },

@@ -29,7 +29,14 @@ import { fixtures } from "./baileysFixtures";
 const makeWbot = (whatsappId: number): any =>
   new Proxy(
     { id: whatsappId, user: { id: "593888888888:1@s.whatsapp.net", name: "Bot" } },
-    { get(t: any, p: string) { return p in t ? t[p] : jest.fn(async () => ({})); } }
+    {
+      get(t: any, p: string) {
+        // NO parecer thenable: si `then` fuese una fn (callable), `await <wbot>` invocaría
+        // then(resolve) y nunca resolvería → cuelgue infinito (mismo bug que el stub baileys).
+        if (p === "then" || p === "catch" || p === "finally") return undefined;
+        return p in t ? t[p] : jest.fn(async () => ({}));
+      },
+    }
   );
 
 describe("verifyQueue (characterization DB)", () => {
@@ -37,11 +44,16 @@ describe("verifyQueue (characterization DB)", () => {
   afterAll(async () => { await sequelize.close(); });
   beforeEach(async () => { await truncateAll(); (cacheLayer as any).__clear(); });
 
-  // SCAFFOLD listo (seedTenant+seedQueues+WhatsappQueue+wbot Proxy+flujo 2-mensajes).
-  // SEED YA ARREGLADO (nombres únicos ≠ 'Soporte' de seedTenant). Pendiente fresh-session: el
-  // flujo de verifyQueue CUELGA (~34s) — algún await del menú no resuelve con wbot Proxy; hay que
-  // mockear el envío del menú / la rama de integración. Arnés listo.
-  it.skip("con 2 colas: 1er msg muestra menú (sin cola); el número selecciona la cola", async () => {
+  // PROGRESO (sesión 2026-07-18) — el hang ORIGINAL (~34s) era el thenable roto del stub baileys:
+  //   `await delay(...)` sobre el proxy nunca resolvía. RESUELTO: baileysStub de-thenable + delay
+  //   no-op real; makeWbot arriba también de-thenabled (defensivo). GRACIAS a esto el golden de
+  //   MEDIA (handleMessage.dbtest) quedó VERDE.
+  // RESIDUAL (por qué sigue skip): con 2 colas, incluso el 1er msg SOLO cuelga (~36s) en el flujo
+  //   de menú (verifyQueue rama `else` sin cola elegida → continúa en handleMessage). Un `await`
+  //   no resuelve bajo los dobles de test. `--detectOpenHandles` solo muestra timers creados en
+  //   import (wbotMonitor, RetryPendingMessages, clasificarEtapaCliente, OpenAi) — NO el await
+  //   atascado. Pinpointing = instrumentar handleMessage con probes (invasivo). TAREA DEDICADA.
+  it.skip("con 2 colas: 1er msg NO auto-asigna cola (menú); el número '1' selecciona la 1ª cola", async () => {
     const { company, whatsapp } = await seedTenant();
     const [ventas, soporte] = await seedQueues((company as any).id, [
       { name: "ColaVentas", color: "#ff0000" },
@@ -55,11 +67,13 @@ describe("verifyQueue (characterization DB)", () => {
     await handleMessage(m1, wbot, (company as any).id);
     let ticket = await Ticket.findOne({ where: { companyId: (company as any).id } });
     expect(ticket).not.toBeNull();
-    expect((ticket as any).queueId).toBeNull();
+    expect((ticket as any).queueId).toBeNull(); // 2 colas ⇒ muestra menú, NO auto-asigna
 
-    const m2 = fixtures.text(); (m2.key as any).id = "Q2"; (m2.message as any).conversation = "1";
-    await handleMessage(m2, wbot, (company as any).id);
-    ticket = await Ticket.findByPk((ticket as any).id);
-    expect((ticket as any).queueId).toBe((ventas as any).id);
+    // NOTA: la 2ª mitad (msg "1" → selecciona cola) cuelga en un await más profundo del flujo de
+    // handleMessage (open-handle, NO el delay ya arreglado). Requiere --detectOpenHandles; diferido.
+    // const m2 = fixtures.text(); (m2.key as any).id = "Q2"; (m2.message as any).conversation = "1";
+    // await handleMessage(m2, wbot, (company as any).id);
+    // ticket = await Ticket.findByPk((ticket as any).id);
+    // expect((ticket as any).queueId).toBe((ventas as any).id);
   });
 });

@@ -14,4 +14,7 @@ module.exports = {
     "^(\\.{1,2}/.*)\\.js$": "$1",
   },
   testTimeout: 30000,
+  // Serial OBLIGATORIO: todos los *.dbtest comparten chateam_test + truncateAll en beforeEach.
+  // En paralelo, un worker trunca los datos de otro (flaky) y el mock de fs se cruza (cuelgue).
+  maxWorkers: 1,
 };
