@@ -2,7 +2,7 @@ import axios from "axios";
 import crypto from "crypto";
 import { Request } from "express";
 import { parsePhoneNumberFromString, CountryCode } from "libphonenumber-js"; // [Fase2·B3.1] E.164 para EMQ
-import { GRAPH_API_VERSION } from "../../config/metaGraph"; // [Fase2·A2.1] fuente única versión
+import { GRAPH_API_VERSION, graphUrl } from "../../config/metaGraph"; // [Fase2·A2.1] fuente única versión
 import Company from "../../models/Company";
 import CompaniesSettings from "../../models/CompaniesSettings";
 import FacebookDataset from "../../models/FacebookDataset";
@@ -458,7 +458,7 @@ export const sendWebsiteConversionEvent = async ({
   };
 
   try {
-    const url = `https://graph.facebook.com/${getApiVersion()}/${destination.destinationId}/events`;
+    const url = graphUrl(`${destination.destinationId}/events`, getApiVersion()); // [AC2] vía helper único
 
     logger.info(
       `[FB-WEB-CAPI] Enviando ${eventName} | eventId=${eventId} | destination=${maskId(destination.destinationId)} | source=${destination.source} | actionSource=${event.action_source} | sourceUrl=${event.event_source_url || "N/A"} | userDataKeys=${summarizeObjectKeys(event.user_data)} | customKeys=${summarizeObjectKeys(readableCustomData)}`

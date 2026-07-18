@@ -10,8 +10,12 @@ export const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION || "v24.0";
 
 export const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
-/** Construye una URL de Graph API con la versión canónica. `path` sin slash inicial. */
-export const graphUrl = (path = ""): string =>
-  `${GRAPH_BASE_URL}/${String(path).replace(/^\/+/, "")}`;
+/**
+ * Construye una URL de Graph API con la versión canónica. `path` sin slash inicial.
+ * `version` opcional: override explícito (p.ej. CAPI usa `FACEBOOK_CONVERSIONS_API_VERSION`
+ * cuando difiere de la global). Sin `version` → GRAPH_API_VERSION (comportamiento previo intacto).
+ */
+export const graphUrl = (path = "", version?: string): string =>
+  `https://graph.facebook.com/${version || GRAPH_API_VERSION}/${String(path).replace(/^\/+/, "")}`;
 
 export default { GRAPH_API_VERSION, GRAPH_BASE_URL, graphUrl };

@@ -43,6 +43,7 @@ import {
   ConversionDestination,
   WebsiteEventUser
 } from "./SendWebsiteEvent";
+import { graphUrl } from "../../config/metaGraph"; // [AC2] URL /events vía helper único
 import { shouldSendMetaConversion } from "./MetaConversionPolicyService";
 
 const PREFIX = "[KANBAN-CC]";
@@ -311,7 +312,7 @@ export const dispatchKanbanCustomConversion = async (
   }
 
   // ─── 8. Enviar a Meta CAPI ──────────────────────────────────────
-  const url = `https://graph.facebook.com/${getApiVersion()}/${destination.destinationId}/events`;
+  const url = graphUrl(`${destination.destinationId}/events`, getApiVersion()); // [AC2] vía helper único
   const event = {
     event_name: eventName,
     event_time: Math.floor(Date.now() / 1000),

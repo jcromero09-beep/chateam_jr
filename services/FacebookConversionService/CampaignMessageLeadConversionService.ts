@@ -9,6 +9,7 @@ import {
   getApiVersion,
   WebsiteEventUser
 } from "./SendWebsiteEvent";
+import { graphUrl } from "../../config/metaGraph"; // [AC2] URL /events vía helper único
 import { shouldSendMetaConversion } from "./MetaConversionPolicyService";
 import logger from "../../utils/logger";
 
@@ -187,7 +188,7 @@ export const sendLeadConversionFromCampaignMessage = async (
 
   try {
     const response = await axios.post(
-      `https://graph.facebook.com/${getApiVersion()}/${destination.destinationId}/events`,
+      graphUrl(`${destination.destinationId}/events`, getApiVersion()), // [AC2] vía helper único
       {
         data: [event],
         partner_agent: "jrchateam-campaign-message-lead-capi/1.0"
