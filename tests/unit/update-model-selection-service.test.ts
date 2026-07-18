@@ -53,7 +53,7 @@ describe("UpdateModelSelectionService", () => {
         campaignId: 1,
         companyId: 10,
         userId: 1,
-        videoModelKey: "fake-adapter-key"
+        body: { videoModelKey: "fake-adapter-key" }
       })
     ).rejects.toBeInstanceOf(ValidationAppError);
   });
@@ -65,10 +65,12 @@ describe("UpdateModelSelectionService", () => {
         campaignId: 1,
         companyId: 10,
         userId: 1,
-        videoModelKey: "kling-v3-pro-motion-control",
-        videoModelDefaults: {
-          character_orientation: "image",
-          keep_original_sound: true
+        body: {
+          videoModelKey: "kling-v3-pro-motion-control",
+          videoModelDefaults: {
+            character_orientation: "image",
+            keep_original_sound: true
+          }
         }
       })
     ).rejects.toBeInstanceOf(ValidationAppError);
@@ -81,12 +83,14 @@ describe("UpdateModelSelectionService", () => {
       campaignId: 1,
       companyId: 10,
       userId: 1,
-      videoModelKey: "kling-v3-pro-motion-control",
-      videoModelDefaults: {
-        character_orientation: "image",
-        keep_original_sound: true
-      },
-      videoModelMotionReferenceUrl: "https://example.com/motion.mp4"
+      body: {
+        videoModelKey: "kling-v3-pro-motion-control",
+        videoModelDefaults: {
+          character_orientation: "image",
+          keep_original_sound: true
+        },
+        videoModelMotionReferenceUrl: "https://example.com/motion.mp4"
+      }
     });
     expect(result).toBeDefined();
     expect(campaign.update).toHaveBeenCalledWith(
@@ -105,11 +109,13 @@ describe("UpdateModelSelectionService", () => {
       campaignId: 1,
       companyId: 10,
       userId: 1,
-      videoModelKey: "seedance-v1-pro-i2v",
-      videoModelDefaults: {
-        duration: "5",
-        aspect_ratio: "9:16",
-        resolution: "1080p"
+      body: {
+        videoModelKey: "seedance-v1-pro-i2v",
+        videoModelDefaults: {
+          duration: "5",
+          aspect_ratio: "9:16",
+          resolution: "1080p"
+        }
       }
     });
     expect(campaign.update).toHaveBeenCalledWith(
@@ -128,8 +134,10 @@ describe("UpdateModelSelectionService", () => {
         campaignId: 1,
         companyId: 10,
         userId: 1,
-        videoModelKey: "kling-v2.6-pro-i2v",
-        videoModelDefaults: { duration: "99" } // no es 5 ni 10
+        body: {
+          videoModelKey: "kling-v2.6-pro-i2v",
+          videoModelDefaults: { duration: "99" } // no es 5 ni 10
+        }
       })
     ).rejects.toBeInstanceOf(ValidationAppError);
   });
