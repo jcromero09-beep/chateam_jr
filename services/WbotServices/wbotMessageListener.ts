@@ -90,7 +90,7 @@ import SendWhatsAppMedia, { getMessageOptions } from "./SendWhatsAppMedia";
 // internamente (import) y los re-exporta como fachada (Regla #0) para no migrar consumidores.
 import { getQuotedMessage, getQuotedMessageId, getTypeMessage, getBodyMessage } from "./wbotMessageParsers";
 import { getEditProtocolMessage, unpackEditedMessage, extractEditedBody, extractEditedOriginalWid, extractEditedRemoteJids, extractEditedTimestamp } from "./wbotMessageParsers";
-import { resolveUnreadCount, messageHasMedia, resolveMetaCoexistence, persistIncomingMessage, createOrFindTicket } from "./wbotMessageIngest";
+import { resolveUnreadCount, messageHasMedia, resolveMetaCoexistence, persistIncomingMessage, createOrFindTicket, resolveCompanySettings } from "./wbotMessageIngest";
 export { getQuotedMessage, getQuotedMessageId, getBodyMessage };
 // getTypeMessage se importa SOLO para uso interno (NO se re-exporta) para PRESERVAR el
 // comportamiento actual: hoy no está exportado y libs/wbot lo recibe como undefined (bug
@@ -4854,16 +4854,7 @@ const handleMessage = async (
 
     const unreadMessages = await resolveUnreadCount(msg, contact.id);
 
-    const settings = await CompaniesSettings.findOne({
-      where: { companyId }
-    });
-    //   enableLGPD: settings?.enableLGPD,
-    //   closeTicketOnTransfer: settings?.closeTicketOnTransfer,
-    //   transferMessage: settings?.transferMessage,
-    //   DirectTicketsToWallets: settings?.DirectTicketsToWallets
-    // });
-
-    const enableLGPD = settings.enableLGPD === "enabled";
+    const { settings, enableLGPD } = await resolveCompanySettings(companyId);
 
     const isFirstMsg = await Ticket.findOne({
       where: {

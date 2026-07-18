@@ -7,6 +7,7 @@
 import { proto } from "baileys";
 import cacheLayer from "../../libs/cache";
 import Whatsapp from "../../models/Whatsapp";
+import CompaniesSettings from "../../models/CompaniesSettings";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
@@ -144,4 +145,11 @@ export const createOrFindTicket = async (
       { conversationId: coexConversationId, inboundChannelHint: "baileys" }
     )
   );
+};
+
+export const resolveCompanySettings = async (companyId: number) => {
+  // [Tier 11] Slice: settings de la empresa + flag enableLGPD (comportamiento preservado).
+  const settings = await CompaniesSettings.findOne({ where: { companyId } });
+  const enableLGPD = (settings as any).enableLGPD === "enabled";
+  return { settings, enableLGPD };
 };
