@@ -17,6 +17,16 @@ jest.mock("../../libs/cache", () => {
 jest.mock("../../queues", () => ({ campaignQueue: { add: jest.fn() }, parseToMilliseconds: jest.fn(() => 0), randomValue: jest.fn(() => 0) }));
 jest.mock("@sentry/node", () => ({ setExtra: jest.fn(), captureException: jest.fn(), startTransaction: jest.fn() }));
 jest.mock("../../utils/coexistenceLogger", () => ({ __esModule: true, logInbound: jest.fn(), logOutbound: jest.fn(), logDedupe: jest.fn(), logRoute: jest.fn(), logFallback: jest.fn(), logLoopPrevent: jest.fn(), logAck: jest.fn(), logRetry: jest.fn(), logCoexError: jest.fn() }));
+// UpdateTicketService await-ea actualizarRetargetingSiEsDormant → stageClassifierQueue.add (Bull),
+// que cuelga esperando conexión Redis en test. Es un side-effect de retargeting/clasificación IA,
+// ortogonal a la selección de cola → no-op. (Esta era LA causa del cuelgue de verifyQueue.)
+jest.mock("../../services/IntegrationsServices/clasificarEtapaCliente", () => ({
+  __esModule: true,
+  actualizarRetargetingSiEsDormant: jest.fn(async () => {}),
+  agregarAColaDeClasificacion: jest.fn(async () => {}),
+  marcarTicketsDormant: jest.fn(async () => {}),
+  stageClassifierQueue: { add: jest.fn(async () => {}) },
+}));
 
 import sequelize from "../../database";
 import cacheLayer from "../../libs/cache";
@@ -44,15 +54,18 @@ describe("verifyQueue (characterization DB)", () => {
   afterAll(async () => { await sequelize.close(); });
   beforeEach(async () => { await truncateAll(); (cacheLayer as any).__clear(); });
 
-  // PROGRESO (sesión 2026-07-18) — el hang ORIGINAL (~34s) era el thenable roto del stub baileys:
-  //   `await delay(...)` sobre el proxy nunca resolvía. RESUELTO: baileysStub de-thenable + delay
-  //   no-op real; makeWbot arriba también de-thenabled (defensivo). GRACIAS a esto el golden de
-  //   MEDIA (handleMessage.dbtest) quedó VERDE.
-  // RESIDUAL (por qué sigue skip): con 2 colas, incluso el 1er msg SOLO cuelga (~36s) en el flujo
-  //   de menú (verifyQueue rama `else` sin cola elegida → continúa en handleMessage). Un `await`
-  //   no resuelve bajo los dobles de test. `--detectOpenHandles` solo muestra timers creados en
-  //   import (wbotMonitor, RetryPendingMessages, clasificarEtapaCliente, OpenAi) — NO el await
-  //   atascado. Pinpointing = instrumentar handleMessage con probes (invasivo). TAREA DEDICADA.
+  // PROGRESO (sesión 2026-07-18) — cadena de cuelgues diagnosticada por capas:
+  //   1) hang ORIGINAL (~34s) = thenable roto del stub baileys (`await delay()` sobre el proxy no
+  //      resolvía). RESUELTO: baileysStub de-thenable + delay no-op real. Esto desbloqueó el golden
+  //      de MEDIA (handleMessage.dbtest = VERDE).
+  //   2) instrumentando makeWbot: la rama de menú (2 colas, sin cola elegida) llega hasta
+  //      sendPresenceUpdate("paused") y luego cuelga en `await UpdateTicketService({ticketData:{}})`.
+  //   3) UpdateTicketService await-ea actualizarRetargetingSiEsDormant→stageClassifierQueue.add (Bull
+  //      esperando Redis). Lo mockeamos (arriba), PERO SIGUE colgando → UpdateTicketService (servicio
+  //      de ~1000 líneas / 117 awaits: SendWhatsAppMessage, colas, emits) tiene MÁS deps que no
+  //      resuelven bajo los dobles.
+  // CONCLUSIÓN (por qué sigue skip): caracterizar verifyQueue fielmente requiere un harness más rico
+  //   (Redis + wbot ~reales), NO un árbol de mocks (daría un test de bajo valor). TAREA DEDICADA.
   it.skip("con 2 colas: 1er msg NO auto-asigna cola (menú); el número '1' selecciona la 1ª cola", async () => {
     const { company, whatsapp } = await seedTenant();
     const [ventas, soporte] = await seedQueues((company as any).id, [
@@ -68,12 +81,11 @@ describe("verifyQueue (characterization DB)", () => {
     let ticket = await Ticket.findOne({ where: { companyId: (company as any).id } });
     expect(ticket).not.toBeNull();
     expect((ticket as any).queueId).toBeNull(); // 2 colas ⇒ muestra menú, NO auto-asigna
+    // (cuelga aquí: el menú llama UpdateTicketService que no resuelve bajo los dobles — ver nota)
 
-    // NOTA: la 2ª mitad (msg "1" → selecciona cola) cuelga en un await más profundo del flujo de
-    // handleMessage (open-handle, NO el delay ya arreglado). Requiere --detectOpenHandles; diferido.
-    // const m2 = fixtures.text(); (m2.key as any).id = "Q2"; (m2.message as any).conversation = "1";
-    // await handleMessage(m2, wbot, (company as any).id);
-    // ticket = await Ticket.findByPk((ticket as any).id);
-    // expect((ticket as any).queueId).toBe((ventas as any).id);
+    const m2 = fixtures.text(); (m2.key as any).id = "Q2"; (m2.message as any).conversation = "1";
+    await handleMessage(m2, wbot, (company as any).id);
+    ticket = await Ticket.findByPk((ticket as any).id);
+    expect((ticket as any).queueId).toBe((ventas as any).id); // "1" selecciona la 1ª cola
   });
 });
