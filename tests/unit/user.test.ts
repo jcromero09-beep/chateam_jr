@@ -51,7 +51,7 @@ describe("UpdateUserService", () => {
     const user = buildMockUser();
 
     mockedShowUserService.mockResolvedValue(user as any);
-    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false, profile: "admin" } as any);
     mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
 
     const result = await UpdateUserService({
@@ -77,7 +77,7 @@ describe("UpdateUserService", () => {
     const user = buildMockUser();
 
     mockedShowUserService.mockResolvedValue(user as any);
-    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false, profile: "admin" } as any);
 
     await expect(
       UpdateUserService({
@@ -100,7 +100,7 @@ describe("UpdateUserService", () => {
     const user = buildMockUser();
 
     mockedShowUserService.mockResolvedValue(user as any);
-    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false, profile: "admin" } as any);
     mockedQueueFindAll.mockResolvedValue([{ id: 10 }, { id: 11 }] as any);
     mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
 
@@ -126,7 +126,7 @@ describe("UpdateUserService", () => {
     const user = buildMockUser();
 
     mockedShowUserService.mockResolvedValue(user as any);
-    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false, profile: "admin" } as any);
     mockedQueueFindAll.mockResolvedValue([{ id: 10 }] as any);
 
     await expect(
@@ -149,7 +149,7 @@ describe("UpdateUserService", () => {
     const user = buildMockUser();
 
     mockedShowUserService.mockResolvedValue(user as any);
-    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false, profile: "admin" } as any);
     mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
 
     await UpdateUserService({
@@ -169,7 +169,7 @@ describe("UpdateUserService", () => {
     const user = buildMockUser();
 
     mockedShowUserService.mockResolvedValue(user as any);
-    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false } as any);
+    mockedUserFindByPk.mockResolvedValue({ id: 7, super: false, profile: "admin" } as any);
     mockedCompanyFindByPk.mockResolvedValue({ email: "company@jrchateam.com" } as any);
 
     await UpdateUserService({
