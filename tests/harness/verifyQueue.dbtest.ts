@@ -38,13 +38,14 @@ describe("verifyQueue (characterization DB)", () => {
   beforeEach(async () => { await truncateAll(); (cacheLayer as any).__clear(); });
 
   // SCAFFOLD listo (seedTenant+seedQueues+WhatsappQueue+wbot Proxy+flujo 2-mensajes).
-  // Pendiente fresh-session: Queue.create falla (validación no-obvia del modelo) + afinar la
-  // aserción del menú/selección. Estructura y arnés YA probados.
+  // SEED YA ARREGLADO (nombres únicos ≠ 'Soporte' de seedTenant). Pendiente fresh-session: el
+  // flujo de verifyQueue CUELGA (~34s) — algún await del menú no resuelve con wbot Proxy; hay que
+  // mockear el envío del menú / la rama de integración. Arnés listo.
   it.skip("con 2 colas: 1er msg muestra menú (sin cola); el número selecciona la cola", async () => {
     const { company, whatsapp } = await seedTenant();
     const [ventas, soporte] = await seedQueues((company as any).id, [
-      { name: "Ventas", color: "#ff0000" },
-      { name: "Soporte", color: "#00ff00" },
+      { name: "ColaVentas", color: "#ff0000" },
+      { name: "ColaReclamos", color: "#00ff00" },
     ]);
     await WhatsappQueue.create({ whatsappId: (whatsapp as any).id, queueId: (ventas as any).id } as any);
     await WhatsappQueue.create({ whatsappId: (whatsapp as any).id, queueId: (soporte as any).id } as any);
