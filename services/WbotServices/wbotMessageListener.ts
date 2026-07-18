@@ -4743,6 +4743,36 @@ const flowBuilderQueue = async (
 
 
 
+const checkInboundDedupe = async (
+  msg: proto.IWebMessageInfo,
+  companyId: number
+): Promise<{ drop: boolean; ledgerEntryId: number | null }> => {
+  // [Tier 11] Slice in-situ: dedupe pre-procesamiento via InboundEventLedger (comportamiento preservado).
+  if (!(msg.key.id && companyId)) return { drop: false, ledgerEntryId: null };
+  const providerKey: "baileys" | "baileys_fromme" = msg.key.fromMe ? "baileys_fromme" : "baileys";
+  const ledger = await InboundEventLedgerService.registerOrDrop({
+    companyId,
+    provider: providerKey,
+    eventKey: msg.key.id,
+    providerMessageId: msg.key.id,
+    payload: { id: msg.key.id, remoteJid: msg.key.remoteJid, fromMe: msg.key.fromMe }
+  });
+  if (!ledger.accepted) {
+    coexLogInbound({
+      provider: "baileys",
+      companyId,
+      wid: msg.key.id,
+      remoteJid: msg.key.remoteJid || null,
+      fromMe: !!msg.key.fromMe,
+      sourceChannel: "baileys",
+      outcome: ledger.reason === "duplicate" ? "duplicate" : "dropped",
+      reason: `ledger.${ledger.reason}`
+    });
+    return { drop: true, ledgerEntryId: null };
+  }
+  return { drop: false, ledgerEntryId: ledger.id };
+};
+
 const handleMessage = async (
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -4878,34 +4908,9 @@ const handleMessage = async (
     // history sync, concurrencia entre nodos PM2), el UNIQUE index
     // en InboundEventLedger garantiza procesarlo UNA sola vez.
     // Distinguimos inbound del cliente (baileys) vs eco del staff (baileys_fromme).
-    let baileysLedgerEntryId: number | null = null;
-    if (msg.key.id && companyId) {
-      const providerKey: "baileys" | "baileys_fromme" = msg.key.fromMe
-        ? "baileys_fromme"
-        : "baileys";
-      const ledger = await InboundEventLedgerService.registerOrDrop({
-        companyId,
-        provider: providerKey,
-        eventKey: msg.key.id,
-        providerMessageId: msg.key.id,
-        payload: { id: msg.key.id, remoteJid: msg.key.remoteJid, fromMe: msg.key.fromMe }
-      });
-      if (!ledger.accepted) {
-        // Duplicado — salir sin disparar side effects (contact, ticket, chatbot, IA).
-        coexLogInbound({
-          provider: "baileys",
-          companyId,
-          wid: msg.key.id,
-          remoteJid: msg.key.remoteJid || null,
-          fromMe: !!msg.key.fromMe,
-          sourceChannel: "baileys",
-          outcome: ledger.reason === "duplicate" ? "duplicate" : "dropped",
-          reason: `ledger.${ledger.reason}`
-        });
-        return;
-      }
-      baileysLedgerEntryId = ledger.id;
-    }
+    const dedupe = await checkInboundDedupe(msg, companyId);
+    if (dedupe.drop) return;
+    let baileysLedgerEntryId = dedupe.ledgerEntryId;
     // ════════════════════════════════════════════════════════
 
     // FASE 3 Coexistencia — resolver conversación unificada ANTES del ticket,
