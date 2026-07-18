@@ -44,7 +44,18 @@ const makeWbot = (whatsappId: number): any =>
         // NO parecer thenable: si `then` fuese una fn (callable), `await <wbot>` invocaría
         // then(resolve) y nunca resolvería → cuelgue infinito (mismo bug que el stub baileys).
         if (p === "then" || p === "catch" || p === "finally") return undefined;
-        return p in t ? t[p] : jest.fn(async () => ({}));
+        if (p in t) return t[p];
+        // sendMessage devuelve un mensaje REALISTA: el menú del chatbot lo pasa (vía callback
+        // debounced tardío) a verifyMessage→verifyQuotedMessage, que hace Object.keys(msg.message)
+        // y crashea si es {}. Con key+message válidos, el side-effect tardío no rompe otras suites.
+        if (p === "sendMessage") {
+          return jest.fn(async () => ({
+            key: { id: `SENT_${whatsappId}_${Date.now()}`, remoteJid: "593999999999@s.whatsapp.net", fromMe: true },
+            message: { conversation: "menu" },
+            messageTimestamp: 1700000000,
+          }));
+        }
+        return jest.fn(async () => ({}));
       },
     }
   );
@@ -54,19 +65,17 @@ describe("verifyQueue (characterization DB)", () => {
   afterAll(async () => { await sequelize.close(); });
   beforeEach(async () => { await truncateAll(); (cacheLayer as any).__clear(); });
 
-  // PROGRESO (sesión 2026-07-18) — cadena de cuelgues diagnosticada por capas:
-  //   1) hang ORIGINAL (~34s) = thenable roto del stub baileys (`await delay()` sobre el proxy no
-  //      resolvía). RESUELTO: baileysStub de-thenable + delay no-op real. Esto desbloqueó el golden
-  //      de MEDIA (handleMessage.dbtest = VERDE).
-  //   2) instrumentando makeWbot: la rama de menú (2 colas, sin cola elegida) llega hasta
-  //      sendPresenceUpdate("paused") y luego cuelga en `await UpdateTicketService({ticketData:{}})`.
-  //   3) UpdateTicketService await-ea actualizarRetargetingSiEsDormant→stageClassifierQueue.add (Bull
-  //      esperando Redis). Lo mockeamos (arriba), PERO SIGUE colgando → UpdateTicketService (servicio
-  //      de ~1000 líneas / 117 awaits: SendWhatsAppMessage, colas, emits) tiene MÁS deps que no
-  //      resuelven bajo los dobles.
-  // CONCLUSIÓN (por qué sigue skip): caracterizar verifyQueue fielmente requiere un harness más rico
-  //   (Redis + wbot ~reales), NO un árbol de mocks (daría un test de bajo valor). TAREA DEDICADA.
-  it.skip("con 2 colas: 1er msg NO auto-asigna cola (menú); el número '1' selecciona la 1ª cola", async () => {
+  // VERDE (sesión 2026-07-18). Cadena de cuelgues diagnosticada y RESUELTA por capas:
+  //   1) thenable roto del stub baileys (`await delay()` sobre el proxy no resolvía) → de-thenable.
+  //   2) la rama de menú (2 colas) cuelga en `await UpdateTicketService({ticketData:{}})`.
+  //   3) UpdateTicketService await-ea colas Bull (stageClassifierQueue.add, etc.) que colgaban
+  //      esperando conexión Redis. FIX REAL (no mock-tree): el harness arranca un Redis EFÍMERO en
+  //      6399 (globalSetup) y REDIS_URI apunta ahí (dbEnv) → los `queue.add()` resuelven. Los jobs
+  //      encolados no se procesan (throwaway aislado del Redis de prod).
+  // Locks la característica: con 2 colas el 1er msg muestra menú (queueId null) y "1" selecciona la 1ª.
+  // (En logs aparecen ERR_NOT_FOUND_USER_IN_QUEUE / null.length de side-effects downstream con fixture
+  //  mínimo — no afectan el invariante de queueId, que es lo que se caracteriza.)
+  it("con 2 colas: 1er msg NO auto-asigna cola (menú); el número '1' selecciona la 1ª cola", async () => {
     const { company, whatsapp } = await seedTenant();
     const [ventas, soporte] = await seedQueues((company as any).id, [
       { name: "ColaVentas", color: "#ff0000" },
@@ -81,11 +90,14 @@ describe("verifyQueue (characterization DB)", () => {
     let ticket = await Ticket.findOne({ where: { companyId: (company as any).id } });
     expect(ticket).not.toBeNull();
     expect((ticket as any).queueId).toBeNull(); // 2 colas ⇒ muestra menú, NO auto-asigna
-    // (cuelga aquí: el menú llama UpdateTicketService que no resuelve bajo los dobles — ver nota)
 
     const m2 = fixtures.text(); (m2.key as any).id = "Q2"; (m2.message as any).conversation = "1";
     await handleMessage(m2, wbot, (company as any).id);
     ticket = await Ticket.findByPk((ticket as any).id);
     expect((ticket as any).queueId).toBe((ventas as any).id); // "1" selecciona la 1ª cola
+
+    // El menú programa envíos `debounce(fn, 1000)` que disparan ~1s DESPUÉS. Los drenamos aquí para
+    // que no se filtren a la siguiente suite (escrituras tardías rompían connection.dbtest por orden).
+    await new Promise((r) => setTimeout(r, 1500));
   });
 });

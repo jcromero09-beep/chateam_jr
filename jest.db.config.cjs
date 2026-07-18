@@ -4,6 +4,9 @@ module.exports = {
   roots: ["<rootDir>/tests/harness"],
   testMatch: ["**/*.dbtest.ts"],
   setupFiles: ["<rootDir>/tests/harness/dbEnv.cjs"],
+  // Redis efímero (6399) para flujos que await-ean colas Bull (verifyQueue → UpdateTicketService).
+  globalSetup: "<rootDir>/tests/harness/globalSetup.cjs",
+  globalTeardown: "<rootDir>/tests/harness/globalTeardown.cjs",
   transform: {
     "^.+\\.tsx?$": ["ts-jest", { isolatedModules: true, diagnostics: false,
       astTransformers: { before: ["<rootDir>/tests/harness/esmCompatAst.cjs"] } }],

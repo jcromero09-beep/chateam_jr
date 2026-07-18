@@ -13,3 +13,7 @@ process.env.DB_POOL_ACQUIRE = "30000";
 process.env.DB_POOL_IDLE = "10000";
 process.env.JWT_SECRET = process.env.JWT_SECRET || "jest_test_jwt_secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "jest_test_jwt_refresh_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+// Redis EFÍMERO del harness (puerto 6399, lo arranca globalSetup) — NO el Redis de prod (5000).
+// Necesario porque algunos flujos (verifyQueue → UpdateTicketService → colas Bull) await-ean
+// `queue.add()` que cuelga sin una conexión Redis real. Los jobs encolados no se procesan (throwaway).
+process.env.REDIS_URI = process.env.REDIS_URI || "redis://127.0.0.1:6399";
