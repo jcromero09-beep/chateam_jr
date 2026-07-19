@@ -238,9 +238,9 @@ api.interceptors.response.use(
         localStorage.removeItem('token')
         localStorage.removeItem('refreshToken')
         localStorage.removeItem('sid')
-        try {
-          toast.info('Tu sesión fue iniciada en otro dispositivo.')
-        } catch {/* noop */}
+        clearTokenRefresh()
+        // Sin toast: el Login muestra un banner claro vía ?reason= (evita la alerta de
+        // "desconexión" en la esquina superior derecha).
         window.location.href = '/login?reason=session_revoked'
         return Promise.reject(error)
       }
@@ -299,25 +299,37 @@ api.interceptors.response.use(
         isRefreshing = false
         return api(originalRequest)
       } catch (refreshError: any) {
-        // Si falla el refresh, limpiar tokens y redirigir a login
-        console.error('[API] Token refresh failed:', refreshError)
-
         processQueue(refreshError, null)
         isRefreshing = false
 
+        const status = refreshError?.response?.status
+        const refreshErrCode = refreshError?.response?.data?.error
+        // Solo es "sesión terminada" un RECHAZO REAL de auth: refresh token inválido/expirado
+        // (401/403) o sesión revocada. Un timeout / error de red / 5xx del refresh (típico cuando
+        // el NAS se satura) NO es desconexión: la sesión sigue siendo válida.
+        const isRealAuthFailure =
+          refreshErrCode === 'session_revoked' || status === 401 || status === 403
+
+        if (!isRealAuthFailure) {
+          // Fallo TRANSITORIO: no limpiamos tokens, no mostramos toast, no redirigimos. El access
+          // token sigue en localStorage y el próximo request (o el refresh proactivo) reintenta.
+          // Esto evita el "Sesión expirada" espurio (la alerta de desconexión arriba a la derecha)
+          // cuando en realidad solo hubo lentitud/saturación. Se comporta como appbogado ante un
+          // error de red: no expulsa al usuario.
+          console.warn('[API] refresh transitorio (sin cerrar sesión):', refreshError?.message)
+          return Promise.reject(refreshError)
+        }
+
+        // Rechazo real de auth → cerramos sesión limpio y mandamos al Login. SIN toast: el banner
+        // del Login (vía ?reason=) explica la desconexión, sin alerta en la esquina.
         localStorage.removeItem('token')
         localStorage.removeItem('refreshToken')
         localStorage.removeItem('sid')
-
-        const refreshErrCode = refreshError?.response?.data?.error
-        if (refreshErrCode === 'session_revoked') {
-          try { toast.info('Tu sesión fue iniciada en otro dispositivo.') } catch {/* noop */}
-          window.location.href = '/login?reason=session_revoked'
-        } else {
-          toast.error('Sesión expirada. Por favor inicia sesión nuevamente.')
-          // ?reason= → el Login muestra un banner claro (evita que la desconexión se vea como "error").
-          window.location.href = '/login?reason=session_expired'
-        }
+        clearTokenRefresh()
+        window.location.href =
+          refreshErrCode === 'session_revoked'
+            ? '/login?reason=session_revoked'
+            : '/login?reason=session_expired'
         return Promise.reject(refreshError)
       }
     }
