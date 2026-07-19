@@ -35,11 +35,22 @@ const CreateReceiptService = async (receiptData: ReceiptData): Promise<Receipt> 
     throw new AppError(`Errores de validación: ${err.errors.join(", ")}`);
   }
 
-  // Creación del recibo
-  let receipt = await Receipt.create(receiptData);
-  
+  // [dedup] Un solo recibo PENDIENTE (estado=1) por factura: los reintentos del usuario ACTUALIZAN
+  // el existente en vez de acumular filas (antes cada reintento tras el ERR_NO_INVOICE_FOUND creaba
+  // uno nuevo). Un recibo ya aprobado/rechazado (estado 2/3) sí permite subir uno nuevo.
+  const existingPending = await Receipt.findOne({
+    where: { invoiceId: receiptData.invoiceId, estado: 1 }
+  });
 
-  // Mostrar el recibo recién creado con datos adicionales (si aplica)
+  let receipt: Receipt;
+  if (existingPending) {
+    await existingPending.update(receiptData);
+    receipt = existingPending;
+  } else {
+    receipt = await Receipt.create(receiptData);
+  }
+
+  // Mostrar el recibo con datos adicionales (si aplica)
   receipt = await ShowReceiptService(receipt.id);
 
   return receipt;

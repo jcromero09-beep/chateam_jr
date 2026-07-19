@@ -90,7 +90,11 @@ export const update = async (
     throw new AppError(err.message);
   }
 
-  const { id, status } = InvoiceData;
+  // [FIX] El id de la factura viene en la URL (PUT /invoices/:id), NO en el body. El front manda
+  // { status, planId, value } sin id → antes `id` quedaba undefined → UpdateInvoiceService hacía
+  // findByPk(undefined) → null → ERR_NO_INVOICE_FOUND al subir el comprobante de pago.
+  const { id } = req.params;
+  const { status } = InvoiceData;
 
   const plan = await UpdateInvoiceService({
     id,
