@@ -1311,21 +1311,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
     .filter((section) => section.items.length > 0)
 
   // ─── Vista según rol/impersonación ──────────────────────────────────────────
-  // - Super (fuera de impersonación): menú COMPLETO (PLATAFORMA + operación).
-  //   Como es super, hasFeature() bypassa el plan y ve todas las secciones.
-  // - Super dentro de una empresa (impersonando): vista operativa limpia, sin
-  //   la sección PLATAFORMA (no se gestionan otras empresas desde adentro).
-  // - Resto de perfiles: su menú normal.
+  // DISEÑO CONFIRMADO (JC): el super admin, fuera de impersonación, ve ÚNICAMENTE los
+  // módulos de super admin (sección PLATAFORMA: Empresas, Planes, Permisos, Comprobantes,
+  // Comunicados, etc.) — NO los módulos operativos. Para operar sobre una empresa concreta
+  // el super IMPERSONA, y ahí ve la operación (sin PLATAFORMA).
+  // - Super (fuera de impersonación): SOLO PLATAFORMA.
+  // - Super impersonando: operación de esa empresa, sin PLATAFORMA.
+  // - Resto de perfiles: su menú normal (PLATAFORMA queda vacía tras filterItem y se descarta).
   const isImpersonatingView = user?.impersonating === true
-  const visibleSections: MenuSection[] = isImpersonatingView
-    // Super DENTRO de una empresa (impersonando): vista operativa limpia, sin PLATAFORMA
-    // (no se gestionan otras empresas desde adentro).
-    ? rawSections.filter((s) => s.title !== 'PLATAFORMA')
-    // Super FUERA de impersonación → menú COMPLETO (PLATAFORMA + operación): como super,
-    // canAccess() y hasFeature() bypassan módulo/plan, así que ve todas las secciones y opera
-    // sobre su propia empresa (Demo); impersona para cambiar de contexto. Resto de perfiles →
-    // su menú normal (la sección PLATAFORMA queda vacía tras filterItem y se descarta).
-    : rawSections
+  const visibleSections: MenuSection[] =
+    user?.super === true && !isImpersonatingView
+      ? rawSections.filter((s) => s.title === 'PLATAFORMA')
+      : isImpersonatingView
+        ? rawSections.filter((s) => s.title !== 'PLATAFORMA')
+        : rawSections
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
