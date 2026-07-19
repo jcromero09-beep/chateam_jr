@@ -1,5 +1,6 @@
 import { ReactNode, useState, useEffect, type MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom'
+import AnnouncementBanner from './AnnouncementBanner'
 // [Re-skin Tailwind v4] Del design system de Joy sólo se conserva `useColorScheme`
 // (fuente de verdad del modo claro/oscuro compartida con el resto de pantallas MUI).
 // Toda la capa visual del shell es ahora Tailwind + tokens del design system.
@@ -1168,6 +1169,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
               roles: ['super'],
             },
             {
+              // Comunicados masivos del super (banner in-app a todas/una empresa).
+              path: '/admin/comunicados',
+              label: 'Comunicados',
+              icon: <CampaignIcon />,
+              roles: ['super'],
+            },
+            {
               path: '/terms',
               label: 'Términos y Condiciones',
               icon: <TermsIcon />,
@@ -1888,6 +1896,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           tabIndex={-1}
           className="@container min-h-0 flex-1 overflow-y-auto bg-background p-[clamp(0.75rem,1.5vw,1.5rem)] outline-none"
         >
+          <AnnouncementBanner />
           {children}
         </main>
       </div>

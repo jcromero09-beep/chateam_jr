@@ -12,6 +12,7 @@ import ShowService from "../services/AnnouncementService/ShowService";
 import UpdateService from "../services/AnnouncementService/UpdateService";
 import DeleteService from "../services/AnnouncementService/DeleteService";
 import FindService from "../services/AnnouncementService/FindService";
+import BroadcastService from "../services/AnnouncementService/BroadcastService";
 
 import Announcement from "../models/Announcement";
 
@@ -42,10 +43,33 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 
   const { records, count, hasMore } = await ListService({
     searchParam,
-    pageNumber
+    pageNumber,
+    companyId: req.user.companyId // [FIX fuga tenant] acotar a la empresa del usuario
   });
 
   return res.json({ records, count, hasMore });
+};
+
+// [Comunicados super] Broadcast a TODAS las empresas o a UNA específica (1-a-1). Solo super (ruta isSuper).
+export const broadcast = async (req: Request, res: Response): Promise<Response> => {
+  const { title, text, priority, target } = req.body as {
+    title: string;
+    text: string;
+    priority?: string | number;
+    target: "all" | number | string;
+  };
+
+  const result = await BroadcastService({ title, text, priority, target });
+
+  // Refresco en tiempo real del banner de cada empresa afectada.
+  const io = getIO();
+  if (target === "all") {
+    io.emit("company-announcement", { action: "broadcast" });
+  } else {
+    io.of(String(target)).emit("company-announcement", { action: "create" });
+  }
+
+  return res.status(201).json(result);
 };
 
 export const store = async (req: Request, res: Response): Promise<Response> => {

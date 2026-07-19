@@ -51,6 +51,7 @@ const FlowbuilderEditor = lazy(() => import('./pages/FlowbuilderEditor'))
 
 // Administración - Otros
 const Announcements = lazy(() => import('./pages/Announcements'))
+const SuperAnnouncements = lazy(() => import('./pages/SuperAnnouncements'))
 const ApiMessages = lazy(() => import('./pages/ApiMessages'))
 const Users = lazy(() => import('./pages/Users'))
 const RolesManagement = lazy(() => import('./pages/RolesManagement'))
@@ -425,6 +426,7 @@ function App() {
           <Route path="/ai/multimodal" element={<Suspense fallback={null}><ProtectedRoute module="ai_multimodal"><AIMultimodal /></ProtectedRoute></Suspense>} />
           <Route path="/ai/credits" element={<Suspense fallback={null}><ProtectedRoute module="ai_credits"><AICredits /></ProtectedRoute></Suspense>} />
           <Route path="/admin/ai-token-usage" element={<Suspense fallback={null}><ProtectedRoute superOnly><AITokenUsageAdmin /></ProtectedRoute></Suspense>} />
+          <Route path="/admin/comunicados" element={<Suspense fallback={null}><ProtectedRoute superOnly><SuperAnnouncements /></ProtectedRoute></Suspense>} />
           <Route path="/ai/scheduler" element={<Suspense fallback={null}><ProtectedRoute module="ai_scheduler"><AIScheduler /></ProtectedRoute></Suspense>} />
           <Route path="/ai/observability" element={<Suspense fallback={null}><ProtectedRoute module="ai_observability"><AIObservability /></ProtectedRoute></Suspense>} />
           <Route path="/ai/fine-tuning" element={<Suspense fallback={null}><ProtectedRoute module="ai_fine_tuning"><AIFineTuning /></ProtectedRoute></Suspense>} />

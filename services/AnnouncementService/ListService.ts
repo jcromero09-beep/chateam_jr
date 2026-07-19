@@ -6,6 +6,7 @@ import Announcement from "../../models/Announcement";
 interface Request {
   searchParam?: string;
   pageNumber?: string;
+  companyId?: number | string;
 }
 
 interface Response {
@@ -16,10 +17,14 @@ interface Response {
 
 const ListService = async ({
   searchParam = "",
-  pageNumber = "1"
+  pageNumber = "1",
+  companyId
 }: Request): Promise<Response> => {
+  // [FIX fuga tenant] Antes solo filtraba status:true → devolvía anuncios de TODAS las empresas.
+  // Ahora se acota por companyId (cada empresa ve solo los suyos; base del broadcast per-empresa).
   let whereCondition: any = {
-    status: true
+    status: true,
+    ...(companyId ? { companyId } : {})
   };
 
   if (!isEmpty(searchParam)) {
