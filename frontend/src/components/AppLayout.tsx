@@ -1153,6 +1153,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
               roles: ['super'],
             },
             {
+              // Pantalla super de aprobación de pagos offline (Invoices.tsx / GET /recepts).
+              // Existía la página + backend isSuper, pero faltaba el ítem en el menú (huérfano).
+              path: '/invoices',
+              label: 'Comprobantes de Pago',
+              icon: <ReceiptIcon />,
+              module: 'invoices',
+              roles: ['super'],
+            },
+            {
               path: '/admin/ai-token-usage',
               label: 'Consumo Tokens IA',
               icon: <DataIcon />,
