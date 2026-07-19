@@ -99,6 +99,27 @@ export const getCampaigns = async (req: Request, res: Response): Promise<Respons
       period
     });
   } catch (error: any) {
+    // "No configurado" NO es un error del cliente: una empresa sin Meta Ads
+    // conectado (sin company settings / sin token FB / sin ad account) debe
+    // recibir una lista vacía (200), no un 400 que ensucia la consola en cada
+    // página que consulta campañas (p.ej. el filtro de campañas en Tickets).
+    // Las páginas dedicadas (CampaignsAudit/CampaignAI) pueden leer `configured`
+    // para mostrar el CTA de "conecta tu cuenta".
+    const NOT_CONFIGURED = new Set([
+      "ERR_NO_COMPANY_SETTINGS",
+      "ERR_NO_FACEBOOK_TOKEN",
+      "ERR_NO_FACEBOOK_AD_ACCOUNT",
+    ]);
+    if (NOT_CONFIGURED.has(error?.message)) {
+      logger.info(`[Controller:getCampaigns] ℹ️ Meta Ads no configurado (${error.message}) → devolviendo lista vacía`);
+      return res.status(200).json({
+        success: true,
+        campaigns: [],
+        period,
+        configured: false,
+        reason: error.message,
+      });
+    }
     logger.error(`[Controller:getCampaigns] ❌ ERROR: ${error.message}`);
     return res.status(error?.statusCode || 500).json({
       success: false,

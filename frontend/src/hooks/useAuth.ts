@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Socket } from 'socket.io-client'
 import authService from '../services/authService'
 import socketService from '../services/socket'
-import { setLoggingOut } from '../services/api'
+import { setLoggingOut, clearTokenRefresh } from '../services/api'
 import { toast } from 'react-toastify'
 import type { InterfacePermissions } from '../utils/permissions'
 
@@ -177,6 +177,9 @@ export function useAuth() {
       // 3. Limpiar estado de React
       setUser(null)
       setIsAuthenticated(false)
+
+      // Cancelar el refresh proactivo para que no revele/renueve el token tras el logout.
+      clearTokenRefresh()
 
       // 4. Resetear flag de logout después de 2s
       // (permite que todas las requests pendientes terminen de ser suprimidas)

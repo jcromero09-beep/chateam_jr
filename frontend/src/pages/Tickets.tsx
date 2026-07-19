@@ -985,8 +985,10 @@ export default function Tickets() {
         return classifyCampaignDelivery(campaign) === 'ACTIVA'
       })
       setCampaigns(activeCampaignsWithAds)
-    } catch (error) {
-      console.error('Error fetching campaigns:', error)
+    } catch {
+      // Filtro de campañas es opcional en Tickets: si Meta Ads no está
+      // configurado o la API falla, degradamos en silencio a lista vacía.
+      // (El backend ya devuelve 200 vacío para el caso "no configurado".)
       setCampaigns([])
     } finally {
       setLoadingCampaigns(false)
