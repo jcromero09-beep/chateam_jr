@@ -3,6 +3,14 @@ import { toast } from 'react-toastify'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
+// Pollers/lecturas de fondo (no son acción del usuario): badge de unreads, chip "Tokens IA",
+// banner de comunicados (GET), routing-preview de coexistencia. Se usan para (a) darles un timeout
+// corto —que fallen rápido y en silencio en vez de colgar 30s cuando el NAS se satura— y (b)
+// silenciar sus errores (ni console.error ni toast), para que un timeout de fondo NO se vea como
+// desconexión. `announcements$` matchea el GET del banner pero NO `/announcements/broadcast`.
+const BG_POLLER_RE = /chats-total-unreads|total-unreads|notifications|heartbeat|token-info|routing-preview|announcements$/i
+const BG_POLLER_TIMEOUT = 15000
+
 // --- Flag de logout para suprimir errores durante cierre de sesión ---
 let isLoggingOut = false
 
@@ -32,6 +40,12 @@ api.interceptors.request.use(
     // Mantener el access token fresco (refresh proactivo antes de expirar) para
     // que los pollers/requests no peguen 401 en ráfaga cada ~15min.
     if (token) ensureTokenRefreshScheduled(token)
+
+    // Pollers de fondo: timeout corto para que fallen rápido y en silencio en saturación del NAS
+    // (en vez de colgar los 30s globales). Solo si el caller no fijó un timeout explícito propio.
+    if (config.url && BG_POLLER_RE.test(config.url) && (config.timeout == null || config.timeout === 30000)) {
+      config.timeout = BG_POLLER_TIMEOUT
+    }
 
     // Identifica el canal para la política de sesión por canal.
     if (config.headers && !config.headers['x-client-type']) {
@@ -191,10 +205,12 @@ api.interceptors.response.use(
     const silentAuthUrls = ['/api/auth/validate', '/api/auth/login', '/api/auth/refresh_token']
     const isSilentRoute = silentAuthUrls.some(url => originalRequest?.url?.includes(url))
 
-    // Los 401 son transitorios: el interceptor los refresca+reintenta (abajo).
-    // Loguearlos aquí llena la consola de "[API Response Error]" en cada expiración
-    // del access token, aunque la request se recupere. Solo logueamos NO-401.
-    if (!isSilentRoute && error.response?.status !== 401) {
+    // Pollers/lecturas de fondo (ver BG_POLLER_RE): un timeout suyo en saturación NO es desconexión.
+    const isBgPoller = BG_POLLER_RE.test(originalRequest?.url || '')
+
+    // 401 transitorios (el interceptor los refresca+reintenta abajo) y pollers de fondo (se
+    // auto-manejan): no ensuciamos la consola con ninguno.
+    if (!isSilentRoute && !isBgPoller && error.response?.status !== 401) {
       console.error('[API Response Error]', {
         status: error.response?.status,
         message: error.message,
@@ -318,15 +334,10 @@ api.interceptors.response.use(
       // toastId evita apilamiento cuando varias requests fallan a la vez (p.ej. reinicio backend).
       toast.error('Error del servidor. Por favor, intenta más tarde.', { toastId: 'server-error' })
     } else if (!error.response) {
-      // No mostrar si no hay token (usuario cerró sesión). Silenciar pollers/lecturas de fondo
-      // —no son acción del usuario: badge de unreads, chip de "Tokens IA", banner de comunicados—
-      // y deduplicar el resto: 3 pollers no deben apilar 3 toasts idénticos. `token-info` es el
-      // poll del chip; `announcements$` matchea el GET del banner pero NO `/announcements/broadcast`
-      // (envío real del super, que SÍ debe avisar si falla).
-      const bgPoller = /chats-total-unreads|total-unreads|notifications|heartbeat|token-info|announcements$/i.test(
-        originalRequest?.url || ''
-      )
-      if (localStorage.getItem('token') && !bgPoller) {
+      // Sin respuesta (timeout de red / caída). No avisamos si no hay token (usuario cerró sesión)
+      // ni para pollers de fondo (`isBgPoller`, arriba): un timeout de un poll en saturación NO es
+      // desconexión. El resto se deduplica con toastId para no apilar toasts idénticos.
+      if (localStorage.getItem('token') && !isBgPoller) {
         toast.error('Error de conexión. Verifica tu conexión a internet.', { toastId: 'net-error' })
       }
     }
