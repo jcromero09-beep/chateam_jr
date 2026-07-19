@@ -26,8 +26,16 @@ export default function ProtectedRoute({
   requireAuth = true,
   superOnly = false,
 }: ProtectedRouteProps) {
-  const { isAuthenticated, loading } = useAuth()
-  const { canAccess, isSuperAdmin } = usePermissions()
+  // `user`, `loading` e `isAuthenticated` salen de la MISMA instancia de useAuth, y de ese
+  // mismo `user` derivamos `isSuperAdmin`. NO usamos el isSuperAdmin de usePermissions porque
+  // ese hook llama a useAuth() otra vez creando una SEGUNDA instancia con su propio initAuth
+  // async: esta instancia marcaba loading=false antes de que la de usePermissions cargara su
+  // `user`, así que el super veía un flash de "AccessDenied" que se auto-corregía. Como en
+  // useAuth el setUser+setIsAuthenticated+setLoading van batcheados en initAuth, cuando
+  // loading=false el `user` de ESTA instancia ya está hidratado y `super` es confiable.
+  const { isAuthenticated, loading, user } = useAuth()
+  const { canAccess } = usePermissions()
+  const isSuperAdmin = user?.super === true
 
   // Mostrar loading mientras se verifica la autenticación
   if (loading) {
@@ -51,8 +59,11 @@ export default function ProtectedRoute({
     )
   }
 
-  // Si se especifica un módulo, verificar permisos
-  if (module && !canAccess(module)) {
+  // Si se especifica un módulo, verificar permisos. El super bypassa módulos (igual que
+  // usePermissions.canAccess, que retorna true para super); anteponer `!isSuperAdmin` evita
+  // depender del canAccess de la otra instancia de useAuth mientras hidrata (otra fuente del
+  // flash para el super en rutas con `module`, como /permissions-manager).
+  if (module && !isSuperAdmin && !canAccess(module)) {
     return (
       <AppLayout>
         <AccessDenied message={`No tienes permisos para acceder al módulo: ${module}`} />
