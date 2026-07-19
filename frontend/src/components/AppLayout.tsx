@@ -1317,12 +1317,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
   //   la sección PLATAFORMA (no se gestionan otras empresas desde adentro).
   // - Resto de perfiles: su menú normal.
   const isImpersonatingView = user?.impersonating === true
-  const visibleSections: MenuSection[] =
-    user?.super === true && !isImpersonatingView
-      ? rawSections.filter((s) => s.title === 'PLATAFORMA')
-      : isImpersonatingView
-        ? rawSections.filter((s) => s.title !== 'PLATAFORMA')
-        : rawSections
+  const visibleSections: MenuSection[] = isImpersonatingView
+    // Super DENTRO de una empresa (impersonando): vista operativa limpia, sin PLATAFORMA
+    // (no se gestionan otras empresas desde adentro).
+    ? rawSections.filter((s) => s.title !== 'PLATAFORMA')
+    // Super FUERA de impersonación → menú COMPLETO (PLATAFORMA + operación): como super,
+    // canAccess() y hasFeature() bypassan módulo/plan, así que ve todas las secciones y opera
+    // sobre su propia empresa (Demo); impersona para cambiar de contexto. Resto de perfiles →
+    // su menú normal (la sección PLATAFORMA queda vacía tras filterItem y se descarta).
+    : rawSections
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
