@@ -1159,7 +1159,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
               path: '/invoices',
               label: 'Comprobantes de Pago',
               icon: <ReceiptIcon />,
-              module: 'invoices',
+              // Sin `module` (patrón de ai-token-usage): el módulo 'invoices' está en false para
+              // no-super, y canAccess lo gatearía. roles:['super'] basta; backend enforcea isSuper.
               roles: ['super'],
             },
             {
