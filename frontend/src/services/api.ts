@@ -232,9 +232,12 @@ api.interceptors.response.use(
       // toastId evita apilamiento cuando varias requests fallan a la vez (p.ej. reinicio backend).
       toast.error('Error del servidor. Por favor, intenta más tarde.', { toastId: 'server-error' })
     } else if (!error.response) {
-      // No mostrar si no hay token (usuario cerró sesión). Silenciar pollers de fondo (no son
-      // acción del usuario) y deduplicar el resto: 3 pollers no deben apilar 3 toasts idénticos.
-      const bgPoller = /chats-total-unreads|total-unreads|notifications|heartbeat/i.test(
+      // No mostrar si no hay token (usuario cerró sesión). Silenciar pollers/lecturas de fondo
+      // —no son acción del usuario: badge de unreads, chip de "Tokens IA", banner de comunicados—
+      // y deduplicar el resto: 3 pollers no deben apilar 3 toasts idénticos. `token-info` es el
+      // poll del chip; `announcements$` matchea el GET del banner pero NO `/announcements/broadcast`
+      // (envío real del super, que SÍ debe avisar si falla).
+      const bgPoller = /chats-total-unreads|total-unreads|notifications|heartbeat|token-info|announcements$/i.test(
         originalRequest?.url || ''
       )
       if (localStorage.getItem('token') && !bgPoller) {
