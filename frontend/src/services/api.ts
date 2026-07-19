@@ -213,7 +213,8 @@ api.interceptors.response.use(
           window.location.href = '/login?reason=session_revoked'
         } else {
           toast.error('Sesión expirada. Por favor inicia sesión nuevamente.')
-          window.location.href = '/login'
+          // ?reason= → el Login muestra un banner claro (evita que la desconexión se vea como "error").
+          window.location.href = '/login?reason=session_expired'
         }
         return Promise.reject(refreshError)
       }
