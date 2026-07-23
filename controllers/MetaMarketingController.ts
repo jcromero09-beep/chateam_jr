@@ -9,6 +9,32 @@ import MetaMarketingService from "../services/MetaMarketingService";
 import { getRoasByCampaign } from "../services/MetaMarketingService/RoasService"; // [Fase2·E4.1]
 import logger from "../utils/logger";
 
+// ============================================================
+// META ADS NO UTILIZABLE ≠ ERROR DEL SERVIDOR
+// ============================================================
+// Una empresa sin Meta Ads conectado (sin settings / sin token / sin ad
+// account), con el token caducado o cuya cuenta publicitaria no concedio
+// ads_management|ads_read debe recibir una respuesta VACIA (200), no un
+// 400/500 que ensucia la consola en cada pagina que consulta campañas (p.ej.
+// el filtro de campañas en Tickets) y dispara reintentos del front.
+// Las paginas dedicadas (CampaignsAudit/CampaignAI) leen `configured` y
+// `reason` para mostrar el CTA correcto: "conecta tu cuenta" vs "autoriza los
+// permisos en Business Manager".
+const NOT_USABLE_CODES = new Set([
+  "ERR_NO_COMPANY_SETTINGS",
+  "ERR_NO_FACEBOOK_TOKEN",
+  "ERR_NO_FACEBOOK_AD_ACCOUNT",
+  "ERR_META_INVALID_TOKEN",
+  "ERR_META_PERMISSION_DENIED"
+]);
+
+// Los AppError del service viajan como "ERR_CODIGO: explicacion legible".
+const metaErrorCode = (error: any): string =>
+  String(error?.message || "").split(":")[0].trim();
+
+const isMetaNotUsable = (error: any): boolean =>
+  NOT_USABLE_CODES.has(metaErrorCode(error));
+
 // [Fase2·E4.1] ROAS + CPA REALES por campaña (reemplaza el mock Math.random).
 export const getRoas = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
@@ -99,25 +125,15 @@ export const getCampaigns = async (req: Request, res: Response): Promise<Respons
       period
     });
   } catch (error: any) {
-    // "No configurado" NO es un error del cliente: una empresa sin Meta Ads
-    // conectado (sin company settings / sin token FB / sin ad account) debe
-    // recibir una lista vacía (200), no un 400 que ensucia la consola en cada
-    // página que consulta campañas (p.ej. el filtro de campañas en Tickets).
-    // Las páginas dedicadas (CampaignsAudit/CampaignAI) pueden leer `configured`
-    // para mostrar el CTA de "conecta tu cuenta".
-    const NOT_CONFIGURED = new Set([
-      "ERR_NO_COMPANY_SETTINGS",
-      "ERR_NO_FACEBOOK_TOKEN",
-      "ERR_NO_FACEBOOK_AD_ACCOUNT",
-    ]);
-    if (NOT_CONFIGURED.has(error?.message)) {
-      logger.info(`[Controller:getCampaigns] ℹ️ Meta Ads no configurado (${error.message}) → devolviendo lista vacía`);
+    if (isMetaNotUsable(error)) {
+      logger.info(`[Controller:getCampaigns] ℹ️ Meta Ads no utilizable (${error.message}) → devolviendo lista vacía`);
       return res.status(200).json({
         success: true,
         campaigns: [],
         period,
         configured: false,
-        reason: error.message,
+        reason: metaErrorCode(error),
+        detail: error.message,
       });
     }
     logger.error(`[Controller:getCampaigns] ❌ ERROR: ${error.message}`);
@@ -354,6 +370,21 @@ export const getDashboardData = async (req: Request, res: Response): Promise<Res
       period
     });
   } catch (error: any) {
+    if (isMetaNotUsable(error)) {
+      logger.info(`[Controller:getDashboardData] ℹ️ Meta Ads no utilizable (${error.message}) → dashboard vacío`);
+      return res.status(200).json({
+        success: true,
+        campaigns: [],
+        trends: [],
+        totals: {},
+        adSets: [],
+        ads: [],
+        period,
+        configured: false,
+        reason: metaErrorCode(error),
+        detail: error.message,
+      });
+    }
     logger.error(`[Controller:getDashboardData] ❌ ERROR: ${error.message}`);
     logger.error(`[Controller:getDashboardData] ❌ Stack: ${error.stack}`);
     return res.status(error?.statusCode || 500).json({

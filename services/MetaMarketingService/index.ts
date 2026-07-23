@@ -8,6 +8,7 @@ import logger from "../../utils/logger";
 import { TokenManager } from "./TokenManager";
 import { MarketingCache } from "./MarketingCache";
 import { AuditLogger } from "./AuditLogger";
+import cache from "../../libs/cache";
 
 interface TimeRange {
   since: string;
@@ -47,12 +48,83 @@ const META_ERROR_CODES = {
   TEMPORARY_ERROR: 2,
   // [Fase2] 368 = bloqueo temporal por infraccion de politicas. NO es un error
   // reintentable: insistir se interpreta como evasion y agrava el bloqueo.
-  POLICY_BLOCK: 368
+  POLICY_BLOCK: 368,
+  // 200 = "Permissions error". Meta lo usa cuando el dueno de la cuenta
+  // publicitaria no concedio ads_management/ads_read al token. Antes caia en el
+  // `default` y se devolvia un 500 generico por cada llamada.
+  PERMISSION_DENIED: 200
 };
 
 // Codigos de limitacion. Meta es explicita: al llegar al limite hay que PARAR;
 // si sigues llamando el contador no baja y alargas el bloqueo.
 const META_THROTTLE_CODES = new Set([4, 17, 32, 613, 80000, 80003, 80004, 80014]);
+
+// ============================================================
+// CORTOCIRCUITO DE CUENTA NO UTILIZABLE
+// ============================================================
+// Token invalido o cuenta sin permisos de ads NO se arreglan reintentando: cada
+// llamada devuelve exactamente el mismo error, gasta cuota y llena el log. En
+// cuanto Meta responde 190/10/200 apagamos las llamadas de esa empresa durante
+// META_DISABLED_TTL y respondemos desde Redis sin tocar la red.
+//
+// La llave es por companyId (no por conexion): handleMetaError no conoce el
+// whatsappId y en la practica la cuenta publicitaria es de la empresa. Si una
+// empresa tuviera dos conexiones con ad accounts distintos y solo una rota, el
+// peor caso es devolver lista vacia durante el TTL — mejor que el 500 actual.
+// testConnection limpia la marca en cuanto la cuenta vuelve a responder.
+const META_DISABLED_TTL = 60 * 60; // 1 h
+
+const META_FATAL_CONFIG_CODES = new Set<number>([
+  META_ERROR_CODES.INVALID_TOKEN,
+  META_ERROR_CODES.PERMISSION_ERROR,
+  META_ERROR_CODES.PERMISSION_DENIED
+]);
+
+const metaDisabledKey = (companyId: number): string =>
+  `meta_marketing:disabled:company_${companyId}`;
+
+const disableMetaCalls = async (
+  companyId: number,
+  message: string,
+  statusCode: number
+): Promise<void> => {
+  try {
+    await cache.set(
+      metaDisabledKey(companyId),
+      JSON.stringify({ message, statusCode }),
+      "EX",
+      META_DISABLED_TTL
+    );
+    logger.warn(
+      `[MetaMarketing] 🔇 Llamadas a Meta Ads apagadas ${META_DISABLED_TTL / 60} min ` +
+      `para company ${companyId}: ${message}`
+    );
+  } catch (err: unknown) {
+    logger.error(`[MetaMarketing] No se pudo marcar la cuenta como no utilizable: ${String(err)}`);
+  }
+};
+
+const readMetaDisabled = async (
+  companyId: number
+): Promise<{ message: string; statusCode: number } | null> => {
+  try {
+    const raw = await cache.get(metaDisabledKey(companyId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Reactiva las llamadas a Meta Ads de una empresa (tras reconectar la cuenta).
+ */
+export const clearMetaDisabled = async (companyId: number): Promise<void> => {
+  try {
+    await cache.del(metaDisabledKey(companyId));
+  } catch (err: unknown) {
+    logger.error(`[MetaMarketing] No se pudo limpiar el cortocircuito: ${String(err)}`);
+  }
+};
 
 // ============================================================
 // HELPERS
@@ -291,11 +363,27 @@ const resolveVerifiedAppSecret = async (
   return secret;
 };
 
-const getMetaClient = async (companyId: number, whatsappId?: number): Promise<{
+const getMetaClient = async (
+  companyId: number,
+  whatsappId?: number,
+  opts: { ignoreCircuitBreaker?: boolean } = {}
+): Promise<{
   client: MetaMarketing;
   accountId: string;
   mode: "sandbox" | "production";
 }> => {
+  // Si la cuenta ya se declaro no utilizable, se responde desde Redis: ni una
+  // llamada mas a Meta hasta que expire el TTL o el usuario reconecte.
+  if (!opts.ignoreCircuitBreaker) {
+    const disabled = await readMetaDisabled(companyId);
+    if (disabled) {
+      logger.debug(
+        `[MetaMarketing] ⏭️ Llamada omitida (cuenta no utilizable) company ${companyId}: ${disabled.message}`
+      );
+      throw new AppError(disabled.message, disabled.statusCode);
+    }
+  }
+
   const config = await getCompanyMetaConfig(companyId, whatsappId);
   const appSecret = await resolveVerifiedAppSecret(companyId, config.token);
 
@@ -318,15 +406,22 @@ const getMetaClient = async (companyId: number, whatsappId?: number): Promise<{
 const handleMetaError = (error: any, companyId: number, endpoint: string): never => {
   const metaError = error.response?.data?.error;
 
-  logger.error(`[MetaMarketing] ❌ ERROR en endpoint: ${endpoint}`);
-  logger.error(`[MetaMarketing] ❌ CompanyId: ${companyId}`);
+  // Una cuenta mal configurada (token caducado, sin permisos de ads) NO es un
+  // fallo de la plataforma: es algo que solo el dueno de la cuenta puede
+  // arreglar. Se registra como warn — con error se disparaban alertas y se
+  // llenaba el log con el mismo mensaje en cada llamada.
+  const isClientConfig = metaError && META_FATAL_CONFIG_CODES.has(metaError.code);
+  const log = (msg: string) => (isClientConfig ? logger.warn(msg) : logger.error(msg));
+
+  log(`[MetaMarketing] ❌ ERROR en endpoint: ${endpoint}`);
+  log(`[MetaMarketing] ❌ CompanyId: ${companyId}`);
 
   if (metaError) {
-    logger.error(`[MetaMarketing] ❌ Meta Error Code: ${metaError.code}`);
-    logger.error(`[MetaMarketing] ❌ Meta Error Subcode: ${metaError.error_subcode || "N/A"}`);
-    logger.error(`[MetaMarketing] ❌ Meta Error Type: ${metaError.type}`);
-    logger.error(`[MetaMarketing] ❌ Meta Error Message: ${metaError.message}`);
-    logger.error(`[MetaMarketing] ❌ Meta FBTrace ID: ${metaError.fbtrace_id || "N/A"}`);
+    log(`[MetaMarketing] ❌ Meta Error Code: ${metaError.code}`);
+    log(`[MetaMarketing] ❌ Meta Error Subcode: ${metaError.error_subcode || "N/A"}`);
+    log(`[MetaMarketing] ❌ Meta Error Type: ${metaError.type}`);
+    log(`[MetaMarketing] ❌ Meta Error Message: ${metaError.message}`);
+    log(`[MetaMarketing] ❌ Meta FBTrace ID: ${metaError.fbtrace_id || "N/A"}`);
 
     AuditLogger.logMetaError(companyId, endpoint, {
       code: metaError.code,
@@ -355,16 +450,32 @@ const handleMetaError = (error: any, companyId: number, endpoint: string): never
       );
     }
 
+    // Errores que no se arreglan reintentando: se apagan las llamadas de esta
+    // empresa durante META_DISABLED_TTL (fire-and-forget: handleMetaError es
+    // sincrono porque los 18 call sites dependen de que lance al instante).
+    const fatal = (message: string, statusCode: number): never => {
+      disableMetaCalls(companyId, message, statusCode).catch(() => undefined);
+      throw new AppError(message, statusCode);
+    };
+
     switch (metaError.code) {
       case META_ERROR_CODES.RATE_LIMIT:
         logger.error(`[MetaMarketing] ⚠️ RATE LIMIT alcanzado - Espera antes de reintentar`);
         throw new AppError("ERR_META_RATE_LIMIT: Has alcanzado el limite de solicitudes. Espera unos minutos.", 429);
       case META_ERROR_CODES.INVALID_TOKEN:
-        logger.error(`[MetaMarketing] ⚠️ TOKEN INVALIDO - El token ha expirado o es incorrecto`);
-        throw new AppError("ERR_META_INVALID_TOKEN: El token de acceso es invalido o ha expirado. Reconecta tu cuenta de Facebook.", 401);
+        logger.warn(`[MetaMarketing] ⚠️ TOKEN INVALIDO - El token ha expirado o es incorrecto`);
+        return fatal("ERR_META_INVALID_TOKEN: El token de acceso es invalido o ha expirado. Reconecta tu cuenta de Facebook.", 401);
       case META_ERROR_CODES.PERMISSION_ERROR:
-        logger.error(`[MetaMarketing] ⚠️ PERMISOS DENEGADOS - Faltan permisos necesarios`);
-        throw new AppError("ERR_META_PERMISSION_DENIED: No tienes permisos para acceder a esta cuenta publicitaria. Verifica que el Ad Account ID sea correcto.", 403);
+        logger.warn(`[MetaMarketing] ⚠️ PERMISOS DENEGADOS - Faltan permisos necesarios`);
+        return fatal("ERR_META_PERMISSION_DENIED: No tienes permisos para acceder a esta cuenta publicitaria. Verifica que el Ad Account ID sea correcto.", 403);
+      case META_ERROR_CODES.PERMISSION_DENIED:
+        // (#200) El dueno de la cuenta no concedio ads_management / ads_read.
+        logger.warn(`[MetaMarketing] ⚠️ PERMISOS DE ADS NO CONCEDIDOS (200) - ${metaError.message}`);
+        return fatal(
+          "ERR_META_PERMISSION_DENIED: El dueno de la cuenta publicitaria no concedio los permisos " +
+          "ads_management / ads_read a esta app. Autoriza la cuenta en Business Manager y reconecta.",
+          403
+        );
       default:
         logger.error(`[MetaMarketing] ⚠️ ERROR DESCONOCIDO de Meta API`);
         throw new AppError(`ERR_META_API: ${metaError.message}`, 500);
@@ -390,7 +501,11 @@ export const testConnection = async (
 
   try {
     logger.info(`[testConnection] 📡 Getting Meta client...`);
-    const { client, accountId, mode } = await getMetaClient(companyId, whatsappId);
+    // Probar la conexion es justo lo que hace el usuario tras arreglar la
+    // cuenta: aqui el cortocircuito se ignora a proposito.
+    const { client, accountId, mode } = await getMetaClient(companyId, whatsappId, {
+      ignoreCircuitBreaker: true
+    });
     logger.info(`[testConnection] ✅ Meta client created. AccountId: ${accountId}, Mode: ${mode}`);
 
     // 1. Validar conexión básica
@@ -444,6 +559,9 @@ export const testConnection = async (
       responseStatus: "success",
       responseTime: timer()
     });
+
+    // La cuenta responde: se reactivan las llamadas si estaban apagadas.
+    await clearMetaDisabled(companyId);
 
     logger.info(`[testConnection] ✅ Connection test successful!`);
     return {

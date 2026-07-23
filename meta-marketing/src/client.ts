@@ -4,6 +4,29 @@ import axiosRetry from 'axios-retry';
 import Bottleneck from 'bottleneck';
 import { MetaConfig, MetaApiResponse, MetaError, RateLimitInfo, BatchRequest, BatchResponse } from './types';
 
+// Los interceptores volcaban a stdout la request y la response COMPLETAS de
+// cada llamada (cabecera de 80 '=', timestamp, params, body y 1000 chars de
+// preview): ~48 MB de log en 9 dias. Se conserva como herramienta de
+// depuracion, pero apagado salvo que se pida explicitamente.
+const DEBUG_HTTP = process.env.META_DEBUG_HTTP === 'true';
+
+// Los errores de configuracion (token caducado, cuenta sin permisos de ads) se
+// repiten identicos en CADA llamada. Se registra uno por (codigo + endpoint)
+// cada ERROR_LOG_INTERVAL_MS; el resto se silencia.
+const ERROR_LOG_INTERVAL_MS = 15 * 60_000;
+const MAX_TRACKED_ERRORS = 500;
+const lastErrorLogAt = new Map<string, number>();
+
+const shouldLogError = (key: string): boolean => {
+  const now = Date.now();
+  const prev = lastErrorLogAt.get(key);
+  if (prev !== undefined && now - prev < ERROR_LOG_INTERVAL_MS) return false;
+  // La clave incluye la URL, que lleva ids: se poda para que el mapa no crezca.
+  if (lastErrorLogAt.size >= MAX_TRACKED_ERRORS) lastErrorLogAt.clear();
+  lastErrorLogAt.set(key, now);
+  return true;
+};
+
 export class MetaClient {
   private axios: AxiosInstance;
   private limiter: Bottleneck;
@@ -95,17 +118,19 @@ export class MetaClient {
   private setupInterceptors(): void {
     this.axios.interceptors.request.use(
       (config) => {
-        console.log(`\n${'='.repeat(80)}`);
-        console.log(`📤 REQUEST: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-        console.log(`${'='.repeat(80)}`);
-        console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
-        if (config.params) {
-          console.log(`📋 Query Params:`, JSON.stringify(config.params, null, 2));
+        if (DEBUG_HTTP) {
+          console.log(`\n${'='.repeat(80)}`);
+          console.log(`📤 REQUEST: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+          console.log(`${'='.repeat(80)}`);
+          console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
+          if (config.params) {
+            console.log(`📋 Query Params:`, JSON.stringify(config.params, null, 2));
+          }
+          if (config.data) {
+            console.log(`📦 Request Body:`, JSON.stringify(config.data, null, 2));
+          }
+          console.log(`${'='.repeat(80)}\n`);
         }
-        if (config.data) {
-          console.log(`📦 Request Body:`, JSON.stringify(config.data, null, 2));
-        }
-        console.log(`${'='.repeat(80)}\n`);
         return config;
       },
       (error) => {
@@ -117,30 +142,34 @@ export class MetaClient {
     this.axios.interceptors.response.use(
       (response) => {
         this.handleRateLimit(response);
-        console.log(`\n${'='.repeat(80)}`);
-        console.log(`📥 RESPONSE: ${response.status} ${response.config.url}`);
-        console.log(`${'='.repeat(80)}`);
-        console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
-        console.log(`📊 Data Count: ${Array.isArray(response.data?.data) ? response.data.data.length : 1} items`);
-        // Mostrar preview de los datos (primeros 500 caracteres)
-        const dataPreview = JSON.stringify(response.data, null, 2);
-        if (dataPreview.length > 1000) {
-          console.log(`📄 Response Preview (first 1000 chars):\n${dataPreview.substring(0, 1000)}...`);
-        } else {
-          console.log(`📄 Response Data:\n${dataPreview}`);
+        if (DEBUG_HTTP) {
+          console.log(`\n${'='.repeat(80)}`);
+          console.log(`📥 RESPONSE: ${response.status} ${response.config.url}`);
+          console.log(`${'='.repeat(80)}`);
+          console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
+          console.log(`📊 Data Count: ${Array.isArray(response.data?.data) ? response.data.data.length : 1} items`);
+          // Mostrar preview de los datos (primeros 500 caracteres)
+          const dataPreview = JSON.stringify(response.data, null, 2);
+          if (dataPreview.length > 1000) {
+            console.log(`📄 Response Preview (first 1000 chars):\n${dataPreview.substring(0, 1000)}...`);
+          } else {
+            console.log(`📄 Response Data:\n${dataPreview}`);
+          }
+          console.log(`${'='.repeat(80)}\n`);
         }
-        console.log(`${'='.repeat(80)}\n`);
         return response;
       },
       (error) => {
-        console.log(`\n${'='.repeat(80)}`);
-        console.log(`❌ ERROR RESPONSE`);
-        console.log(`${'='.repeat(80)}`);
-        console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
-        console.log(`📍 URL: ${error.config?.url}`);
-        console.log(`📋 Status: ${error.response?.status || 'N/A'}`);
-        console.log(`📄 Error Data:`, JSON.stringify(error.response?.data, null, 2));
-        console.log(`${'='.repeat(80)}\n`);
+        if (DEBUG_HTTP) {
+          console.log(`\n${'='.repeat(80)}`);
+          console.log(`❌ ERROR RESPONSE`);
+          console.log(`${'='.repeat(80)}`);
+          console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
+          console.log(`📍 URL: ${error.config?.url}`);
+          console.log(`📋 Status: ${error.response?.status || 'N/A'}`);
+          console.log(`📄 Error Data:`, JSON.stringify(error.response?.data, null, 2));
+          console.log(`${'='.repeat(80)}\n`);
+        }
         this.handleApiError(error);
         return Promise.reject(error);
       }
@@ -231,15 +260,31 @@ export class MetaClient {
   private handleApiError(error: any): void {
     if (error.response?.data?.error) {
       const metaError: MetaError = error.response.data.error;
-      console.error('❌ Meta API Error:', {
-        message: metaError.message,
-        type: metaError.type,
-        code: metaError.code,
-        subcode: metaError.error_subcode,
-        fbtrace_id: metaError.fbtrace_id,
-        url: error.config?.url,
-        method: error.config?.method,
-      });
+
+      // 190 (token invalido) y 200/10 (sin permisos de ads) son configuracion
+      // de la cuenta del cliente, no fallos de la plataforma: warn, y solo uno
+      // cada ERROR_LOG_INTERVAL_MS. El resto sigue siendo error.
+      const isClientConfig = [10, 190, 200].includes(metaError.code);
+      const logKey = `${metaError.code}:${error.config?.url || '?'}`;
+      if (shouldLogError(logKey)) {
+        const payload = {
+          message: metaError.message,
+          type: metaError.type,
+          code: metaError.code,
+          subcode: metaError.error_subcode,
+          fbtrace_id: metaError.fbtrace_id,
+          url: error.config?.url,
+          method: error.config?.method,
+        };
+        if (isClientConfig) {
+          console.warn(
+            `⚠️ Meta API: cuenta no utilizable (se silencian repeticiones ${ERROR_LOG_INTERVAL_MS / 60_000} min):`,
+            payload
+          );
+        } else {
+          console.error('❌ Meta API Error:', payload);
+        }
+      }
 
       if (metaError.code === 190) {
         throw new Error('Token de acceso inválido o expirado');
