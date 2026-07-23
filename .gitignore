@@ -14,6 +14,7 @@ yarn-error.log*
 
 # Build output
 dist/
+dist_bak*/
 build/
 .next/
 out/

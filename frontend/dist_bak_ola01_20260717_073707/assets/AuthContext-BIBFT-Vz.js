@@ -1,1 +1,0 @@
-import"./mui-joy-Cm1uuCLm.js";import{a as o}from"./react-vendor-DOoKlC_4.js";import"./index-WLJDo6y_.js";const e=o.createContext(void 0);function s(){const t=o.useContext(e);if(t!==void 0)return t}export{e as A,s as u};
