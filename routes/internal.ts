@@ -12,6 +12,7 @@ import Whatsapp from "../models/Whatsapp";
 import { sessionRegistry } from "../libs/sessionRegistry";
 import logger from "../utils/logger";
 import { getMessageOptions } from "../services/WbotServices/SendWhatsAppMedia";
+import { isValidInternalSecret, INTERNAL_HEADER } from "../helpers/internalAuth";
 
 const internalRoutes = Router();
 
@@ -105,13 +106,27 @@ const downloadRemoteMediaToTemp = async (
   return tempFilePath;
 };
 
-// Middleware: solo permitir requests desde localhost
+// [P0-C parte 2] Guard de /internal — defensa en profundidad.
+// Antes: solo `req.ip === 127.0.0.1`. Problema: sin `trust proxy`, nginx hace que
+// TODA petición externa parezca 127.0.0.1 (por eso se bloqueó /be/internal en el
+// borde en la parte 1). Aquí se cierra también a nivel app:
+//   (a) secreto compartido válido (llamada inter-nodo autenticada), o
+//   (b) petición genuinamente local: loopback Y SIN `X-Forwarded-For` (nginx
+//       siempre añade XFF, así que su ausencia ⇒ no vino por el proxy).
+// Una petición proxied sin secreto (p.ej. si el bloqueo nginx se retirara) → 403.
+// No rompe los llamadores inter-nodo (axios directo a 127.0.0.1, sin XFF).
 internalRoutes.use((req: Request, res: Response, next) => {
-  const ip = req.ip || req.connection.remoteAddress;
-  if (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1") {
+  if (isValidInternalSecret(req.headers[INTERNAL_HEADER])) {
     return next();
   }
-  logger.warn(`[Internal] Rejected request from ${ip}`);
+  const xff = req.headers["x-forwarded-for"];
+  const ip = req.ip || req.connection.remoteAddress;
+  const loopback =
+    ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  if (!xff && loopback) {
+    return next();
+  }
+  logger.warn(`[Internal] Rejected request from ${ip} (xff=${xff ? "sí" : "no"})`);
   return res.status(403).json({ error: "Internal routes only" });
 });
 

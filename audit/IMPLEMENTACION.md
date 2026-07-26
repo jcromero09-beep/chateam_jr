@@ -158,3 +158,18 @@ idempotente (standalone con el mismo algoritmo, verificado que el `secretCrypto`
 
 **Estado:** W1-SEC-06 COMPLETA para las columnas identificadas (pago, IA, pageAccessToken, token,
 facebookUserToken). Ya cifradas de antes: `tokenMeta`, `facebookSystemUserToken`.
+
+---
+
+## P0-C parte 2 · W5-API-04 — Guard de /internal con secreto compartido — ✅ APLICADO 2026-07-26
+
+Defensa en profundidad (complementa el bloqueo nginx de la parte 1), **sin env nuevo ni tocar los 8
+llamadores** (cero riesgo de rotura):
+- `helpers/internalAuth.ts`: secreto derivado de `JWT_SECRET` (`sha256(JWT_SECRET:internal-node:v1)`).
+- `routes/internal.ts`: guard = (a) `x-internal-secret` válido → allow; (b) loopback **y sin**
+  `X-Forwarded-For` (no proxied) → allow; (c) resto → 403. Los inter-nodo (axios directo a 127.0.0.1,
+  sin XFF) pasan por (b); una petición proxied sin secreto → 403.
+- **Verificado:** local sin XFF → 200; proxied sin secreto → 403; proxied con secreto → 200; externo
+  `/be/internal` → 404 (nginx). 0 rechazos de llamadas legítimas en el log.
+- **Multi-nodo (futuro):** los llamadores deben enviar `internalAuthHeader()` (path a) cuando el
+  destino no sea loopback; hoy (single-node) no hace falta.
