@@ -150,3 +150,11 @@ idempotente (standalone con el mismo algoritmo, verificado que el `secretCrypto`
 - **AIProviderConfig + Whatsapp: ✅ HECHO** — `apiKey`/`apiSecret` y `pageAccessToken` con get/set.
   Backfill: 2 `apiKey` + 1 `pageAccessToken` en claro → cifrados; round-trip verificado. **0 plano
   restante** en todas las columnas de secreto identificadas (S-2). App vivo sano.
+- **Channel tokens (Whatsapp): ✅ HECHO** — `token` (20) + `facebookUserToken` (5) con get/set;
+  backfill verificado round-trip. `session` está vacío (Baileys usa Redis); `botToken`/`tiktokAccessToken`
+  sin datos. **0 secretos en claro** en las columnas de secreto identificadas. (Verificación de envío
+  WhatsApp en vivo no posible: 0 sesiones CONNECTED en el entorno restaurado; el round-trip + getter
+  transparente lo cubren.)
+
+**Estado:** W1-SEC-06 COMPLETA para las columnas identificadas (pago, IA, pageAccessToken, token,
+facebookUserToken). Ya cifradas de antes: `tokenMeta`, `facebookSystemUserToken`.

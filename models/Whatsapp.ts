@@ -111,13 +111,32 @@ class Whatsapp extends Model<Whatsapp> {
   @BelongsTo(() => Company)
   company: Company;
 
-  @Column(DataType.STRING)
+  // [W1-SEC-06] Cifrado transparente en reposo (la columna es TEXT en BD; el
+  // cifrado cabe). Retrocompatible: lee plano legacy por passthrough.
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("token"));
+    },
+    set(value: string) {
+      this.setDataValue("token", encryptSecret(value) as any);
+    }
+  })
   token: string;
 
   @Column(DataType.TEXT)
   facebookUserId: string;
 
-  @Column(DataType.TEXT)
+  // [W1-SEC-06] Cifrado transparente en reposo.
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("facebookUserToken"));
+    },
+    set(value: string) {
+      this.setDataValue("facebookUserToken", encryptSecret(value) as any);
+    }
+  })
   facebookUserToken: string;
 
   @Column(DataType.TEXT)
