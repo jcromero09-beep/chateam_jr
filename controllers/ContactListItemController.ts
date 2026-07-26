@@ -242,7 +242,9 @@ export const remove = async (
   const { companyId } = req.user;
 
   // Obtener el contacto antes de eliminarlo
-  const contact = await ContactListItem.findByPk(id, {
+  // [W1-SEC-12] Acota al tenant ANTES de tocar el proveedor de email.
+  const contact = await ContactListItem.findOne({
+    where: { id, companyId },
     include: [{ model: ContactList, as: "contactList" }]
   });
 
@@ -270,7 +272,7 @@ export const remove = async (
     }
   }
 
-  await DeleteService(id);
+  await DeleteService(id, companyId);
 
   const io = getIO();
   io.of(String(companyId))

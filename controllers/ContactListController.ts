@@ -293,13 +293,15 @@ export const remove = async (
   const { id } = req.params;
   const { companyId } = req.user;
 
-  const contactList = await ContactList.findByPk(id);
+  // [W1-SEC-12] Acota al tenant ANTES de la limpieza en el proveedor: con findByPk
+  // un id ajeno disparaba removeListFromProvider sobre la lista de otra empresa.
+  const contactList = await ContactList.findOne({ where: { id, companyId } });
 
   if (contactList?.isEmailList) {
     await removeListFromProvider(contactList, Number(companyId));
   }
 
-  await DeleteService(id);
+  await DeleteService(id, companyId);
 
   const io = getIO();
   io.of(String(companyId))

@@ -122,3 +122,16 @@
 
 **Estado:** W1-SEC-02 COMPLETA. **OLA P0 COMPLETA: 5/5** (A LogTickets, B DELETE tickets, C /internal,
 D Socket.IO, E /public). Pendientes menores: P0-C parte 2 (guard-secret, requiere JC).
+
+---
+
+## W1-SEC-12 (resto P1/P2) — 5 DELETE cross-tenant del patrón INV-05 — ✅ APLICADO 2026-07-26
+
+Mismo patrón que P0-B en 5 servicios `DeleteService` (`where:{id}` → `where:{id, companyId}`) + sus
+controllers pasan `companyId`; en ContactList/ContactListItem se acotó además el `findByPk` previo
+(evitaba un write cross-tenant al proveedor de email antes del delete):
+- `QuickMessageService`, `AnnouncementService`, `TagServices`, `ContactListService`,
+  `ContactListItemService` (+ los 5 controllers).
+- **Verificado:** super (comp1) `DELETE /quick-messages/11` (comp8) y `/tags/11` (comp4) → **404**,
+  registros intactos. Los otros 3 sin datos cross-tenant para sonda (código idéntico). RBAC smoke VERDE.
+- Rollback: revertir a `where:{id}` + restart.

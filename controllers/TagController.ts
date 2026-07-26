@@ -175,7 +175,7 @@ export const remove = async (
   const { tagId } = req.params;
   const { companyId } = req.user;
 
-  await DeleteService(tagId);
+  await DeleteService(tagId, companyId);
 
   const io = getIO();
   io.of(String(companyId))
