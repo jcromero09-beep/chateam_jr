@@ -2,10 +2,14 @@ import { Server as SocketIO } from "socket.io";
 import { Server } from "http";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient, RedisClientType } from "redis";
+import jwt from "jsonwebtoken";
 import AppError from "../errors/AppError";
 import logger from "../utils/logger";
 import { instrument } from "@socket.io/admin-ui";
+import authConfig from "../config/auth";
 import User from "../models/User";
+
+const { verify } = jwt;
 import {
   REDIS_URI_CONNECTION,
   isRedisAuthWithoutPasswordError,
@@ -123,6 +127,41 @@ export const initIO = (httpServer: Server): SocketIO => {
   }  
   
   const workspaces = io.of(/^\/\w+$/);
+
+  // [P0-D · W1-SEC-01] Autenticación del handshake. Antes: cualquiera abría
+  // wss://host/<companyId> (namespace enumerable) con `userId` en la query y sin
+  // verificar JWT → recibía en vivo mensajes/tickets/contactos de CUALQUIER tenant.
+  // Ahora se exige un JWT válido y su `companyId` debe coincidir con el namespace;
+  // el super puede entrar a cualquiera (impersonación). El token viaja en
+  // `handshake.auth.token` (lo envía el front); se acepta `query.token` de respaldo.
+  workspaces.use((socket, next) => {
+    const rawAuth = (socket.handshake.auth || {}) as { token?: string };
+    const rawQuery = (socket.handshake.query || {}) as { token?: string | string[] };
+    const queryToken = Array.isArray(rawQuery.token) ? rawQuery.token[0] : rawQuery.token;
+    const token = rawAuth.token || queryToken;
+
+    if (!token || typeof token !== "string") {
+      return next(new Error("unauthorized: no token"));
+    }
+
+    try {
+      const decoded = verify(token, authConfig.secret) as {
+        id: number;
+        companyId: number;
+        super?: boolean;
+      };
+      const nsCompanyId = Number(socket.nsp.name.replace("/", ""));
+      if (!decoded.super && Number(decoded.companyId) !== nsCompanyId) {
+        return next(new Error("unauthorized: tenant mismatch"));
+      }
+      (socket.data as any).userId = Number(decoded.id);
+      (socket.data as any).companyId = Number(decoded.companyId);
+      return next();
+    } catch (err: any) {
+      return next(new Error("unauthorized: invalid token"));
+    }
+  });
+
   workspaces.on("connection", socket => {
 
     const { userId } = socket.handshake.query;

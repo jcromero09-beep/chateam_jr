@@ -46,6 +46,10 @@ class SocketService {
       reconnectionDelay: 1000,
       reconnectionAttempts: Infinity,
       query: { userId: String(userId) },
+      // [P0-D · W1-SEC-01] El backend ahora exige JWT en el handshake. Forma
+      // función: se re-lee el token en cada (re)conexión, así un refresh no deja
+      // el socket con un token viejo.
+      auth: (cb) => cb({ token: localStorage.getItem('token') || '' }),
       // Forzar usar websocket primero
       transports: ['websocket', 'polling']
     })
