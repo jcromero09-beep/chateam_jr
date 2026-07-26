@@ -476,5 +476,11 @@ routes.use("/integrations", integrationRoutes);
 import internalRoutes from "./internal";
 routes.use(internalRoutes);  // /internal/* - Solo accesible desde localhost
 
+// [W6-INFRA-01 · NFR-015] Observabilidad: monta /metrics (prom-client), /ready, /live.
+// healthRoutes NO estaba montado → /metrics daba 404. Se monta al final: el /health
+// inline de arriba se registra antes y sigue ganando (comportamiento de /health sin cambio).
+import healthRoutes from "./healthRoutes";
+routes.use(healthRoutes);
+
 
 export default routes;
