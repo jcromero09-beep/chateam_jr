@@ -15,6 +15,21 @@
 
 ---
 
+> ## Capa de negocio (Fase 1 · 2026-07-23)
+>
+> Sobre este SPEC técnico se añadió una **capa de producto/negocio** con requisitos de **ID estable**
+> (`BR-*`, `FR-*`, `NFR-*`). Este documento sigue siendo la fuente del "qué" técnico; la capa de
+> negocio vive en [`../product/`](../product/) y **no reemplaza** nada de aquí:
+> - [PRODUCT-VISION.md](../product/PRODUCT-VISION.md) — problema, propuesta de valor, diferenciación.
+> - [PRODUCT-SCOPE.md](../product/PRODUCT-SCOPE.md) — dominios, must-have vs opcional, fuera de alcance.
+> - [BUSINESS-REQUIREMENTS.md](../product/BUSINESS-REQUIREMENTS.md) — **catálogo maestro de IDs** BR/FR/NFR.
+> - [BUYER-PERSONAS.md](../product/BUYER-PERSONAS.md) — actores (verificados) y compradores (HIPÓTESIS).
+> - [SUCCESS-METRICS.md](../product/SUCCESS-METRICS.md) — métricas-faro y metas de RNF.
+>
+> El mapeo módulo→FR y RNF→NFR está en [§10](#10-índice-de-requisitos-con-id-estable-fase-1) al final.
+
+---
+
 ## 1. Visión y propuesta de valor
 
 **Qué es.** `chateam_jr` (backend `chateam-platform@1.1.0`, frontend `jrchateam-frontend@6.0.0`) es un
@@ -290,3 +305,32 @@ pagos, Meta/Coexistencia, rendimiento, a11y, observabilidad, deuda, testing, sí
 7. **[PENDIENTE]** Re-ejecutar sonda de `/dashboard` para confirmar las cifras del brief de negocio.
 8. **[SUPUESTO]** Alcance real de compliance (LOPDP Ecuador / RGPD) — requiere revisión legal.
 9. **[PENDIENTE]** Logo/manual de marca oficial para fijar la paleta canónica definitiva (hoy propuesta en `design-system.md`).
+
+---
+
+## 10. Índice de requisitos con ID estable (Fase 1)
+
+> Añadido en la Fase 1 (business-first). Catálogo canónico y detalle en
+> [`../product/BUSINESS-REQUIREMENTS.md`](../product/BUSINESS-REQUIREMENTS.md). Aquí solo el mapeo
+> rápido módulo/tema → ID. El **estado** (EXISTE/PARCIAL/AUSENTE/MOCK/NO-VERIFICABLE) por ID se
+> resuelve en la Fase de Auditoría, no en este índice.
+
+**Negocio (BR):** BR-001 multi-tenant · BR-002 self-hosted · BR-003 onboarding/trial ·
+BR-004 monetización dual (planes + créditos IA) · BR-005 multi-gateway pago · BR-006 gating por plan ·
+BR-007 white-label · BR-008 ROI marketing medible · BR-009 afiliados · BR-010 segmento/pricing
+[HIPÓTESIS] · BR-011 expansión geográfica [HIPÓTESIS].
+
+**Funcionales (FR) — mapeo con §5:** FR-001 Tickets · FR-002 WhatsApp dual/Coexistencia ·
+FR-003 Contactos · FR-004 Mensajes rápidos · FR-005 Chats internos · FR-006 Funnel/Kanban ·
+FR-007 Citas · FR-008 Etiquetas · FR-009 Comentarios FB/IG · FR-010 WebChat · FR-011 Campañas ·
+FR-012 FlowBuilder · FR-013 Créditos IA · FR-014 Suscripciones/Planes · FR-015 Afiliados ·
+FR-016 Email Marketing · FR-017 UGC · FR-018 Meta Ads/atribución · FR-019 Super-admin ·
+FR-020 Agentes IA/RAG · FR-021 Motor estadístico · FR-022 Automatizaciones · FR-023 Dashboard ·
+FR-024 Roles/RBAC.
+
+**No funcionales (NFR) — mapeo con §6:** NFR-001 dashboard p95 · NFR-002 listados p95 ·
+NFR-003 0 endpoints 500 · NFR-004 uptime · NFR-005 capacidad host · NFR-006 secretos cifrados ·
+NFR-007 rate-limit auth · NFR-008 RBAC sin fugas · NFR-009 bcrypt≥12 · NFR-010 meta tenants ·
+NFR-011 sesiones WhatsApp · NFR-012 retención/particionado · NFR-013 i18n · NFR-014 compliance PII ·
+NFR-015 observabilidad · NFR-016 bundle ≤300KB · NFR-017 a11y AA · NFR-018 design system ·
+NFR-019 webhooks pago firmados · NFR-020 envelope HTTP.

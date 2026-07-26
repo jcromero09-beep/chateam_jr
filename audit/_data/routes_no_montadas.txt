@@ -1,0 +1,7 @@
+routes/billingRoutes.ts
+routes/contactTemperatureRoutes.ts
+routes/debugRoutes.ts
+routes/healthRoutes.ts
+routes/mediaRoutes.ts
+routes/webchatRoutes.ts
+routes/webhookWebchatRoutes.ts

@@ -1,0 +1,96 @@
+# Log de implementación — remediación P0 (chateam_jr)
+
+> Registro de tareas aplicadas al sistema vivo, con evidencia antes/después y gate (Regla 10).
+> Backup de referencia: `audit/inv/W0-GATE-01.md` (BD+Redis+public cifrados, restore verificado).
+
+---
+
+## P0-A · W1-SEC-03 — IDOR de lectura en `LogTickets` — ✅ APLICADO 2026-07-25
+
+- **Archivo:** `services/TicketServices/ShowLogTicketService.ts` — se añadió `import Ticket` y un
+  `include` de `Ticket` con `required:true` + `where:{companyId}` + `attributes:[]` (inner join que
+  acota al tenant). Cambio REVERSIBLE, sin migración de datos.
+- **Despliegue:** `pm2 restart chateam-node --update-env`; API sana tras el reinicio.
+- **Evidencia antes/después** (endpoint `GET /tickets-log/:ticketId`, perfil super = companyId 1):
+
+  | Prueba | ANTES (código viejo) | DESPUÉS (fix) | Criterio |
+  |---|---|---|---|
+  | ticket 2206 (company 1, propio) | 45 logs | **45 logs** [200] | AC2 ✓ acceso legítimo intacto |
+  | ticket 5767 (company 8, ajeno) | **57.777 logs** (fuga IDOR) | **0 logs** [200] | AC1 ✓ cross-tenant bloqueado |
+
+- **Gate:** `node tests/rbac-smoke.mjs` → **VERDE** (los 3 P0 previos siguen cerrados; sin regresión).
+- **Rollback:** no necesario. Si se requiriera: revertir el `include` (1 bloque) + restart.
+- **Nota:** el fix acota a `req.user.companyId`; el super opera cross-company vía impersonación, no por
+  este endpoint (coherente con el modelo de tenancy).
+
+**Estado:** W1-SEC-03 COMPLETA.
+
+---
+
+## P0-B · W1-SEC-12 — Borrado destructivo cross-tenant `DELETE /tickets/:ticketId` — ✅ APLICADO 2026-07-25
+
+- **Archivo:** `services/TicketServices/DeleteTicketService.ts` — `where:{id}` → `where:{id, companyId}`
+  (el service ya recibía `companyId`, solo no lo usaba). Un id de otra empresa no se encuentra → 404
+  sin borrar. REVERSIBLE, sin migración.
+- **Despliegue:** `pm2 restart chateam-node`; API sana.
+- **Evidencia** (no destructiva — el fix impide el borrado, la prueba no borra):
+  - Filtro (lectura BD): ticket 2206 + companyId=1 → **1** (propio matchea, borrado intra-tenant
+    preservado); ticket 5767 + companyId=1 → **0** (ajeno no matchea → 404).
+  - Endpoint: super (comp 1) `DELETE /tickets/5767` (comp 8) → **HTTP 404** `ERR_NO_TICKET_FOUND`;
+    ticket 5767 **sigue existiendo** (count 1) y sus **57.777 logs intactos**.
+- **Gate:** RBAC smoke **VERDE**.
+- **Rollback:** revertir a `where:{id}` + restart (no necesario).
+- **Pendiente de W1-SEC-12 (P1/P2, no P0):** aplicar el mismo patrón a los otros 4 DELETE del hallazgo
+  INV-05 (quick-messages, announcements, tags, contact-lists/items) — batch de seguimiento.
+
+**Estado:** P0 de W1-SEC-12 COMPLETO (DELETE /tickets).
+
+---
+
+## P0-C · W5-API-04 — `/internal/*` accesible desde Internet — ✅ PARTE 1 APLICADA 2026-07-26
+
+- **Parte 1 (borde nginx) — HECHA:** en `/etc/nginx/server.d/padeldev.codigo.plus.conf` se añadieron
+  `location /be/internal/ { return 404; }` y `location = /be/internal { return 404; }` antes de
+  `location /be/`. Backup: `backups/chateam/nginx_padeldev_20260725_212426.conf.bak`. `nginx -t` OK +
+  `nginx -s reload`.
+- **Verificado en vivo:** EXTERNO `/be/internal/health` y `/be/internal/session/1/status` → **404**
+  (antes 200); DIRECTO `:3010/internal/health` (inter-nodo) → **200** intacto; `/be/health` y SPA `/`
+  → **200**. Confirmado que TODAS las llamadas inter-nodo usan `http://127.0.0.1:<port>/internal`
+  (watchdog, send-media, edit/delete-message, wbot-call, msg-status), no `/be` → el bloqueo no las
+  afecta.
+- **Rollback:** `sudo cp` del `.bak` + `nginx -s reload`.
+- **Parte 2 (defensa en profundidad) — PENDIENTE, requiere JC:** el guard sigue confiando en
+  `req.ip`. Endurecerlo con un secreto compartido (`INTERNAL_SHARED_SECRET` en `.env` de cada nodo +
+  header en los llamadores inter-nodo) queda como seguimiento — necesita que JC ponga el secreto en
+  `.env` (read-only para el agente) y un cambio coordinado en los ~7 llamadores. El P0 externo ya está
+  cerrado por la parte 1.
+
+**Estado:** P0 externo de W5-API-04 CERRADO.
+
+---
+
+## P0-D · W1-SEC-01 — Socket.IO sin autenticar el handshake — ✅ APLICADO 2026-07-26
+
+- **Cambio coordinado FE+BE + rebuild** (el front no enviaba token → backend-only habría desconectado a
+  todos):
+  - **Backend** `libs/socket.ts`: `workspaces.use()` que verifica el JWT (`authConfig.secret`) del
+    `handshake.auth.token` y exige `decoded.companyId === namespace` (el `super` puede entrar a
+    cualquiera, por impersonación). Import de `jsonwebtoken` + `config/auth`.
+  - **Frontend** `src/services/socket.ts`: `auth: (cb)=>cb({token: localStorage.getItem('token')})`
+    (forma función → reconexiones toman token fresco).
+  - CORS `origin:"*"` **sin tocar** (el token va en el payload del handshake, no en cookie → la reja no
+    depende de CORS; además `FRONTEND_URL` en `.env` está obsoleto = `chat.chateam.ws`, no padeldev →
+    acotar CORS ahí rompería). Seguimiento: fijar `FRONTEND_URL` correcto y acotar origin.
+- **Despliegue (rollout seguro):** build con `scripts/nightly-build-frontend.sh` (systemd-run --user,
+  MemoryMax 6.5G, `vite build` a `dist_stage` → swap; backup `dist_bak_20260726_083633`). **Front
+  primero** (compatible con backend viejo), **luego** `pm2 restart chateam-node` (enforce) → sin
+  ventana de corte.
+- **Verificación (socket.io-client, 4 casos):** super→/1 **CONNECT**; sin token→/1 **REJECT** (no
+  token); user comp6→/8 **REJECT** (tenant mismatch, fuga cerrada); user comp6→/6 **CONNECT**.
+- **Gate:** RBAC smoke **VERDE**; `/be/health` y SPA `/` → 200; 0 errores de socket en backend.
+- **Rollback:** front → `mv dist dist_stage; mv dist_bak_20260726_083633 dist`; backend → revertir
+  `libs/socket.ts` + restart.
+- **Impacto transitorio aceptado:** sesiones con el SPA VIEJO ya cargado pierden realtime al reconectar
+  hasta que **refresquen** la página (cargan el bundle nuevo que envía token). Self-heal en un F5.
+
+**Estado:** W1-SEC-01 COMPLETA. Pendiente de la ola P0: **W1-SEC-02 (/public)** — última.

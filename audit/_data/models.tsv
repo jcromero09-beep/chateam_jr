@@ -1,0 +1,184 @@
+model	tableName	columnas	companyId	softDelete	indexesDecl	FKs
+AIABTest	AIABTests	15	SI	NO	NO	
+AIABTestVariant	AIABTestVariants	15	SI	NO	NO	AIABTest
+AIAffiliateProgram	AIAffiliatePrograms	22	SI	NO	NO	Company|AIAffiliateProgram|AffiliateTier
+AIAffiliateReferral	AIAffiliateReferrals	20	NO	NO	NO	AIAffiliateProgram|Company|AffiliateLink|Company
+AIAgentAssignment	AIAgentAssignments	11	SI	NO	NO	Company|AIAgentConfig
+AIAgentConfig	AIAgentConfigs	22	SI	NO	NO	Company
+AIAgentLog	AIAgentLogs	22	SI	NO	NO	Company|AIAgentLog
+AIChatbotConfig	AIChatbotConfigs	17	SI	NO	NO	Company
+AIChatbotDataSource	AIChatbotDataSources	12	SI	NO	NO	AIChatbotConfig|Company
+AIChatbotDomain	AIChatbotDomains	11	SI	NO	NO	AIChatbotConfig|Company
+AIChunk	AIChunks	10	SI	NO	NO	AIDocument|AIChunk
+AICompanyExtension	AICompanyExtensions	6	SI	NO	NO	Company|AIExtension
+AICorrectionLearned	AICorrectionLearned	15	SI	NO	NO	Company|AISupportCorrection|AICorrectionReviewQueue|User
+AICorrectionReviewQueue	AICorrectionReviewQueue	18	SI	NO	NO	Company|User
+AICreditBalance	AICreditBalances	6	SI	NO	NO	Company|AICreditType
+AICreditTransaction	AICreditTransactions	13	SI	NO	NO	Company|AICreditType|User
+AICreditType	AICreditTypes	8	NO	NO	NO	
+AIDocument	AIDocuments	13	SI	NO	NO	Company
+AIEmailTemplate	AIEmailTemplates	8	SI	NO	NO	Company
+AIEntity	AIEntities	12	NO	NO	NO	
+AIExtension	AIExtensions	9	NO	NO	NO	
+AIFineTuningJob	AIFineTuningJobs	20	SI	NO	NO	
+AIHistoricalQA	AIHistoricalQA	22	SI	NO	NO	Company
+AIImageCreditTransaction	AIImageCreditTransactions	12	SI	NO	NO	Company|User|AIImageGeneration
+AIImageGeneration	AIImageGenerations	16	SI	NO	NO	Company|User|AIProviderConfig
+AIImageGenerationItem	AIImageGenerationItems	10	SI	NO	NO	AIImageGeneration
+AIPromptTemplate	AIPromptTemplates	23	SI	NO	NO	Company|User
+AIProviderConfig	AIProviderConfigs	37	SI	NO	NO	Company
+AIScheduledTask	AIScheduledTasks	17	SI	NO	NO	
+AISemanticCache	AISemanticCache	12	SI	NO	NO	
+AISpan	AISpans	21	SI	NO	NO	
+AISubplan	AISubplans	15	SI	NO	NO	Company|AIProviderConfig
+AISupportCorrection	AISupportCorrections	17	SI	NO	NO	Company|User|User
+AITeam	AITeams	9	SI	NO	NO	Company
+AITeamMember	AITeamMembers	8	NO	NO	NO	AITeam
+AITrace	AITraces	19	SI	NO	NO	
+AITurnEvent	AITurnEvents	15	SI	NO	NO	Company
+AIUsageMetric	AIUsageMetrics	23	SI	NO	NO	
+AIVideoCreditTransaction	AIVideoCreditTransactions	12	SI	NO	NO	Company|User|AIVideoGeneration
+AIVideoGeneration	AIVideoGenerations	18	SI	NO	NO	Company|User|AIProviderConfig
+AIVideoGenerationItem	AIVideoGenerationItems	11	SI	NO	NO	AIVideoGeneration
+AffiliateLink	AffiliateLinks	10	SI	NO	NO	AIAffiliateProgram|Company
+AffiliateTier	AffiliateTiers	11	SI	NO	NO	Company
+AffiliateTransaction	AffiliateTransactions	11	SI	NO	NO	AffiliateWallet|Company
+AffiliateWallet	AffiliateWallets	9	SI	NO	NO	Company|AIAffiliateProgram
+AffiliateWithdrawal	AffiliateWithdrawals	15	SI	NO	NO	AffiliateWallet|Company|AIAffiliateProgram|User
+AgentDevice	AgentDevices	19	SI	NO	NO	Company|AgentIdentity
+AgentIdentity	AgentIdentities	27	SI	NO	NO	Company|User
+AgentInteraction	AgentInteractions	18	SI	NO	NO	Company|AgentIdentity|AgentDevice
+AgentMemory	AgentMemories	12	SI	NO	NO	Company|AgentIdentity
+AgentProfilePhoto	AgentProfilePhotos	15	SI	NO	NO	Company|AgentIdentity
+AiTokenPlan	AiTokenPlans	12	NO	NO	NO	
+AiTokenTransaction	AiTokenTransactions	13	SI	NO	NO	Company|AiTokenPlan|User
+Announcement	Announcement	8	SI	NO	NO	Company
+ApiFailedMessage	ApiFailedMessages	14	SI	NO	NO	Whatsapp
+ApiUsages	ApiUsages	13	SI	NO	NO	
+ApplePurchase	ApplePurchases	14	SI	NO	NO	Company|Plan
+AppointmentService	appointment_services	15	SI	NO	NO	Company
+AttributionChannelAggregate	AttributionChannelAggregates	20	SI	NO	NO	Company|Campaign
+AttributionConversion	AttributionConversions	26	SI	NO	NO	Company|Ticket|Contact|ConversionDetection|User|User
+AttributionResult	AttributionResults	13	SI	NO	NO	Company|AttributionConversion|AttributionTouchpoint
+AttributionTouchpoint	AttributionTouchpoints	27	SI	NO	NO	Company|Contact|Campaign|CampaignShipping|Message|Ticket
+AutomationRule	AutomationRules	8	SI	NO	NO	Company
+Baileys	Baileys	4	NO	NO	NO	Whatsapp
+Campaign	Campaigns	28	SI	NO	NO	Company|ContactList|Whatsapp|User|Queue|WhatsAppTemplate
+CampaignAlert	CampaignAlerts	16	SI	NO	NO	Company|User
+CampaignApproval	campaign_approvals	12	SI	NO	NO	
+CampaignMessage	CampaignMessages	21	SI	NO	NO	Company|Contact|Message|Ticket|Whatsapp
+CampaignRecommendation	CampaignRecommendations	16	SI	NO	NO	Company|User
+CampaignRule	CampaignRules	18	SI	NO	NO	Company|User
+CampaignRuleLog	CampaignRuleLogs	12	SI	NO	NO	CampaignRule|Company
+CampaignSetting	CampaignSettings	4	SI	NO	NO	Company
+CampaignShipping	CampaignShipping	15	NO	NO	NO	ContactListItem|Campaign
+Chat	Chats	6	SI	NO	NO	User|Company
+ChatMessage	ChatMessages	11	SI	NO	NO	Chat|User|Company
+ChatUser	ChatUsers	4	NO	NO	NO	Chat|User
+Chatbot	Chatbot	12	NO	NO	NO	Queue|Chatbot|Queue|User|QueueIntegrations|Files
+CommentAutoReplyCampaign	CommentAutoReplyCampaigns	39	SI	NO	NO	Company
+CommentAutoReplyLog	CommentAutoReplyLogs	28	SI	NO	NO	Company|CommentAutoReplyCampaign
+CommentModerationAudit	comment_moderation_audits	11	SI	NO	NO	
+CommentResponseSettings	CommentResponseSettings	8	SI	NO	NO	Company|Whatsapp|UGCSocialPost|AIAgentConfig
+CompaniesSettings	CompaniesSettings	67	SI	NO	NO	Company
+Company	Company	32	NO	NO	NO	Plan|AISubplan|EmailPlan
+CompanyBilling	?	0	NO	NO	SI	
+CompanyEmailPlan	CompanyEmailPlans	8	SI	NO	NO	Company|EmailPlan
+CompanyMetaConversionSetting	CompanyMetaConversionSettings	7	SI	NO	NO	Company
+CompanyTokenUsage	CompanyTokenUsages	9	SI	NO	NO	
+CompanyUser	CompanyUsers	6	SI	NO	NO	User|Company|Role
+CompanyUserQueue	CompanyUserQueues	3	NO	NO	NO	CompanyUser|Queue
+Contact	Contact	29	SI	NO	NO	Company|Whatsapp
+ContactBinding	ContactBindings	11	SI	NO	NO	UnifiedConversation|Company|Contact|Whatsapp
+ContactCustomField	ContactCustomField	4	NO	NO	NO	Contact
+ContactList	ContactLists	22	SI	NO	NO	Company
+ContactListItem	ContactListItems	8	SI	NO	NO	Company|ContactList
+ContactMemory	contact_memory	10	SI	NO	NO	Contact|Company|Ticket
+ContactTag	ContactTags	2	NO	NO	NO	Contact|Tag
+ContactTemperature	ContactTemperatures	12	SI	NO	NO	Company|Contact
+ContactWallet	ContactWallet	4	SI	NO	NO	Contact|User|Company
+ConversionDetection	ConversionDetections	19	SI	NO	NO	Company|Ticket|Contact|Message|User
+ConversionItem	ConversionItems	12	NO	NO	NO	AttributionConversion|Product
+CustomerOrigin	CustomerOrigins	6	SI	NO	NO	Company
+DialogChatBots	DialogChatBots	5	NO	NO	NO	Contact|Queue|Chatbot
+EmailPlan	EmailPlans	14	NO	NO	NO	
+FacebookConversionEvent	FacebookConversionEvents	20	SI	NO	NO	Company|Whatsapp|Contact|Message|Campaign
+FacebookDataset	FacebookDatasets	14	SI	NO	NO	Company|Whatsapp
+Files	Files	4	SI	NO	NO	Company
+FilesOptions	FilesOptions	5	NO	NO	NO	Files
+FlowAudio	FlowAudios	5	SI	NO	NO	
+FlowBuilder	FlowBuilders	7	SI	NO	NO	
+FlowCampaign	FlowCampaigns	8	SI	NO	NO	Whatsapp
+FlowDefault	FlowDefaults	5	SI	NO	NO	
+FlowImg	FlowImgs	5	SI	NO	NO	
+Help	Helps	5	NO	NO	NO	
+ImpersonationAudit	impersonation_audits	7	SI	NO	NO	
+InboundEventLedger	InboundEventLedger	13	SI	NO	NO	Company
+InsightsDaily	InsightsDaily	19	SI	NO	NO	
+Invoice	?	0	NO	NO	SI	
+Invoices	Invoices	32	SI	NO	NO	Company
+KanbanLeadConversionEvent	KanbanLeadConversionEvents	20	SI	NO	NO	Company|Ticket|Contact|Tag|User
+KanbanMovementLog	KanbanMovementLogs	12	SI	NO	NO	Ticket|Company|Tag|User
+LeadSource	?	0	SI	NO	SI	
+LogTicket	LogTicket	7	NO	NO	NO	Ticket|User|Queue
+Media	?	0	SI	NO	SI	
+Message	Message	34	SI	NO	NO	Message|Ticket|TicketTraking|Contact|Company|Queue|Whatsapp
+MetaAgentActionLog	MetaAgentActionLogs	9	SI	NO	NO	MetaAgentPlan|Company
+MetaAgentPlan	MetaAgentPlans	13	SI	NO	NO	Company|User|Whatsapp
+MetaAuditLog	meta_audit_logs	11	SI	NO	NO	
+MetaOfficialMcpConnection	MetaOfficialMcpConnections	14	SI	NO	NO	Company
+Notification	Notifications	11	SI	NO	NO	Company|User
+OutboundDispatch	OutboundDispatches	22	SI	NO	NO	Company|UnifiedConversation|Ticket|Message|Whatsapp
+Partner	Partners	8	NO	NO	NO	
+Plan	Plan	37	NO	NO	NO	
+PlanCreditAllocation	PlanCreditAllocations	5	NO	NO	NO	Plan|AICreditType
+Product	Products	16	SI	NO	NO	Company
+Prompt	Prompt	19	SI	NO	NO	AIProviderConfig|Queue|Company
+PromptQueue	PromptQueues	3	NO	NO	NO	Prompt|Queue
+Queue	Queue	14	SI	NO	NO	Company|QueueIntegrations|Files
+QueueIntegrations	QueueIntegrations	17	SI	NO	NO	Company
+QueueOption	QueueOption	6	NO	NO	NO	Queue|QueueOption
+QuickMessage	QuickMessage	13	SI	NO	NO	Company|User
+Receipt	Receipt	17	SI	NO	NO	Company|Invoices|AISubplan
+RecommendationRun	recommendation_runs	14	SI	NO	NO	
+Refund	?	0	NO	NO	SI	
+Role	Roles	8	SI	NO	NO	Company
+Schedule	Schedule	22	SI	NO	NO	Contact|Ticket|User|Company|User|Queue|Whatsapp
+ScheduledMessages	ScheduledMessages	20	SI	NO	NO	
+ScheduledMessagesEnvio	ScheduledMessagesEnvio	8	SI	NO	NO	
+SensitiveCategory	sensitive_categories	8	SI	NO	NO	
+Session	Sessions	11	NO	NO	NO	User
+Setting	Setting	4	SI	NO	NO	Company
+Subscriptions	Subscriptions	9	SI	NO	NO	
+Tag	Tag	37	SI	NO	NO	Company
+Telegram	Telegram	36	SI	NO	NO	Company|Queue|QueueIntegrations|Prompt|Queue|FlowBuilderModel|FlowBuilderModel
+TelegramQueue	TelegramQueue	2	NO	NO	NO	Telegram|Queue
+Ticket	Ticket	51	SI	NO	NO	User|Contact|Whatsapp|Telegram|Queue|Company|QueueIntegrations|CustomerOrigin
+TicketNote	TicketNote	5	NO	NO	NO	User|Contact|Ticket
+TicketTag	TicketTags	2	NO	NO	NO	Ticket|Tag
+TicketTraking	TicketTrakings	13	SI	NO	NO	Ticket|Company|Whatsapp|User|Queue
+UGCCampaign	UGCCampaigns	36	SI	NO	NO	Company|User|User
+UGCCampaignMetric	UGCCampaignMetrics	26	SI	NO	SI	Company|UGCCampaign
+UGCCreativeLearning	UGCCreativeLearnings	18	SI	NO	NO	Company|UGCCampaign
+UGCCreativeVariant	UGCCreativeVariants	23	SI	NO	NO	Company|UGCCampaign
+UGCCreator	UGCCreators	27	SI	NO	NO	Company
+UGCCreatorAssignment	UGCCreatorAssignments	22	SI	NO	NO	Company|UGCCreator|UGCCampaign
+UGCCreatorPayment	UGCCreatorPayments	21	SI	NO	NO	Company|UGCCreator|UGCCreatorAssignment
+UGCPostComment	UGCPostComments	30	SI	NO	NO	Company|UGCSocialPost|AgentIdentity|UGCPostComment|Whatsapp
+UGCSocialAccount	UGCSocialAccounts	20	SI	NO	NO	Company
+UGCSocialPost	UGCSocialPosts	30	SI	NO	NO	Company|UGCSocialAccount|UGCCampaign|UGCVideoJob|AgentIdentity
+UGCVideoAsset	UGCVideoAssets	17	SI	NO	NO	Company|UGCVideoJob|UGCCampaign
+UGCVideoJob	UGCVideoJobs	38	SI	NO	NO	Company|UGCCampaign|User
+UnifiedConversation	UnifiedConversations	12	SI	NO	NO	Company|Contact
+User	User	32	SI	NO	NO	Whatsapp|Company|Role
+UserQueue	UserQueue	2	NO	NO	NO	User|Queue
+UserRating	UserRatings	5	SI	NO	NO	Ticket|Company|User
+UserTermsAcceptance	UserTermsAcceptances	9	SI	NO	NO	User|Company
+Versions	Versions	5	NO	NO	NO	
+WebChatConversation	WebChatConversations	13	SI	NO	NO	Company|WebChatWidget
+WebChatConversationMessage	WebChatConversationMessages	11	SI	NO	NO	WebChatConversation|Company|User
+WebChatWidget	WebChatWidgets	29	SI	NO	NO	Company|Whatsapp|Queue
+Webhook	Webhooks	9	NO	NO	NO	
+WhatsAppTemplate	WhatsAppTemplates	23	SI	NO	NO	Company|Whatsapp
+Whatsapp	Whatsapp	87	SI	NO	NO	Company|Queue|QueueIntegrations|Prompt|Queue|FlowBuilderModel|FlowBuilderModel
+WhatsappQueue	WhatsappQueue	2	NO	NO	NO	Whatsapp|Queue

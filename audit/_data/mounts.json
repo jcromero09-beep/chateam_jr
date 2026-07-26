@@ -1,0 +1,4 @@
+{
+ "bodyParser": "/internal",
+ "__imp__routes": "./routes/index"
+}
