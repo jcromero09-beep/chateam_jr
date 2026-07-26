@@ -38,6 +38,25 @@ como P0-A..D.
   dónde un atacante obtendría filenames ajenos. El residual real: quien **conozca** un filename+companyId
   puede descargarlo sin sesión.
 
+## Hallazgo del mapeo de front (2026-07-26) — reordena A vs B
+El front construye la URL de media en **~8 sitios dispersos** (no centralizado):
+`pages/Tickets.tsx:2481,3599,3613`, `components/ImageGenerationHistory.tsx:271`,
+`components/VideoGenerationHistory.tsx:268`, 4 modales `FlowBuilderAdd*Modal`, `pages/InternalChats.tsx`,
+`pages/Profile.tsx` — cada uno arma `${base}/public/company{id}/{filename}`.
+
+Consecuencia:
+- **Opción A (URLs firmadas)** ahora es más grande de lo asumido: hay que cambiar los ~8 sitios para
+  usar la URL firmada que devuelva el backend + firmar en todos los serializadores + rebuild. Talla
+  L/XL. Ventaja: **agnóstica al despliegue** (sirve con FE/BE en dominios distintos).
+- **Opción B (cookie httpOnly)** es **backend-only** en el despliegue actual (padeldev = mismo origen):
+  Set-Cookie firmada en login + middleware en `/public` que valida cookie + `company{N}` del path. La
+  `<img>` manda la cookie sola (mismo origen) → **cero cambios de front, sin rebuild, sin secreto
+  nuevo**. Talla S/M. Limitación: **solo mismo origen** (se rompe si FE/BE se separan a dominios
+  distintos, como el legado chat/appro.chateam.ws). CSRF: mínimo (cookie solo para GET de media).
+
+**Recomendación actualizada:** en el despliegue actual, **Opción B** (menor, más segura, sin rebuild).
+Elegir **A** solo si se planea volver a separar FE/BE en dominios distintos. **Decisión de JC.**
+
 ## Recomendación de proceso
 Tratar P0-E como tarea propia con **spec de diseño** (Opción A) + ventana de build, no aplicarla al vuelo.
 Los otros 4 P0 ya están cerrados y verificados. Buen momento para **versar a git** el trabajo aplicado

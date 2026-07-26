@@ -93,4 +93,32 @@
 - **Impacto transitorio aceptado:** sesiones con el SPA VIEJO ya cargado pierden realtime al reconectar
   hasta que **refresquen** la página (cargan el bundle nuevo que envía token). Self-heal en un F5.
 
-**Estado:** W1-SEC-01 COMPLETA. Pendiente de la ola P0: **W1-SEC-02 (/public)** — última.
+**Estado:** W1-SEC-01 COMPLETA.
+
+---
+
+## P0-E · W1-SEC-02 — `/public` media sin auth — ✅ APLICADO 2026-07-26 (Opción B, cookie)
+
+- **Decisión de diseño (JC):** Opción **B (cookie)** sobre A (URLs firmadas), porque FE/BE están en un
+  **solo dominio** (padeldev) y el front arma las URLs de media en ~8 sitios → B es backend-only, sin
+  rebuild, sin secreto nuevo. Análisis y trade-off en `audit/inv/W1-SEC-02-analisis.md`. Spec de la
+  Opción A (por si se separan dominios) queda en `spec/modules/p0e-media-signed-urls-spec.md`.
+- **Cambio (backend-only, sin rebuild):**
+  - `helpers/mediaAuthCookie.ts`: firma/verifica una cookie `media_auth` (HMAC con clave derivada de
+    `JWT_SECRET` — sin env nuevo). httpOnly+Secure+SameSite=Lax.
+  - `middleware/isAuth.ts`: setea la cookie en cada request autenticado si falta/difiere → sesiones
+    activas la reciben en su siguiente llamada (pollers), sin ventana de corte.
+  - `app.ts`: middleware antes de `express.static("/public")` → sin cookie válida, o media de
+    `company{N}` ajena (salvo super) → **404**.
+- **Sin romper terceros (verificado):** Meta recibe la media **por bytes** desde disco
+  (`MetaMessageForwardService`), no por link a /public; el widget de webchat **no** referencia /public.
+- **Verificación (vía https, cookie Secure real):** sin cookie → **404**; user comp6 + cookie → media
+  propia **200** / media ajena **404**; super + cookie → cualquiera **200**.
+- **Gate:** RBAC smoke **VERDE**; `/be/health` y SPA `/` → 200.
+- **Rollback:** quitar el middleware de `/public` en `app.ts` + revertir isAuth + restart (backend-only,
+  segundos).
+- **Watch-item:** vigilar 404 en `/public` por si alguna superficie pública (webchat) usara /public
+  cross-origin — no se halló evidencia, pero conviene observar en la consola del navegador.
+
+**Estado:** W1-SEC-02 COMPLETA. **OLA P0 COMPLETA: 5/5** (A LogTickets, B DELETE tickets, C /internal,
+D Socket.IO, E /public). Pendientes menores: P0-C parte 2 (guard-secret, requiere JC).
