@@ -13,6 +13,7 @@ import {
   Index,
   AfterSave
 } from "sequelize-typescript";
+import { encryptSecret, decryptSecret } from "../helpers/secretCrypto"; // [W1-SEC-06]
 import { Op } from "sequelize";
 import Company from "./Company";
 
@@ -68,14 +69,30 @@ class AIProviderConfig extends Model<AIProviderConfig> {
   })
   name!: string; // Nombre descriptivo de la configuracion
 
+  // [W1-SEC-06] Cifrado transparente en reposo (AES-256-GCM), retrocompatible.
   @Column({
     type: DataType.TEXT,
-    allowNull: false
+    allowNull: false,
+    get() {
+      return decryptSecret(this.getDataValue("apiKey"));
+    },
+    set(value: string) {
+      this.setDataValue("apiKey", encryptSecret(value) as any);
+    }
   })
-  apiKey!: string; // Clave API (deberia estar encriptada)
+  apiKey!: string; // Clave API (cifrada en reposo)
 
-  @Column(DataType.TEXT)
-  apiSecret!: string; // Secreto adicional si es necesario
+  // [W1-SEC-06] Cifrado transparente en reposo.
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("apiSecret"));
+    },
+    set(value: string) {
+      this.setDataValue("apiSecret", encryptSecret(value) as any);
+    }
+  })
+  apiSecret!: string; // Secreto adicional (cifrado en reposo)
 
   @Column(DataType.STRING(255))
   baseUrl!: string; // URL base personalizada (para proxies o Azure)

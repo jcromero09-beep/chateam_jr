@@ -149,8 +149,17 @@ class Whatsapp extends Model<Whatsapp> {
   tokenMetaExpiresAt: Date;
 
   // Comentarios FB/IG — Page Access Token e IG Business Account
+  // [W1-SEC-06] Cifrado transparente en reposo (AES-256-GCM), retrocompatible.
   @AllowNull(true)
-  @Column(DataType.TEXT)
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("pageAccessToken"));
+    },
+    set(value: string) {
+      this.setDataValue("pageAccessToken", encryptSecret(value) as any);
+    }
+  })
   pageAccessToken: string;
 
   @AllowNull(true)

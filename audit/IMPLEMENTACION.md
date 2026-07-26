@@ -147,3 +147,6 @@ idempotente (standalone con el mismo algoritmo, verificado que el `secretCrypto`
 - **Company (pago): ✅ HECHO** — `stripeSecretKey`, `paypalSecretKey`, `facebookAppSecret` con get/set.
   Backfill: 1 `stripeSecretKey` en claro → cifrado; **verificado round-trip con el secretCrypto real
   (MATCH)**; BD `stripeSecretKey` 0 plano / 1 cifrado. App vivo lo lee sin romper (RBAC VERDE).
+- **AIProviderConfig + Whatsapp: ✅ HECHO** — `apiKey`/`apiSecret` y `pageAccessToken` con get/set.
+  Backfill: 2 `apiKey` + 1 `pageAccessToken` en claro → cifrados; round-trip verificado. **0 plano
+  restante** en todas las columnas de secreto identificadas (S-2). App vivo sano.
