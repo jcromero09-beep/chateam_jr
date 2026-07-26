@@ -10,6 +10,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 // console.log("📦 [5/15] cors loaded");
 import cookieParser from "cookie-parser";
+import { verifyMediaCookie, MEDIA_COOKIE } from "./helpers/mediaAuthCookie";
 // console.log("📦 [6/15] cookieParser loaded");
 import helmet from "helmet";
 // console.log("📦 [7/15] helmet loaded");
@@ -135,6 +136,22 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 // cross-origin (frontend y backend están en dominios distintos).
 app.use(
   "/public",
+  // [P0-E · W1-SEC-02] Scope de tenant para la media. La `<img>` de la SPA
+  // (mismo origen) manda la cookie `media_auth` firmada (la setea isAuth). Sin
+  // cookie válida, o media de `company{N}` que no es la del cliente (salvo
+  // super) → 404. Meta recibe la media por bytes (no por link a /public) y el
+  // widget de webchat no referencia /public, así que este control no los afecta.
+  (req: Request, res: Response, next: NextFunction) => {
+    const claims = verifyMediaCookie((req as any).cookies?.[MEDIA_COOKIE]);
+    if (!claims) {
+      return res.status(404).end();
+    }
+    const m = req.path.match(/^\/company(\d+)\//);
+    if (m && !claims.isSuper && Number(m[1]) !== claims.companyId) {
+      return res.status(404).end();
+    }
+    return next();
+  },
   (req: Request, _res: Response, next: NextFunction) => {
     if (req.query.download !== undefined) {
       const rawName = req.path.split("/").pop() || "descarga";

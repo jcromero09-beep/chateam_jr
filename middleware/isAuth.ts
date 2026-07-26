@@ -5,6 +5,7 @@ import AppError from "../errors/AppError";
 import authConfig from "../config/auth";
 import Session from "../models/Session";
 import { updateUser } from "../helpers/updateUser";
+import { buildMediaCookie, MEDIA_COOKIE } from "../helpers/mediaAuthCookie";
 
 const { verify } = jwt;
 
@@ -102,6 +103,26 @@ const isAuth = async (
     sid,
     clientType: session.clientType
   };
+
+  // [P0-E · W1-SEC-02] Cookie de acceso a media (mismo origen). La `<img>` no
+  // envía Bearer; esta cookie httpOnly+Secure permite servir /public con scope
+  // de tenant. Se (re)setea si falta o difiere → las sesiones activas la reciben
+  // en su siguiente request autenticado (los pollers disparan constantemente),
+  // sin ventana de corte.
+  try {
+    const expectedMediaCookie = buildMediaCookie(companyId, !!superAdmin);
+    if (req.cookies?.[MEDIA_COOKIE] !== expectedMediaCookie) {
+      res.cookie(MEDIA_COOKIE, expectedMediaCookie, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
+  } catch {
+    // No bloquear la request por un fallo al setear la cookie de media.
+  }
 
   return next();
 };
