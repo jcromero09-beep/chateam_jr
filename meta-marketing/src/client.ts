@@ -286,29 +286,45 @@ export class MetaClient {
         }
       }
 
+      // Los throws de abajo sustituyen el error de axios por un Error plano, y
+      // con el se perdia `response.data.error`: quien llama arriba (el service)
+      // ya no podia distinguir un token caducado de un fallo de red y trataba
+      // todo como error generico. Se conserva el codigo de Meta en el Error.
+      const fail = (message: string): never => {
+        const err = new Error(message) as Error & {
+          metaCode?: number;
+          metaSubcode?: number;
+          metaFbtraceId?: string;
+        };
+        err.metaCode = metaError.code;
+        err.metaSubcode = metaError.error_subcode;
+        err.metaFbtraceId = metaError.fbtrace_id;
+        throw err;
+      };
+
       if (metaError.code === 190) {
-        throw new Error('Token de acceso inválido o expirado');
+        return fail('Token de acceso inválido o expirado');
       }
 
       // Error 100/33: Object does not exist or missing permissions
       if (metaError.code === 100 && metaError.error_subcode === 33) {
-        throw new Error('El Ad Account ID no existe o no tienes permisos. Verifica que el FB_AD_ACCOUNT_ID sea correcto y que el token tenga acceso a esa cuenta.');
+        return fail('El Ad Account ID no existe o no tienes permisos. Verifica que el FB_AD_ACCOUNT_ID sea correcto y que el token tenga acceso a esa cuenta.');
       }
 
       // Error 100 generic: Invalid parameter
       if (metaError.code === 100) {
         const detail = metaError.error_subcode ? ` (subcode: ${metaError.error_subcode})` : '';
         const traceId = metaError.fbtrace_id ? ` [trace: ${metaError.fbtrace_id}]` : '';
-        throw new Error(`Parametro invalido${detail}: ${metaError.message}${traceId}`);
+        return fail(`Parametro invalido${detail}: ${metaError.message}${traceId}`);
       }
 
       // Rate limit errors
       if (metaError.code === 17 || metaError.code === 80004) {
-        throw new Error('Rate limit excedido. Reintenta en unos minutos.');
+        return fail('Rate limit excedido. Reintenta en unos minutos.');
       }
 
       // Generic Meta error
-      throw new Error(`Error de Facebook API: ${metaError.message}`);
+      return fail(`Error de Facebook API: ${metaError.message}`);
     }
   }
 

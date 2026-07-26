@@ -404,7 +404,22 @@ const getMetaClient = async (
  * Maneja errores de Meta API con logs detallados
  */
 const handleMetaError = (error: any, companyId: number, endpoint: string): never => {
-  const metaError = error.response?.data?.error;
+  // El error llega de dos formas: crudo de axios (response.data.error) cuando
+  // nadie lo toco, o ya normalizado por MetaClient.handleApiError, que lo
+  // sustituye por un Error plano y conserva el codigo en `metaCode`. Sin esta
+  // segunda rama todo lo que pasa por el cliente caia en "error generico" y ni
+  // se clasificaba ni activaba el cortocircuito.
+  const metaError =
+    error.response?.data?.error ||
+    (error?.metaCode
+      ? {
+          code: error.metaCode,
+          error_subcode: error.metaSubcode,
+          fbtrace_id: error.metaFbtraceId,
+          message: error.message,
+          type: "OAuthException"
+        }
+      : undefined);
 
   // Una cuenta mal configurada (token caducado, sin permisos de ads) NO es un
   // fallo de la plataforma: es algo que solo el dueno de la cuenta puede
