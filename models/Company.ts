@@ -11,6 +11,7 @@ import {
   DataType,
   HasMany
 } from "sequelize-typescript";
+import { encryptSecret, decryptSecret } from "../helpers/secretCrypto"; // [W1-SEC-06]
 import Contact from "./Contact";
 import Message from "./Message";
 
@@ -77,19 +78,47 @@ class Company extends Model<Company> {
   @Column(DataType.TEXT)
   facebookAppId: string;
 
-  @Column(DataType.TEXT)
+  // [W1-SEC-06] Cifrado transparente en reposo (AES-256-GCM). El getter descifra o
+  // hace passthrough del texto plano legacy (read-compat); el setter cifra al escribir.
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("facebookAppSecret"));
+    },
+    set(value: string) {
+      this.setDataValue("facebookAppSecret", encryptSecret(value) as any);
+    }
+  })
   facebookAppSecret: string;
 
   @Column(DataType.TEXT)
   paypalClientId: string;
 
-  @Column(DataType.TEXT)
+  // [W1-SEC-06] Cifrado transparente en reposo (ver facebookAppSecret).
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("paypalSecretKey"));
+    },
+    set(value: string) {
+      this.setDataValue("paypalSecretKey", encryptSecret(value) as any);
+    }
+  })
   paypalSecretKey: string;
 
   @Column(DataType.TEXT)
   stripePublicKey: string;
 
-  @Column(DataType.TEXT)
+  // [W1-SEC-06] Cifrado transparente en reposo (ver facebookAppSecret).
+  @Column({
+    type: DataType.TEXT,
+    get() {
+      return decryptSecret(this.getDataValue("stripeSecretKey"));
+    },
+    set(value: string) {
+      this.setDataValue("stripeSecretKey", encryptSecret(value) as any);
+    }
+  })
   stripeSecretKey: string;
 
   @Column({

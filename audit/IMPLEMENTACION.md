@@ -135,3 +135,15 @@ controllers pasan `companyId`; en ContactList/ContactListItem se acotó además 
 - **Verificado:** super (comp1) `DELETE /quick-messages/11` (comp8) y `/tags/11` (comp4) → **404**,
   registros intactos. Los otros 3 sin datos cross-tenant para sonda (código idéntico). RBAC smoke VERDE.
 - Rollback: revertir a `where:{id}` + restart.
+
+---
+
+## W1-SEC-06 — Cifrado de secretos en reposo (P1) — 🟡 EN CURSO 2026-07-26
+
+Patrón: get/set por columna con `secretCrypto` (AES-256-GCM, retrocompatible: getter descifra o hace
+passthrough del texto plano legacy). Etapa 1 (read-compat + write-encrypt) desplegada, luego backfill
+idempotente (standalone con el mismo algoritmo, verificado que el `secretCrypto` del app descifra).
+
+- **Company (pago): ✅ HECHO** — `stripeSecretKey`, `paypalSecretKey`, `facebookAppSecret` con get/set.
+  Backfill: 1 `stripeSecretKey` en claro → cifrado; **verificado round-trip con el secretCrypto real
+  (MATCH)**; BD `stripeSecretKey` 0 plano / 1 cifrado. App vivo lo lee sin romper (RBAC VERDE).
