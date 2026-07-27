@@ -80,7 +80,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -2772,6 +2772,14 @@ export default function Tickets() {
                 )
               })}
             </TabsList>
+            {/* [a11y W7-FE-03] Radix Tabs.Trigger emite aria-controls apuntando a un
+                panel de contenido; aquí las pestañas son un selector de estado (la
+                lista se renderiza abajo), así que sin TabsContent ese aria-controls
+                quedaba colgando → axe crítico `aria-valid-attr-value`. Estos paneles
+                sr-only (forceMount) hacen que el IDREF resuelva a un elemento real. */}
+            {['open', 'pending', 'group', 'closed'].map((v) => (
+              <TabsContent key={v} value={v} forceMount className="sr-only" tabIndex={-1} />
+            ))}
           </Tabs>
 
         </div>
