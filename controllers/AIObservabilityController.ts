@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import TracingService from "../services/AIObservabilityServices/TracingService";
 import PerformanceService from "../services/AIObservabilityServices/PerformanceService";
 import AppError from "../errors/AppError";
+import { ok } from "../helpers/apiResponse";
 
 // GET /ai/observability/traces
 export const listTraces = async (req: Request, res: Response): Promise<Response> => {
@@ -30,7 +31,7 @@ export const listTraces = async (req: Request, res: Response): Promise<Response>
     offset: offset ? parseInt(offset as string, 10) : undefined
   });
 
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // GET /ai/observability/traces/:traceId
@@ -48,7 +49,7 @@ export const getTrace = async (req: Request, res: Response): Promise<Response> =
     throw new AppError("ERR_TRACE_NOT_FOUND", 404);
   }
 
-  return res.json({ success: true, data: trace });
+  return ok(res, trace);
 };
 
 // GET /ai/observability/dashboard
@@ -57,7 +58,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
 
   const summary = await PerformanceService.getDashboardSummary(companyId);
 
-  return res.json({ success: true, data: summary });
+  return ok(res, summary);
 };
 
 // GET /ai/observability/stats/latency
@@ -69,7 +70,7 @@ export const getLatencyStats = async (req: Request, res: Response): Promise<Resp
 
   const stats = await PerformanceService.getLatencyStats(companyId, parsedDays);
 
-  return res.json({ success: true, data: stats });
+  return ok(res, stats);
 };
 
 // GET /ai/observability/stats/models
@@ -81,7 +82,7 @@ export const getModelUsage = async (req: Request, res: Response): Promise<Respon
 
   const usage = await PerformanceService.getModelUsage(companyId, parsedDays);
 
-  return res.json({ success: true, data: usage });
+  return ok(res, usage);
 };
 
 // GET /ai/observability/stats/agents
@@ -93,7 +94,7 @@ export const getAgentPerformance = async (req: Request, res: Response): Promise<
 
   const performance = await PerformanceService.getAgentPerformance(companyId, parsedDays);
 
-  return res.json({ success: true, data: performance });
+  return ok(res, performance);
 };
 
 // GET /ai/observability/stats/errors
@@ -105,5 +106,5 @@ export const getErrorAnalysis = async (req: Request, res: Response): Promise<Res
 
   const errors = await PerformanceService.getErrorAnalysis(companyId, parsedDays);
 
-  return res.json({ success: true, data: errors });
+  return ok(res, errors);
 };
