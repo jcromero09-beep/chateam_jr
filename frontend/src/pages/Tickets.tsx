@@ -2516,6 +2516,8 @@ export default function Tickets() {
       <TooltipProvider delayDuration={300}>
       {/* Page background - fondo muted para contraste con la card */}
       <div className="h-full bg-muted -m-4 sm:-m-6 p-px">
+      {/* [a11y W7-FE-03] Encabezado de nivel 1 (sr-only) — axe `page-has-heading-one`. */}
+      <h1 className="sr-only">Tickets</h1>
       {/* Paneles-tarjeta separados por gap sobre el fondo muted (estilo referencia chats.png) */}
       <div className="flex h-[calc(100vh-66px)] gap-3 p-3">
         {/* Sidebar - Tickets List (tarjeta propia, separada del borde) */}
