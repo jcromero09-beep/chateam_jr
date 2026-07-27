@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { ok } from "../helpers/apiResponse";
 import HeygenService from "../services/AIHeygenServices/HeygenService";
 import AppError from "../errors/AppError";
 
@@ -6,7 +7,7 @@ import AppError from "../errors/AppError";
 export const listVideos = async (req: Request, res: Response): Promise<Response> => {
   // TODO: Crear modelo AIHeygenVideo para persistir videos generados
   // Por ahora retorna array vacío
-  return res.json({ success: true, data: [] });
+  return ok(res, []);
 };
 
 // POST /ai/heygen/videos — Crear un video con avatar
@@ -25,7 +26,7 @@ export const createVideo = async (req: Request, res: Response): Promise<Response
     background
   });
 
-  return res.status(201).json({ success: true, data: result });
+  return ok(res, result, undefined, 201);
 };
 
 // GET /ai/heygen/videos/status/:videoId — Consultar estado de un video
@@ -38,26 +39,26 @@ export const getVideoStatus = async (req: Request, res: Response): Promise<Respo
 
   const result = await HeygenService.getVideoStatus(videoId);
 
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // GET /ai/heygen/avatars — Listar avatares disponibles
 export const listAvatars = async (req: Request, res: Response): Promise<Response> => {
   const result = await HeygenService.listAvatars();
 
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // GET /ai/heygen/voices — Listar voces disponibles
 export const listVoices = async (req: Request, res: Response): Promise<Response> => {
   const result = await HeygenService.listVoices();
 
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // GET /ai/heygen/quota — Consultar cuota restante
 export const getQuota = async (req: Request, res: Response): Promise<Response> => {
   const result = await HeygenService.getQuota();
 
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
