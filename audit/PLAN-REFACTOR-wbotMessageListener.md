@@ -175,3 +175,39 @@ boot + gate. Movimiento verbatim = el único riesgo residual (conducta) se minim
 
 **Estado: caracterización LISTA.** Falta ejecutar la extracción (botText → botList → botButton),
 cada una con el gate del tool.
+
+---
+
+## handleMessageInner — análisis de descomposición (2026-07-28)
+
+Tras el unwrap (handleMessage → wrapper + `handleMessageInner`, commit feed110), se
+analizó la descomposición interna en pasos. **Conclusión: la fase de resolución de
+entidades NO es un movimiento verbatim seguro** y requiere un harness de caracterización
+antes de tocarla.
+
+### Por qué (fase de resolución, ~4658-4827)
+Produce ~20+ locales que el resto del cuerpo consume, con estado mutable y ramas:
+`msgContact, isGroup, whatsapp, {linkedMeta, shouldPreferMetaInbound/Outbound},
+groupContact (condicional), bodyMessage, msgType, hasMedia, contact, unreadMessages,
+{settings, enableLGPD}, isFirstMsg, dedupe, baileysLedgerEntryId (let), coexConversationId
+(let), coexCanonicalNumber (let), mutex, ticket, queueId/tagsId/userId`.
+- Early-returns dispersos (fromMe-skip, no-whatsapp, group-not-allowed, coex-drop,
+  dedupe.drop) → cada uno debe volverse señal (`return null`) — NO verbatim.
+- Estado mutable + try/catch de coexistencia → un objeto de contexto de 20 campos como
+  salida es frágil.
+- Un probe de mensaje de texto básico NO cubre las ramas Meta/coex/dedupe → verificación
+  incompleta.
+
+### Prerequisito real (antes de descomponer handleMessageInner)
+**Golden-master Jest** (no solo free-vars estático): mockear el grafo de deps
+(database/redis/queues/wbot + ~15 servicios) y fijar los efectos observables de
+handleMessageInner para: texto/media/edit, fromMe vs inbound, grupo, coex Meta,
+dedupe (mismo msg.key.id 2×), chatbot. Con ese golden-master verde, recién extraer
+`resolveTicketContext()` → `handleMedia()` → `dispatchIntegration()` → etc., una por
+commit, verificando el golden-master + una sonda real por rama.
+
+### Estado
+- **verifyQueue: descompuesto y verificado** (3 closures + dispatcher, sonda real ✓).
+- **handleMessage: unwrapped y verificado** (wrapper + handleMessageInner, sonda real ✓).
+- **handleMessageInner interno: mapeado, NO descompuesto** — bloqueado por el golden-master.
+  Es una fase dedicada, no un paso más de esta sesión.
