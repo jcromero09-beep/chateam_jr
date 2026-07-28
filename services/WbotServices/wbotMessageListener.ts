@@ -3552,6 +3552,12 @@ const verifyQueue = async (
 
   const verifyQueueCtx: VerifyQueueCtx = { chatbot, choosenQueue, companyId, contact, enableQueuePosition, greetingMessage, maxUseBotQueues, queues, randomUserId, settings, ticket, ticketTraking, timeUseBotQueues, wbot };
 
+  // [Refactor Ola 4] Observabilidad del dispatch (verifyQueue no logueaba nada).
+  // Confirma qué rama extraída corre por mensaje real (sonda de cierre de Ola 4).
+  logger.info(
+    `[verifyQueue] dispatch typeBot=${typeBot} queues=${queues.length} company=${companyId} ticket=${ticket.id}`
+  );
+
   if (typeBot === "text") {
     return botText(verifyQueueCtx);
   }
