@@ -34,11 +34,27 @@ export const getPayment = async (req: Request, res: Response): Promise<Response>
 export const webhook = async (req: Request, res: Response): Promise<Response> => {
   const { type, data } = req.body;
 
-  if (!type || !data?.id) {
+  // data.id puede venir en el body o como query param (?data.id=), según el
+  // tipo de notificación. El manifiesto firmado usa el mismo valor.
+  const dataId = data?.id ?? (req.query["data.id"] as string) ?? null;
+
+  // Firma ANTES de nada. Sin esto, cualquiera puede forzar llamadas salientes a
+  // la API de MercadoPago con nuestro access token (agotando cuota) además de
+  // inyectar notificaciones.
+  const verdict = MercadoPagoService.verifyWebhookSignature({
+    dataId: dataId ? String(dataId) : null,
+    xSignature: req.headers["x-signature"],
+    xRequestId: req.headers["x-request-id"]
+  });
+  if (!verdict.ok) {
+    return res.status(verdict.status).json({ error: verdict.reason });
+  }
+
+  if (!type || !dataId) {
     return res.status(200).json({ received: true });
   }
 
-  const result = await MercadoPagoService.processWebhook(type, String(data.id));
+  const result = await MercadoPagoService.processWebhook(type, String(dataId));
 
   return res.status(200).json({ received: true, processed: !!result });
 };

@@ -11,6 +11,7 @@ import {
   getSignatureMode
 } from "../services/CoexistenceServices/MetaSignatureValidator";
 import { getTraceId } from "../utils/traceContext";
+import { getMetaVerifyToken } from "../helpers/metaVerifyToken";
 // Módulo Comentarios FB/IG — ingesta de entry[].changes[] (feed/comments)
 import IngestCommentService from "../services/SocialCommentServices/IngestCommentService";
 // Fuente ÚNICA de verdad para normalizar comentarios FB/IG (compartida con
@@ -25,9 +26,10 @@ export const verifyMetaWebhook = async (req: Request, res: Response) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe") {
-    // 1. Verificar contra el VERIFY_TOKEN global (suscripción App-level)
-    const globalVerifyToken = process.env.VERIFY_TOKEN || "whaticket";
-    if (token === globalVerifyToken) {
+    // 1. Verificar contra el VERIFY_TOKEN global (suscripción App-level).
+    //    Sin token configurado se salta este camino: no se acepta un default.
+    const globalVerifyToken = getMetaVerifyToken();
+    if (globalVerifyToken && token === globalVerifyToken) {
       console.log("✅ Webhook Meta verificado con VERIFY_TOKEN global (App-level subscription)");
       return res.status(200).send(challenge as string);
     }

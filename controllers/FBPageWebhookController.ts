@@ -14,6 +14,7 @@ import {
   getSignatureMode
 } from "../services/CoexistenceServices/MetaSignatureValidator";
 import { getTraceId } from "../utils/traceContext";
+import { getFacebookVerifyToken } from "../helpers/metaVerifyToken";
 
 /**
  * GET /webhook/facebook
@@ -25,7 +26,14 @@ export const verify = async (req: Request, res: Response): Promise<Response | vo
   const token = req.query["hub.verify_token"] as string | undefined;
   const challenge = req.query["hub.challenge"] as string | undefined;
 
-  const VERIFY_TOKEN = process.env.FACEBOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN || "chateam_fb_verify";
+  const VERIFY_TOKEN = getFacebookVerifyToken();
+
+  if (!VERIFY_TOKEN) {
+    logError(
+      "[FBPageWebhook] FACEBOOK_VERIFY_TOKEN/VERIFY_TOKEN no configurado — se rechaza el handshake"
+    );
+    return res.sendStatus(403);
+  }
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     logInfo("[FBPageWebhook] Verificación exitosa del webhook Facebook Pages");

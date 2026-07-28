@@ -20,8 +20,17 @@ export const getCoingatOrder = async (req: Request, res: Response): Promise<Resp
   return res.json({ success: true, data: order });
 };
 
-// POST /ai/coingate/webhook (no auth)
+// POST /ai/coingate/webhook — sin isAuth (lo llama CoinGate), autenticado por
+// el token secreto de la callback_url. CoinGate no firma sus callbacks.
 export const coingateWebhook = async (req: Request, res: Response): Promise<Response> => {
+  const provided =
+    (req.query.token as string) || (req.headers["x-coingate-token"] as string);
+
+  const verdict = CoingateService.verifyCallbackToken(provided);
+  if (!verdict.ok) {
+    return res.status(verdict.status).json({ error: verdict.reason });
+  }
+
   const result = await CoingateService.processWebhook(req.body);
   return res.status(200).json({ received: true, processed: !!result });
 };

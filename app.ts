@@ -41,6 +41,8 @@ dotenvConfig();
 
 // console.log("📦 Importing routes...");
 import routes from "./routes/index";
+
+import { assertMetaSignatureConfig } from "./services/CoexistenceServices/MetaSignatureValidator";
 // console.log("📦 Routes imported!");
 
 // Inicializar Sentry
@@ -58,6 +60,10 @@ logStartup("JR Chateam Backend v6.0.0 starting...", {
   port: process.env.PORT || "3000",
   startupTime: new Date().toISOString()
 });
+
+// Postura de seguridad de los webhooks de Meta: avisa fuerte si quedó en 'warn'
+// o si falta FACEBOOK_APP_SECRET con 'enforce' activo.
+assertMetaSignatureConfig();
 
 // Security middleware
 app.use(helmet({
@@ -111,18 +117,36 @@ app.use(
 // Capturar raw body para validación HMAC de:
 //   - Stripe webhook (stripe.webhooks.constructEvent requiere Buffer)
 //   - Meta Cloud API webhook (X-Hub-Signature-256 HMAC-SHA256, FASE 2)
+//   - Callback de páginas FB/IG (/webhook y /webhook/facebook)
+//
+// OJO: si un endpoint valida X-Hub-Signature-256 pero su ruta NO está aquí,
+// rawBody llega undefined → el validador devuelve 'no_raw_body' → en modo
+// 'enforce' rechaza el 100% del tráfico. Cualquier webhook nuevo que valide
+// firma tiene que añadirse a esta lista.
+const RAW_BODY_PATHS = [
+  '/stripewebhook',
+  '/api/fal/webhook',
+  '/webhook/meta',
+  '/webhook/metaws',
+  '/webhooks/meta',
+  '/webhooks/metaws',
+  '/webhook/facebook',
+  '/webhooks/facebook'
+];
+
+const needsRawBody = (originalUrl: string): boolean => {
+  // Descartar querystring antes de comparar: /webhook?hub.mode=... debe
+  // resolver a '/webhook'.
+  const path = (originalUrl || "").split("?")[0].replace(/\/+$/, "") || "/";
+  // Callback raíz del objeto page/instagram de Meta (POST /webhook).
+  if (path === "/webhook" || path === "/webhooks") return true;
+  return RAW_BODY_PATHS.some(p => path.includes(p));
+};
+
 app.use(bodyParser.json({
   limit: '50mb',
   verify: (req: any, _res, buf) => {
-    const url = req.originalUrl || "";
-    if (
-      url.includes('/stripewebhook') ||
-      url.includes('/api/fal/webhook') ||
-      url.includes('/webhook/meta') ||
-      url.includes('/webhook/metaws') ||
-      url.includes('/webhooks/meta') ||
-      url.includes('/webhooks/metaws')
-    ) {
+    if (needsRawBody(req.originalUrl)) {
       req.rawBody = buf;
     }
   }

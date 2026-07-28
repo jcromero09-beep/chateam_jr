@@ -3,6 +3,15 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 import logger from "../../utils/logger";
+// La validación de firma vive en un módulo propio (sin createRequire) para
+// poder testearla aislada. Se re-exporta para no romper a los consumidores.
+import {
+  verifyWebhookSignature,
+  SignatureVerdict
+} from "./mercadoPagoSignature";
+
+export { verifyWebhookSignature };
+export type { SignatureVerdict };
 
 export interface MercadoPagoConfig {
   accessToken: string;
@@ -169,5 +178,6 @@ export default {
   createPreference,
   getPayment,
   processWebhook,
-  isConfigured
+  isConfigured,
+  verifyWebhookSignature
 };
