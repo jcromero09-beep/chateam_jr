@@ -88,7 +88,7 @@ import { addLogs } from "../../helpers/addLogs";
 import SendWhatsAppMedia, { getMessageOptions } from "./SendWhatsAppMedia";
 // Tier 0 (2026-07-17): parsers puros extraídos a ./wbotMessageParsers. El monolito los usa
 // internamente (import) y los re-exporta como fachada (Regla #0) para no migrar consumidores.
-import { getQuotedMessage, getQuotedMessageId, getTypeMessage, getBodyMessage } from "./wbotMessageParsers";
+import { getQuotedMessage, getQuotedMessageId, getTypeMessage, getBodyMessage, getTimestampMessage, findCaption } from "./wbotMessageParsers";
 import { getEditProtocolMessage, unpackEditedMessage, extractEditedBody, extractEditedOriginalWid, extractEditedRemoteJids, extractEditedTimestamp } from "./wbotMessageParsers";
 import { resolveUnreadCount, messageHasMedia, resolveMetaCoexistence, persistIncomingMessage, createOrFindTicket, resolveCompanySettings } from "./wbotMessageIngest";
 import { getContactMessage } from "./wbotContactResolver";
@@ -297,10 +297,6 @@ async function sendMessageWithAntiBan(
   }
 }
 
-const getTimestampMessage = (msgTimestamp: any) => {
-  return msgTimestamp * 1;
-};
-
 // multVecardGet + contactsArrayMessageGet (parsers vCard) -> ./wbotMessageParsers (Tier 0)
 
 // getTypeMessage → extraído a ./wbotMessageParsers (Tier 0). Importado arriba (sin re-export).
@@ -313,24 +309,6 @@ const getTimestampMessage = (msgTimestamp: any) => {
 // contacto/sender + LID) movidos a ./wbotContactResolver. getContactMessage se
 // importa arriba; los otros dos son internos al módulo.
 
-function findCaption(obj) {
-  if (typeof obj !== "object" || obj === null) {
-    return null;
-  }
-
-  for (const key in obj) {
-    if (key === "caption" || key === "text" || key === "conversation") {
-      return obj[key];
-    }
-
-    const result = findCaption(obj[key]);
-    if (result) {
-      return result;
-    }
-  }
-
-  return null;
-}
 
 // unpackEditedMessage + getEditProtocolMessage -> ./wbotMessageParsers (Tier 1)
 

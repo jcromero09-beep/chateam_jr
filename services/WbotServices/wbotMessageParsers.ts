@@ -415,3 +415,24 @@ export const extractEditedTimestamp = (message: any): Date => {
     ? new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000)
     : new Date();
 };
+
+// [Refactor Ola 1] Utilidades puras movidas desde wbotMessageListener.
+export const getTimestampMessage = (msgTimestamp: any) => {
+  return msgTimestamp * 1;
+};
+
+export const findCaption = (obj: any): any => {
+  if (typeof obj !== "object" || obj === null) {
+    return null;
+  }
+  for (const key in obj) {
+    if (key === "caption" || key === "text" || key === "conversation") {
+      return obj[key];
+    }
+    const result = findCaption(obj[key]);
+    if (result) {
+      return result;
+    }
+  }
+  return null;
+};
