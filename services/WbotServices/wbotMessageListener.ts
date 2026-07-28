@@ -92,6 +92,7 @@ import { getQuotedMessage, getQuotedMessageId, getTypeMessage, getBodyMessage, g
 import { getEditProtocolMessage, unpackEditedMessage, extractEditedBody, extractEditedOriginalWid, extractEditedRemoteJids, extractEditedTimestamp } from "./wbotMessageParsers";
 import { resolveUnreadCount, messageHasMedia, resolveMetaCoexistence, persistIncomingMessage, createOrFindTicket, resolveCompanySettings } from "./wbotMessageIngest";
 import { getContactMessage } from "./wbotContactResolver";
+import { verifyRating } from "./wbotRating";
 export { getQuotedMessage, getQuotedMessageId, getBodyMessage };
 // getTypeMessage se importa SOLO para uso interno (NO se re-exporta) para PRESERVAR el
 // comportamiento actual: hoy no está exportado y libs/wbot lo recibe como undefined (bug
@@ -3540,18 +3541,9 @@ const verifyQueue = async (
   }
 };
 
-export const verifyRating = (ticketTraking: TicketTraking) => {
-  if (
-    ticketTraking &&
-    ticketTraking.finishedAt === null &&
-    ticketTraking.closedAt !== null &&
-    ticketTraking.userId !== null &&
-    ticketTraking.ratingAt === null
-  ) {
-    return true;
-  }
-  return false;
-};
+// [Refactor Ola 1] verifyRating (predicado puro) movido a ./wbotRating; se importa
+// arriba y se re-exporta para los consumidores externos (facebookMessageListener).
+export { verifyRating };
 
 export const handleRating = async (
   rate: number,
