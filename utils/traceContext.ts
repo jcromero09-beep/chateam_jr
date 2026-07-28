@@ -25,6 +25,8 @@ export interface TraceContext {
   traceId: string;
   origin?: string; // 'http' | 'baileys' | 'meta-webhook' | 'cron' | 'queue' | 'socket'
   companyId?: number;
+  super?: boolean; // [W1-SEC-IDOR] super-admin → bypass de tenantScope
+  tenantBypass?: boolean; // [W1-SEC-IDOR] escape hatch cross-company puntual
   provider?: "meta" | "baileys" | "mixed";
   ticketId?: number;
   conversationId?: string;

@@ -6,6 +6,7 @@ import authConfig from "../config/auth";
 import Session from "../models/Session";
 import { updateUser } from "../helpers/updateUser";
 import { buildMediaCookie, MEDIA_COOKIE } from "../helpers/mediaAuthCookie";
+import { updateTraceContext } from "../utils/traceContext";
 
 const { verify } = jwt;
 
@@ -103,6 +104,11 @@ const isAuth = async (
     sid,
     clientType: session.clientType
   };
+
+  // [W1-SEC-IDOR] Propaga companyId/super al AsyncLocalStorage de la request
+  // para que el guard estructural de tenant (helpers/tenantScope) acote toda
+  // query ORM al tenant del usuario autenticado. El super-admin queda exento.
+  updateTraceContext({ companyId, super: !!superAdmin });
 
   // [P0-E · W1-SEC-02] Cookie de acceso a media (mismo origen). La `<img>` no
   // envía Bearer; esta cookie httpOnly+Secure permite servir /public con scope

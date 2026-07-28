@@ -1,5 +1,6 @@
 // console.log("🔄 Loading database/index.ts...");
 import { Sequelize } from "sequelize-typescript";
+import { installTenantScopeHooks } from "../helpers/tenantScope";
 import User from "../models/User";
 import Setting from "../models/Setting";
 import Contact from "../models/Contact";
@@ -485,6 +486,11 @@ const models = [
 // console.log("🔄 Adding models to sequelize...");
 sequelize.addModels(models);
 // console.log("✅ Database models loaded successfully");
+
+// [W1-SEC-IDOR] Guard estructural de aislamiento multi-tenant: inyecta companyId
+// en toda query ORM de modelos tenant-scoped para requests HTTP autenticados
+// no-super. Cierra de forma sistémica el IDOR cross-tenant (jobs/webhooks exentos).
+installTenantScopeHooks(models);
 
 // ⚙️ Inicializar hooks después de cargar modelos
 // Hook: Cuando se actualiza un provider, actualizar todos sus prompts
