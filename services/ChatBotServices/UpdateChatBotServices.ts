@@ -26,9 +26,19 @@ const UpdateChatBotServices = async (
   }
 
   if (options) {
+    // [W1-SEC-IDOR] los hijos heredan companyId del padre (NOT NULL) y no se
+    // confía en bot.id del body: si el id no pertenece a este chatbot, se descarta
+    // (se crea nuevo) para no sobrescribir un nodo de otra empresa por PK.
+    const ownOptionIds = new Set((chatbot.options || []).map((o: any) => o.id));
     await Promise.all(
       options.map(async bot => {
-        await Chatbot.upsert({ ...bot, chatbotId: chatbot.id });
+        const safeBot: any =
+          bot.id && !ownOptionIds.has(bot.id) ? { ...bot, id: undefined } : bot;
+        await Chatbot.upsert({
+          ...safeBot,
+          chatbotId: chatbot.id,
+          companyId: (chatbot as any).companyId
+        });
       })
     );
 

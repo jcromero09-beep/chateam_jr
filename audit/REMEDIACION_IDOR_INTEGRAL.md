@@ -34,12 +34,18 @@ Scopeados vía include del padre con `where:{companyId}` (o validación de propi
 - Campaign cancel/restart y CampaignShipping: `Campaign` es uno de los 163 → `findByPk` queda
   scopeado a null cross-company y el `throw 404` corta la acción.
 
-## 4. Pendiente — requiere migración (acción gated)
-- **Chatbot** (Show/Update/Delete/List): el modelo NO tiene clave de tenant (`queueId` es `null`
-  en los nodos raíz) → no scopeable en caliente. Fix propuesto: añadir columna `companyId` a
-  `Chatbot` + backfill (vía queue cuando exista; los raíz por el dueño del árbol) + índice.
-  IDOR de integridad (un no-super podría leer/editar flujos de chatbot ajenos por id).
+## 4. Chatbot — cerrado SIN migración (la columna ya existía)
+Descubrimiento: la tabla `Chatbots` YA tiene `companyId` (NOT NULL), pero el **modelo**
+Sequelize no la mapeaba → ninguna query filtraba por tenant (y el `create` estaba roto por la
+NOT NULL). Fix (sin migración):
+- `models/Chatbot.ts`: declarar `companyId` (@ForeignKey Company + @BelongsTo) → el guard pasa a
+  hookear Chatbot automáticamente (**164 modelos**) y acota Show/List/Update/Delete al tenant.
+- `CreateChatBotServices` + controller: `companyId` desde el usuario autenticado (repara el create).
+- `UpdateChatBotServices`: los nodos hijo heredan `companyId` del padre y el upsert ya no confía
+  en `bot.id` del body (no sobrescribe nodos de otra empresa por PK).
+
+Verificado: boot con 164 modelos hookeados · `/chatbot` 200 scopeado · gate verde.
 
 ## Estado
-Guard + fixes por-servicio: **desplegados y verificados**. Chatbot: **flag P1** a la espera de
-autorización para la migración.
+Guard + fixes por-servicio + Chatbot: **todo desplegado y verificado**. Sin pendientes de IDOR
+directo/junction en la superficie HTTP no-super auditada.

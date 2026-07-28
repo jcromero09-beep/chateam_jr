@@ -15,6 +15,7 @@ import {
 } from "sequelize-typescript";
 import Queue from "./Queue";
 import User from "./User";
+import Company from "./Company";
 import QueueIntegrations from "./QueueIntegrations";
 import Files from "./Files";
 
@@ -28,6 +29,16 @@ class Chatbot extends Model<Chatbot> {
   @AllowNull(false)
   @Column(DataType.STRING)
   name: string;
+
+  // [W1-SEC-IDOR] la columna existe en la tabla (NOT NULL) pero el modelo no la
+  // mapeaba → ninguna query filtraba por tenant. Al declararla, el guard estructural
+  // (helpers/tenantScope) hookea Chatbot y acota Show/List/Update/Delete al tenant.
+  @ForeignKey(() => Company)
+  @Column(DataType.INTEGER)
+  companyId: number;
+
+  @BelongsTo(() => Company)
+  company: Company;
 
   @Column(DataType.STRING)
   greetingMessage: string;

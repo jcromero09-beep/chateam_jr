@@ -16,7 +16,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   const { name, color, greetingMessage, queueType, optIntegrationId, optQueueId, optUserId, optFileId, closeTicket } = req.body;
   const { companyId } = req.user;
 
-  const chatbot = await CreateChatBotServices({ name, color, greetingMessage, queueType, optIntegrationId, optQueueId, optUserId, optFileId, closeTicket });
+  const chatbot = await CreateChatBotServices({ name, color, greetingMessage, queueType, optIntegrationId, optQueueId, optUserId, optFileId, closeTicket, companyId });
   const io = getIO();
   io.of(String(companyId))
     .emit(`company-${companyId}-chatbot`, {
