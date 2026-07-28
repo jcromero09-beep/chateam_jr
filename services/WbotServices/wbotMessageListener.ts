@@ -4627,35 +4627,17 @@ const recordCoexistenceBinding = async (params: {
   }
 };
 
-const handleMessage = async (
+// [Refactor Ola 4] Cuerpo de handleMessage (dentro del callback de runWithTrace)
+// extraído a función módulo-nivel. Movimiento VERBATIM: los return; ya estaban
+// scopeados al callback, así que su semántica se preserva. handleMessage queda
+// como guards + wrapper de trace. Free-vars: msg, wbot, companyId, isImported.
+async function handleMessageInner(
   msg: proto.IWebMessageInfo,
   wbot: Session,
   companyId: number,
   isImported: boolean = false
-): Promise<void> => {
-  if (!isValidMsg(msg)) {
-    return;
-  }
+) {
 
-  // 📥 Registrar mensaje entrante del cliente en anti-ban para calcular tiempo correctamente
-  if (!msg.key.fromMe && msg.messageTimestamp) {
-    const messageTimestampMs = getTimestampMessage(msg.messageTimestamp) * 1000;
-    const jid = msg.key.remoteJid;
-    if (jid) {
-      antiBanManager.registerIncomingMessage(jid, messageTimestampMs);
-    }
-  }
-
-  // FASE 1 Coexistencia — envolver en trace context para correlacionar logs
-  const traceId = generateTraceId("bai-in");
-  return runWithTrace(
-    {
-      traceId,
-      origin: "baileys",
-      provider: "baileys",
-      companyId
-    },
-    async () => {
   try {
     let msgContact: IMe;
     let groupContact: Contact | undefined;
@@ -5905,7 +5887,38 @@ const handleMessage = async (
       err: { message: (err as any)?.message, name: (err as any)?.name }
     });
   }
+    
+}
+
+const handleMessage = async (
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  companyId: number,
+  isImported: boolean = false
+): Promise<void> => {
+  if (!isValidMsg(msg)) {
+    return;
+  }
+
+  // 📥 Registrar mensaje entrante del cliente en anti-ban para calcular tiempo correctamente
+  if (!msg.key.fromMe && msg.messageTimestamp) {
+    const messageTimestampMs = getTimestampMessage(msg.messageTimestamp) * 1000;
+    const jid = msg.key.remoteJid;
+    if (jid) {
+      antiBanManager.registerIncomingMessage(jid, messageTimestampMs);
     }
+  }
+
+  // FASE 1 Coexistencia — envolver en trace context para correlacionar logs
+  const traceId = generateTraceId("bai-in");
+  return runWithTrace(
+    {
+      traceId,
+      origin: "baileys",
+      provider: "baileys",
+      companyId
+    },
+    () => handleMessageInner(msg, wbot, companyId, isImported)
   ); // cierre runWithTrace — FASE 1 Coexistencia
 };
 const handleMsgAck = async (
