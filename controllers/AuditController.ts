@@ -274,19 +274,15 @@ export class AuditController {
         throw new AppError("Admin access required", 403);
       }
 
-      // Obtener datos de atribución
-      const attributionData = await sequelize.transaction(async (transaction) => {
-        const attributionService = new (require("../services/AttributionService").AttributionService)(sequelize);
-        return attributionService.getAttributionByCampaign(
-          campaignId,
-          companyId,
-          dateRange ? {
-            start: new Date(dateRange as string),
-            end: new Date()
-          } : undefined,
-          transaction
-        );
-      });
+      // Obtener datos de atribución.
+      // [fix] Antes llamaba a getAttributionByCampaign (método inexistente) → 500.
+      // El método real es getCampaignAttribution(companyId, campaignId) — sin
+      // dateRange/transaction (LeadSource no los recibe).
+      const attributionService = new (require("../services/AttributionService").AttributionService)();
+      const attributionData = await attributionService.getCampaignAttribution(
+        companyId,
+        campaignId
+      );
 
       return res.status(200).json(attributionData);
     } catch (error) {

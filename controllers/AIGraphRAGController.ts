@@ -13,6 +13,7 @@ import AIDocument from "../models/AIDocument";
 import AIChunk from "../models/AIChunk";
 import AppError from "../errors/AppError";
 import KnowledgeBaseService from "../services/RAGServices/KnowledgeBaseService";
+import { ok } from "../helpers/apiResponse";
 
 // ============================================================================
 // HELPERS - Extracción de contenido desde URLs y PDFs
@@ -130,10 +131,7 @@ export const listDocuments = async (req: Request, res: Response): Promise<Respon
     order: [["createdAt", "DESC"]]
   });
 
-  return res.json({
-    success: true,
-    data: { records: rows, count, hasMore: offset + rows.length < count }
-  });
+  return ok(res, { records: rows, count, hasMore: offset + rows.length < count });
 };
 
 // GET /ai/rag/stats — Estadisticas globales de RAG
@@ -153,13 +151,10 @@ export const getStats = async (req: Request, res: Response): Promise<Response> =
   ]);
 
   const stats = chunkStats[0] as unknown as Record<string, unknown> | undefined;
-  return res.json({
-    success: true,
-    data: {
-      totalDocuments,
-      totalChunks: Number(stats?.totalChunks || 0),
-      totalTokens: Number(stats?.totalTokens || 0)
-    }
+  return ok(res, {
+    totalDocuments,
+    totalChunks: Number(stats?.totalChunks || 0),
+    totalTokens: Number(stats?.totalTokens || 0)
   });
 };
 
@@ -169,7 +164,7 @@ export const search = async (req: Request, res: Response): Promise<Response> => 
   const { query, topK, includeGraph } = req.body;
   if (!query) throw new AppError("ERR_QUERY_REQUIRED", 400);
   const result = await GraphRAGService.graphSearch(query, companyId, { topK, includeGraph });
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // POST /ai/graph-rag/build/:documentId
@@ -178,7 +173,7 @@ export const buildGraph = async (req: Request, res: Response): Promise<Response>
   if (profile !== "admin") throw new AppError("ERR_NO_PERMISSION", 403);
   const { documentId } = req.params;
   const result = await GraphRAGService.buildGraphFromDocument(parseInt(documentId), companyId);
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // POST /ai/graph-rag/extract-entities
@@ -187,7 +182,7 @@ export const extractEntities = async (req: Request, res: Response): Promise<Resp
   const { text } = req.body;
   if (!text) throw new AppError("ERR_TEXT_REQUIRED", 400);
   const entities = await GraphRAGService.extractEntities(text, companyId);
-  return res.json({ success: true, data: entities });
+  return ok(res, entities);
 };
 
 // POST /ai/tickets/auto-index/:ticketId
@@ -195,7 +190,7 @@ export const indexTicket = async (req: Request, res: Response): Promise<Response
   const { companyId } = req.user;
   const { ticketId } = req.params;
   const result = await TicketAutoIndexService.indexResolvedTicket(parseInt(ticketId), companyId);
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // POST /ai/tickets/batch-index
@@ -204,7 +199,7 @@ export const batchIndex = async (req: Request, res: Response): Promise<Response>
   if (profile !== "admin") throw new AppError("ERR_NO_PERMISSION", 403);
   const { limit } = req.body;
   const result = await TicketAutoIndexService.batchIndexResolved(companyId, limit || 50);
-  return res.json({ success: true, data: result });
+  return ok(res, result);
 };
 
 // POST /ai/rag/documents — Crear nuevo documento
@@ -298,11 +293,7 @@ export const createDocument = async (req: Request, res: Response): Promise<Respo
     console.error(`[RAG] Error procesando documento ${document.id}:`, err.message);
   });
 
-  return res.status(201).json({
-    success: true,
-    data: document,
-    message: "Documento creado. Procesamiento iniciado."
-  });
+  return ok(res, document, "Documento creado. Procesamiento iniciado.", 201);
 };
 
 // DELETE /ai/rag/documents/:id — Eliminar documento
@@ -310,7 +301,7 @@ export const deleteDocument = async (req: Request, res: Response): Promise<Respo
   const { companyId } = req.user;
   const { id } = req.params;
   await KnowledgeBaseService.deleteDocument(parseInt(id), companyId);
-  return res.json({ success: true, message: "Documento eliminado correctamente." });
+  return ok(res, undefined, "Documento eliminado correctamente.");
 };
 
 // GET /ai/rag/documents/:id — Detalle de documento con chunks
@@ -332,10 +323,7 @@ export const getDocumentDetail = async (req: Request, res: Response): Promise<Re
     limit: 500
   });
 
-  return res.json({
-    success: true,
-    data: { document, chunks }
-  });
+  return ok(res, { document, chunks });
 };
 
 // PUT /ai/rag/documents/:id/reindex — Reindexar documento
@@ -353,10 +341,7 @@ export const reindexDocument = async (req: Request, res: Response): Promise<Resp
     console.error(`[RAG] Error reindexando documento ${document.id}:`, err.message);
   });
 
-  return res.json({
-    success: true,
-    message: "Reindexación iniciada. El documento se actualizará en unos momentos."
-  });
+  return ok(res, undefined, "Reindexación iniciada. El documento se actualizará en unos momentos.");
 };
 
 // POST /ai/rag/search — Buscar en Knowledge Base
@@ -365,5 +350,5 @@ export const searchKB = async (req: Request, res: Response): Promise<Response> =
   const { query, topK } = req.body;
   if (!query) throw new AppError("ERR_QUERY_REQUIRED", 400);
   const results = await KnowledgeBaseService.search(query, companyId, { topK: topK || 5 });
-  return res.json({ success: true, data: results });
+  return ok(res, results);
 };
