@@ -2188,327 +2188,10 @@ async function botText(ctx: VerifyQueueCtx) {
   
 }
 
-const verifyQueue = async (
-  wbot: Session,
-  msg: proto.IWebMessageInfo,
-  ticket: Ticket,
-  contact: Contact,
-  settings?: any,
-  ticketTraking?: TicketTraking
-) => {
-  const companyId = ticket.companyId;
+// [Refactor Ola 4] botList extraído a función módulo-nivel (VerifyQueueCtx). Movimiento VERBATIM.
+async function botList(ctx: VerifyQueueCtx) {
+  let { chatbot, choosenQueue, companyId, contact, enableQueuePosition, greetingMessage, maxUseBotQueues, queues, randomUserId, settings, ticket, ticketTraking, timeUseBotQueues, wbot } = ctx;
 
-  // // console.log("GETTING WHATSAPP VERIFY QUEUE", ticket.whatsappId, wbot.id)
-  const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues, useAIOrchestrator } =
-    await ShowWhatsAppService(wbot.id!, companyId);
-
-  let chatbot = false;
-
-  if (queues.length === 1) {
-    chatbot = queues[0]?.chatbots.length > 1;
-  }
-
-  const enableQueuePosition = settings.sendQueuePosition === "enabled";
-
-  if (queues.length === 1 && !chatbot) {
-    const sendGreetingMessageOneQueues =
-      settings.sendGreetingMessageOneQueues === "enabled" || false;
-
-
-    //inicia integração dialogflow/n8n
-    // Verificacion de integracion
-    if (!msg.key.fromMe && !ticket.isGroup && queues[0].integrationId) {
-      const integrations = await ShowQueueIntegrationService(
-        queues[0].integrationId,
-        companyId
-      );
-
-      // 🛡️ Guard: si la integración es supervisor_ai y la conexión NO tiene
-      // useAIOrchestrator, NO disparar la integración ni marcar el ticket.
-      if (
-        integrations?.type === "supervisor_ai" &&
-        useAIOrchestrator !== true
-      ) {
-        logger.info(
-          `[verifyQueue] supervisor_ai bloqueado por useAIOrchestrator=false en whatsappId=${wbot.id}`
-        );
-      } else {
-
-        await handleMessageIntegration(
-          msg,
-          wbot,
-          companyId,
-          integrations,
-          ticket,
-          null,
-          null,
-          null,
-          null
-        );
-
-        if (msg.key.fromMe) {
-
-          await ticket.update({
-            typebotSessionTime: moment().toDate(),
-            useIntegration: true,
-            integrationId: integrations.id
-          });
-        } else {
-          await ticket.update({
-            useIntegration: true,
-            integrationId: integrations.id
-          });
-        }
-      }
-
-      // return;
-    }
-
-    if (greetingMessage.length > 1 && sendGreetingMessageOneQueues) {
-      const body = formatBody(`${greetingMessage}`, ticket);
-
-      if (ticket.whatsapp.greetingMediaAttachment !== null) {
-        const filePath = path.resolve(
-          "public",
-          `company${companyId}`,
-          ticket.whatsapp.greetingMediaAttachment
-        );
-
-        const fileExists = fs.existsSync(filePath);
-
-        if (fileExists) {
-          const messagePath = ticket.whatsapp.greetingMediaAttachment;
-          const optionsMsg = await getMessageOptions(
-            messagePath,
-            filePath,
-            String(companyId),
-            body
-          );
-          const debouncedSentgreetingMediaAttachment = debounce(
-            async () => {
-              const sentMessage = await wbot.sendMessage(
-                `${ticket.contact.number}@${
-                  ticket.isGroup ? "g.us" : "s.whatsapp.net"
-                }`,
-                { ...optionsMsg }
-              );
-
-              await verifyMediaMessage(
-                sentMessage,
-                ticket,
-                contact,
-                ticketTraking,
-                false,
-                false,
-                wbot
-              );
-            },
-            1000,
-            ticket.id
-          );
-          debouncedSentgreetingMediaAttachment();
-        } else {
-          await wbot.sendMessage(
-            `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
-            {
-              text: body
-            }
-          );
-        }
-      } else {
-        await wbot.sendMessage(
-          `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
-          {
-            text: body
-          }
-        );
-      }
-    }
-
-    if (!isNil(queues[0].fileListId)) {
-      try {
-        const publicFolder = path.resolve(currentDir, "..", "..", "public");
-
-        const files = await ShowFileService(
-          queues[0].fileListId,
-          ticket.companyId
-        );
-
-        const folder = path.resolve(
-          publicFolder,
-          `company${ticket.companyId}`,
-          "fileList",
-          String(files.id)
-        );
-
-        for (const [index, file] of files.options.entries()) {
-          const mediaSrc = {
-            fieldname: "medias",
-            originalname: file.path,
-            encoding: "7bit",
-            mimetype: file.mediaType,
-            filename: file.path,
-            path: path.resolve(folder, file.path)
-          } as Express.Multer.File;
-
-          await SendWhatsAppMedia({
-            media: mediaSrc,
-            ticket,
-            body: file.name,
-            isPrivate: false,
-            isForwarded: false
-          });
-        }
-      } catch (error) {
-        logInfo(error);
-      }
-    }
-
-    if (queues[0].closeTicket) {
-      await UpdateTicketService({
-        ticketData: {
-          status: "closed",
-          queueId: queues[0].id
-          // sendFarewellMessage: false
-        },
-        ticketId: ticket.id,
-        companyId
-      });
-
-      return;
-    } else {
-      await UpdateTicketService({
-        ticketData: {
-          queueId: queues[0].id,
-          status: ticket.status === "lgpd" ? "pending" : ticket.status
-        },
-        ticketId: ticket.id,
-        companyId
-      });
-    }
-
-    const count = await Ticket.findAndCountAll({
-      where: {
-        userId: null,
-        status: "pending",
-        companyId,
-        queueId: queues[0].id,
-        isGroup: false
-      }
-    });
-
-    if (enableQueuePosition) {
-      // Lógica para enviar posição da fila de atendimento
-      const qtd = count.count === 0 ? 1 : count.count;
-      const msgFila = `${settings.sendQueuePositionMessage} *${qtd}*`;
-      // const msgFila = `*Assistente Virtual:*\n{{ms}} *{{name}}*, sua posição na fila de atendimento é: *${qtd}*`;
-      const bodyFila = formatBody(`${msgFila}`, ticket);
-      const debouncedSentMessagePosicao = debounce(
-        async () => {
-          await wbot.sendMessage(
-            `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
-            {
-              text: bodyFila
-            }
-          );
-        },
-        3000,
-        ticket.id
-      );
-      debouncedSentMessagePosicao();
-    }
-
-    return;
-  }
-
-  // REGRA PARA DESABILITAR O BOT PARA ALGUM CONTATO
-  if (contact.disableBot) {
-    return;
-  }
-
-  let selectedOption = "";
-
-  if (ticket.status !== "lgpd") {
-    selectedOption =
-      msg?.message?.buttonsResponseMessage?.selectedButtonId ||
-      msg?.message?.listResponseMessage?.singleSelectReply.selectedRowId ||
-      getBodyMessage(msg);
-  } else {
-    if (!isNil(ticket.lgpdAcceptedAt))
-      await ticket.update({
-        status: "pending"
-      });
-
-    await ticket.reload();
-  }
-
-  if (String(selectedOption).toLocaleLowerCase() == "sair") {
-    // Encerra atendimento
-
-
-    const ticketData = {
-      isBot: false,
-      status: "closed",
-      sendFarewellMessage: true,
-      maxUseBotQueues: 0
-    };
-
-    await UpdateTicketService({ ticketData, ticketId: ticket.id, companyId });
-    // await ticket.update({ queueOptionId: null, chatbot: false, queueId: null, userId: null, status: "closed"});
-    //await verifyQueue(wbot, msg, ticket, ticket.contact);
-
-    // const complationMessage = ticket.whatsapp?.complationMessage;
-
-    // // console.log(complationMessage)
-    // const textMessage = {
-    //   text: formatBody(`\u200e${complationMessage}`, ticket),
-    // };
-
-    // if (!isNil(complationMessage)) {
-    //   const sendMsg = await wbot.sendMessage(
-    //     `${ticket?.contact?.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
-    //     textMessage
-    //   );
-
-    //   await verifyMessage(sendMsg, ticket, ticket.contact);
-    // }
-
-    return;
-  }
-
-  let choosenQueue =
-    chatbot && queues.length === 1
-      ? queues[+selectedOption]
-      : queues[+selectedOption - 1];
-
-
-  const typeBot = settings?.chatBotType || "text";
-
-  // Serviço p/ escolher consultor aleatório para o ticket, ao selecionar fila.
-  let randomUserId;
-
-  if (choosenQueue) {
-    try {
-      const userQueue = await ListUserQueueServices(choosenQueue.id);
-
-      if (userQueue.userId > -1) {
-        randomUserId = userQueue.userId;
-      }
-    } catch (error) {
-       console.error(error);
-    }
-  }
-
-  // Ativar ou desativar opção de escolher consultor aleatório.
-  /*   let settings = await CompaniesSettings.findOne({
-      where: {
-        companyId: companyId
-      }
-    }); */
-
-  // [Refactor Ola 4] botText movido a función módulo-nivel (ver arriba de verifyQueue).
-
-  const botList = async () => {
 
 
     if (choosenQueue || (queues.length === 1 && chatbot)) {
@@ -2954,9 +2637,13 @@ const verifyQueue = async (
         debouncedSentMessage();
       }
     }
-  };
+  
+}
 
-  const botButton = async () => {
+// [Refactor Ola 4] botButton extraído a función módulo-nivel (VerifyQueueCtx). Movimiento VERBATIM.
+async function botButton(ctx: VerifyQueueCtx) {
+  let { chatbot, choosenQueue, companyId, contact, enableQueuePosition, greetingMessage, maxUseBotQueues, queues, randomUserId, settings, ticket, ticketTraking, timeUseBotQueues, wbot } = ctx;
+
 
 
     if (choosenQueue || (queues.length === 1 && chatbot)) {
@@ -3536,7 +3223,332 @@ const verifyQueue = async (
         debouncedSentButton();
       }
     }
-  };
+  
+}
+
+const verifyQueue = async (
+  wbot: Session,
+  msg: proto.IWebMessageInfo,
+  ticket: Ticket,
+  contact: Contact,
+  settings?: any,
+  ticketTraking?: TicketTraking
+) => {
+  const companyId = ticket.companyId;
+
+  // // console.log("GETTING WHATSAPP VERIFY QUEUE", ticket.whatsappId, wbot.id)
+  const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues, useAIOrchestrator } =
+    await ShowWhatsAppService(wbot.id!, companyId);
+
+  let chatbot = false;
+
+  if (queues.length === 1) {
+    chatbot = queues[0]?.chatbots.length > 1;
+  }
+
+  const enableQueuePosition = settings.sendQueuePosition === "enabled";
+
+  if (queues.length === 1 && !chatbot) {
+    const sendGreetingMessageOneQueues =
+      settings.sendGreetingMessageOneQueues === "enabled" || false;
+
+
+    //inicia integração dialogflow/n8n
+    // Verificacion de integracion
+    if (!msg.key.fromMe && !ticket.isGroup && queues[0].integrationId) {
+      const integrations = await ShowQueueIntegrationService(
+        queues[0].integrationId,
+        companyId
+      );
+
+      // 🛡️ Guard: si la integración es supervisor_ai y la conexión NO tiene
+      // useAIOrchestrator, NO disparar la integración ni marcar el ticket.
+      if (
+        integrations?.type === "supervisor_ai" &&
+        useAIOrchestrator !== true
+      ) {
+        logger.info(
+          `[verifyQueue] supervisor_ai bloqueado por useAIOrchestrator=false en whatsappId=${wbot.id}`
+        );
+      } else {
+
+        await handleMessageIntegration(
+          msg,
+          wbot,
+          companyId,
+          integrations,
+          ticket,
+          null,
+          null,
+          null,
+          null
+        );
+
+        if (msg.key.fromMe) {
+
+          await ticket.update({
+            typebotSessionTime: moment().toDate(),
+            useIntegration: true,
+            integrationId: integrations.id
+          });
+        } else {
+          await ticket.update({
+            useIntegration: true,
+            integrationId: integrations.id
+          });
+        }
+      }
+
+      // return;
+    }
+
+    if (greetingMessage.length > 1 && sendGreetingMessageOneQueues) {
+      const body = formatBody(`${greetingMessage}`, ticket);
+
+      if (ticket.whatsapp.greetingMediaAttachment !== null) {
+        const filePath = path.resolve(
+          "public",
+          `company${companyId}`,
+          ticket.whatsapp.greetingMediaAttachment
+        );
+
+        const fileExists = fs.existsSync(filePath);
+
+        if (fileExists) {
+          const messagePath = ticket.whatsapp.greetingMediaAttachment;
+          const optionsMsg = await getMessageOptions(
+            messagePath,
+            filePath,
+            String(companyId),
+            body
+          );
+          const debouncedSentgreetingMediaAttachment = debounce(
+            async () => {
+              const sentMessage = await wbot.sendMessage(
+                `${ticket.contact.number}@${
+                  ticket.isGroup ? "g.us" : "s.whatsapp.net"
+                }`,
+                { ...optionsMsg }
+              );
+
+              await verifyMediaMessage(
+                sentMessage,
+                ticket,
+                contact,
+                ticketTraking,
+                false,
+                false,
+                wbot
+              );
+            },
+            1000,
+            ticket.id
+          );
+          debouncedSentgreetingMediaAttachment();
+        } else {
+          await wbot.sendMessage(
+            `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
+            {
+              text: body
+            }
+          );
+        }
+      } else {
+        await wbot.sendMessage(
+          `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
+          {
+            text: body
+          }
+        );
+      }
+    }
+
+    if (!isNil(queues[0].fileListId)) {
+      try {
+        const publicFolder = path.resolve(currentDir, "..", "..", "public");
+
+        const files = await ShowFileService(
+          queues[0].fileListId,
+          ticket.companyId
+        );
+
+        const folder = path.resolve(
+          publicFolder,
+          `company${ticket.companyId}`,
+          "fileList",
+          String(files.id)
+        );
+
+        for (const [index, file] of files.options.entries()) {
+          const mediaSrc = {
+            fieldname: "medias",
+            originalname: file.path,
+            encoding: "7bit",
+            mimetype: file.mediaType,
+            filename: file.path,
+            path: path.resolve(folder, file.path)
+          } as Express.Multer.File;
+
+          await SendWhatsAppMedia({
+            media: mediaSrc,
+            ticket,
+            body: file.name,
+            isPrivate: false,
+            isForwarded: false
+          });
+        }
+      } catch (error) {
+        logInfo(error);
+      }
+    }
+
+    if (queues[0].closeTicket) {
+      await UpdateTicketService({
+        ticketData: {
+          status: "closed",
+          queueId: queues[0].id
+          // sendFarewellMessage: false
+        },
+        ticketId: ticket.id,
+        companyId
+      });
+
+      return;
+    } else {
+      await UpdateTicketService({
+        ticketData: {
+          queueId: queues[0].id,
+          status: ticket.status === "lgpd" ? "pending" : ticket.status
+        },
+        ticketId: ticket.id,
+        companyId
+      });
+    }
+
+    const count = await Ticket.findAndCountAll({
+      where: {
+        userId: null,
+        status: "pending",
+        companyId,
+        queueId: queues[0].id,
+        isGroup: false
+      }
+    });
+
+    if (enableQueuePosition) {
+      // Lógica para enviar posição da fila de atendimento
+      const qtd = count.count === 0 ? 1 : count.count;
+      const msgFila = `${settings.sendQueuePositionMessage} *${qtd}*`;
+      // const msgFila = `*Assistente Virtual:*\n{{ms}} *{{name}}*, sua posição na fila de atendimento é: *${qtd}*`;
+      const bodyFila = formatBody(`${msgFila}`, ticket);
+      const debouncedSentMessagePosicao = debounce(
+        async () => {
+          await wbot.sendMessage(
+            `${contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
+            {
+              text: bodyFila
+            }
+          );
+        },
+        3000,
+        ticket.id
+      );
+      debouncedSentMessagePosicao();
+    }
+
+    return;
+  }
+
+  // REGRA PARA DESABILITAR O BOT PARA ALGUM CONTATO
+  if (contact.disableBot) {
+    return;
+  }
+
+  let selectedOption = "";
+
+  if (ticket.status !== "lgpd") {
+    selectedOption =
+      msg?.message?.buttonsResponseMessage?.selectedButtonId ||
+      msg?.message?.listResponseMessage?.singleSelectReply.selectedRowId ||
+      getBodyMessage(msg);
+  } else {
+    if (!isNil(ticket.lgpdAcceptedAt))
+      await ticket.update({
+        status: "pending"
+      });
+
+    await ticket.reload();
+  }
+
+  if (String(selectedOption).toLocaleLowerCase() == "sair") {
+    // Encerra atendimento
+
+
+    const ticketData = {
+      isBot: false,
+      status: "closed",
+      sendFarewellMessage: true,
+      maxUseBotQueues: 0
+    };
+
+    await UpdateTicketService({ ticketData, ticketId: ticket.id, companyId });
+    // await ticket.update({ queueOptionId: null, chatbot: false, queueId: null, userId: null, status: "closed"});
+    //await verifyQueue(wbot, msg, ticket, ticket.contact);
+
+    // const complationMessage = ticket.whatsapp?.complationMessage;
+
+    // // console.log(complationMessage)
+    // const textMessage = {
+    //   text: formatBody(`\u200e${complationMessage}`, ticket),
+    // };
+
+    // if (!isNil(complationMessage)) {
+    //   const sendMsg = await wbot.sendMessage(
+    //     `${ticket?.contact?.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"}`,
+    //     textMessage
+    //   );
+
+    //   await verifyMessage(sendMsg, ticket, ticket.contact);
+    // }
+
+    return;
+  }
+
+  let choosenQueue =
+    chatbot && queues.length === 1
+      ? queues[+selectedOption]
+      : queues[+selectedOption - 1];
+
+
+  const typeBot = settings?.chatBotType || "text";
+
+  // Serviço p/ escolher consultor aleatório para o ticket, ao selecionar fila.
+  let randomUserId;
+
+  if (choosenQueue) {
+    try {
+      const userQueue = await ListUserQueueServices(choosenQueue.id);
+
+      if (userQueue.userId > -1) {
+        randomUserId = userQueue.userId;
+      }
+    } catch (error) {
+       console.error(error);
+    }
+  }
+
+  // Ativar ou desativar opção de escolher consultor aleatório.
+  /*   let settings = await CompaniesSettings.findOne({
+      where: {
+        companyId: companyId
+      }
+    }); */
+
+  // [Refactor Ola 4] botText movido a función módulo-nivel (ver arriba de verifyQueue).
+
+  // [Refactor Ola 4] botList movido a función módulo-nivel (arriba de verifyQueue).
+
+  // [Refactor Ola 4] botButton movido a función módulo-nivel (arriba de verifyQueue).
 
   const verifyQueueCtx: VerifyQueueCtx = { chatbot, choosenQueue, companyId, contact, enableQueuePosition, greetingMessage, maxUseBotQueues, queues, randomUserId, settings, ticket, ticketTraking, timeUseBotQueues, wbot };
 
@@ -3545,11 +3557,11 @@ const verifyQueue = async (
   }
   
    if (typeBot === "list") {
-    return botList();
+    return botList(verifyQueueCtx);
   }
 
   if (typeBot === "button") {
-    return botButton();
+    return botButton(verifyQueueCtx);
   }
 
   if (typeBot === "button" && queues.length > 3) {
