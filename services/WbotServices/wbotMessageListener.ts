@@ -107,11 +107,6 @@ import ShowFileService from "../FileServices/ShowService";
 
 import OpenAI from "openai";
 import ffmpeg from "fluent-ffmpeg";
-import {
-  SpeechConfig,
-  SpeechSynthesizer,
-  AudioConfig
-} from "microsoft-cognitiveservices-speech-sdk";
 import typebotListener from "../TypebotServices/typebotListener";
 import Tag from "../../models/Tag";
 import TicketTag from "../../models/TicketTag";
@@ -3771,84 +3766,13 @@ export const handleRating = async (
     });
 };
 
-const sanitizeName = (name: string): string => {
-  let sanitized = name.split(" ")[0];
-  sanitized = sanitized.replace(/[^a-zA-Z0-9]/g, "");
-  return sanitized.substring(0, 60);
-};
-
-// [Tier 2] dead code removido: deleteFileSync
-
-export const convertTextToSpeechAndSaveToFile = (
-  text: string,
-  filename: string,
-  subscriptionKey: string,
-  serviceRegion: string,
-  voice: string = "pt-BR-FabioNeural",
-  audioToFormat: string = "mp3"
-): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    // Validar que subscriptionKey y serviceRegion existan
-    if (!subscriptionKey || !serviceRegion) {
-      console.warn("⚠️ Microsoft Speech SDK: subscriptionKey o serviceRegion no configurados, omitiendo text-to-speech");
-      resolve(); // Resolver sin error para no interrumpir el flujo
-      return;
-    }
-    const speechConfig = SpeechConfig.fromSubscription(
-      subscriptionKey,
-      serviceRegion
-    );
-    speechConfig.speechSynthesisVoiceName = voice;
-    const audioConfig = AudioConfig.fromAudioFileOutput(`${filename}.wav`);
-    const synthesizer = new SpeechSynthesizer(speechConfig, audioConfig);
-    synthesizer.speakTextAsync(
-      text,
-      result => {
-        if (result) {
-          convertWavToAnotherFormat(
-            `${filename}.wav`,
-            `${filename}.${audioToFormat}`,
-            audioToFormat
-          )
-            .then(output => {
-              resolve();
-            })
-            .catch(error => {
-              reject(error);
-            });
-        } else {
-          reject(new Error("No result from synthesizer"));
-        }
-        synthesizer.close();
-      },
-      error => {
-        synthesizer.close();
-        reject(error);
-      }
-    );
-  });
-};
-
-const convertWavToAnotherFormat = (
-  inputPath: string,
-  outputPath: string,
-  toFormat: string
-) => {
-  return new Promise((resolve, reject) => {
-    ffmpeg()
-      .input(inputPath)
-      .toFormat(toFormat)
-      .on("end", () => resolve(outputPath))
-      .on("error", (err: { message: any }) =>
-        reject(new Error(`Error converting file: ${err.message}`))
-      )
-      .save(outputPath);
-  });
-};
-
-export const keepOnlySpecifiedChars = (str: string) => {
-  return str.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚâêîôûÂÊÎÔÛãõÃÕçÇ!?.,;:\s]/g, "");
-};
+// [Refactor Ola 1] Utilidades de audio/TTS movidas a ./wbotAudioUtils (funciones
+// autocontenidas: ffmpeg + Speech SDK). Se re-exportan para no romper a los
+// importadores externos (services/IntegrationsServices/OpenAi/send*Response).
+export {
+  convertTextToSpeechAndSaveToFile,
+  keepOnlySpecifiedChars
+} from "./wbotAudioUtils";
 
 export const transferQueue = async (
   queueId: number,
