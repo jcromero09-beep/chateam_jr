@@ -94,9 +94,10 @@ export class AttributionDashboardService {
     } catch (error) {
       logError('Error fetching dashboard data:', error);
 
-      // Return empty data structure on error
+      // [W1-DATA] Estado honesto: en error se devuelve vacio real, NO datos de
+      // muestra fabricados ($86.700 etc.) que el usuario veria como suyos.
       return {
-        channels: this.getDefaultChannels(),
+        channels: [],
         journeys: [],
         metrics: {
           avgTouchpoints: 0,
@@ -136,7 +137,8 @@ export class AttributionDashboardService {
       return this.calculateChannelAttributionFromRaw(companyId, dateRange);
     } catch (error) {
       logError('Error getting channel attribution:', error);
-      return this.getDefaultChannels();
+      // [W1-DATA] vacio honesto en error, no datos de muestra fabricados.
+      return [];
     }
   }
 
