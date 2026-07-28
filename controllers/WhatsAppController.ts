@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import crypto from "crypto";
 import { getIO } from "../libs/socket";
 import cacheLayer from "../libs/cache";
 import { removeWbot, restartWbot } from "../libs/wbot";
@@ -86,9 +87,12 @@ interface QueryParams {
  */
 const generateRandomToken = (length: number = 30): string => {
   const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  // [W1-SEC] aleatoriedad criptográfica: Math.random es predecible → el token de
+  // API externa sería forjable/adivinable. randomBytes + índice al charset.
+  const bytes = crypto.randomBytes(length);
   let token = "";
   for (let i = 0; i < length; i++) {
-    token += charset.charAt(Math.floor(Math.random() * charset.length));
+    token += charset.charAt(bytes[i] % charset.length);
   }
   return token;
 };

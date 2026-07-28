@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import WebChatSession from '../../models/WebChat/WebChatSession.js';
 import WebChatChannel from '../../models/WebChat/WebChatChannel.js';
 import Contact from '../../models/Contact.js';
@@ -313,7 +314,9 @@ class WebChatSessionService {
    */
   private generateSessionId(): string {
     const timestamp = Date.now().toString(36);
-    const randomStr = Math.random().toString(36).substring(2, 15);
+    // [W1-SEC] aleatoriedad criptográfica: Math.random es predecible/enumerable
+    // → permitiría adivinar sessionIds de otros visitantes (secuestro de webchat).
+    const randomStr = crypto.randomBytes(16).toString("hex");
     return `wcs_${timestamp}_${randomStr}`;
   }
 }
