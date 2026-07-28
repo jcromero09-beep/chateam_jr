@@ -594,7 +594,10 @@ export const getContactProfileURL = async (req: Request, res: Response) => {
   ): Promise<Response> => {
     const { contactId } = req.params;
 
-    const contactTags = await FindContactTags({ contactId });
+    const contactTags = await FindContactTags({
+      contactId,
+      companyId: req.user.companyId
+    });
 
     let tags = false;
 

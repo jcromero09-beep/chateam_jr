@@ -27,6 +27,14 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
       return res.status(404).json({ error: 'Etiqueta no encontrada.' });
     }
 
+    // [W1-SEC-IDOR] TicketTag no tiene companyId → validar propiedad del ticket
+    // ANTES de cualquier escritura (kanban o legacy). Impide adjuntar/mover tags
+    // en tickets de otra empresa pasando su ticketId.
+    const ownTicket = await Ticket.findOne({ where: { id: ticketId, companyId } });
+    if (!ownTicket) {
+      return res.status(404).json({ error: 'Ticket no encontrado.' });
+    }
+
     // 2. Si es un tag KANBAN → delegar al helper único.
     //    El helper se encarga de: limpiar otras etapas Kanban,
     //    crear/conservar el TicketTag, log de movimiento, followups y CAPI.

@@ -59,9 +59,19 @@ const UpdateContactService = async ({
   }
 
   if (extraInfo) {
+    // [W1-SEC-IDOR] ContactCustomField no tiene companyId → no confiar en
+    // `info.id` del body: si el id no pertenece a ESTE contacto, se descarta
+    // (se crea uno nuevo) para no sobrescribir un campo de otra empresa por PK.
+    const ownFieldIds = new Set(
+      (contact.extraInfo || []).map((f: any) => f.id)
+    );
     await Promise.all(
       extraInfo.map(async (info: any) => {
-        await ContactCustomField.upsert({ ...info, contactId: contact.id });
+        const safeInfo =
+          info.id && !ownFieldIds.has(info.id)
+            ? { ...info, id: undefined }
+            : info;
+        await ContactCustomField.upsert({ ...safeInfo, contactId: contact.id });
       })
     );
 

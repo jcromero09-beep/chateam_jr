@@ -15,6 +15,7 @@ import TagAIRecommendationService from "../services/TagServices/TagAIRecommendat
 import TagMetaConversionAIService from "../services/TagServices/TagMetaConversionAIService";
 import { syncCustomConversionForTag } from "../services/FacebookConversionService/MetaCustomConversionService";
 import ContactTag from "../models/ContactTag";
+import Contact from "../models/Contact";
 import logger from "../utils/logger";
 
 type IndexQuery = {
@@ -281,6 +282,12 @@ export const removeContactTag = async (
   const { tagId, contactId } = req.params;
   const { companyId } = req.user;
 
+  // [W1-SEC-IDOR] ContactTag no tiene companyId → validar propiedad del contacto
+  // ANTES de borrar el junction. Impide desvincular tags de contactos ajenos.
+  const contact = await Contact.findOne({ where: { id: contactId, companyId } });
+  if (!contact) {
+    throw new AppError("ERR_NO_CONTACT_FOUND", 404);
+  }
 
   await ContactTag.destroy({
     where: {
