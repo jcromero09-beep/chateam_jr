@@ -1,9 +1,24 @@
 import TicketNote from "../../models/TicketNote";
+import Ticket from "../../models/Ticket";
 import AppError from "../../errors/AppError";
 
-const DeleteTicketNoteService = async (id: string): Promise<void> => {
+const DeleteTicketNoteService = async (
+  id: string,
+  companyId: number
+): Promise<void> => {
+  // [W1-SEC-IDOR] TicketNote sin companyId → propiedad validada vía el ticket
+  // dueño (include required + where companyId). Impide borrar notas ajenas.
   const ticketnote = await TicketNote.findOne({
-    where: { id }
+    where: { id },
+    include: [
+      {
+        model: Ticket,
+        as: "ticket",
+        required: true,
+        where: { companyId },
+        attributes: ["id"]
+      }
+    ]
   });
 
   if (!ticketnote) {

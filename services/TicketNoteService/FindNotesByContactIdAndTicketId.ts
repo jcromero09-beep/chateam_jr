@@ -5,6 +5,7 @@ import Ticket from "../../models/Ticket";
 interface Params {
   contactId?: number | string;
   ticketId?: number | string;
+  companyId: number;
 }
 
 /**
@@ -17,19 +18,28 @@ interface Params {
  * "column TicketNote.contactId does not exist".
  */
 const FindNotesByContactIdAndTicketId = async ({
-  ticketId
+  ticketId,
+  companyId
 }: Params): Promise<TicketNote[]> => {
   const where: { ticketId?: number | string } = {};
   if (ticketId) {
     where.ticketId = ticketId;
   }
 
+  // [W1-SEC-IDOR] Acota al tenant vía el ticket dueño (include required + where
+  // companyId): impide leer notas de un ticketId de otra empresa.
   const notes: TicketNote[] = await TicketNote.findAll({
     where,
     attributes: ["id", "note", "userId", "ticketId", "createdAt", "updatedAt"],
     include: [
       { model: User, as: "user", attributes: ["id", "name", "email"] },
-      { model: Ticket, as: "ticket", attributes: ["id", "status", "createdAt"] }
+      {
+        model: Ticket,
+        as: "ticket",
+        required: true,
+        where: { companyId },
+        attributes: ["id", "status", "createdAt"]
+      }
     ],
     order: [["createdAt", "DESC"]],
     limit: 50

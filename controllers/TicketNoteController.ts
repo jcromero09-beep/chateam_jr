@@ -42,7 +42,8 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 
   const { ticketNotes, count, hasMore } = await ListTicketNotesService({
     searchParam,
-    pageNumber
+    pageNumber,
+    companyId: req.user.companyId
   });
 
   return res.json({ ticketNotes, count, hasMore });
@@ -100,7 +101,10 @@ export const update = async (
     throw new AppError(err.message);
   }
 
-  const recordUpdated = await UpdateTicketNoteService(ticketNote);
+  const recordUpdated = await UpdateTicketNoteService(
+    ticketNote,
+    req.user.companyId
+  );
 
   return res.status(200).json(recordUpdated);
 };
@@ -115,7 +119,7 @@ export const remove = async (
     throw new AppError("ERR_NO_PERMISSION", 403);
   }
 
-  await DeleteTicketNoteService(id);
+  await DeleteTicketNoteService(id, req.user.companyId);
 
   return res.status(200).json({ message: "Observación eliminada" });
 };
@@ -128,7 +132,8 @@ export const findFilteredList = async (
     const { contactId, ticketId } = req.query as QueryFilteredNotes;
     const notes: TicketNote[] = await FindNotesByContactIdAndTicketId({
       contactId,
-      ticketId
+      ticketId,
+      companyId: req.user.companyId
     });
 
     return res.status(200).json(notes);
