@@ -131,3 +131,47 @@ Revisado el rango completo de `verifyQueue` (read-only):
 **Implicación:** `VerifyQueueCtx` es **solo de entrada** (los 7 config); `choosenQueue` se reubica
 como local en cada función extraída. La extracción de las 3 closures es un movimiento limpio.
 Queda solo el paso 2 (caracterización con mensajes reales) antes de implementar.
+
+---
+
+## Ola 4 — CARACTERIZACIÓN montada (2026-07-28)
+
+Herramienta reusable: `tests/harness/wbotClosureFreeVars.cjs` — análisis léxico de variables
+libres con el AST sintáctico de TS (sin type-checker → sin OOM; `tsc --noEmit` completo revienta
+por memoria). Doble uso: (1) obtener el `ctx` por closure; (2) **gate post-extracción** — al correr
+sobre la función ya extraída, `unknown` debe ser `[]`.
+
+### Resultado (verificado, gate exit 0)
+`ctx` **idéntico** para botText/botList/botButton — **14 variables**:
+```
+chatbot, choosenQueue, companyId, contact, enableQueuePosition, greetingMessage,
+maxUseBotQueues, queues, randomUserId, settings, ticket, ticketTraking,
+timeUseBotQueues, wbot
+```
+`unknown: []` (los únicos residuos, `Express/File/Multer`, son type-refs ambient que se borran).
+
+### La caracterización cazó bugs que un enfoque naïve habría dejado pasar
+1. **`chatbot`**: se usa el local externo (línea 2051) PERO también hay un param de `forEach`
+   homónimo (`choosenQueue.chatbots.forEach((chatbot,…))`) que shadowea en scope anidado. Un
+   análisis por "declarado en cualquier parte → no es libre" lo habría excluido del ctx →
+   **ReferenceError en cada mensaje de texto** tras extraer. El tool lo conserva (resta solo
+   decls del top-scope del closure, no las anidadas).
+2. **`randomUserId`** (`let randomUserId;` línea 2028): local de verifyQueue usado por las
+   closures — **ausente de la enumeración manual**. El cómputo automático del scope propio lo
+   recuperó.
+3. Auditoría de mutaciones (previa): los config son solo-lectura; `choosenQueue` se muta pero no
+   se lee tras dispatch → va en ctx por valor (la mutación local no necesita propagarse).
+
+### Receta de extracción (ahora VERIFICABLE)
+```ts
+interface VerifyQueueCtx { chatbot; choosenQueue; companyId; contact; enableQueuePosition;
+  greetingMessage; maxUseBotQueues; queues; randomUserId; settings; ticket; ticketTraking;
+  timeUseBotQueues; wbot; }
+async function botText(ctx: VerifyQueueCtx) { const { chatbot, choosenQueue, /*…14…*/ } = ctx; <cuerpo VERBATIM> }
+```
+Procedimiento por closure (una por commit): cut-paste **verbatim** del cuerpo → destructurar ctx →
+`node tests/harness/wbotClosureFreeVars.cjs` sobre la función extraída debe dar `unknown: []` →
+boot + gate. Movimiento verbatim = el único riesgo residual (conducta) se minimiza al no retipear.
+
+**Estado: caracterización LISTA.** Falta ejecutar la extracción (botText → botList → botButton),
+cada una con el gate del tool.
