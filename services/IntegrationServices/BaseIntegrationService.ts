@@ -20,9 +20,24 @@ export abstract class BaseIntegrationService {
   protected httpClient: AxiosInstance;
   protected encryptionKey: string;
 
+  // [W1-SEC] Antes se caía a este literal público si el env estaba vacío →
+  // cualquiera que leyera el repo podía descifrar credenciales de integración.
+  // Se conserva SOLO como clave legacy para descifrar datos ya cifrados con ella.
+  static readonly LEGACY_WEAK_KEY = 'default-key-change-in-production';
+
   constructor(connection: IntegrationConnection) {
     this.connection = connection;
-    this.encryptionKey = process.env.INTEGRATION_ENCRYPTION_KEY || 'default-key-change-in-production';
+    // [W1-SEC] Clave fuerte: env dedicado → si falta, deriva del ENCRYPTION_KEY
+    // (secreto fuerte ya presente). El literal débil queda solo como último recurso.
+    this.encryptionKey =
+      process.env.INTEGRATION_ENCRYPTION_KEY ||
+      process.env.ENCRYPTION_KEY ||
+      BaseIntegrationService.LEGACY_WEAK_KEY;
+    if (this.encryptionKey === BaseIntegrationService.LEGACY_WEAK_KEY) {
+      logger.warn(
+        '[BaseIntegrationService] INTEGRATION_ENCRYPTION_KEY y ENCRYPTION_KEY sin definir — usando clave débil legacy. Configura una clave fuerte.'
+      );
+    }
 
     // Initialize HTTP client
     this.httpClient = axios.create({
@@ -222,10 +237,10 @@ export abstract class BaseIntegrationService {
    * Encrypt sensitive data
    */
   protected encrypt(text: string): string {
-    const algorithm = 'aes-256-cbc';
+    // Cifra SIEMPRE con la clave fuerte actual.
     const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
 
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -233,21 +248,32 @@ export abstract class BaseIntegrationService {
     return iv.toString('hex') + ':' + encrypted;
   }
 
-  /**
-   * Decrypt sensitive data
-   */
-  protected decrypt(text: string): string {
-    const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
+  private decryptWith(text: string, keyStr: string): string {
+    const key = crypto.scryptSync(keyStr, 'salt', 32);
     const parts = text.split(':');
     const iv = Buffer.from(parts[0], 'hex');
-    const encrypted = parts[1];
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
 
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    let decrypted = decipher.update(parts[1], 'hex', 'utf8');
     decrypted += decipher.final('utf8');
 
     return decrypted;
+  }
+
+  /**
+   * Decrypt sensitive data. [W1-SEC] Intenta con la clave fuerte actual y, si
+   * falla, reintenta con la clave legacy débil (retrocompat de datos cifrados
+   * antes del hardening). Los datos re-cifran a clave fuerte al siguiente update.
+   */
+  protected decrypt(text: string): string {
+    try {
+      return this.decryptWith(text, this.encryptionKey);
+    } catch (e) {
+      if (this.encryptionKey !== BaseIntegrationService.LEGACY_WEAK_KEY) {
+        return this.decryptWith(text, BaseIntegrationService.LEGACY_WEAK_KEY);
+      }
+      throw e;
+    }
   }
 
   /**

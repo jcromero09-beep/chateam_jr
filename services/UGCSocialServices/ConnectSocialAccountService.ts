@@ -22,7 +22,12 @@ interface ConnectSocialAccountRequest {
 }
 
 // Funciones de encriptacion AES-256-CBC
-const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || "default-key-change-in-production";
+// [W1-SEC] Clave fuerte: env dedicado → si falta, deriva del ENCRYPTION_KEY (ya
+// presente). El literal débil queda solo como último recurso (era público en el repo).
+const ENCRYPTION_KEY =
+  process.env.INTEGRATION_ENCRYPTION_KEY ||
+  process.env.ENCRYPTION_KEY ||
+  "default-key-change-in-production";
 
 const encryptToken = (text: string): string => {
   const algorithm = "aes-256-cbc";
