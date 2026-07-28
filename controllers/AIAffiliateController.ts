@@ -3,24 +3,25 @@ import ListService from "../services/AIAffiliateServices/ListService";
 import CreateService from "../services/AIAffiliateServices/CreateService";
 import GetStatsService from "../services/AIAffiliateServices/GetStatsService";
 import AIAffiliateProgram from "../models/AIAffiliateProgram";
+import { ok, fail } from "../helpers/apiResponse";
 
 export const show = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
   const programs = await ListService(companyId);
-  return res.json({ success: true, data: programs });
+  return ok(res, programs);
 };
 
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
   const { name, commissionRate, description } = req.body;
   const program = await CreateService({ companyId, name, commissionRate, description });
-  return res.status(201).json({ success: true, data: program });
+  return ok(res, program, undefined, 201);
 };
 
 export const stats = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;
   const data = await GetStatsService(companyId);
-  return res.json({ success: true, data });
+  return ok(res, data);
 };
 
 export const activate = async (req: Request, res: Response): Promise<Response> => {
@@ -32,11 +33,11 @@ export const activate = async (req: Request, res: Response): Promise<Response> =
   });
 
   if (!program) {
-    return res.status(404).json({ success: false, message: "Programa no encontrado" });
+    return fail(res, "Programa no encontrado", 404);
   }
 
   await program.update({ status: "active" });
-  return res.json({ success: true, data: program });
+  return ok(res, program);
 };
 
 export const deactivate = async (req: Request, res: Response): Promise<Response> => {
@@ -48,9 +49,9 @@ export const deactivate = async (req: Request, res: Response): Promise<Response>
   });
 
   if (!program) {
-    return res.status(404).json({ success: false, message: "Programa no encontrado" });
+    return fail(res, "Programa no encontrado", 404);
   }
 
   await program.update({ status: "inactive" });
-  return res.json({ success: true, data: program });
+  return ok(res, program);
 };
