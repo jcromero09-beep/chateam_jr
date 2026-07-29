@@ -1,0 +1,294 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`handleMessageInner — golden master (estado observable) chatbot: con 2 colas el ticket queda en el menú, sin cola asignada 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) dedupe: el mismo msg.key.id dos veces persiste UN solo mensaje 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) dedupe: inbound y fromMe con el mismo wid → 2 en el ledger, 1 en Messages 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": false,
+      "isGroup": false,
+      "lastMessage": "respuesta del agente",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 0,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) edición: protocolMessage type=14 sobre un mensaje existente 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "texto corregido",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": true,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": false,
+      "isGroup": false,
+      "lastMessage": "texto corregido",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 2,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) fromMe (respuesta del agente): estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "respuesta del agente",
+      "fromMe": true,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "respuesta del agente",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 0,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) grupo: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": true,
+      "name": "Grupo Test",
+      "number": "593000000000-123456",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "mensaje en el grupo",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": false,
+      "isGroup": true,
+      "lastMessage": "mensaje en el grupo",
+      "queueId": null,
+      "status": "group",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) imagen con caption: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "Aquí la foto del producto",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "image",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Aquí la foto del producto",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) texto entrante: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;

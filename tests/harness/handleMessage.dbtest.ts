@@ -37,13 +37,17 @@ import { handleMessage } from "../../services/WbotServices/wbotMessageListener";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
-import { truncateAll, seedTenant } from "./dbHelpers";
+import InboundEventLedger from "../../models/InboundEventLedger";
+import { truncateAll, seedTenant, seedQueues, snapshotState } from "./dbHelpers";
 import { fixtures } from "./baileysFixtures";
 
+// Ciclo de vida a nivel de FICHERO: si cada describe abre/cierra el pool, el
+// primer afterAll deja a los siguientes sin conexión (sequelize.close() es global).
+beforeAll(async () => { await sequelize.authenticate(); });
+afterAll(async () => { await sequelize.close(); });
+beforeEach(async () => { await truncateAll(); (cacheLayer as any).__clear(); });
+
 describe("handleMessage (characterization DB)", () => {
-  beforeAll(async () => { await sequelize.authenticate(); });
-  afterAll(async () => { await sequelize.close(); });
-  beforeEach(async () => { await truncateAll(); (cacheLayer as any).__clear(); });
 
   it("un texto entrante crea/halla contacto + ticket + persiste mensaje", async () => {
     const { company, whatsapp } = await seedTenant();
@@ -106,5 +110,137 @@ describe("handleMessage (characterization DB)", () => {
     const { company, whatsapp } = await seedTenant();
     await handleMessage(fixtures.adCampaign(), { id: (whatsapp as any).id } as any, (company as any).id);
     expect(await Message.count({ where: { companyId: (company as any).id } })).toBe(1);
+  });
+});
+
+/**
+ * GOLDEN-MASTER de handleMessageInner.
+ *
+ * Los tests de arriba afirman conteos: sirven de humo, pero dejan pasar cualquier
+ * cambio de contenido (un body distinto, un flag de chatbot que se pierde, otro
+ * orden de persistencia). Este bloque fija el estado observable COMPLETO con
+ * snapshots, que es lo que hace falta para descomponer handleMessageInner sin
+ * cambiar conducta.
+ *
+ * Prerequisito declarado en audit/PLAN-REFACTOR-wbotMessageListener.md: cubrir
+ * texto/media/edit, fromMe vs inbound, grupo, dedupe y chatbot antes de extraer
+ * resolveTicketContext() y compañía.
+ */
+describe("handleMessageInner — golden master (estado observable)", () => {
+  /** wbot mínimo capaz de responder (el menú de colas hace sendMessage). */
+  const makeWbot = (whatsappId: number) => ({
+    id: whatsappId,
+    user: { id: "593888888888:1@s.whatsapp.net", name: "Bot" },
+    sendMessage: jest.fn(async () => ({ key: { id: "SENT_" + Math.random().toString(36).slice(2, 8) } })),
+    sendPresenceUpdate: jest.fn(async () => {}),
+    groupMetadata: async () => ({ id: "593000000000-123456@g.us", subject: "Grupo Test", participants: [] })
+  });
+
+  it("texto entrante: estado completo", async () => {
+    const { company, whatsapp } = await seedTenant();
+    await handleMessage(fixtures.text(), makeWbot((whatsapp as any).id) as any, (company as any).id);
+    expect(await snapshotState((company as any).id)).toMatchSnapshot();
+  });
+
+  it("fromMe (respuesta del agente): estado completo", async () => {
+    const { company, whatsapp } = await seedTenant();
+    await handleMessage(fixtures.fromMe(), makeWbot((whatsapp as any).id) as any, (company as any).id);
+    expect(await snapshotState((company as any).id)).toMatchSnapshot();
+  });
+
+  it("imagen con caption: estado completo", async () => {
+    const { company, whatsapp } = await seedTenant();
+    await handleMessage(fixtures.imageWithCaption(), makeWbot((whatsapp as any).id) as any, (company as any).id);
+    expect(await snapshotState((company as any).id)).toMatchSnapshot();
+  });
+
+  it("grupo: estado completo", async () => {
+    const { company, whatsapp } = await seedTenant();
+    await (whatsapp as any).update({ allowGroup: true });
+    await handleMessage(fixtures.group(), makeWbot((whatsapp as any).id) as any, (company as any).id);
+    expect(await snapshotState((company as any).id)).toMatchSnapshot();
+  });
+
+  // ── DEDUPE ────────────────────────────────────────────────────────────────
+  // checkInboundDedupe → InboundEventLedgerService.registerOrDrop, con clave
+  // (companyId, provider, msg.key.id). El MISMO id dos veces debe descartarse.
+  // Los tests de humo de arriba usan ids distintos a propósito para evitar esto.
+  it("dedupe: el mismo msg.key.id dos veces persiste UN solo mensaje", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const cid = (company as any).id;
+    const wbot = makeWbot((whatsapp as any).id);
+
+    const first = fixtures.text();
+    const second = fixtures.text();
+    (first.key as any).id = "DEDUPE_SAME_ID";
+    (second.key as any).id = "DEDUPE_SAME_ID"; // MISMO id: el ledger debe descartar el 2º
+
+    await handleMessage(first, wbot as any, cid);
+    await handleMessage(second, wbot as any, cid);
+
+    expect(await Message.count({ where: { companyId: cid } })).toBe(1);
+    // El ledger registró una sola entrada: el 2º ni llegó a procesarse.
+    expect(await InboundEventLedger.count({ where: { companyId: cid } })).toBe(1);
+    expect(await snapshotState(cid)).toMatchSnapshot();
+  });
+
+  /**
+   * Hay DOS capas de dedupe independientes, y no coinciden en su clave:
+   *
+   *   1. InboundEventLedger  → UNIQUE(companyId, eventKey) con eventKey
+   *      prefijado por provider ('baileys:X' vs 'baileys_fromme:X').
+   *      Discrimina dirección → acepta ambos.
+   *   2. CreateMessageService → busca por (wid, companyId), SIN provider.
+   *      No discrimina → la segunda no crea fila, actualiza la primera.
+   *
+   * Resultado: 2 entradas de ledger pero UN solo Message. En producción un
+   * mensaje entrante y uno saliente nunca comparten wid, así que la divergencia
+   * no se manifiesta; este test la fija para que una descomposición que mueva
+   * cualquiera de las dos capas no la altere sin que nos enteremos.
+   */
+  it("dedupe: inbound y fromMe con el mismo wid → 2 en el ledger, 1 en Messages", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const cid = (company as any).id;
+    const wbot = makeWbot((whatsapp as any).id);
+    const inbound = fixtures.text();
+    const outbound = fixtures.fromMe();
+    (inbound.key as any).id = "SHARED_ID";
+    (outbound.key as any).id = "SHARED_ID";
+
+    await handleMessage(inbound, wbot as any, cid);
+    await handleMessage(outbound, wbot as any, cid);
+
+    expect(await InboundEventLedger.count({ where: { companyId: cid } })).toBe(2);
+    expect(await Message.count({ where: { companyId: cid } })).toBe(1);
+    expect(await snapshotState(cid)).toMatchSnapshot();
+  });
+
+  // ── EDICIÓN ───────────────────────────────────────────────────────────────
+  it("edición: protocolMessage type=14 sobre un mensaje existente", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const wbot = makeWbot((whatsapp as any).id);
+
+    const original = fixtures.text();
+    (original.key as any).id = "ORIG123"; // el fixture `edited` referencia este id
+    await handleMessage(original, wbot as any, (company as any).id);
+
+    await handleMessage(fixtures.edited(), wbot as any, (company as any).id);
+
+    expect(await snapshotState((company as any).id)).toMatchSnapshot();
+  });
+
+  // ── CHATBOT / MENÚ DE COLAS ───────────────────────────────────────────────
+  // Con ≥2 colas, verifyQueue presenta el menú en vez de asignar directo.
+  it("chatbot: con 2 colas el ticket queda en el menú, sin cola asignada", async () => {
+    const { company, whatsapp } = await seedTenant();
+    await seedQueues((company as any).id, [
+      { name: "Ventas", color: "#111111", greetingMessage: "Elegí una opción" },
+      { name: "Soporte 2", color: "#222222", greetingMessage: "Elegí una opción" }
+    ]);
+    const wbot = makeWbot((whatsapp as any).id);
+
+    await handleMessage(fixtures.text(), wbot as any, (company as any).id);
+
+    expect(await snapshotState((company as any).id)).toMatchSnapshot();
   });
 });

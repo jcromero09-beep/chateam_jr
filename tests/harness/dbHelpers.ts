@@ -11,6 +11,8 @@ import Whatsapp from "../../models/Whatsapp";
 import Queue from "../../models/Queue";
 import Contact from "../../models/Contact";
 import CompaniesSettings from "../../models/CompaniesSettings";
+import Ticket from "../../models/Ticket";
+import Message from "../../models/Message";
 
 export async function truncateAll(): Promise<void> {
   await sequelize.query(`DO $$ DECLARE r RECORD; BEGIN
@@ -29,6 +31,53 @@ export async function seedTenant() {
   await CompaniesSettings.create({ companyId: cid } as any);
   const contact = await Contact.create({ name: "Cliente", number: "593999999999", companyId: cid } as any);
   return { plan, company, user, whatsapp, queue, contact };
+}
+
+/**
+ * Proyección normalizada y determinista del estado persistido de una empresa.
+ *
+ * Es el corazón del golden-master: en vez de afirmar conteos (que dejan pasar
+ * cualquier cambio de contenido), se fija TODO lo observable. Si una extracción
+ * de handleMessageInner altera un body, un flag de chatbot o el orden en que se
+ * persisten los mensajes, el snapshot lo caza.
+ *
+ * Se excluyen ids, fechas y UUIDs: son volátiles entre corridas y su valor no es
+ * la conducta que queremos fijar. El orden es explícito por la misma razón.
+ */
+export async function snapshotState(companyId: number) {
+  const [contacts, tickets, messages] = await Promise.all([
+    Contact.findAll({ where: { companyId }, order: [["id", "ASC"]] }),
+    Ticket.findAll({ where: { companyId }, order: [["id", "ASC"]] }),
+    Message.findAll({ where: { companyId }, order: [["createdAt", "ASC"], ["id", "ASC"]] })
+  ]);
+
+  return {
+    contacts: contacts.map((c: any) => ({
+      number: c.number,
+      name: c.name,
+      isGroup: c.isGroup
+    })),
+    tickets: tickets.map((t: any) => ({
+      status: t.status,
+      isGroup: t.isGroup,
+      unreadMessages: t.unreadMessages,
+      lastMessage: t.lastMessage,
+      queueId: t.queueId === null ? null : "«queue»",
+      isBot: t.isBot,
+      channel: t.channel,
+      amountUsedBotQueues: t.amountUsedBotQueues,
+      useIntegration: t.useIntegration,
+      typebotStatus: t.typebotStatus
+    })),
+    messages: messages.map((m: any) => ({
+      body: m.body,
+      fromMe: m.fromMe,
+      mediaType: m.mediaType,
+      ack: m.ack,
+      isDeleted: m.isDeleted,
+      isEdited: m.isEdited
+    }))
+  };
 }
 
 /**

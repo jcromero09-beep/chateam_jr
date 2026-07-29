@@ -211,3 +211,60 @@ commit, verificando el golden-master + una sonda real por rama.
 - **handleMessage: unwrapped y verificado** (wrapper + handleMessageInner, sonda real ✓).
 - **handleMessageInner interno: mapeado, NO descompuesto** — bloqueado por el golden-master.
   Es una fase dedicada, no un paso más de esta sesión.
+
+---
+
+## Golden-master de handleMessageInner — MONTADO (2026-07-28)
+
+El prerequisito está cumplido. `tests/harness/handleMessage.dbtest.ts` pasó de 6 tests
+de humo (conteos) a **14 tests, 8 snapshots**, contra `chateam_test` real.
+
+### Qué cambió
+`dbHelpers.snapshotState(companyId)` devuelve una proyección **determinista y normalizada**
+del estado persistido (contacts / tickets / messages), sin ids ni fechas. Los tests de humo
+afirmaban conteos y dejaban pasar cualquier cambio de contenido; ahora cada escenario fija
+el estado observable entero, así que una extracción que altere un body, un flag o el orden
+de persistencia falla el snapshot.
+
+### Cobertura (matriz del prerequisito)
+| Rama | Estado |
+|---|---|
+| texto entrante | ✅ snapshot |
+| fromMe vs inbound | ✅ snapshot |
+| media (imagen + caption) | ✅ snapshot |
+| grupo | ✅ snapshot |
+| edición (protocolMessage type=14) | ✅ snapshot |
+| dedupe (mismo `msg.key.id` ×2) | ✅ snapshot + assert de ledger |
+| chatbot (menú con ≥2 colas) | ✅ snapshot |
+| **coexistencia Meta** | ❌ **PENDIENTE** — única rama sin cubrir |
+
+### Hallazgo del golden-master: dos capas de dedupe con claves distintas
+Montar el test cazó una divergencia que la lectura de una sola capa no revela:
+
+1. `InboundEventLedger` → `UNIQUE(companyId, eventKey)` con el eventKey **prefijado por
+   provider** (`baileys:X` vs `baileys_fromme:X`) → discrimina dirección, acepta ambos.
+2. `CreateMessageService` → busca por `(wid, companyId)`, **sin provider** → no discrimina;
+   la segunda no crea fila, actualiza la primera.
+
+Resultado con el mismo wid en ambas direcciones: **2 entradas de ledger, 1 solo Message**.
+En producción un entrante y un saliente nunca comparten wid, así que no se manifiesta — pero
+queda fijado para que mover cualquiera de las dos capas no lo altere en silencio.
+
+### Cómo correrlo
+```
+npx jest --config jest.db.config.cjs tests/harness/handleMessage.dbtest.ts --forceExit
+```
+Serial obligatorio (`maxWorkers: 1`, ya en la config): todos los `*.dbtest` comparten
+`chateam_test` con `truncateAll` en cada `beforeEach`.
+
+**OJO con el ciclo de vida:** `sequelize.close()` es global. Los hooks `beforeAll/afterAll`
+van a nivel de FICHERO, no por `describe` — si cada describe abre y cierra el pool, el primer
+`afterAll` deja a los siguientes sin conexión.
+
+### Siguiente paso (ya desbloqueado)
+Cubrir la rama de coexistencia Meta y luego extraer, **una por commit**, verificando el
+golden-master entre cada una:
+`resolveTicketContext()` → `handleMedia()` → `dispatchIntegration()` → `handleRatingStep()`.
+Los early-returns de la fase de resolución (fromMe-skip, no-whatsapp, group-not-allowed,
+coex-drop, dedupe.drop) tienen que volverse señal (`return null`) — ese es el único tramo
+que NO es movimiento verbatim.
