@@ -5091,6 +5091,200 @@ async function dispatchIntegration(
     return false;
 }
 
+/**
+ * Fase de atribución de campaña de handleMessageInner: detecta que el mensaje
+ * viene de un anuncio y crea el CampaignMessage correspondiente.
+ *
+ * Tres ramas, en el orden original: `externalAdReply` en un entrante (el caso
+ * normal, CTWA), el fallback por `conversionSource` en un saliente —dentro de
+ * su propio try/catch, así que un fallo de atribución no tumba el mensaje—, y
+ * la traza de 'no había metadatos' cuando no aplica ninguna.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs sobre el rango
+ * original: 6 inputs, 0 outputs, 0 reasignaciones de locales externos y 0
+ * `return` propios ⇒ movimiento VERBATIM, sin señal de salida y sin retipear
+ * una sola línea del cuerpo.
+ *
+ * Se llama DENTRO del try de handleMessageInner: el manejo de errores no cambia.
+ */
+async function recordCampaignAttribution(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  companyId: number,
+  ticket: any,
+  contact: any,
+  bodyMessage: string
+): Promise<void> {
+    // ================= Detectar mensaje de campaña publicitaria (Baileys/WhatsApp Web) =================
+	    const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
+	                        msg.message?.imageMessage?.contextInfo ||
+	                        msg.message?.videoMessage?.contextInfo ||
+	                        msg.message?.documentMessage?.contextInfo ||
+	                        msg.message?.audioMessage?.contextInfo;
+
+	    await logCampaignMessageFlow("baileys.raw_message_after_save", {
+	      companyId,
+	      ticketId: ticket.id,
+	      contactId: contact.id,
+	      whatsappId: wbot.id,
+	      wid: msg.key.id,
+	      remoteJid: msg.key.remoteJid,
+	      fromMe: msg.key.fromMe,
+	      messageTimestamp: msg.messageTimestamp,
+	      messageTypes: msg.message ? Object.keys(msg.message) : [],
+	      hasContextInfo: Boolean(contextInfo),
+	      hasExternalAdReply: Boolean(contextInfo?.externalAdReply),
+	      hasConversionSource: Boolean(contextInfo?.conversionSource),
+	      rawMessage: msg
+	    });
+
+	    if (contextInfo?.externalAdReply && !msg.key.fromMe) {
+	      const adReply = contextInfo.externalAdReply;
+          const conversionData = serializeConversionData(contextInfo.conversionData);
+	      console.log(`[CampaignMessage] Detectado mensaje de campaña WhatsApp (externalAdReply)`);
+	      console.log(`[CampaignMessage] AdReply data:`, JSON.stringify(adReply, null, 2));
+
+      // Buscar el mensaje recién creado para obtener su ID
+      const lastMessage = await Message.findOne({
+        where: {
+          wid: msg.key.id,
+          companyId
+        },
+	          order: [["createdAt", "DESC"]]
+	        });
+
+	      await logCampaignMessageFlow("baileys.campaign_metadata_detected", {
+	        companyId,
+	        ticketId: ticket.id,
+	        contactId: contact.id,
+	        whatsappId: wbot.id,
+	        wid: msg.key.id,
+	        detector: "contextInfo.externalAdReply",
+	        savedMessageId: lastMessage?.id || null,
+	        adReply,
+            conversionSource: contextInfo.conversionSource,
+            conversionData,
+	        contextInfo
+	      });
+
+	      await CreateCampaignMessageService({
+	        data: {
+          companyId,
+          contactId: contact.id,
+          messageId: lastMessage?.id,
+          ticketId: ticket.id,
+          whatsappId: wbot.id,
+          sourceId: adReply.sourceId,
+          sourceType: "EXTERNAL_AD",
+          sourceUrl: adReply.sourceUrl,
+          headline: adReply.title,
+          body: adReply.body,
+          ctwaClid: adReply.ctwaClid,
+          thumbnail: adReply.thumbnailUrl || (adReply.thumbnail ? `data:image/jpeg;base64,${Buffer.from(adReply.thumbnail).toString('base64')}` : undefined),
+          channel: "whatsapp",
+          rawData: {
+            ...adReply,
+            conversionSource: contextInfo.conversionSource,
+            conversionData
+          }
+        }
+      });
+    } else if (contextInfo?.conversionSource && msg.key.fromMe) {
+      try {
+        const lastMessage = await Message.findOne({
+          where: {
+            wid: msg.key.id,
+            companyId
+          },
+          order: [["createdAt", "DESC"]]
+        });
+
+	        const existingCampaignMessage = await CampaignMessage.findOne({
+	          where: {
+            companyId,
+            [Op.or]: [
+              ...(lastMessage?.id ? [{ messageId: lastMessage.id }] : []),
+              { ticketId: ticket.id }
+            ]
+	          }
+	        });
+
+        const conversionData = serializeConversionData(contextInfo.conversionData);
+
+	        if (!existingCampaignMessage) {
+	          logInfo(
+	            `[CampaignMessage] Fallback Ads por mensaje saliente con conversionSource=${contextInfo.conversionSource} ticketId=${ticket.id} wid=${msg.key.id}`
+	          );
+
+	          await logCampaignMessageFlow("baileys.campaign_fallback_detected", {
+	            companyId,
+	            ticketId: ticket.id,
+	            contactId: contact.id,
+	            whatsappId: wbot.id,
+	            wid: msg.key.id,
+	            detector: "contextInfo.conversionSource",
+	            savedMessageId: lastMessage?.id || null,
+	            conversionSource: contextInfo.conversionSource,
+	            conversionData,
+	            contextInfo
+	          });
+
+	          await CreateCampaignMessageService({
+            data: {
+              companyId,
+              contactId: contact.id,
+              messageId: lastMessage?.id,
+              ticketId: ticket.id,
+              whatsappId: wbot.id,
+              sourceId: conversionData,
+              sourceType: "FB_ADS_REPLY_CONTEXT",
+              headline: String(contextInfo.conversionSource),
+              body: bodyMessage,
+              channel: "whatsapp",
+              rawData: {
+                source: "outbound_conversion_context",
+                conversionSource: contextInfo.conversionSource,
+                conversionData,
+                remoteJid: msg.key.remoteJid,
+                remoteJidAlt: (msg.key as any).remoteJidAlt,
+                wid: msg.key.id
+              }
+            }
+          });
+        }
+	      } catch (campaignFallbackError: any) {
+	        await logCampaignMessageFlow("baileys.campaign_fallback_error", {
+	          companyId,
+	          ticketId: ticket.id,
+	          contactId: contact.id,
+	          whatsappId: wbot.id,
+	          wid: msg.key.id,
+	          error: {
+	            name: campaignFallbackError?.name,
+	            message: campaignFallbackError?.message,
+	            stack: campaignFallbackError?.stack
+	          }
+	        });
+	        logError(
+	          `[CampaignMessage] Error creando fallback Ads por conversionSource: ${campaignFallbackError?.message || campaignFallbackError}`
+	        );
+	      }
+	    } else {
+	      await logCampaignMessageFlow("baileys.campaign_metadata_missing", {
+	        companyId,
+	        ticketId: ticket.id,
+	        contactId: contact.id,
+	        whatsappId: wbot.id,
+	        wid: msg.key.id,
+	        fromMe: msg.key.fromMe,
+	        hasContextInfo: Boolean(contextInfo),
+	        contextInfo,
+	        messageTypes: msg.message ? Object.keys(msg.message) : []
+	      });
+	    }
+    // ================= Fin detección de campaña =================
+}
+
 async function handleMessageInner(
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -5305,174 +5499,7 @@ async function handleMessageInner(
 
     let mediaSent = await persistIncomingMessage(msg, ticket, contact, ticketTraking, hasMedia, useLGPD, wbot);
 
-    // ================= Detectar mensaje de campaña publicitaria (Baileys/WhatsApp Web) =================
-	    const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
-	                        msg.message?.imageMessage?.contextInfo ||
-	                        msg.message?.videoMessage?.contextInfo ||
-	                        msg.message?.documentMessage?.contextInfo ||
-	                        msg.message?.audioMessage?.contextInfo;
-
-	    await logCampaignMessageFlow("baileys.raw_message_after_save", {
-	      companyId,
-	      ticketId: ticket.id,
-	      contactId: contact.id,
-	      whatsappId: wbot.id,
-	      wid: msg.key.id,
-	      remoteJid: msg.key.remoteJid,
-	      fromMe: msg.key.fromMe,
-	      messageTimestamp: msg.messageTimestamp,
-	      messageTypes: msg.message ? Object.keys(msg.message) : [],
-	      hasContextInfo: Boolean(contextInfo),
-	      hasExternalAdReply: Boolean(contextInfo?.externalAdReply),
-	      hasConversionSource: Boolean(contextInfo?.conversionSource),
-	      rawMessage: msg
-	    });
-
-	    if (contextInfo?.externalAdReply && !msg.key.fromMe) {
-	      const adReply = contextInfo.externalAdReply;
-          const conversionData = serializeConversionData(contextInfo.conversionData);
-	      console.log(`[CampaignMessage] Detectado mensaje de campaña WhatsApp (externalAdReply)`);
-	      console.log(`[CampaignMessage] AdReply data:`, JSON.stringify(adReply, null, 2));
-
-      // Buscar el mensaje recién creado para obtener su ID
-      const lastMessage = await Message.findOne({
-        where: {
-          wid: msg.key.id,
-          companyId
-        },
-	          order: [["createdAt", "DESC"]]
-	        });
-
-	      await logCampaignMessageFlow("baileys.campaign_metadata_detected", {
-	        companyId,
-	        ticketId: ticket.id,
-	        contactId: contact.id,
-	        whatsappId: wbot.id,
-	        wid: msg.key.id,
-	        detector: "contextInfo.externalAdReply",
-	        savedMessageId: lastMessage?.id || null,
-	        adReply,
-            conversionSource: contextInfo.conversionSource,
-            conversionData,
-	        contextInfo
-	      });
-
-	      await CreateCampaignMessageService({
-	        data: {
-          companyId,
-          contactId: contact.id,
-          messageId: lastMessage?.id,
-          ticketId: ticket.id,
-          whatsappId: wbot.id,
-          sourceId: adReply.sourceId,
-          sourceType: "EXTERNAL_AD",
-          sourceUrl: adReply.sourceUrl,
-          headline: adReply.title,
-          body: adReply.body,
-          ctwaClid: adReply.ctwaClid,
-          thumbnail: adReply.thumbnailUrl || (adReply.thumbnail ? `data:image/jpeg;base64,${Buffer.from(adReply.thumbnail).toString('base64')}` : undefined),
-          channel: "whatsapp",
-          rawData: {
-            ...adReply,
-            conversionSource: contextInfo.conversionSource,
-            conversionData
-          }
-        }
-      });
-    } else if (contextInfo?.conversionSource && msg.key.fromMe) {
-      try {
-        const lastMessage = await Message.findOne({
-          where: {
-            wid: msg.key.id,
-            companyId
-          },
-          order: [["createdAt", "DESC"]]
-        });
-
-	        const existingCampaignMessage = await CampaignMessage.findOne({
-	          where: {
-            companyId,
-            [Op.or]: [
-              ...(lastMessage?.id ? [{ messageId: lastMessage.id }] : []),
-              { ticketId: ticket.id }
-            ]
-	          }
-	        });
-
-        const conversionData = serializeConversionData(contextInfo.conversionData);
-
-	        if (!existingCampaignMessage) {
-	          logInfo(
-	            `[CampaignMessage] Fallback Ads por mensaje saliente con conversionSource=${contextInfo.conversionSource} ticketId=${ticket.id} wid=${msg.key.id}`
-	          );
-
-	          await logCampaignMessageFlow("baileys.campaign_fallback_detected", {
-	            companyId,
-	            ticketId: ticket.id,
-	            contactId: contact.id,
-	            whatsappId: wbot.id,
-	            wid: msg.key.id,
-	            detector: "contextInfo.conversionSource",
-	            savedMessageId: lastMessage?.id || null,
-	            conversionSource: contextInfo.conversionSource,
-	            conversionData,
-	            contextInfo
-	          });
-
-	          await CreateCampaignMessageService({
-            data: {
-              companyId,
-              contactId: contact.id,
-              messageId: lastMessage?.id,
-              ticketId: ticket.id,
-              whatsappId: wbot.id,
-              sourceId: conversionData,
-              sourceType: "FB_ADS_REPLY_CONTEXT",
-              headline: String(contextInfo.conversionSource),
-              body: bodyMessage,
-              channel: "whatsapp",
-              rawData: {
-                source: "outbound_conversion_context",
-                conversionSource: contextInfo.conversionSource,
-                conversionData,
-                remoteJid: msg.key.remoteJid,
-                remoteJidAlt: (msg.key as any).remoteJidAlt,
-                wid: msg.key.id
-              }
-            }
-          });
-        }
-	      } catch (campaignFallbackError: any) {
-	        await logCampaignMessageFlow("baileys.campaign_fallback_error", {
-	          companyId,
-	          ticketId: ticket.id,
-	          contactId: contact.id,
-	          whatsappId: wbot.id,
-	          wid: msg.key.id,
-	          error: {
-	            name: campaignFallbackError?.name,
-	            message: campaignFallbackError?.message,
-	            stack: campaignFallbackError?.stack
-	          }
-	        });
-	        logError(
-	          `[CampaignMessage] Error creando fallback Ads por conversionSource: ${campaignFallbackError?.message || campaignFallbackError}`
-	        );
-	      }
-	    } else {
-	      await logCampaignMessageFlow("baileys.campaign_metadata_missing", {
-	        companyId,
-	        ticketId: ticket.id,
-	        contactId: contact.id,
-	        whatsappId: wbot.id,
-	        wid: msg.key.id,
-	        fromMe: msg.key.fromMe,
-	        hasContextInfo: Boolean(contextInfo),
-	        contextInfo,
-	        messageTypes: msg.message ? Object.keys(msg.message) : []
-	      });
-	    }
-    // ================= Fin detección de campaña =================
+    await recordCampaignAttribution(msg, wbot, companyId, ticket, contact, bodyMessage);
 
     try {
       if (!msg.key.fromMe) {
