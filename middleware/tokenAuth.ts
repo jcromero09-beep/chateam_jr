@@ -4,6 +4,29 @@ import AppError from "../errors/AppError";
 import Whatsapp from "../models/Whatsapp";
 import { updateTraceContext } from "../utils/traceContext";
 
+/**
+ * `METHOD /ruta` con los segmentos variables colapsados a `:id`.
+ *
+ * En este middleware `req.route` todavía no está resuelto, así que se parte de
+ * la ruta cruda. Sin normalizar, el inventario del modo `observe` tendría una
+ * entrada por cada id y dejaría de ser legible; con ids colapsados hay una
+ * entrada por endpoint, que es la unidad de la decisión.
+ *
+ * Se usa `req.path` (no `originalUrl`): la query string puede llevar datos.
+ */
+const normalizeRoute = (req: Request): string => {
+  const path = (req.path || "/")
+    .split("/")
+    .map(seg => {
+      if (!seg) return seg;
+      if (/^\d+$/.test(seg)) return ":id";
+      if (seg.length >= 16 && /^[a-f0-9-]+$/i.test(seg)) return ":id";
+      return seg;
+    })
+    .join("/");
+  return `${req.method} ${path}`;
+};
+
 const isAuthApi = async (
   req: Request,
   res: Response,
@@ -43,7 +66,8 @@ const isAuthApi = async (
   if (whatsapp?.companyId != null) {
     updateTraceContext({
       companyId: whatsapp.companyId,
-      tenantSurface: "api"
+      tenantSurface: "api",
+      tenantRoute: normalizeRoute(req)
     });
   }
 

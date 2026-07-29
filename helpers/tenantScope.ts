@@ -53,6 +53,92 @@ const MODE: Mode = parseMode(process.env.TENANT_SCOPE_GUARD, "enforce");
  */
 const API_MODE: Mode = parseMode(process.env.TENANT_SCOPE_GUARD_API, "observe");
 
+/** Cada cuánto se vuelca el resumen acumulado de observaciones (ms). */
+const OBSERVE_SUMMARY_MS = Number(
+  process.env.TENANT_SCOPE_OBSERVE_SUMMARY_MS || 10 * 60 * 1000
+);
+
+/**
+ * Inventario de lo que el modo `observe` inyectaría.
+ *
+ * Se acumula en memoria en vez de loguear cada query por dos razones:
+ *  1. Volumen. /api/send y familia son endpoints calientes; un warn por query
+ *     sin filtro convierte el rollout de observación en un incidente de logs.
+ *  2. Decidibilidad. Para decidir el paso a `enforce` hace falta el INVENTARIO
+ *     de (superficie, ruta, modelo, operación) distintos, no N repeticiones del
+ *     mismo. Cada combinación nueva se loguea una vez —esa línea es el hallazgo—
+ *     y a partir de ahí solo suma al contador.
+ */
+type Observation = {
+  surface: string;
+  route: string;
+  model: string;
+  op: string;
+  count: number;
+  firstSeen: string;
+};
+const observations = new Map<string, Observation>();
+let summaryTimer: NodeJS.Timeout | undefined;
+
+/** Inventario acumulado, de más a menos frecuente. Para tests y diagnóstico. */
+export const getTenantScopeObservations = (): Observation[] =>
+  [...observations.values()].sort((a, b) => b.count - a.count);
+
+export const resetTenantScopeObservations = (): void => {
+  observations.clear();
+};
+
+const recordObservation = (
+  ctx: any,
+  options: any,
+  op: string
+): void => {
+  const surface = ctx.tenantSurface || "http";
+  const route = ctx.tenantRoute || "?";
+  const model = options?.model?.name || "?";
+  const key = `${surface}|${route}|${model}|${op}`;
+
+  const existing = observations.get(key);
+  if (existing) {
+    existing.count += 1;
+    return;
+  }
+
+  observations.set(key, {
+    surface,
+    route,
+    model,
+    op,
+    count: 1,
+    firstSeen: new Date().toISOString()
+  });
+
+  // Primera vez que se ve esta combinación → ESO es el hallazgo, se loguea.
+  logger.warn(
+    { companyId: ctx.companyId, traceId: ctx.traceId, model, surface, route, op },
+    "[tenantScope] would inject companyId (query sin filtro de tenant)"
+  );
+};
+
+/**
+ * Vuelca el inventario cada OBSERVE_SUMMARY_MS. Es lo que se lee para decidir
+ * el paso a `enforce`: si tras una ventana representativa solo aparecen rutas y
+ * modelos esperados, el cambio es seguro. El timer va `unref()` para no
+ * mantener el proceso vivo, y solo se arma si alguna superficie observa.
+ */
+const startObserveSummary = (): void => {
+  if (summaryTimer) return;
+  summaryTimer = setInterval(() => {
+    const inv = getTenantScopeObservations();
+    if (!inv.length) return;
+    logger.warn(
+      { total: inv.reduce((n, o) => n + o.count, 0), distinct: inv.length, inventory: inv },
+      "[tenantScope] resumen de observación (candidatos a inyección de companyId)"
+    );
+  }, OBSERVE_SUMMARY_MS);
+  summaryTimer.unref?.();
+};
+
 const hasOwn = (o: object, k: string): boolean =>
   Object.prototype.hasOwnProperty.call(o, k);
 
@@ -81,7 +167,7 @@ export const scopeWhere = (where: any, companyId: number): any => {
 };
 
 /** Aplica el scope a las `options` de una operación ORM (in-place en enforce). */
-const applyScope = (options: any): void => {
+const applyScope = (options: any, op = "find"): void => {
   // OJO: no se puede cortar aquí por `MODE === "off"`. El modo efectivo depende
   // de la superficie (ver effectiveMode más abajo), y con TENANT_SCOPE_GUARD=off
   // pero TENANT_SCOPE_GUARD_API=enforce la superficie api debe seguir scopeando.
@@ -103,15 +189,7 @@ const applyScope = (options: any): void => {
   if (scoped === current) return; // ya scopeado → nada que hacer
 
   if (effectiveMode === "observe") {
-    logger.warn(
-      {
-        companyId: ctx.companyId,
-        traceId: ctx.traceId,
-        model: options?.model?.name,
-        surface: ctx.tenantSurface || "http"
-      },
-      "[tenantScope] would inject companyId (query sin filtro de tenant)"
-    );
+    recordObservation(ctx, options, op);
     return;
   }
 
@@ -137,12 +215,16 @@ export const installTenantScopeHooks = (models: any[]): void => {
     if (!attrs.companyId) continue; // modelo global/no-tenant → no se toca
 
     // Nombrar los hooks evita duplicados si se recarga el módulo.
-    model.addHook("beforeFind", "tenantScopeFind", applyScope);
-    model.addHook("beforeCount", "tenantScopeCount", applyScope);
-    model.addHook("beforeBulkDestroy", "tenantScopeDestroy", applyScope);
-    model.addHook("beforeBulkUpdate", "tenantScopeUpdate", applyScope);
+    // La operación se pasa explícita: en el inventario de `observe` importa
+    // distinguir un find de un update/destroy sin filtro de tenant.
+    model.addHook("beforeFind", "tenantScopeFind", (o: any) => applyScope(o, "find"));
+    model.addHook("beforeCount", "tenantScopeCount", (o: any) => applyScope(o, "count"));
+    model.addHook("beforeBulkDestroy", "tenantScopeDestroy", (o: any) => applyScope(o, "destroy"));
+    model.addHook("beforeBulkUpdate", "tenantScopeUpdate", (o: any) => applyScope(o, "update"));
     hooked++;
   }
+
+  if (MODE === "observe" || API_MODE === "observe") startObserveSummary();
 
   logger.info(
     `[tenantScope] modo=${MODE} · api=${API_MODE} · ${hooked} modelos tenant con hooks de aislamiento`

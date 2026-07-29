@@ -80,9 +80,35 @@ Auditoría de `helpers/tenantScope.ts` (guard estructural [W1-SEC-IDOR]).
   actual; pero la red estructural no cubría esa superficie. Ahora `tokenAuth`
   propaga el contexto con `tenantSurface: 'api'`, y esa superficie tiene su propio
   modo `TENANT_SCOPE_GUARD_API` (**default `observe`**) para no activar el guard de
-  golpe sobre endpoints en producción. Pasar a `enforce` cuando los logs
-  `[tenantScope] would inject companyId` con `surface: "api"` confirmen que no hay
-  sorpresas.
+  golpe sobre endpoints en producción.
+
+#### Cómo decidir el paso de `observe` a `enforce` (G1)
+
+El modo `observe` **no** loguea una línea por query: acumula un **inventario** en
+memoria de combinaciones distintas `(superficie, ruta, modelo, operación)`. La
+primera vez que aparece cada combinación se emite un warn
+`[tenantScope] would inject companyId` — esa línea *es* el hallazgo — y a partir de
+ahí solo suma al contador. Además vuelca un resumen cada
+`TENANT_SCOPE_OBSERVE_SUMMARY_MS` (default 10 min):
+
+```
+[tenantScope] resumen de observación (candidatos a inyección de companyId)
+  { total, distinct, inventory: [{ surface, route, model, op, count, firstSeen }] }
+```
+
+Se hizo así porque un warn por query en `/api/send` y familia —endpoints
+calientes— convierte la ventana de observación en un incidente de logs, y porque
+para decidir hace falta el inventario, no N repeticiones de lo mismo.
+
+Criterio: tras una ventana representativa (≥ 1 día de tráfico real, incluyendo el
+pico), revisar cada entrada del inventario. Si toda ruta que aparece es una que
+*debe* estar acotada a su empresa, `TENANT_SCOPE_GUARD_API=enforce` es seguro. Si
+aparece alguna que consulta cross-company **a propósito**, esa necesita
+`tenantBypass` explícito ANTES de activar el enforce, o pasará a devolver vacío
+sin aviso.
+
+⚠ Hasta que exista ese inventario **la grieta G1 está mitigada, no cerrada**. A
+2026-07-28 no hay ni una línea de observación: nada de esto está desplegado.
 
 **G2 y G3: medidos, sin instancia explotable.**
 

@@ -57,11 +57,8 @@ const loadGuard = () => {
   return require("../../helpers/tenantScope");
 };
 
-/** Simula el hook beforeFind sobre unas options de Sequelize. */
-const runHook = (
-  options: Record<string, unknown>
-): Record<string, unknown> => {
-  const { installTenantScopeHooks } = loadGuard();
+/** Instala los hooks sobre un modelo falso y los devuelve por evento. */
+const installHooks = (guard: any) => {
   const hooks: Record<string, (o: unknown) => void> = {};
   const fakeModel = {
     rawAttributes: { companyId: {} },
@@ -70,7 +67,15 @@ const runHook = (
       hooks[event] = fn;
     }
   };
-  installTenantScopeHooks([fakeModel]);
+  guard.installTenantScopeHooks([fakeModel]);
+  return { hooks, fakeModel };
+};
+
+/** Simula el hook beforeFind sobre unas options de Sequelize. */
+const runHook = (
+  options: Record<string, unknown>
+): Record<string, unknown> => {
+  const { hooks } = installHooks(loadGuard());
   hooks.beforeFind?.(options);
   return options;
 };
@@ -167,5 +172,83 @@ describe("modo por superficie", () => {
   test("origen no-http (jobs/cron/webhooks) queda exento", () => {
     traceCtx.current = { origin: "queue", companyId: 42 };
     expect((runHook({ where: {} })).where).toEqual({});
+  });
+});
+
+/**
+ * El inventario es lo que se lee para decidir el paso a enforce. Si loguease
+ * una línea por query, /api/send lo convertiría en ruido y la decisión seguiría
+ * sin poder tomarse; estos tests fijan que agrupa y que distingue lo que hay
+ * que distinguir (ruta y operación).
+ */
+describe("modo observe — inventario", () => {
+  const apiCtx = {
+    origin: "http",
+    companyId: 42,
+    traceId: "t1",
+    tenantSurface: "api",
+    tenantRoute: "POST /api/messages/send"
+  };
+
+  test("N queries iguales = 1 entrada con count=N y UN solo warn", () => {
+    traceCtx.current = apiCtx;
+    const guard = loadGuard();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const logger = require("../../utils/logger").default;
+    logger.warn.mockClear();
+
+    const { hooks, fakeModel } = installHooks(guard);
+    for (let i = 0; i < 5; i++) hooks.beforeFind?.({ where: {}, model: fakeModel });
+
+    const inv = guard.getTenantScopeObservations();
+    expect(inv).toHaveLength(1);
+    expect(inv[0]).toMatchObject({
+      surface: "api",
+      route: "POST /api/messages/send",
+      model: "FakeTenantModel",
+      op: "find",
+      count: 5
+    });
+    // El hallazgo se loguea al verlo por primera vez, no 5 veces.
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  test("distingue por ruta y por operación", () => {
+    traceCtx.current = apiCtx;
+    const guard = loadGuard();
+    const { hooks, fakeModel } = installHooks(guard);
+
+    hooks.beforeFind?.({ where: {}, model: fakeModel });
+    hooks.beforeBulkUpdate?.({ where: {}, model: fakeModel });
+    traceCtx.current = { ...apiCtx, tenantRoute: "GET /api/messages/:id" };
+    hooks.beforeFind?.({ where: {}, model: fakeModel });
+
+    const inv = guard.getTenantScopeObservations();
+    expect(inv).toHaveLength(3);
+    expect(inv.map((o: any) => o.op).sort()).toEqual(["find", "find", "update"]);
+    expect(new Set(inv.map((o: any) => o.route)).size).toBe(2);
+  });
+
+  test("en enforce no acumula inventario (inyecta y ya)", () => {
+    process.env.TENANT_SCOPE_GUARD_API = "enforce";
+    traceCtx.current = apiCtx;
+    const guard = loadGuard();
+    const { hooks, fakeModel } = installHooks(guard);
+
+    const options: any = { where: {}, model: fakeModel };
+    hooks.beforeFind?.(options);
+
+    expect(options.where).toEqual({ companyId: 42 });
+    expect(guard.getTenantScopeObservations()).toHaveLength(0);
+  });
+
+  test("una query YA scopeada no entra al inventario", () => {
+    traceCtx.current = apiCtx;
+    const guard = loadGuard();
+    const { hooks, fakeModel } = installHooks(guard);
+
+    hooks.beforeFind?.({ where: { companyId: 42 }, model: fakeModel });
+
+    expect(guard.getTenantScopeObservations()).toHaveLength(0);
   });
 });

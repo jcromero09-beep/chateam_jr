@@ -31,6 +31,10 @@ export interface TraceContext {
   // 'api' = API pública autenticada por token de conexión (middleware/tokenAuth),
   // que hasta ahora no propagaba companyId y dejaba el guard inerte.
   tenantSurface?: "api";
+  // [W1-SEC-IDOR] Ruta normalizada (ids → :id) de la request. Solo se usa para
+  // el inventario del modo `observe` del guard: sin ella el resumen dice "qué
+  // modelo" pero no "desde qué endpoint", que es lo que decide el paso a enforce.
+  tenantRoute?: string;
   provider?: "meta" | "baileys" | "mixed";
   ticketId?: number;
   conversationId?: string;
