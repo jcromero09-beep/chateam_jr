@@ -40,6 +40,7 @@
     "validate:whatsapp": "node scripts/validate-whatsapp-cloud-api.js",
     "ugc:check": "tsx scripts/validate-ugc-comfyui.ts",
     "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check:files": "./scripts/tsc-check.sh",
     "test:unit": "jest",
     "format:check": "prettier --check \"{controllers,services,models,routes,middleware,helpers,utils,config}/**/*.{ts,tsx}\""
   },
