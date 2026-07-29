@@ -32,7 +32,15 @@ export const coingateWebhook = async (req: Request, res: Response): Promise<Resp
   }
 
   const result = await CoingateService.processWebhook(req.body);
-  return res.status(200).json({ received: true, processed: !!result });
+
+  // 200 SIEMPRE, incluso en duplicado: CoinGate reintenta ante cualquier no-2xx,
+  // y reintentar un evento que acabamos de descartar a propósito es un bucle.
+  return res.status(200).json({
+    received: true,
+    processed: !!result,
+    creditable: result?.creditable ?? false,
+    ...(result?.reason ? { reason: result.reason } : {})
+  });
 };
 
 // GET /ai/coingate/currencies

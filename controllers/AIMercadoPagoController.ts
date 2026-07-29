@@ -56,7 +56,15 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
 
   const result = await MercadoPagoService.processWebhook(type, String(dataId));
 
-  return res.status(200).json({ received: true, processed: !!result });
+  // 200 SIEMPRE, incluso en duplicado: MercadoPago reintenta ante cualquier
+  // no-2xx, y reintentar un evento que acabamos de descartar a propósito es un
+  // bucle. El verdicto va en el cuerpo, no en el código de estado.
+  return res.status(200).json({
+    received: true,
+    processed: !!result,
+    creditable: result?.creditable ?? false,
+    ...(result?.reason ? { reason: result.reason } : {})
+  });
 };
 
 export const checkStatus = async (req: Request, res: Response): Promise<Response> => {

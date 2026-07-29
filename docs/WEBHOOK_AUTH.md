@@ -73,13 +73,45 @@ que fue exactamente el estado en el que estaba `/webhook/facebook`.
 
 ---
 
+## Idempotencia de los webhooks de pago
+
+CoinGate y MercadoPago reintentan ante cualquier respuesta no-2xx, y MercadoPago
+además manda una notificación por cada cambio de estado del mismo pago. Los dos
+webhooks desduplican ahora contra `InboundEventLedger`
+(`UNIQUE(companyId, eventKey)`) vía `helpers/paymentWebhookIdempotency`.
+
+Tres decisiones que conviene no revertir sin pensarlo:
+
+1. **La unidad idempotente es la transición `(pago, estado)`, no el pago.** Un
+   pago es una secuencia (`pending` → `approved`, `confirming` → `paid`).
+   Desduplicar solo por id descartaría la notificación de `approved` por haber
+   visto antes la de `pending` — justo la que acredita.
+2. **El estado sale de la API del proveedor, no del body del callback.** Si
+   saliera del body, bastaría inventarse un estado nuevo para saltarse el dedupe.
+3. **El `companyId` se deriva de la referencia del cobro** (`order_id` en
+   CoinGate, `external_reference` en MercadoPago; formatos `chateam_{id}_{ts}` y
+   `company_{id}_{ts}`). Si no encaja, el evento sale `creditable: false` con
+   `reason: 'no-company-ref'` en vez de adivinar: una atribución equivocada
+   acreditaría a otra empresa.
+
+`processWebhook` devuelve `{ payment|order, creditable, reason, companyId }`.
+**Cualquier código que llegue a tocar saldo tiene que mirar `creditable`.** Hoy
+nadie acredita, y por eso la capa se puso antes y no después.
+
+Los dos endpoints responden **200 incluso en duplicado**: el verdicto va en el
+cuerpo, no en el código de estado. Un no-2xx haría que el proveedor reintentase
+justo el evento que se acaba de descartar a propósito.
+
+---
+
 ## Qué NO cubre esto
 
 - **Sin lista blanca de IPs.** Ni para CoinGate ni para Meta. La firma es la
   defensa; la IP sería defensa en profundidad.
-- **Sin idempotencia.** Ningún webhook desduplica por id de evento. Hoy no
-  importa porque ninguno muta saldos, pero es requisito antes de conectarlos a
-  acreditación de créditos.
 - **`processWebhook` de MercadoPago y CoinGate no acreditan nada todavía**: solo
-  registran y devuelven el pago. La verificación se añadió *antes* de que
-  muevan dinero, no después.
+  registran y devuelven el pago. Tanto la verificación de firma como la
+  idempotencia se añadieron *antes* de que muevan dinero, no después.
+- **La idempotencia no se probó contra un reenvío real de ningún proveedor.**
+  Está cubierta por 11 tests unitarios y por la garantía de unicidad del ledger
+  (que sí está ejercitada en producción por la ingesta de mensajes), no por
+  observación de un reintento real.

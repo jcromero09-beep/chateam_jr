@@ -10,6 +10,10 @@ import {
   withCallbackToken,
   CallbackVerdict
 } from "./coingateCallbackToken";
+import {
+  registerPaymentEvent,
+  NotCreditableReason
+} from "../../helpers/paymentWebhookIdempotency";
 
 export { verifyCallbackToken };
 export type { CallbackVerdict };
@@ -33,6 +37,12 @@ export interface CoingatePaymentResult {
   payAmount: number;
   payCurrency: string;
   createdAt: string;
+  /**
+   * `order_id` de la orden — la referencia `chateam_{companyId}_{ts}` que se puso
+   * al crearla. Es lo único que ata el callback a una empresa, y sin empresa no
+   * hay clave de idempotencia (ver helpers/paymentWebhookIdempotency).
+   */
+  orderReference: string | null;
 }
 
 /**
@@ -131,7 +141,8 @@ const getOrder = async (orderId: string): Promise<CoingatePaymentResult> => {
       priceCurrency: data.price_currency,
       payAmount: data.pay_amount,
       payCurrency: data.pay_currency,
-      createdAt: data.created_at
+      createdAt: data.created_at,
+      orderReference: data.order_id != null ? String(data.order_id) : null
     };
   } catch (error: any) {
     logger.error(`[Coingate] Error getting order ${orderId}: ${error.message}`);
@@ -140,14 +151,32 @@ const getOrder = async (orderId: string): Promise<CoingatePaymentResult> => {
 };
 
 /**
+ * Resultado del callback: la orden releída de la API más el verdicto de
+ * idempotencia. `creditable` es la señal que debe mirar cualquier código que
+ * llegue a tocar saldo — hoy nadie lo hace, y por eso hay que dejarlo puesto
+ * ANTES de que alguien lo haga.
+ */
+export interface CoingateWebhookOutcome {
+  order: CoingatePaymentResult;
+  creditable: boolean;
+  reason?: NotCreditableReason;
+  companyId: number | null;
+}
+
+/**
  * Procesa el callback de CoinGate.
  *
  * Del body solo se usa el `id` de la orden: todo lo demás (estado, importe,
  * divisa) se relee de la API de CoinGate. Antes se devolvía el body tal cual,
  * de modo que quien conociera la URL podía declarar `status: 'paid'` con el
  * importe que quisiera.
+ *
+ * El dedupe va por `(orden, estado)` con el estado de la API, no el del body:
+ * si fuese el del body, bastaría con inventarse un estado para saltárselo.
  */
-const processWebhook = async (payload: Record<string, any>): Promise<CoingatePaymentResult | null> => {
+const processWebhook = async (
+  payload: Record<string, any>
+): Promise<CoingateWebhookOutcome | null> => {
   const { id } = payload;
 
   if (!id) {
@@ -166,12 +195,26 @@ const processWebhook = async (payload: Record<string, any>): Promise<CoingatePay
     );
   }
 
+  const verdict = await registerPaymentEvent({
+    provider: 'coingate',
+    reference: order.orderReference,
+    externalId: order.id,
+    status: order.status,
+    payload
+  });
+
   logger.info(
     `[Coingate] Webhook: order=${order.id}, status=${order.status}, ` +
-      `amount=${order.priceAmount} ${order.priceCurrency} (verificado contra la API)`
+      `amount=${order.priceAmount} ${order.priceCurrency} (verificado contra la API), ` +
+      `creditable=${verdict.creditable}${verdict.reason ? ` (${verdict.reason})` : ''}`
   );
 
-  return order;
+  return {
+    order,
+    creditable: verdict.creditable,
+    reason: verdict.reason,
+    companyId: verdict.companyId
+  };
 };
 
 /**
