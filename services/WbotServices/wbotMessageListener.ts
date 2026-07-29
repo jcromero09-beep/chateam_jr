@@ -4888,6 +4888,209 @@ async function resolveTicketContext(
   };
 }
 
+/**
+ * Fase de despacho de integraciones de handleMessageInner: FlowBuilder
+ * (whatsapp.integrationId) y SupervisorAI (whatsapp.useAIOrchestrator), más
+ * sus dos ramas de continuación (3a: aiStatus='active'; 3b: integrationId del
+ * ticket + useIntegration, con el guard que impide reactivar supervisor_ai
+ * cuando la conexión ya no lo tiene habilitado).
+ *
+ * Devuelve `true` cuando la fase resolvió el mensaje y handleMessageInner debe
+ * terminar — los 3 `return;` del cuerpo original son ahora señal explícita —,
+ * `false` cuando el flujo sigue hacia verifyQueue.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs sobre el rango
+ * original: 8 inputs, 0 outputs (nada de lo que declara se lee después), 0
+ * reasignaciones de locales externos. Fuera de los `return`, movimiento verbatim.
+ *
+ * Se llama DENTRO del try de handleMessageInner: el manejo de errores no cambia.
+ */
+async function dispatchIntegration(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  companyId: number,
+  ticket: any,
+  contact: any,
+  whatsapp: any,
+  isMenu: boolean,
+  isFirstMsg: any
+): Promise<boolean> {
+    logger.info(`[Integration] Verificando - isBot: ${ticket.isBot}, whatsappId: ${ticket.whatsappId}, useAIOrchestrator: ${ticket.whatsapp?.useAIOrchestrator}, integrationId: ${ticket.whatsapp?.integrationId}, aiStatus: ${ticket.aiStatus}, useIntegration: ${ticket.useIntegration}`);
+
+    // ============================================================
+    // LÓGICA: SupervisorAI (useAIOrchestrator=true) o FlowBuilder (integrationId)
+    // ============================================================
+
+    // 1. FLOWBUILDER: Si tiene integrationId → ejecutar flujo
+    const hasIntegration = !isNil(ticket.whatsapp?.integrationId);
+
+    if (
+      !ticket.imported &&
+      !msg.key.fromMe &&
+      !ticket.isGroup &&
+      !ticket.user &&
+      hasIntegration &&
+      !ticket.useIntegration
+    ) {
+      console.log("🔍 [FlowBuilder] Ejecutando flujo - integrationId:", ticket.whatsapp?.integrationId);
+      const integrations = await ShowQueueIntegrationService(
+        ticket.whatsapp?.integrationId,
+        companyId
+      );
+
+      await handleMessageIntegration(
+        msg,
+        wbot,
+        companyId,
+        integrations,
+        ticket,
+        isMenu,
+        whatsapp,
+        contact,
+        isFirstMsg
+      );
+      return true;
+    }
+
+    // 2. SUPERVISOR AI: Si la conexión tiene useAIOrchestrator → ejecutar orquestador
+    const hasSupervisorAI = ticket.whatsapp?.useAIOrchestrator === true;
+
+    if (
+      !ticket.imported &&
+      !msg.key.fromMe &&
+      !ticket.isGroup &&
+      !ticket.user &&
+      hasSupervisorAI &&
+      ticket.aiStatus !== 'handoff'
+    ) {
+      logger.info(`[SupervisorAI] Ejecutando orquestador - useAIOrchestrator=true, aiStatus=${ticket.aiStatus}`);
+
+      // Usar integración virtual para supervisor_ai (SIN id=999, no necesita FK)
+      const supervisorIntegration = {
+        id: 0,
+        name: "Orquestador IA",
+        type: "supervisor_ai",
+        companyId
+      } as QueueIntegrations;
+
+      await handleMessageIntegration(
+        msg,
+        wbot,
+        companyId,
+        supervisorIntegration,
+        ticket,
+        isMenu,
+        whatsapp,
+        contact,
+        isFirstMsg
+      );
+      return true;
+    }
+
+    // 3. Si no hay integración → verificar colas (fallback)
+
+    /* COMENTADO: Typebot ya no funcional
+    if (
+      !isNil(ticket.typebotSessionId) &&
+      ticket.typebotStatus &&
+      !msg.key.fromMe &&
+      !isNil(ticket.typebotSessionTime) &&
+      ticket.useIntegration
+    ) {
+      const flow = await FlowBuilderModel.findOne({
+        where: { id: ticket.flowStopped, active: true }
+      });
+      const nodes: INodes[] = flow.flow["nodes"];
+      const lastFlow = nodes.find(f => f.id === String(ticket.lastFlowId));
+      const typebot = lastFlow.data.typebotIntegration;
+
+      await typebotListener({
+        wbot: wbot,
+        msg,
+        ticket,
+        typebot: lastFlow.data.typebotIntegration
+      });
+      return;
+    }
+    */
+
+    // 3a. CONTINUACIÓN SUPERVISOR AI: si aiStatus='active', seguir procesando con orquestador
+    if (
+      !ticket.imported &&
+      !msg.key.fromMe &&
+      !ticket.isGroup &&
+      !ticket.userId &&
+      ticket.aiStatus === 'active' &&
+      hasSupervisorAI
+    ) {
+      const supervisorIntegration = {
+        id: 0,
+        name: "Orquestador IA",
+        type: "supervisor_ai",
+        companyId
+      } as QueueIntegrations;
+
+      await handleMessageIntegration(
+        msg,
+        wbot,
+        companyId,
+        supervisorIntegration,
+        ticket,
+        null,
+        whatsapp,
+        contact,
+        null
+      );
+    }
+
+    // 3b. CONTINUACIÓN FLOWBUILDER: solo si tiene integrationId REAL (FK válida) + useIntegration
+    if (
+      !ticket.imported &&
+      !msg.key.fromMe &&
+      !ticket.isGroup &&
+      !ticket.userId &&
+      ticket.integrationId &&
+      ticket.useIntegration
+    ) {
+      const integrations = await ShowQueueIntegrationService(
+        ticket.integrationId,
+        companyId
+      );
+
+      // 🛡️ Guard: si la integración del ticket es supervisor_ai y la conexión
+      // NO tiene useAIOrchestrator, NO reactivar el orquestador.
+      if (
+        integrations?.type === "supervisor_ai" &&
+        ticket.whatsapp?.useAIOrchestrator !== true
+      ) {
+        logger.info(
+          `[Integration:continuación] supervisor_ai bloqueado por useAIOrchestrator=false en whatsappId=${ticket.whatsappId} (ticket=${ticket.id})`
+        );
+        return true;
+      }
+
+      await handleMessageIntegration(
+        msg,
+        wbot,
+        companyId,
+        integrations,
+        ticket,
+        null,
+        null,
+        contact,
+        null
+      );
+
+      if (msg.key.fromMe) {
+        await ticket.update({
+          typebotSessionTime: moment().toDate()
+        });
+      }
+    }
+
+    return false;
+}
+
 async function handleMessageInner(
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -5583,177 +5786,12 @@ async function handleMessageInner(
 
 
 
-    logger.info(`[Integration] Verificando - isBot: ${ticket.isBot}, whatsappId: ${ticket.whatsappId}, useAIOrchestrator: ${ticket.whatsapp?.useAIOrchestrator}, integrationId: ${ticket.whatsapp?.integrationId}, aiStatus: ${ticket.aiStatus}, useIntegration: ${ticket.useIntegration}`);
-
-    // ============================================================
-    // LÓGICA: SupervisorAI (useAIOrchestrator=true) o FlowBuilder (integrationId)
-    // ============================================================
-
-    // 1. FLOWBUILDER: Si tiene integrationId → ejecutar flujo
-    const hasIntegration = !isNil(ticket.whatsapp?.integrationId);
-
     if (
-      !ticket.imported &&
-      !msg.key.fromMe &&
-      !ticket.isGroup &&
-      !ticket.user &&
-      hasIntegration &&
-      !ticket.useIntegration
+      await dispatchIntegration(
+        msg, wbot, companyId, ticket, contact, whatsapp, isMenu, isFirstMsg
+      )
     ) {
-      console.log("🔍 [FlowBuilder] Ejecutando flujo - integrationId:", ticket.whatsapp?.integrationId);
-      const integrations = await ShowQueueIntegrationService(
-        ticket.whatsapp?.integrationId,
-        companyId
-      );
-
-      await handleMessageIntegration(
-        msg,
-        wbot,
-        companyId,
-        integrations,
-        ticket,
-        isMenu,
-        whatsapp,
-        contact,
-        isFirstMsg
-      );
       return;
-    }
-
-    // 2. SUPERVISOR AI: Si la conexión tiene useAIOrchestrator → ejecutar orquestador
-    const hasSupervisorAI = ticket.whatsapp?.useAIOrchestrator === true;
-
-    if (
-      !ticket.imported &&
-      !msg.key.fromMe &&
-      !ticket.isGroup &&
-      !ticket.user &&
-      hasSupervisorAI &&
-      ticket.aiStatus !== 'handoff'
-    ) {
-      logger.info(`[SupervisorAI] Ejecutando orquestador - useAIOrchestrator=true, aiStatus=${ticket.aiStatus}`);
-
-      // Usar integración virtual para supervisor_ai (SIN id=999, no necesita FK)
-      const supervisorIntegration = {
-        id: 0,
-        name: "Orquestador IA",
-        type: "supervisor_ai",
-        companyId
-      } as QueueIntegrations;
-
-      await handleMessageIntegration(
-        msg,
-        wbot,
-        companyId,
-        supervisorIntegration,
-        ticket,
-        isMenu,
-        whatsapp,
-        contact,
-        isFirstMsg
-      );
-      return;
-    }
-
-    // 3. Si no hay integración → verificar colas (fallback)
-
-    /* COMENTADO: Typebot ya no funcional
-    if (
-      !isNil(ticket.typebotSessionId) &&
-      ticket.typebotStatus &&
-      !msg.key.fromMe &&
-      !isNil(ticket.typebotSessionTime) &&
-      ticket.useIntegration
-    ) {
-      const flow = await FlowBuilderModel.findOne({
-        where: { id: ticket.flowStopped, active: true }
-      });
-      const nodes: INodes[] = flow.flow["nodes"];
-      const lastFlow = nodes.find(f => f.id === String(ticket.lastFlowId));
-      const typebot = lastFlow.data.typebotIntegration;
-
-      await typebotListener({
-        wbot: wbot,
-        msg,
-        ticket,
-        typebot: lastFlow.data.typebotIntegration
-      });
-      return;
-    }
-    */
-
-    // 3a. CONTINUACIÓN SUPERVISOR AI: si aiStatus='active', seguir procesando con orquestador
-    if (
-      !ticket.imported &&
-      !msg.key.fromMe &&
-      !ticket.isGroup &&
-      !ticket.userId &&
-      ticket.aiStatus === 'active' &&
-      hasSupervisorAI
-    ) {
-      const supervisorIntegration = {
-        id: 0,
-        name: "Orquestador IA",
-        type: "supervisor_ai",
-        companyId
-      } as QueueIntegrations;
-
-      await handleMessageIntegration(
-        msg,
-        wbot,
-        companyId,
-        supervisorIntegration,
-        ticket,
-        null,
-        whatsapp,
-        contact,
-        null
-      );
-    }
-
-    // 3b. CONTINUACIÓN FLOWBUILDER: solo si tiene integrationId REAL (FK válida) + useIntegration
-    if (
-      !ticket.imported &&
-      !msg.key.fromMe &&
-      !ticket.isGroup &&
-      !ticket.userId &&
-      ticket.integrationId &&
-      ticket.useIntegration
-    ) {
-      const integrations = await ShowQueueIntegrationService(
-        ticket.integrationId,
-        companyId
-      );
-
-      // 🛡️ Guard: si la integración del ticket es supervisor_ai y la conexión
-      // NO tiene useAIOrchestrator, NO reactivar el orquestador.
-      if (
-        integrations?.type === "supervisor_ai" &&
-        ticket.whatsapp?.useAIOrchestrator !== true
-      ) {
-        logger.info(
-          `[Integration:continuación] supervisor_ai bloqueado por useAIOrchestrator=false en whatsappId=${ticket.whatsappId} (ticket=${ticket.id})`
-        );
-        return;
-      }
-
-      await handleMessageIntegration(
-        msg,
-        wbot,
-        companyId,
-        integrations,
-        ticket,
-        null,
-        null,
-        contact,
-        null
-      );
-
-      if (msg.key.fromMe) {
-        await ticket.update({
-          typebotSessionTime: moment().toDate()
-        });
-      }
     }
 
     if (
