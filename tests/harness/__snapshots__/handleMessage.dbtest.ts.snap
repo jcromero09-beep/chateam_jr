@@ -36,6 +36,111 @@ exports[`handleMessageInner — golden master (estado observable) chatbot: con 2
 }
 `;
 
+exports[`handleMessageInner — golden master (estado observable) coex: con receiveChannel=meta el entrante de Baileys se descarta 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Prueba",
+      "number": "593777777777",
+    },
+  ],
+  "messages": [],
+  "tickets": [],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) coex: con sendChannel=meta el fromMe de Baileys se descarta 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [],
+  "tickets": [],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) coex: enlace Meta con ambos canales en baileys NO descarta nada 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`handleMessageInner — golden master (estado observable) coex: preferencia inbound NO afecta al fromMe (drop asimétrico) 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 1,
+      "body": "respuesta del agente",
+      "fromMe": true,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "conversation",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "whatsapp",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "respuesta del agente",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 0,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
 exports[`handleMessageInner — golden master (estado observable) dedupe: el mismo msg.key.id dos veces persiste UN solo mensaje 1`] = `
 {
   "contacts": [

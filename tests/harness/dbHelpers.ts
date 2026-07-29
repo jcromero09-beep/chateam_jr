@@ -34,6 +34,33 @@ export async function seedTenant() {
 }
 
 /**
+ * Enlaza una conexión Meta a una conexión Baileys para activar la coexistencia.
+ *
+ * `resolveMetaCoexistence` busca un Whatsapp con
+ * `{ linkedWhatsappId, provider: 'meta', channel: 'meta', coexistenceEnabled: true }`
+ * y decide la preferencia por canal:
+ *   - receiveChannel === 'meta' → los entrantes de Baileys se descartan
+ *   - sendChannel    === 'meta' → los fromMe de Baileys se descartan
+ * El objetivo es no crear ticket doble cuando Meta ya ingiere ese mismo mensaje.
+ */
+export async function seedMetaCoexistence(
+  companyId: number,
+  baileysWhatsappId: number,
+  opts: { receiveChannel?: "meta" | "baileys"; sendChannel?: "meta" | "baileys" } = {}
+) {
+  return Whatsapp.create({
+    name: "wa-meta-linked",
+    companyId,
+    provider: "meta",
+    channel: "meta",
+    coexistenceEnabled: true,
+    linkedWhatsappId: baileysWhatsappId,
+    receiveChannel: opts.receiveChannel ?? "baileys",
+    sendChannel: opts.sendChannel ?? "baileys"
+  } as any);
+}
+
+/**
  * Proyección normalizada y determinista del estado persistido de una empresa.
  *
  * Es el corazón del golden-master: en vez de afirmar conteos (que dejan pasar

@@ -217,7 +217,8 @@ commit, verificando el golden-master + una sonda real por rama.
 ## Golden-master de handleMessageInner — MONTADO (2026-07-28)
 
 El prerequisito está cumplido. `tests/harness/handleMessage.dbtest.ts` pasó de 6 tests
-de humo (conteos) a **14 tests, 8 snapshots**, contra `chateam_test` real.
+de humo (conteos) a **18 tests, 12 snapshots**, contra `chateam_test` real.
+El matriz del prerequisito queda **cubierto entero**.
 
 ### Qué cambió
 `dbHelpers.snapshotState(companyId)` devuelve una proyección **determinista y normalizada**
@@ -236,7 +237,7 @@ de persistencia falla el snapshot.
 | edición (protocolMessage type=14) | ✅ snapshot |
 | dedupe (mismo `msg.key.id` ×2) | ✅ snapshot + assert de ledger |
 | chatbot (menú con ≥2 colas) | ✅ snapshot |
-| **coexistencia Meta** | ❌ **PENDIENTE** — única rama sin cubrir |
+| coexistencia Meta (drop in/out, asimetría, control) | ✅ 4 tests + snapshots |
 
 ### Hallazgo del golden-master: dos capas de dedupe con claves distintas
 Montar el test cazó una divergencia que la lectura de una sola capa no revela:
@@ -261,9 +262,16 @@ Serial obligatorio (`maxWorkers: 1`, ya en la config): todos los `*.dbtest` comp
 van a nivel de FICHERO, no por `describe` — si cada describe abre y cierra el pool, el primer
 `afterAll` deja a los siguientes sin conexión.
 
+### Dos órdenes que fijan los tests de coexistencia
+Demostrados, no supuestos (el test usa un número que `seedTenant` NO siembra, así que el
+contacto solo puede existir si `verifyContact` llegó a correr):
+- `verifyContact` corre **antes** del drop → un mensaje descartado **igual crea el contacto**.
+- El drop de coex ocurre **antes** del dedupe → **no** deja entrada en `InboundEventLedger`.
+
+Una descomposición que reordene cualquiera de las dos rompe estos snapshots.
+
 ### Siguiente paso (ya desbloqueado)
-Cubrir la rama de coexistencia Meta y luego extraer, **una por commit**, verificando el
-golden-master entre cada una:
+Extraer, **una por commit**, verificando el golden-master entre cada una:
 `resolveTicketContext()` → `handleMedia()` → `dispatchIntegration()` → `handleRatingStep()`.
 Los early-returns de la fase de resolución (fromMe-skip, no-whatsapp, group-not-allowed,
 coex-drop, dedupe.drop) tienen que volverse señal (`return null`) — ese es el único tramo

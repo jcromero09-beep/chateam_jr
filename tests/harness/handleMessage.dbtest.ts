@@ -38,7 +38,7 @@ import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
 import InboundEventLedger from "../../models/InboundEventLedger";
-import { truncateAll, seedTenant, seedQueues, snapshotState } from "./dbHelpers";
+import { truncateAll, seedTenant, seedQueues, snapshotState, seedMetaCoexistence } from "./dbHelpers";
 import { fixtures } from "./baileysFixtures";
 
 // Ciclo de vida a nivel de FICHERO: si cada describe abre/cierra el pool, el
@@ -227,6 +227,69 @@ describe("handleMessageInner — golden master (estado observable)", () => {
     await handleMessage(fixtures.edited(), wbot as any, (company as any).id);
 
     expect(await snapshotState((company as any).id)).toMatchSnapshot();
+  });
+
+  // ── COEXISTENCIA META ─────────────────────────────────────────────────────
+  // Con una conexión Meta enlazada y preferencia de canal en 'meta', el mensaje
+  // de Baileys se descarta para no duplicar el ticket que ya crea Meta.
+  //
+  // Dos órdenes que estos tests fijan a propósito, porque una descomposición
+  // podría reordenarlos sin que nada más lo note:
+  //   · verifyContact corre ANTES del drop → el contacto se crea igual.
+  //   · el drop de coex ocurre ANTES del dedupe → NO deja entrada en el ledger.
+  it("coex: con receiveChannel=meta el entrante de Baileys se descarta", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const cid = (company as any).id;
+    await seedMetaCoexistence(cid, (whatsapp as any).id, { receiveChannel: "meta" });
+
+    // Número DISTINTO al que siembra seedTenant: así el contacto solo puede
+    // existir si verifyContact llegó a correr, lo que demuestra que el drop
+    // ocurre después de resolver el contacto y no antes.
+    const msg = fixtures.text();
+    (msg.key as any).remoteJid = "593777777777@s.whatsapp.net";
+
+    await handleMessage(msg, makeWbot((whatsapp as any).id) as any, cid);
+
+    expect(await Message.count({ where: { companyId: cid } })).toBe(0);
+    expect(await Ticket.count({ where: { companyId: cid } })).toBe(0);
+    expect(await InboundEventLedger.count({ where: { companyId: cid } })).toBe(0);
+    // El contacto nuevo SÍ se creó pese al drop (2 = el sembrado + este).
+    expect(await Contact.count({ where: { companyId: cid } })).toBe(2);
+    expect(await snapshotState(cid)).toMatchSnapshot();
+  });
+
+  it("coex: con sendChannel=meta el fromMe de Baileys se descarta", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const cid = (company as any).id;
+    await seedMetaCoexistence(cid, (whatsapp as any).id, { sendChannel: "meta" });
+
+    await handleMessage(fixtures.fromMe(), makeWbot((whatsapp as any).id) as any, cid);
+
+    expect(await Message.count({ where: { companyId: cid } })).toBe(0);
+    expect(await snapshotState(cid)).toMatchSnapshot();
+  });
+
+  it("coex: preferencia inbound NO afecta al fromMe (drop asimétrico)", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const cid = (company as any).id;
+    await seedMetaCoexistence(cid, (whatsapp as any).id, { receiveChannel: "meta" });
+
+    // receiveChannel=meta solo descarta entrantes; el saliente sigue su curso.
+    await handleMessage(fixtures.fromMe(), makeWbot((whatsapp as any).id) as any, cid);
+
+    expect(await Message.count({ where: { companyId: cid } })).toBe(1);
+    expect(await snapshotState(cid)).toMatchSnapshot();
+  });
+
+  it("coex: enlace Meta con ambos canales en baileys NO descarta nada", async () => {
+    const { company, whatsapp } = await seedTenant();
+    const cid = (company as any).id;
+    await seedMetaCoexistence(cid, (whatsapp as any).id); // defaults: baileys/baileys
+
+    await handleMessage(fixtures.text(), makeWbot((whatsapp as any).id) as any, cid);
+
+    expect(await Message.count({ where: { companyId: cid } })).toBe(1);
+    expect(await snapshotState(cid)).toMatchSnapshot();
   });
 
   // ── CHATBOT / MENÚ DE COLAS ───────────────────────────────────────────────
