@@ -84,12 +84,64 @@ Auditoría de `helpers/tenantScope.ts` (guard estructural [W1-SEC-IDOR]).
   `[tenantScope] would inject companyId` con `surface: "api"` confirmen que no hay
   sorpresas.
 
-**Deuda abierta (medida, no arreglada):**
+**G2 y G3: medidos, sin instancia explotable.**
 
-| # | Gap | Medida | Notas |
-|---|-----|--------|-------|
-| G2 | Los `include` anidados no se scopean | sin inventariar | `beforeFind` solo dispara para el modelo de nivel superior. El caso peligroso es acotado: top-level NO tenant-scoped que incluye un modelo tenant (si el top-level sí lo es, su scope ya protege el join). Falta inventariar cuántos hay. |
-| G3 | Operaciones ORM sin hook | **32 callsites** | `upsert`, `increment`, `decrement` y `aggregate` no disparan ninguno de los 4 eventos enganchados (`beforeFind`, `beforeCount`, `beforeBulkDestroy`, `beforeBulkUpdate`). Varias son adyacentes a dinero: `Invoice.upsert`, `CompanyBilling.upsert`, `Company.increment('aiTokenBalance')`. |
+Ambos se inventariaron entero. El resultado es negativo en los dos casos: son
+huecos **estructurales** (el guard no los cubre) pero no hay ningún callsite hoy
+donde un id controlado por el atacante llegue sin validar.
+
+### G3 — operaciones ORM sin hook
+
+Sequelize 6.37.7 **sí** expone `beforeUpsert`, pero **no** hay hook alguno para
+`increment`, `decrement` ni `aggregate`: van directos a `queryInterface` con el
+`where` tal cual. Esos no tienen arreglo estructural posible.
+
+23 callsites reales (el conteo previo de 32 incluía `Math.max/min`). Ninguno
+expuesto:
+
+- **11 son de instancia** (`recipient.increment(...)`, `link.increment(...)`):
+  operan sobre una fila ya cargada por un find que el hook `beforeFind` scopeó.
+  El `where` efectivo es su propia PK.
+- **`Company.increment/decrement`** (los 3 de saldo IA): `models/Company.ts` **no
+  tiene columna `companyId`** — la empresa *es* el tenant, su PK es `id`. El guard
+  nunca la enganchó ni podía. El `where: { id: companyId }` que usan ya es el
+  scope correcto.
+- **`EmailCampaign.increment`** usa `recipient.campaignId`, derivado de una fila
+  previamente cargada.
+- **`AffiliateLink.sum`** con `where` vacío es la vista global del superadmin,
+  gateada por `isSuperUser(req)` en `AffiliateController`.
+- Los `upsert` de facturación (`Invoice`, `CompanyBilling` en `StripeService`)
+  corren desde webhooks de Stripe → `origin !== 'http'`, exentos por diseño.
+  Engancharlos no cambiaría nada.
+
+### G2 — includes anidados
+
+`beforeFind` solo dispara para el modelo de nivel superior, así que el único caso
+sin cubrir es: top-level **no** tenant-scoped que incluye un modelo tenant (si el
+top-level sí lo es, su scope ya acota el join).
+
+32 queries de ese tipo. Triaje:
+
+- **~7 sobre `Company`**: es el tenant, `findByPk(companyId)` desde la sesión o
+  rutas de super/background.
+- **Las tablas puente alcanzables por HTTP** (`TicketNote` ×5, `QueueOption` ×2,
+  `ContactTag`, `CompanyUserQueue`, `ChatUser`, `LogTicket`, `PromptQueue`,
+  `AIAffiliateReferral`, `TicketTag` en Kanban) **filtran por `companyId` a mano**
+  — verificado uno a uno.
+- **3 sin ninguna mención de `companyId`**: `ShowDialogChatBotsServices`,
+  `ChatService/ListService` y `AIAgentServices/TicketContextService`. El de Chat
+  se acota por el `userId` de la propia sesión. Los otros dos solo los llaman
+  `WbotServices/ChatBotListener`, `ChatbotListenerFacebook` y los servicios de
+  agente IA — pipeline de mensajería, `origin !== 'http'`, y con ids que vienen de
+  objetos ya cargados.
+
+### Riesgo residual (real, aunque hoy no haya instancia)
+
+Esto es análisis estático de alcanzabilidad: prueba que hoy no hay explotación,
+no que no pueda haberla mañana. Los tres servicios sin `companyId` no tienen
+guarda propia — su seguridad depende de la disciplina del que los llame. Un
+`ShowDialogChatBotsServices(req.params.contactId)` nuevo sería explotable y nada
+lo detendría. Si se tocan esos tres, hay que scopearlos primero.
 
 `isAuthCompany` y `envTokenAuth` quedan fuera de G1 a propósito: autentican con
 tokens **globales compartidos** (`COMPANY_TOKEN`, `ENV_TOKEN`), sin identidad de
