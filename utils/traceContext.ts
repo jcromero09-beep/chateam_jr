@@ -27,6 +27,10 @@ export interface TraceContext {
   companyId?: number;
   super?: boolean; // [W1-SEC-IDOR] super-admin → bypass de tenantScope
   tenantBypass?: boolean; // [W1-SEC-IDOR] escape hatch cross-company puntual
+  // [W1-SEC-IDOR] Superficie de entrada, para modular el guard por origen.
+  // 'api' = API pública autenticada por token de conexión (middleware/tokenAuth),
+  // que hasta ahora no propagaba companyId y dejaba el guard inerte.
+  tenantSurface?: "api";
   provider?: "meta" | "baileys" | "mixed";
   ticketId?: number;
   conversationId?: string;

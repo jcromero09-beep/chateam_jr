@@ -30,12 +30,28 @@ import { getTraceContext } from "../utils/traceContext";
 
 type Mode = "enforce" | "observe" | "off";
 
-const MODE: Mode = (() => {
-  const v = (process.env.TENANT_SCOPE_GUARD || "enforce").toLowerCase();
+const parseMode = (raw: string | undefined, fallback: Mode): Mode => {
+  const v = (raw || "").toLowerCase();
   if (v === "observe") return "observe";
   if (v === "off") return "off";
-  return "enforce";
-})();
+  if (v === "enforce") return "enforce";
+  return fallback;
+};
+
+const MODE: Mode = parseMode(process.env.TENANT_SCOPE_GUARD, "enforce");
+
+/**
+ * Modo para la superficie `api` (middleware/tokenAuth: /api/send y familia).
+ *
+ * Hasta ahora esas rutas no propagaban companyId al contexto, así que el guard
+ * salía por la primera guarda de applyScope y quedaba INERTE ahí. Al empezar a
+ * propagarlo, el guard se activaría de golpe sobre endpoints que hoy filtran a
+ * mano: si alguno consultara cross-company a propósito, pasaría a devolver
+ * vacío sin aviso. Por eso arranca en 'observe' — loguea lo que inyectaría sin
+ * cambiar comportamiento. Pasar a `TENANT_SCOPE_GUARD_API=enforce` cuando los
+ * logs confirmen que no hay sorpresas.
+ */
+const API_MODE: Mode = parseMode(process.env.TENANT_SCOPE_GUARD_API, "observe");
 
 const hasOwn = (o: object, k: string): boolean =>
   Object.prototype.hasOwnProperty.call(o, k);
@@ -66,7 +82,10 @@ export const scopeWhere = (where: any, companyId: number): any => {
 
 /** Aplica el scope a las `options` de una operación ORM (in-place en enforce). */
 const applyScope = (options: any): void => {
-  if (MODE === "off" || !options) return;
+  // OJO: no se puede cortar aquí por `MODE === "off"`. El modo efectivo depende
+  // de la superficie (ver effectiveMode más abajo), y con TENANT_SCOPE_GUARD=off
+  // pero TENANT_SCOPE_GUARD_API=enforce la superficie api debe seguir scopeando.
+  if (!options) return;
 
   const ctx = getTraceContext();
   if (!ctx || ctx.origin !== "http") return; // sólo requests HTTP
@@ -75,16 +94,21 @@ const applyScope = (options: any): void => {
   if (ctx.tenantBypass === true) return; // bypass a nivel de contexto
   if (options.tenantBypass === true) return; // bypass a nivel de query
 
+  // La superficie `api` tiene su propio modo (rollout gradual, ver API_MODE).
+  const effectiveMode: Mode = ctx.tenantSurface === "api" ? API_MODE : MODE;
+  if (effectiveMode === "off") return;
+
   const current = options.where;
   const scoped = scopeWhere(current, ctx.companyId as number);
   if (scoped === current) return; // ya scopeado → nada que hacer
 
-  if (MODE === "observe") {
+  if (effectiveMode === "observe") {
     logger.warn(
       {
         companyId: ctx.companyId,
         traceId: ctx.traceId,
-        model: options?.model?.name
+        model: options?.model?.name,
+        surface: ctx.tenantSurface || "http"
       },
       "[tenantScope] would inject companyId (query sin filtro de tenant)"
     );
@@ -99,7 +123,10 @@ const applyScope = (options: any): void => {
  * Llamar UNA vez tras `sequelize.addModels(...)`.
  */
 export const installTenantScopeHooks = (models: any[]): void => {
-  if (MODE === "off") {
+  // Solo se saltan los hooks si AMBAS superficies están apagadas: con
+  // TENANT_SCOPE_GUARD=off pero TENANT_SCOPE_GUARD_API=enforce hay que
+  // engancharlos igual.
+  if (MODE === "off" && API_MODE === "off") {
     logger.info("[tenantScope] DESACTIVADO (TENANT_SCOPE_GUARD=off)");
     return;
   }
@@ -118,7 +145,7 @@ export const installTenantScopeHooks = (models: any[]): void => {
   }
 
   logger.info(
-    `[tenantScope] modo=${MODE} · ${hooked} modelos tenant con hooks de aislamiento`
+    `[tenantScope] modo=${MODE} · api=${API_MODE} · ${hooked} modelos tenant con hooks de aislamiento`
   );
 };
 
