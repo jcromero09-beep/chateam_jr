@@ -4631,14 +4631,48 @@ const recordCoexistenceBinding = async (params: {
 // extraído a función módulo-nivel. Movimiento VERBATIM: los return; ya estaban
 // scopeados al callback, así que su semántica se preserva. handleMessage queda
 // como guards + wrapper de trace. Free-vars: msg, wbot, companyId, isImported.
-async function handleMessageInner(
+/**
+ * Contrato de salida de la fase de resolución. Son los ÚNICOS locales de esa
+ * fase que consume el resto de handleMessageInner (medido, no supuesto: el
+ * resto —msgContact, groupContact, tagsId, enableLGPD, baileysLedgerEntryId,
+ * coexConversationId, coexCanonicalNumber, mutex, linkedMeta— no se lee después).
+ * Ninguno se reasigna aguas abajo, así que el destructure puede ser const.
+ */
+interface TicketContext {
+  queueId: number;
+  userId: number;
+  bodyMessage: string;
+  msgType: string;
+  hasMedia: boolean;
+  isGroup: boolean;
+  whatsapp: any;
+  contact: any;
+  unreadMessages: number;
+  settings: any;
+  isFirstMsg: any;
+  ticket: any;
+}
+
+/**
+ * Fase de resolución de handleMessageInner: valida el mensaje, resuelve
+ * contacto / conexión / conversación / ticket, y aplica los cinco descartes
+ * (fromMe no procesable, tipo no soportado, grupo no permitido, coexistencia
+ * Meta y dedupe del ledger).
+ *
+ * Devuelve `null` cuando el mensaje debe descartarse: cada `return;` del cuerpo
+ * original es ahora una señal explícita. Es el único tramo que NO es movimiento
+ * verbatim, y por eso está cubierto por el golden-master
+ * (tests/harness/handleMessage.dbtest.ts) antes de tocarlo.
+ *
+ * Se llama DENTRO del try de handleMessageInner, así que el manejo de errores
+ * no cambia: lo que lance sigue cayendo en el mismo catch.
+ */
+async function resolveTicketContext(
   msg: proto.IWebMessageInfo,
   wbot: Session,
   companyId: number,
-  isImported: boolean = false
-) {
-
-  try {
+  isImported: boolean
+): Promise<TicketContext | null> {
     let msgContact: IMe;
     let groupContact: Contact | undefined;
     const queueId: number = null;
@@ -4652,7 +4686,7 @@ async function handleMessageInner(
     const hasMedia = messageHasMedia(msg);
 
     if (msg.key.fromMe) {
-      if (/\u200e/.test(bodyMessage)) return;
+      if (/\u200e/.test(bodyMessage)) return null;
 
 
       if (
@@ -4667,7 +4701,7 @@ async function handleMessageInner(
         msgType !== "editedMessage" &&
         msgType !== "hydratedContentText"
       )
-        return;
+        return null;
       msgContact = await getContactMessage(msg, wbot);
     } else {
       msgContact = await getContactMessage(msg, wbot);
@@ -4680,7 +4714,7 @@ async function handleMessageInner(
     const { linkedMeta, shouldPreferMetaInbound, shouldPreferMetaOutbound } = await resolveMetaCoexistence(whatsapp);
 
     if (!whatsapp.allowGroup && isGroup) {
-      return;
+      return null;
     }
 
     if (isGroup) {
@@ -4715,7 +4749,7 @@ async function handleMessageInner(
         outcome: "dropped",
         reason: coexDropReason
       });
-      return;
+      return null;
     }
 
     const unreadMessages = await resolveUnreadCount(msg, contact.id);
@@ -4745,7 +4779,7 @@ async function handleMessageInner(
     // en InboundEventLedger garantiza procesarlo UNA sola vez.
     // Distinguimos inbound del cliente (baileys) vs eco del staff (baileys_fromme).
     const dedupe = await checkInboundDedupe(msg, companyId);
-    if (dedupe.drop) return;
+    if (dedupe.drop) return null;
     let baileysLedgerEntryId = dedupe.ledgerEntryId;
     // ════════════════════════════════════════════════════════
 
@@ -4848,6 +4882,26 @@ async function handleMessageInner(
     await InboundEventLedgerService.markProcessed(baileysLedgerEntryId, {
       ticketId: ticket.id
     });
+
+  return {
+    queueId, userId, bodyMessage, msgType, hasMedia, isGroup, whatsapp, contact, unreadMessages, settings, isFirstMsg, ticket
+  };
+}
+
+async function handleMessageInner(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  companyId: number,
+  isImported: boolean = false
+) {
+
+  try {
+    const resolved = await resolveTicketContext(msg, wbot, companyId, isImported);
+    if (!resolved) return;
+    const {
+      queueId, userId, bodyMessage, msgType, hasMedia, isGroup,
+      whatsapp, contact, unreadMessages, settings, isFirstMsg, ticket
+    } = resolved;
 
     //   id: ticket.id,
     //   status: ticket.status,

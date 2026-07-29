@@ -276,3 +276,38 @@ Extraer, **una por commit**, verificando el golden-master entre cada una:
 Los early-returns de la fase de resolución (fromMe-skip, no-whatsapp, group-not-allowed,
 coex-drop, dedupe.drop) tienen que volverse señal (`return null`) — ese es el único tramo
 que NO es movimiento verbatim.
+
+
+---
+
+## Extracción 1/3 — `resolveTicketContext()` — HECHA (2026-07-28)
+
+209 líneas (la fase de resolución entera) fuera de `handleMessageInner`.
+
+### El contrato salió más chico de lo previsto
+El plan estimaba "~20+ locales que el resto consume". Medido sobre el cuerpo
+restante (usos y asignaciones, uno por uno): **solo 12 de 21** se leen después.
+No se consumen `msgContact`, `groupContact`, `tagsId`, `enableLGPD`,
+`baileysLedgerEntryId`, `coexConversationId`, `coexCanonicalNumber`, `mutex` ni
+`linkedMeta` — se quedan dentro de la función extraída.
+
+Y **ninguno de los 12 se reasigna** aguas abajo, así que el destructure es `const`.
+(Dos coincidencias de reasignación resultaron falsos positivos: una `const msgType`
+en un scope interno que shadowea, y un `ticket=` dentro de un template string.)
+
+### Lo único que no fue verbatim
+Los 5 `return;` de descarte → `return null;`, y el `return { …12 }` del camino feliz.
+Nada más se retipeó: el cuerpo se movió con un script, no a mano.
+
+La llamada queda DENTRO del try existente, así que el manejo de errores no cambia:
+lo que lance sigue cayendo en el mismo catch.
+
+### Verificación
+- Golden-master: **18/18, 12 snapshots passed sin reescribir**. Conducta idéntica.
+- `tsc --noEmit` sobre el fichero: **0 errores** (los 37 del programa son
+  preexistentes en WhatsAppController/MessageController/upload/isAuth).
+
+### Pendiente: 2/3 y 3/3
+`handleMedia()` y `dispatchIntegration()`. El método queda probado y es repetible:
+medir el contrato con usos/asignaciones sobre el cuerpo restante → mover con script
+(nunca a mano) → golden-master + tsc acotado → un commit por extracción.
