@@ -550,7 +550,7 @@ const processMessage = async (request: SupervisorRequest): Promise<SupervisorRes
     // Fallback: usar solo ticketContext simple
     if (ticketId) {
       try {
-        const tagContext = await TicketContextService.getTicketContext(ticketId);
+        const tagContext = await TicketContextService.getTicketContext(ticketId, companyId);
         unifiedContext = TicketContextService.buildContextPrompt(tagContext);
       } catch {
         unifiedContext = '';

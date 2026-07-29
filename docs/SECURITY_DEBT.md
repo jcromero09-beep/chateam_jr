@@ -161,6 +161,21 @@ top-level sí lo es, su scope ya acota el join).
   agente IA — pipeline de mensajería, `origin !== 'http'`, y con ids que vienen de
   objetos ya cargados.
 
+  **Cerrado 2026-07-28** (los dos que no tenían guarda alguna): ambos aceptan
+  ahora un `companyId` opcional y los 4 llamadores lo pasan.
+  - `ShowDialogChatBotsServices`: `DialogChatBots` no tiene columna `companyId`,
+    así que el guard estructural nunca podía engancharla. El tenant se hereda del
+    contacto por INNER JOIN (hubo que declarar el `@BelongsTo(() => Contact)` que
+    faltaba; la FK ya existía). Sin consulta extra.
+  - `TicketContextService.getTicketContext`: `TicketTag` tampoco tiene
+    `companyId`; el JOIN contra `Tag` pasa a INNER y acotado a la empresa, así
+    que un `ticketId` ajeno devuelve contexto vacío en vez de las etiquetas de
+    otra empresa. Es el mismo JOIN que ya se hacía.
+
+  El parámetro es opcional a propósito (no rompe a nadie), lo que significa que
+  un llamador nuevo puede volver a omitirlo. La guarda es un default seguro para
+  quien lo use, no una imposibilidad estructural.
+
 ### Riesgo residual (real, aunque hoy no haya instancia)
 
 Esto es análisis estático de alcanzabilidad: prueba que hoy no hay explotación,

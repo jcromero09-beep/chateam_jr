@@ -103,7 +103,7 @@ const buildSupervisorContext = async (
   // ── 2. ESTADO DEL TICKET (Kanban + Tags) ───────────────────────────
   if (ticketId) {
     try {
-      const tagContext = await TicketContextService.getTicketContext(ticketId);
+      const tagContext = await TicketContextService.getTicketContext(ticketId, companyId);
       const ticketBlock = TicketContextService.buildContextPrompt(tagContext);
       if (ticketBlock.trim()) {
         sections.push(`## 🏷️ ESTADO DEL TICKET ACTUAL\n${ticketBlock.trim()}`);

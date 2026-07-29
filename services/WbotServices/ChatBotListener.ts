@@ -698,7 +698,7 @@ export const sayChatbot = async (
 
   if (!queueId && selectedOption && msg.key.fromMe) return;
 
-  const getStageBot = await ShowDialogChatBotsServices(contact.id);
+  const getStageBot = await ShowDialogChatBotsServices(contact.id, contact.companyId);
 
   // let enabledIntegrationActive: any
 

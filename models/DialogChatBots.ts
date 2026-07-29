@@ -40,6 +40,15 @@ class DialogChatBots extends Model<DialogChatBots> {
   @BelongsTo(() => Chatbot)
   chatbots: Chatbot;
 
+  /**
+   * La FK a Contact ya existía; faltaba la asociación. Sin ella no había forma
+   * de acotar un DialogChatBots a una empresa: esta tabla NO tiene `companyId`,
+   * así que el guard de tenant nunca la enganchó ni podía. El tenant se hereda
+   * del contacto (ver ShowDialogChatBotsServices).
+   */
+  @BelongsTo(() => Contact)
+  contact: Contact;
+
   @CreatedAt
   createdAt: Date;
 

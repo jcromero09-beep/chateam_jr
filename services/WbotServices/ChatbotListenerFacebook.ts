@@ -163,7 +163,7 @@ export const sayChatbot = async (
   const selectedOption = msg.text;
   if (!queueId && selectedOption && msg.is_echo) return;
 
-  const getStageBot = await ShowDialogChatBotsServices(contact.id);
+  const getStageBot = await ShowDialogChatBotsServices(contact.id, contact.companyId);
 
   if (selectedOption === "#") {
     const backTo = await backToMainMenu(wbot, contact, ticket);
