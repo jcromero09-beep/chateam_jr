@@ -14,19 +14,58 @@ import CompaniesSettings from "../../models/CompaniesSettings";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
 
+/**
+ * Vacía chateam_test entre tests.
+ *
+ * Va en UNA sola sentencia `TRUNCATE a, b, c …` en vez de un bucle con un
+ * TRUNCATE por tabla. La diferencia importa: cada TRUNCATE pide un lock ACCESS
+ * EXCLUSIVE, y hacerlo tabla a tabla deja huecos en los que otra conexión puede
+ * colarse — con 5 suites *.dbtest compartiendo la base, eso se manifestaba como
+ * `beforeEach` colgado 30 s (justo `DB_POOL_ACQUIRE`) y el test cayendo por
+ * timeout de hook, no por un error SQL. En una sola sentencia los locks se toman
+ * todos a la vez y de forma atómica.
+ *
+ * `lock_timeout` acota la espera: si algo tiene la base tomada, se quiere un
+ * error legible y rápido, no un cuelgue que parezca un test lento.
+ */
 export async function truncateAll(): Promise<void> {
-  await sequelize.query(`DO $$ DECLARE r RECORD; BEGIN
-    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> 'SequelizeMeta')
-    LOOP EXECUTE 'TRUNCATE TABLE "' || r.tablename || '" RESTART IDENTITY CASCADE'; END LOOP;
+  await sequelize.query(`SET lock_timeout = '10s'`);
+  await sequelize.query(`DO $$
+  DECLARE tables TEXT;
+  BEGIN
+    SELECT string_agg(format('%I', tablename), ', ')
+      INTO tables
+      FROM pg_tables
+     WHERE schemaname = 'public' AND tablename <> 'SequelizeMeta';
+    IF tables IS NOT NULL THEN
+      EXECUTE 'TRUNCATE TABLE ' || tables || ' RESTART IDENTITY CASCADE';
+    END IF;
   END $$;`);
 }
 
-export async function seedTenant() {
-  const plan = await Plan.create({ name: "Test Plan" } as any);
-  const company = await Company.create({ name: "Test Co", planId: (plan as any).id } as any);
+/**
+ * Siembra un tenant completo: Plan → Company → User → Whatsapp → Queue → Contact.
+ *
+ * `label` distingue los valores con UNIQUE **global** (no por empresa) para poder
+ * sembrar VARIOS tenants en el mismo test — que es lo que necesita la suite
+ * cross-tenant. Sin él, un segundo `seedTenant()` revienta con
+ * `duplicate key value violates unique constraint "Plans_name_key"`: el nombre
+ * del plan y el email del usuario son únicos en toda la base, no dentro de la
+ * empresa.
+ *
+ * El valor por defecto es "" para que las suites que ya existían siembren
+ * exactamente los mismos datos de antes.
+ *
+ * El NÚMERO del contacto NO lleva label a propósito: que las dos empresas tengan
+ * un contacto con el mismo número es justo lo que hace falta para comprobar que
+ * el aislamiento va por `companyId` y no por casualidad de datos distintos.
+ */
+export async function seedTenant(label = "") {
+  const plan = await Plan.create({ name: `Test Plan${label}` } as any);
+  const company = await Company.create({ name: `Test Co${label}`, planId: (plan as any).id } as any);
   const cid = (company as any).id;
-  const user = await User.create({ name: "Agente", email: "agente@test.local", passwordHash: "x", companyId: cid } as any);
-  const whatsapp = await Whatsapp.create({ name: "wa-test", companyId: cid } as any);
+  const user = await User.create({ name: "Agente", email: `agente${label}@test.local`, passwordHash: "x", companyId: cid } as any);
+  const whatsapp = await Whatsapp.create({ name: `wa-test${label}`, companyId: cid } as any);
   const queue = await Queue.create({ name: "Soporte", color: "#00AABB", companyId: cid } as any);
   await CompaniesSettings.create({ companyId: cid } as any);
   const contact = await Contact.create({ name: "Cliente", number: "593999999999", companyId: cid } as any);

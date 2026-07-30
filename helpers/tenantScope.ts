@@ -153,18 +153,56 @@ const isPlainObject = (v: any): boolean =>
  * - undefined/null → { companyId }
  * - objeto plano sin companyId → { ...where, companyId } (preserva claves Symbol
  *   de Op.and/Op.or; el companyId entra como AND de nivel superior)
- * - objeto plano CON companyId → se devuelve tal cual (ya scopeado)
+ * - objeto plano CON el MISMO companyId → se devuelve tal cual (ya scopeado)
+ * - objeto plano CON OTRO companyId → **se sobrescribe con el del contexto**
  * - literal/Where/otro → AND explícito con Op.and para no perder el original
  * Devuelve la MISMA referencia cuando no hay nada que cambiar.
+ *
+ * ## Por qué se sobrescribe un companyId ajeno (cambio 2026-07-30)
+ *
+ * Antes, un `where` que YA traía `companyId` se respetaba sin mirar su valor. La
+ * intención era no duplicar el filtro en servicios que ya scopean a mano — pero
+ * el efecto real era que **el guard no cubría la forma más común del IDOR**:
+ * cualquier endpoint que tome `companyId` del request (query param, body) y lo
+ * pase al `where` se saltaba el guard entero.
+ *
+ * No es teórico. Lo cazó `tests/harness/crossTenant.dbtest.ts` en su primera
+ * corrida: desde el contexto de la empresa A, un
+ * `Ticket.findAll({ where: { companyId: B } })` devolvía los tickets de B. Y es
+ * exactamente la familia de fuga que ya se había encontrado a mano antes
+ * ("companyId del query ≠ el del token").
+ *
+ * Ahora el tenant del contexto autenticado es AUTORITATIVO. Para una request
+ * HTTP no-super, pedir datos de otra empresa nunca es legítimo: el super-admin
+ * ya está exento y existe `tenantBypass` para el caso deliberado.
+ *
+ * Cuando ocurre se loguea a `warn` — no debería pasar nunca, y si pasa es un bug
+ * o un intento.
  */
 export const scopeWhere = (where: any, companyId: number): any => {
   if (where == null) return { companyId };
   if (isPlainObject(where)) {
-    if (hasOwn(where, "companyId")) return where;
+    if (hasOwn(where, "companyId")) {
+      // Mismo tenant (o una forma que no sabemos comparar, tipo Op.in) → tal cual.
+      if (where.companyId === companyId) return where;
+      // DISTINTO tenant: el del contexto autenticado MANDA. Ver el bloque de
+      // arriba — esta rama es la que cierra el IDOR de `companyId` en la query.
+      return { ...where, companyId };
+    }
     return { ...where, companyId };
   }
   return { [Op.and]: [where, { companyId }] };
 };
+
+/**
+ * ¿La query pedía explícitamente OTRA empresa? Solo para poder loguearlo: que
+ * esto ocurra es, o un bug, o un intento de IDOR. En ninguno de los dos casos
+ * debe pasar en silencio.
+ */
+const asksForForeignTenant = (where: any, companyId: number): boolean =>
+  isPlainObject(where) &&
+  hasOwn(where, "companyId") &&
+  where.companyId !== companyId;
 
 /** Aplica el scope a las `options` de una operación ORM (in-place en enforce). */
 const applyScope = (options: any, op = "find"): void => {
@@ -185,8 +223,29 @@ const applyScope = (options: any, op = "find"): void => {
   if (effectiveMode === "off") return;
 
   const current = options.where;
+  const foreign = asksForForeignTenant(current, ctx.companyId as number);
   const scoped = scopeWhere(current, ctx.companyId as number);
   if (scoped === current) return; // ya scopeado → nada que hacer
+
+  if (foreign) {
+    // No debería pasar nunca: una request autenticada de la empresa X pidiendo
+    // datos de la Y. O es un bug (companyId tomado del request en vez del
+    // token) o es un intento. Se loguea SIEMPRE, incluso en modo observe, y con
+    // el modo efectivo dentro para saber si además se corrigió o solo se vio.
+    logger.warn(
+      {
+        companyId: ctx.companyId,
+        requestedCompanyId: (current as any)?.companyId,
+        traceId: ctx.traceId,
+        model: options?.model?.name,
+        surface: ctx.tenantSurface || "http",
+        route: ctx.tenantRoute,
+        op,
+        mode: effectiveMode
+      },
+      "[tenantScope] la query pedía OTRA empresa — companyId del contexto sobrescribe"
+    );
+  }
 
   if (effectiveMode === "observe") {
     recordObservation(ctx, options, op);

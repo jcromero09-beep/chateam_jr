@@ -110,6 +110,42 @@ sin aviso.
 ⚠ Hasta que exista ese inventario **la grieta G1 está mitigada, no cerrada**. A
 2026-07-28 no hay ni una línea de observación: nada de esto está desplegado.
 
+### G4 — `companyId` en el `where` venía del request (CERRADO 2026-07-30)
+
+Lo cazó la suite cross-tenant en su **primera corrida**, no un análisis.
+
+`scopeWhere` respetaba un `companyId` ya presente en el `where` sin mirar su valor
+—la intención era no duplicar el filtro en servicios que ya scopean a mano—. El
+efecto real: **el guard no cubría la forma más común del IDOR.** Cualquier
+endpoint que tome `companyId` del request y lo pase al `where` se lo saltaba
+entero. Demostrado: desde el contexto de la empresa A,
+`Ticket.findAll({ where: { companyId: B } })` devolvía los tickets de B.
+
+Es la misma familia de fuga que ya se había encontrado a mano antes
+("companyId del query ≠ el del token"), pero esta vez con la red estructural
+puesta y sin cerrarla.
+
+**Ahora el tenant del contexto autenticado es AUTORITATIVO**: si el `where` pide
+otra empresa, se sobrescribe y se loguea a `warn`. Para una request HTTP no-super
+pedir datos de otra empresa nunca es legítimo — el super-admin ya está exento y
+existe `tenantBypass` para el caso deliberado.
+
+⚠️ Es un **cambio de comportamiento en producción**. Si algún flujo legítimo
+consultaba otra empresa sin ser super ni usar bypass, ahora recibe los datos de
+la suya. El `warn` lo hace visible: si aparece en los logs, hay que mirarlo.
+
+### La prueba, no el análisis: `tests/harness/crossTenant.dbtest.ts`
+
+18 tests con dos empresas sembradas. Cubre lectura por id directo (7 modelos),
+listados, conteos, `where` con empresa ajena, `Op.or` amplio, update y destroy
+masivos, y los cuatro límites declarados del diseño (super-admin, jobs, pre-auth,
+`Company` sin columna).
+
+Lo que la hace valer: **cada aserción va emparejada con un control negativo**. La
+misma consulta con `tenantBypass: true` debe ENCONTRAR el registro. Sin eso, un
+`toBeNull()` verde puede significar "el guard funciona" o "el dato no existía", y
+son cosas muy distintas.
+
 **G2 y G3: medidos, sin instancia explotable.**
 
 Ambos se inventariaron entero. El resultado es negativo en los dos casos: son

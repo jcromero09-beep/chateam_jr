@@ -95,10 +95,21 @@ describe("scopeWhere — no pierde condiciones", () => {
     });
   });
 
-  test("si ya trae companyId lo respeta (misma referencia)", () => {
+  test("si ya trae el MISMO companyId lo respeta (misma referencia)", () => {
+    const { scopeWhere } = loadGuard();
+    const where = { companyId: 7, status: "open" };
+    expect(scopeWhere(where, 7)).toBe(where);
+  });
+
+  test("si trae OTRO companyId lo SOBRESCRIBE con el del contexto", () => {
+    // Antes se respetaba el del where sin mirar su valor, y eso dejaba fuera del
+    // guard la forma más común del IDOR: un endpoint que toma companyId del
+    // request y lo pasa al where. Lo cazó crossTenant.dbtest en su 1ª corrida.
     const { scopeWhere } = loadGuard();
     const where = { companyId: 3, status: "open" };
-    expect(scopeWhere(where, 7)).toBe(where);
+    const out = scopeWhere(where, 7);
+    expect(out).not.toBe(where);
+    expect(out).toEqual({ companyId: 7, status: "open" });
   });
 
   test("Op.or se preserva y companyId entra como AND de nivel superior", () => {
@@ -181,6 +192,39 @@ describe("modo por superficie", () => {
  * sin poder tomarse; estos tests fijan que agrupa y que distingue lo que hay
  * que distinguir (ruta y operación).
  */
+describe("companyId ajeno en el where", () => {
+  const apiCtx = { origin: "http", companyId: 42, traceId: "t1" };
+
+  test("el hook lo sobrescribe con el del contexto", () => {
+    traceCtx.current = apiCtx;
+    const out = runHook({ where: { companyId: 99, status: "open" } });
+    expect(out.where).toEqual({ companyId: 42, status: "open" });
+  });
+
+  test("se avisa por log — no puede pasar en silencio", () => {
+    traceCtx.current = apiCtx;
+    // OJO: hay que cargar el guard PRIMERO y coger el logger del MISMO registro
+    // de módulos. `runHook` llama a loadGuard (que hace resetModules) por dentro,
+    // así que capturar el logger antes deja mirando a otra instancia del mock.
+    const guard = loadGuard();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const logger = require("../../utils/logger").default;
+    logger.warn.mockClear();
+
+    const { hooks, fakeModel } = installHooks(guard);
+    hooks.beforeFind?.({ where: { companyId: 99 }, model: fakeModel });
+
+    const msgs = logger.warn.mock.calls.map((c: any[]) => String(c[1]));
+    expect(msgs.some((m: string) => m.includes("pedía OTRA empresa"))).toBe(true);
+  });
+
+  test("el super-admin sigue pudiendo pedir otra empresa", () => {
+    traceCtx.current = { ...apiCtx, super: true };
+    const out = runHook({ where: { companyId: 99 } });
+    expect(out.where).toEqual({ companyId: 99 });
+  });
+});
+
 describe("modo observe — inventario", () => {
   const apiCtx = {
     origin: "http",
