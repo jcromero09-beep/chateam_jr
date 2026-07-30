@@ -132,9 +132,69 @@ líneas/día y llamadas a la API de Meta que cuentan para el rate limit — de h
 está también el `Application request limit reached`. Necesita backoff, o marcar la
 cuenta y dejar de intentar hasta que alguien la reactive.
 
-**C. `[unhandledRejection]` (nº 5).** Son las candidatas número uno a explicar los
-174 reinicios de `chateam-node` — un rechazo sin manejar puede tumbar el proceso.
-Conectar este punto con O2 del plan.
+**C. ✅ HECHO — `[unhandledRejection]` (nº 5), y la hipótesis era FALSA.**
+
+Los tenía por candidatos a explicar los 174 reinicios. **No lo son**, y de paso
+queda contestado el O2 del plan.
+
+### Los 174 reinicios no son inestabilidad
+
+Contado sobre el log entero:
+
+| | |
+|---|---|
+| arranques | 179 |
+| paradas limpias (`Graceful shutdown`) previas | **128** |
+| `uncaughtException` | **0** |
+| OOM / `FATAL ERROR` | **0** |
+
+72 % de los arranques van precedidos de una parada limpia, y **no hay un solo
+crash por excepción ni por memoria**. La distribución por día lo remata:
+
+```
+20-07  1     26-07  10
+22-07  1     27-07  15
+23-07  1     28-07   8
+24-07  1     29-07   1
+```
+
+Un reinicio al día en los días tranquilos; 8–15 en el 26, 27 y 28 — exactamente
+los días de trabajo intensivo sobre este repo.
+
+**Los reinicios no son un problema de estabilidad: son O1 manifestándose.** Como
+el árbol de desarrollo ES producción, cada cambio de código necesita un `pm2
+restart` para tomar efecto. Y cada reinicio tira las sesiones de Baileys — en el
+log se ve el coste inmediato: `Socket Romero Disconnected: Connection Failure`,
+`ERR_WAPP_RECONNECT_SCHEDULED`, conexiones que quedan en `qrcode`.
+
+Arreglar O1 (checkout de producción separado) elimina esta clase de reinicio.
+Perseguir "inestabilidad" no habría llevado a ningún sitio.
+
+### Los 38 rechazos sí eran un bug, y estaba en un solo sitio
+
+```
+32 × ERR_NO_USER_FOUND
+ 5 × Operation timeout
+ 1 × Connection Closed
+```
+
+Todos salen de `middleware/isAuth.ts:93`: `updateUser(userId, companyId)` llamado
+**fire-and-forget sin `.catch()`**. Disparar y olvidar está bien —marcar "online"
+no debe bloquear la request—, pero una promesa que se rechaza y nadie escucha es
+un `unhandledRejection`.
+
+`ShowUserService` filtra por `{ id, companyId }`, así que durante una
+impersonación —donde el userId puede no pertenecer a esa empresa— lanza
+`ERR_NO_USER_FOUND`; y bajo carga expira.
+
+Los tapaba la red de `process.on("unhandledRejection")` de
+`server-distributed.ts`, que existe precisamente para que esto no reinicie el
+backend. Pero **una red de seguridad no es el sitio donde manejar un error
+conocido.** Con el `.catch()` puesto, la red vuelve a ser lo que debe ser: la
+última línea, no la primera.
+
+Detalle que confirma que era un olvido y no una decisión: la llamada de la línea
+siguiente, `touchSessionLastSeen`, **sí** tiene su `.catch()`.
 
 **D. `[Watchdog] No alive nodes available for reassignment!` (nº 3).** 29 veces en
 3 días. O la topología multi-nodo no está bien configurada, o el watchdog no ve a

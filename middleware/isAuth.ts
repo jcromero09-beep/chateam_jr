@@ -7,6 +7,7 @@ import Session from "../models/Session";
 import { updateUser } from "../helpers/updateUser";
 import { buildMediaCookie, MEDIA_COOKIE } from "../helpers/mediaAuthCookie";
 import { updateTraceContext } from "../utils/traceContext";
+import logger from "../utils/logger";
 
 const { verify } = jwt;
 
@@ -90,7 +91,27 @@ const isAuth = async (
   }
 
   // Marcar al usuario como online (throttleado dentro de updateUser) sin esperar.
-  updateUser(userId, companyId);
+  //
+  // Fire-and-forget está bien aquí —no debe bloquear la request—, pero SIN CATCH
+  // no: una promesa que se rechaza y nadie escucha es un `unhandledRejection`.
+  // Eran los 38 del log de producción (32 × ERR_NO_USER_FOUND, 5 × timeout, 1 ×
+  // conexión cerrada). `ShowUserService` filtra por `{ id, companyId }`, así que
+  // durante una impersonación —donde el userId puede no pertenecer a esa
+  // empresa— lanza ERR_NO_USER_FOUND; y bajo carga puede expirar.
+  //
+  // Los tapaba la red de `process.on("unhandledRejection")` de
+  // server-distributed.ts, que existe justamente para que esto no reinicie el
+  // backend. Pero una red de seguridad no es el sitio donde manejar un error
+  // conocido: se maneja aquí, y la red vuelve a ser lo que debe ser — la última
+  // línea, no la primera.
+  //
+  // Marcar "online" es best-effort: si falla, la request sigue igual.
+  updateUser(userId, companyId).catch(err => {
+    logger.debug(
+      { err: { name: err?.name, message: err?.message }, userId, companyId },
+      "[isAuth] no se pudo marcar el usuario como online (best-effort)"
+    );
+  });
 
   // Throttle eficiente para lastSeenAt sin bloquear la request.
   touchSessionLastSeen(sid);

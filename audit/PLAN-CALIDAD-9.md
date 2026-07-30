@@ -67,7 +67,7 @@ Sube el techo de un eje y baja otro:
 | Deuda técnica | 6.5 | 9 | El monolito sigue en 6.862 L (las extracciones viven dentro). CI nunca ha estado verde. |
 | Realidad | 8.5 | 9.5 | Divergencias doc↔código conocidas y sin cerrar; bugs vivos en logs que nadie mira. |
 | Dinero | 7.5 | 9 | Auditado 29-07: el camino de créditos SÍ acredita y SÍ es idempotente (lock + transacción). Lo que falta es la race del camino de facturas, la conciliación, y una pila de billing sin cablear. |
-| Ops | 5 | 9 | **Sin frontera de despliegue.** Alertas que nadie recibe. 174 reinicios sin explicar. |
+| Ops | 5 | 9 | **Sin frontera de despliegue.** Alertas que nadie recibe. (Los 174 reinicios: explicados — son consecuencia de lo primero, no inestabilidad.) |
 
 El patrón: **casi ningún eje está limitado por código que falte escribir.** Están
 limitados por verificación ausente y por operación. Un plan que solo añada features no
@@ -95,9 +95,13 @@ Mínimo viable, en orden de coste creciente:
 **Verificación:** `pm2 jlist` muestra un `cwd` distinto del árbol de desarrollo, y editar
 un fichero en desarrollo no cambia el comportamiento de producción.
 
-### O2. Explicar los 174 reinicios
-`chateam-node` acumula 174 restarts. Puede ser despliegues manuales acumulados o un
-crash-loop histórico. Hasta saberlo, cualquier métrica de disponibilidad es ficción.
+### O2. ✅ CONTESTADO — los 174 reinicios no son inestabilidad
+179 arranques, **128 precedidos de parada limpia**, **0 uncaughtException**, **0 OOM**.
+Por día: 1 en los días tranquilos, 8–15 el 26/27/28 de julio — los días de trabajo
+intensivo. **Son O1 manifestándose**: como el árbol de desarrollo es producción, cada
+cambio necesita un `pm2 restart`, y cada reinicio tira las sesiones de Baileys.
+Arreglar O1 elimina esta clase de reinicio. Detalle en
+[`TRIAJE-LOGS-2026-07-30.md`](TRIAJE-LOGS-2026-07-30.md).
 
 **Verificación:** una causa documentada por cada pico de reinicios en `pm2 logs`.
 
