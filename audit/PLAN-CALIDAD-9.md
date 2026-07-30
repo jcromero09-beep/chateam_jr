@@ -326,10 +326,27 @@ el esquema inexistente, no la firma.
 Queda un aviso bloqueante en la cabecera de `routes/billingRoutes.ts`, porque el riesgo
 real es que *parece* montable.
 
-**Lo que sí vale la pena rescatar:** el webhook vivo NO maneja
-`customer.subscription.created/updated/deleted` ni `charge.dispute.created`. Esos
-huecos son reales. La forma correcta de cerrarlos es **portar esos handlers al webhook
-vivo**, contra la tabla `"Invoices"` real — no montar un endpoint rival.
+**Rescatado lo que valía (2026-07-30).** El webhook vivo no manejaba
+`customer.subscription.*` ni `charge.dispute.created`. Portados al webhook vivo **los
+dos que aportan algo**:
+
+- `customer.subscription.deleted` y `charge.dispute.created` → handlers propios que
+  identifican la empresa vía `Invoices.subscriptionId` / `Invoices.payment_intent` (el
+  enlace que el sistema vivo mantiene de verdad; el código muerto usaba
+  `subscription.metadata.company_id`, que este backend no siempre rellena).
+- `customer.subscription.created/updated` → **NO portados, a propósito.** Su única
+  acción era persistir en `CompanyBillings`, una tabla que existe en la BD pero está
+  **huérfana: 0 filas, 0 referencias en el código, sin migración que la cree**. Escribir
+  ahí no cierra un hueco: añade otro huérfano. Y el modelo muerto ni siquiera apunta
+  bien (declara `company_billing`, la tabla es `CompanyBillings`).
+
+Precisión sobre el tamaño del hueco: no era que esos eventos "no llegaran a nadie" —
+caían en el `default`, que imprime `⚠️ Evento no manejado: <tipo>`. Técnicamente
+visible, prácticamente inútil: un contracargo aparecía sin empresa, sin importe y sin
+motivo, indistinguible de cualquier otro evento sin manejar.
+
+Ninguno de los dos cambia estado. Suspender una empresa o revertir un cobro desde un
+webhook son decisiones de negocio, no deducciones de un refactor.
 
 **M3. Sin conciliación.** No hay job que compare lo que el proveedor dice que cobró
 contra lo acreditado. Un webhook perdido es dinero perdido en silencio. Es el requisito

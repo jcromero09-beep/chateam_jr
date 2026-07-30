@@ -10,6 +10,7 @@ import AppError from "../errors/AppError.js";
 import options from "../config/Gn.js";
 import Company from "../models/Company.js";
 import Invoices from "../models/Invoices.js";
+import logger from "../utils/logger.js";
 import { getIO } from "../libs/socket.js";
 import Setting from "../models/Setting.js";
 import User from "../models/User.js";
@@ -840,6 +841,18 @@ export const stripewebhook = async (
           await handleInvoicePaymentFailed(dataObject);
           break;
 
+        // Estos dos NO cambian estado: identifican la empresa y dejan un rastro
+        // accionable. Antes caían en el `default`, que imprime solo el nombre del
+        // evento — un contracargo quedaba como una línea anónima indistinguible
+        // de cualquier otro evento sin manejar. Ver los handlers.
+        case "customer.subscription.deleted":
+          await handleSubscriptionDeleted(dataObject);
+          break;
+
+        case "charge.dispute.created":
+          await handleChargeDisputeCreated(dataObject);
+          break;
+
         default:
           console.warn("⚠️ Evento no manejado:", eventType);
           break;
@@ -998,6 +1011,93 @@ async function handleInvoicePaid(dataObject: any) {
 
 }
 
+
+/**
+ * `customer.subscription.deleted` — la suscripción se canceló en Stripe.
+ *
+ * Pasa cuando el cliente cancela desde el portal de Stripe, cuando Stripe la da
+ * de baja tras agotar los reintentos de cobro, o cuando alguien la cancela desde
+ * el dashboard. Antes caía en el `default` y se imprimía solo el nombre del
+ * evento: nadie se enteraba de qué empresa dejó de pagar.
+ *
+ * **NO cambia estado a propósito.** Suspender una empresa desde un webhook es
+ * una decisión de negocio con impacto en ingresos y en el servicio de un cliente
+ * que quizá solo cambió de tarjeta — no algo que se deduzca en un refactor. Lo
+ * que hace es dejar el rastro accionable que faltaba: qué empresa, qué
+ * suscripción, y desde cuándo.
+ *
+ * La empresa se resuelve por `Invoices.subscriptionId`, que es el enlace que el
+ * sistema vivo mantiene de verdad. El código muerto de `StripeService` usaba
+ * `subscription.metadata.company_id`, que este backend no siempre rellena.
+ */
+async function handleSubscriptionDeleted(dataObject: any) {
+  const subscriptionId = dataObject?.id;
+
+  const invoice = subscriptionId
+    ? await Invoices.findOne({
+        where: { subscriptionId },
+        order: [["createdAt", "DESC"]]
+      })
+    : null;
+
+  logger.warn(
+    {
+      subscriptionId,
+      companyId: invoice?.companyId ?? null,
+      invoiceId: invoice?.id ?? null,
+      status: dataObject?.status,
+      canceledAt: dataObject?.canceled_at
+        ? new Date(dataObject.canceled_at * 1000).toISOString()
+        : null,
+      cancelReason: dataObject?.cancellation_details?.reason ?? null
+    },
+    invoice
+      ? `[Stripe] Suscripción CANCELADA para company ${invoice.companyId} — no se suspende nada automáticamente, requiere decisión`
+      : `[Stripe] Suscripción CANCELADA (${subscriptionId}) sin factura asociada — no se pudo identificar la empresa`
+  );
+}
+
+/**
+ * `charge.dispute.created` — contracargo: el cliente reclamó el cobro al banco.
+ *
+ * Es dinero que se va a retirar de la cuenta, con plazo para responder con
+ * pruebas. Antes esto llegaba al `default` y salía como
+ * `⚠️ Evento no manejado: charge.dispute.created`: sin empresa, sin importe y
+ * sin motivo, o sea sin nada con lo que actuar.
+ *
+ * Se loguea a `error` —no a warn— porque hay una pérdida real y un plazo. No se
+ * suspende ni se revierte nada automáticamente: responder a una disputa es
+ * trabajo humano con documentación.
+ */
+async function handleChargeDisputeCreated(dataObject: any) {
+  const paymentIntent = dataObject?.payment_intent;
+
+  const invoice = paymentIntent
+    ? await Invoices.findOne({
+        where: { payment_intent: paymentIntent },
+        order: [["createdAt", "DESC"]]
+      } as any)
+    : null;
+
+  logger.error(
+    {
+      disputeId: dataObject?.id,
+      chargeId: dataObject?.charge,
+      paymentIntent: paymentIntent ?? null,
+      companyId: invoice?.companyId ?? null,
+      invoiceId: invoice?.id ?? null,
+      amount: dataObject?.amount != null ? dataObject.amount / 100 : null,
+      currency: dataObject?.currency,
+      reason: dataObject?.reason,
+      status: dataObject?.status,
+      evidenceDueBy: dataObject?.evidence_details?.due_by
+        ? new Date(dataObject.evidence_details.due_by * 1000).toISOString()
+        : null
+    },
+    `[Stripe] CONTRACARGO abierto${invoice ? ` (company ${invoice.companyId})` : ""} — ` +
+      `hay que responder con pruebas antes de la fecha límite o el importe se pierde`
+  );
+}
 
 async function handleInvoicePaymentFailed(dataObject: any) {
   const stripeInvoiceId = dataObject.id;
