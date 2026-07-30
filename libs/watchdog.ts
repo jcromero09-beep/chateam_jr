@@ -3,6 +3,31 @@
  *
  * Corre solo en node-1 (el primario). Cada 30s escanea el registry
  * y verifica heartbeats. Si un nodo murió, reasigna sus sesiones.
+ *
+ * ## El nodo que corre el watchdog NUNCA puede estar muerto (arreglo 2026-07-30)
+ *
+ * El triaje de logs encontró **149 × `Node node-1 is DEAD`** seguidos de
+ * **29 × `No alive nodes available for reassignment!`**. El watchdog corre DENTRO
+ * de node-1: se estaba declarando muerto a sí mismo, intentando reasignar sus
+ * propias 19–22 sesiones vivas, y no encontrando destino porque la lista de
+ * vivos estaba vacía.
+ *
+ * La causa inmediata es que `getAliveNodes()` no encontraba
+ * `nodes:heartbeat:node-1` en Redis. Eso NO significa que el nodo esté caído: el
+ * proceso está ejecutando este mismo código. Significa que falló el heartbeat.
+ *
+ * Hoy esto era **ruidoso pero inerte**, porque solo hay un nodo y la
+ * reasignación abortaba por falta de destino. **El día que exista un node-2 deja
+ * de ser inerte**: una clave de heartbeat ausente un instante haría que node-1
+ * entregase sus sesiones de WhatsApp vivas a node-2, tirando conversaciones que
+ * funcionaban. Por eso se arregla ahora y no cuando duela.
+ *
+ * Qué NO está confirmado: por qué desaparece la clave. El heartbeat escribe cada
+ * 10 s con TTL 30 s y **no registró ni un solo error**, y los incidentes ocurren
+ * horas después del arranque (no es carrera de inicio). Las dos hipótesis vivas
+ * son el event loop bloqueado más de 30 s —plausible en un NAS de 4 núcleos que
+ * ya se satura— y el desalojo de la clave por política de memoria de Redis. Las
+ * dos son silenciosas. Distinguirlas necesita acceso al Redis de producción.
  */
 import { sessionRegistry } from "./sessionRegistry";
 import { getAliveNodes } from "./heartbeat";
@@ -22,11 +47,26 @@ export function startWatchdog(): void {
 
   const check = async () => {
     try {
+      const selfId = sessionRegistry.getNodeId();
       const aliveNodes = await getAliveNodes();
       const nodeCounts = await sessionRegistry.getNodeCounts();
       const allNodes = Object.keys(nodeCounts);
 
+      // Este proceso ESTÁ vivo: lo demuestra el hecho de estar ejecutando esto.
+      // Si su propia clave de heartbeat no está en Redis, el problema es del
+      // heartbeat, no del nodo — y confundir las dos cosas es lo que hacía que
+      // node-1 se declarase muerto a sí mismo 149 veces (ver más abajo).
+      if (!aliveNodes.includes(selfId)) {
+        logger.error(
+          `[Watchdog] El heartbeat de ${selfId} NO está en Redis, pero este proceso está vivo. ` +
+            `Es un fallo del heartbeat (clave expirada, event loop bloqueado >TTL, o desalojo de Redis), ` +
+            `no un nodo caído. NO se reasigna nada.`
+        );
+        aliveNodes.push(selfId);
+      }
+
       for (const nodeId of allNodes) {
+        if (nodeId === selfId) continue; // nunca reasignar las sesiones propias
         if (!aliveNodes.includes(nodeId)) {
           logger.warn(`[Watchdog] Node ${nodeId} is DEAD. Reassigning ${nodeCounts[nodeId]} sessions...`);
           await reassignOrphanSessions(nodeId, aliveNodes);

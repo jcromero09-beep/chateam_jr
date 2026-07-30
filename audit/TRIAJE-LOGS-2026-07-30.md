@@ -196,6 +196,49 @@ conocido.** Con el `.catch()` puesto, la red vuelve a ser lo que debe ser: la
 Detalle que confirma que era un olvido y no una decisión: la llamada de la línea
 siguiente, `touchSessionLastSeen`, **sí** tiene su `.catch()`.
 
-**D. `[Watchdog] No alive nodes available for reassignment!` (nº 3).** 29 veces en
-3 días. O la topología multi-nodo no está bien configurada, o el watchdog no ve a
-sus pares. Ninguna de las dos es buena.
+**D. ✅ HECHO — `[Watchdog] No alive nodes available` (nº 3), y era peor de lo que
+parecía.**
+
+No era "no ve a sus pares". Sobre el log entero:
+
+```
+149 ×  Node node-1 is DEAD. Reassigning 19..22 sessions...
+ 29 ×  No alive nodes available for reassignment!
+```
+
+**El watchdog corre DENTRO de node-1 y se estaba declarando muerto a sí mismo.**
+Acto seguido intentaba reasignar sus propias 19–22 sesiones de WhatsApp vivas, y
+abortaba porque la lista de nodos vivos estaba vacía. Cada 30 s mientras durase.
+
+### Por qué era ruido hoy y una bomba mañana
+
+Con un solo nodo, la reasignación aborta por falta de destino: molesto, inofensivo.
+**Con un node-2 presente deja de abortar**: una clave de heartbeat ausente un
+instante haría que node-1 entregase sus conversaciones en curso al otro nodo,
+tirando sesiones que funcionaban. Se arregla ahora, no cuando duela.
+
+### El arreglo
+
+El proceso que ejecuta el watchdog **está vivo por definición** — lo demuestra el
+hecho de estar ejecutando ese código. Ahora se excluye a sí mismo del chequeo, y
+si su propia clave falta lo reporta como lo que es: **un fallo del heartbeat**, no
+un nodo caído. Un nodo ajeno caído se sigue reasignando igual (hay test).
+
+### Lo que NO está confirmado: por qué desaparece la clave
+
+Descartado que sea carrera de arranque: los incidentes ocurren **horas** después
+del `[Heartbeat] Started` (13:59, 18:05, 18:24, 23:20…). Y el heartbeat **no
+registró ni un solo error** en todo el log.
+
+Escribe cada 10 s con TTL 30 s, así que hay 3× de margen. Quedan dos hipótesis, las
+dos silenciosas:
+
+1. **Event loop bloqueado más de 30 s.** El `setInterval` no dispara, la clave
+   expira y el heartbeat ni se entera. Plausible en un NAS de 4 núcleos que ya se
+   satura.
+2. **Desalojo de la clave por política de memoria de Redis.**
+
+Distinguirlas necesita acceso al Redis de producción (`maxmemory-policy`,
+`evicted_keys`), que no tengo desde aquí. El log nuevo del arreglo hace la
+distinción trivial la próxima vez que ocurra: dirá explícitamente que el proceso
+está vivo y que la clave falta.
