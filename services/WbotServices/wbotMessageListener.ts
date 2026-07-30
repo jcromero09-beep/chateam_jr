@@ -5285,6 +5285,250 @@ async function recordCampaignAttribution(
     // ================= Fin detección de campaña =================
 }
 
+/**
+ * Fase de rechazo de audio de handleMessageInner: si el contacto o el canal no
+ * aceptan notas de voz, responde con el texto de rechazo (el configurable de la
+ * conexión, o el genérico) citando el mensaje original, y lo persiste.
+ *
+ * La condición combina tres cosas y por eso vive en un IIFE: el override por
+ * conexión (`whatsapp.acceptAudio`, que puede ser null = sin override), el ajuste
+ * de empresa (`settings.acceptAudioMessageContact`) y la preferencia del contacto.
+ * Se movió tal cual: no se tocó esa precedencia.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 7 inputs, 0 outputs,
+ * 0 reasignaciones de locales externos y 0 `return` propios ⇒ movimiento VERBATIM.
+ *
+ * Se llama DENTRO del try de handleMessageInner: el manejo de errores no cambia.
+ */
+async function rejectAudioIfNotAccepted(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  ticket: any,
+  contact: any,
+  whatsapp: any,
+  settings: any,
+  ticketTraking: any
+): Promise<void> {
+    // Verificação se aceita audio do contato
+    if (
+      getTypeMessage(msg) === "audioMessage" &&
+      !msg.key.fromMe &&
+      (!ticket.isGroup || whatsapp.groupAsTicket === "enabled") &&
+      (() => {
+        const ow = (whatsapp as any)?.acceptAudio;
+        const channelOverride = ow === null || ow === undefined ? null : Boolean(ow);
+        const channelAcceptsAudio =
+          channelOverride !== null
+            ? channelOverride
+            : settings?.acceptAudioMessageContact !== "disabled";
+        return !contact?.acceptAudioMessage || !channelAcceptsAudio;
+      })()
+    ) {
+      const _customRejAudio = (((whatsapp as any)?.rejectAudioMessage) || "").trim();
+      const _defaultRejAudio = `\u200e*Asistente Virtual*:\nLamentablemente no podemos escuchar ni enviar audio a través de este canal de soporte, envíe un mensaje de *texto*.`;
+      const _rejAudioText = _customRejAudio ? `\u200e${_customRejAudio}` : _defaultRejAudio;
+      const sentMessage = await wbot.sendMessage(
+        `${contact.number}@c.us`,
+        {
+          text: _rejAudioText
+        },
+        {
+          quoted: {
+            key: msg.key,
+            message: {
+              extendedTextMessage: msg.message.extendedTextMessage
+            }
+          }
+        }
+      );
+      await verifyMessage(sentMessage, ticket, contact, ticketTraking);
+    }
+}
+
+/**
+ * Fase de vacaciones colectivas de handleMessageInner: si el entrante cae dentro
+ * de la ventana configurada en la conexión, persiste el mensaje y responde con el
+ * aviso de vacaciones, cortando el resto del flujo.
+ *
+ * Se mueve VERBATIM, incluido un bug de precedencia que NO se toca aquí: la
+ * condición es `!isNil(whatsapp.collectiveVacationMessage && !isGroup)` — el `&&`
+ * cae DENTRO del isNil, así que evalúa `isNil(<boolean>)`, que es siempre false, y
+ * el guard de grupo nunca se aplica. Corregirlo cambia comportamiento (los grupos
+ * empezarían a recibir el aviso o dejarían de recibirlo según el mensaje), así que
+ * es una decisión aparte, no parte de una extracción.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 8 inputs, 0 outputs,
+ * 0 reasignaciones. El único retipeo es el `return;` -> `return true;`.
+ *
+ * El try/catch que traga errores viaja con la región, así que el manejo de errores
+ * tampoco cambia.
+ */
+async function sendCollectiveVacationReply(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  ticket: any,
+  contact: any,
+  whatsapp: any,
+  ticketTraking: any,
+  hasMedia: boolean,
+  isGroup: boolean
+): Promise<boolean> {
+    try {
+      if (!msg.key.fromMe) {
+        //MENSAGEM DE FÉRIAS COLETIVAS
+
+
+        if (!isNil(whatsapp.collectiveVacationMessage && !isGroup)) {
+          const currentDate = moment();
+
+
+          if (
+            currentDate.isBetween(
+              moment(whatsapp.collectiveVacationStart),
+              moment(whatsapp.collectiveVacationEnd)
+            )
+          ) {
+
+            if (hasMedia) {
+
+              await verifyMediaMessage(
+                msg,
+                ticket,
+                contact,
+                ticketTraking,
+                false,
+                false,
+                wbot
+              );
+            } else {
+              await verifyMessage(msg, ticket, contact, ticketTraking);
+            }
+
+            wbot.sendMessage(contact.remoteJid, {
+              text: whatsapp.collectiveVacationMessage
+            });
+
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      Sentry.captureException(e);
+    }
+
+    return false;
+}
+
+/**
+ * Fase de edición de handleMessageInner: un `editedMessage` / `protocolMessage`
+ * no es un mensaje nuevo, es un UPDATE sobre uno ya persistido. Localiza el
+ * original (por wid, y si no aparece por el fallback de remoteJids + timestamp),
+ * le pone el body nuevo, deja rastro en dataJson.lastEdit y emite los dos eventos
+ * de socket.
+ *
+ * Devuelve `true` SIEMPRE que el mensaje era una edición —incluso cuando no se
+ * encontró el original o no había body—, porque los tres `return;` originales
+ * cortaban el flujo igual. Un mensaje de edición nunca continúa hacia ticket
+ * tracking, colas ni chatbot.
+ *
+ * OJO: dos de esos tres `return;` son inline (`if (cond) return;`), no líneas
+ * sueltas. Un extractor que solo mire líneas propias los deja sin convertir y la
+ * función cae al `return false;` final ⇒ el mensaje editado seguiría hacia el
+ * chatbot. El script lo asevera con un contador.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 4 inputs, 0 outputs,
+ * 0 reasignaciones de locales externos.
+ *
+ * El try/catch interno (que traga y reporta a Sentry) viaja con la región.
+ */
+async function applyMessageEdit(
+  msg: proto.IWebMessageInfo,
+  companyId: number,
+  ticket: any,
+  msgType: string
+): Promise<boolean> {
+    if (msgType === "editedMessage" || msgType === "protocolMessage") {
+      const msgKeyIdEdited = extractEditedOriginalWid(msg.key, msg.message);
+      const fallbackBodyEdited = findCaption(msg.message);
+      const bodyEdited = extractEditedBody(msg.message) ??
+        (typeof fallbackBodyEdited === "string" ? fallbackBodyEdited : null);
+
+
+      // // console.log("bodyEdited", bodyEdited)
+      const io = getIO();
+      try {
+        if (!msgKeyIdEdited || bodyEdited === null) return true;
+
+        let messageToUpdate = await Message.findOne({
+          where: {
+            wid: msgKeyIdEdited,
+            companyId,
+            ticketId: ticket.id
+          }
+        });
+
+        if (!messageToUpdate) {
+          const remoteJids = extractEditedRemoteJids(msg.key, msg.message);
+          const editedAt = extractEditedTimestamp(msg.message);
+
+          messageToUpdate = await findMessageEditFallback({
+            companyId,
+            ticketId: ticket.id,
+            remoteJids,
+            editedAt,
+            fromMe: Boolean(msg.key?.fromMe)
+          });
+
+          if (messageToUpdate) {
+            logWarn(
+              `[MessageEdit] upsert_fallback_match originalWid=${msgKeyIdEdited} messageId=${messageToUpdate.id} fromMe=${messageToUpdate.fromMe} remoteJids=${remoteJids.join(",")}`
+            );
+          }
+        }
+
+        if (!messageToUpdate) return true;
+
+        await messageToUpdate.update({
+          isEdited: true,
+          body: bodyEdited,
+          dataJson: mergeMessageDataJson(messageToUpdate.dataJson, {
+            lastEdit: {
+              source: "baileys.messages.upsert",
+              editedAt: new Date().toISOString(),
+              key: msg.key,
+              message: msg.message
+            }
+          })
+        });
+
+        await ticket.update({ lastMessage: bodyEdited });
+
+
+        io.of(String(companyId))
+          // .to(String(ticket.id))
+          .emit(`company-${companyId}-appMessage`, {
+            action: "update",
+            message: messageToUpdate
+          });
+
+        io.of(String(companyId))
+          // .to(ticket.status)
+          // .to("notification")
+          // .to(String(ticket.id))
+          .emit(`company-${companyId}-ticket`, {
+            action: "update",
+            ticket
+          });
+      } catch (err) {
+        Sentry.captureException(err);
+        logError(`Error handling message ack. Err: ${err}`);
+      }
+      return true;
+    }
+
+    return false;
+}
+
 async function handleMessageInner(
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -5366,82 +5610,7 @@ async function handleMessageInner(
 
     // // console.log(msg.message?.editedMessage)
     // // console.log(ticket)
-    if (msgType === "editedMessage" || msgType === "protocolMessage") {
-      const msgKeyIdEdited = extractEditedOriginalWid(msg.key, msg.message);
-      const fallbackBodyEdited = findCaption(msg.message);
-      const bodyEdited = extractEditedBody(msg.message) ??
-        (typeof fallbackBodyEdited === "string" ? fallbackBodyEdited : null);
-
-
-      // // console.log("bodyEdited", bodyEdited)
-      const io = getIO();
-      try {
-        if (!msgKeyIdEdited || bodyEdited === null) return;
-
-        let messageToUpdate = await Message.findOne({
-          where: {
-            wid: msgKeyIdEdited,
-            companyId,
-            ticketId: ticket.id
-          }
-        });
-
-        if (!messageToUpdate) {
-          const remoteJids = extractEditedRemoteJids(msg.key, msg.message);
-          const editedAt = extractEditedTimestamp(msg.message);
-
-          messageToUpdate = await findMessageEditFallback({
-            companyId,
-            ticketId: ticket.id,
-            remoteJids,
-            editedAt,
-            fromMe: Boolean(msg.key?.fromMe)
-          });
-
-          if (messageToUpdate) {
-            logWarn(
-              `[MessageEdit] upsert_fallback_match originalWid=${msgKeyIdEdited} messageId=${messageToUpdate.id} fromMe=${messageToUpdate.fromMe} remoteJids=${remoteJids.join(",")}`
-            );
-          }
-        }
-
-        if (!messageToUpdate) return;
-
-        await messageToUpdate.update({
-          isEdited: true,
-          body: bodyEdited,
-          dataJson: mergeMessageDataJson(messageToUpdate.dataJson, {
-            lastEdit: {
-              source: "baileys.messages.upsert",
-              editedAt: new Date().toISOString(),
-              key: msg.key,
-              message: msg.message
-            }
-          })
-        });
-
-        await ticket.update({ lastMessage: bodyEdited });
-
-
-        io.of(String(companyId))
-          // .to(String(ticket.id))
-          .emit(`company-${companyId}-appMessage`, {
-            action: "update",
-            message: messageToUpdate
-          });
-
-        io.of(String(companyId))
-          // .to(ticket.status)
-          // .to("notification")
-          // .to(String(ticket.id))
-          .emit(`company-${companyId}-ticket`, {
-            action: "update",
-            ticket
-          });
-      } catch (err) {
-        Sentry.captureException(err);
-        logError(`Error handling message ack. Err: ${err}`);
-      }
+    if (await applyMessageEdit(msg, companyId, ticket, msgType)) {
       return;
     }
 
@@ -5454,47 +5623,8 @@ async function handleMessageInner(
 
     const useLGPD = false;
 
-    try {
-      if (!msg.key.fromMe) {
-        //MENSAGEM DE FÉRIAS COLETIVAS
-
-
-        if (!isNil(whatsapp.collectiveVacationMessage && !isGroup)) {
-          const currentDate = moment();
-
-
-          if (
-            currentDate.isBetween(
-              moment(whatsapp.collectiveVacationStart),
-              moment(whatsapp.collectiveVacationEnd)
-            )
-          ) {
-
-            if (hasMedia) {
-
-              await verifyMediaMessage(
-                msg,
-                ticket,
-                contact,
-                ticketTraking,
-                false,
-                false,
-                wbot
-              );
-            } else {
-              await verifyMessage(msg, ticket, contact, ticketTraking);
-            }
-
-            wbot.sendMessage(contact.remoteJid, {
-              text: whatsapp.collectiveVacationMessage
-            });
-
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      Sentry.captureException(e);
+    if (await sendCollectiveVacationReply(msg, wbot, ticket, contact, whatsapp, ticketTraking, hasMedia, isGroup)) {
+      return;
     }
 
     let mediaSent = await persistIncomingMessage(msg, ticket, contact, ticketTraking, hasMedia, useLGPD, wbot);
@@ -5846,40 +5976,7 @@ async function handleMessageInner(
       });
     }
 
-    // Verificação se aceita audio do contato
-    if (
-      getTypeMessage(msg) === "audioMessage" &&
-      !msg.key.fromMe &&
-      (!ticket.isGroup || whatsapp.groupAsTicket === "enabled") &&
-      (() => {
-        const ow = (whatsapp as any)?.acceptAudio;
-        const channelOverride = ow === null || ow === undefined ? null : Boolean(ow);
-        const channelAcceptsAudio =
-          channelOverride !== null
-            ? channelOverride
-            : settings?.acceptAudioMessageContact !== "disabled";
-        return !contact?.acceptAudioMessage || !channelAcceptsAudio;
-      })()
-    ) {
-      const _customRejAudio = (((whatsapp as any)?.rejectAudioMessage) || "").trim();
-      const _defaultRejAudio = `\u200e*Asistente Virtual*:\nLamentablemente no podemos escuchar ni enviar audio a través de este canal de soporte, envíe un mensaje de *texto*.`;
-      const _rejAudioText = _customRejAudio ? `\u200e${_customRejAudio}` : _defaultRejAudio;
-      const sentMessage = await wbot.sendMessage(
-        `${contact.number}@c.us`,
-        {
-          text: _rejAudioText
-        },
-        {
-          quoted: {
-            key: msg.key,
-            message: {
-              extendedTextMessage: msg.message.extendedTextMessage
-            }
-          }
-        }
-      );
-      await verifyMessage(sentMessage, ticket, contact, ticketTraking);
-    }
+    await rejectAudioIfNotAccepted(msg, wbot, ticket, contact, whatsapp, settings, ticketTraking);
 
     try {
       if (
