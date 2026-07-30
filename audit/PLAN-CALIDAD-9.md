@@ -296,13 +296,40 @@ a diferencia del de créditos. Dos reintentos concurrentes de Stripe pueden leer
 "no pagada". Ventana estrecha, consecuencia cara. Se cierra con el mismo patrón que ya
 usa el camino de créditos, o con una constraint única.
 
-**M2. Pila de billing entera SIN CABLEAR.** `routes/billingRoutes.ts` **no se monta en
-ningún sitio**: nadie importa ese router. Con él quedan muertos `BillingController` y
-`services/StripeService.ts` (577 L), incluido su `processWebhook` —que, a diferencia del
-vivo, **no valida firma**: delega en `stripeService.processWebhook` sin el
-fail-closed—. Es código que *parece* una superficie de pago probada y no lo es. Alguien
-que monte ese router en el futuro estaría abriendo un webhook de pago sin verificar.
-Decidir: cuarentena o borrado.
+**M2. Pila de billing: NUNCA ha funcionado. No montar.** *(auditado a fondo 2026-07-30)*
+
+JC decidió "cablearla y auditarla". **La auditoría revirtió la premisa**: no es código
+que funcione y esté desmontado, es una implementación paralela escrita contra un
+esquema que nunca se creó.
+
+| | |
+|---|---|
+| `models/Invoice.ts` → tabla `invoices` (minúscula) | **no existe en la BD** |
+| ese modelo en `sequelize.addModels()` | **no está registrado** |
+| `subscriptions`, `payment_methods`, `usage_records`, `billing_events` | **no existen** |
+
+Postgres distingue mayúsculas en identificadores citados: la tabla real es `"Invoices"`
+y la usa `models/Invoices.ts`, otro modelo distinto. `StripeService` llama a
+`Invoice.upsert()` sobre un modelo sin inicializar contra una tabla ausente.
+
+Y si se montara, chocaría con el webhook vivo: los dos manejan
+`invoice.payment_succeeded`, los dos provisionan créditos IA, y **desduplican contra
+tablas distintas** — la idempotencia de uno no protege al otro. Hoy no se manifiesta
+solo porque este lado revienta antes de acreditar; depender de que un bug tape a otro
+no es una salvaguarda. Además `handleWebhook` pasa el body ya parseado a
+`constructEvent` y la ruta no está en `RAW_BODY_PATHS`: rechazaría el 100% del tráfico.
+
+**Dos correcciones a lo que yo mismo escribí antes:** (a) su `processWebhook` SÍ valida
+firma (`stripe.webhooks.constructEvent`) — lo dije al revés; (b) lo que lo invalida es
+el esquema inexistente, no la firma.
+
+Queda un aviso bloqueante en la cabecera de `routes/billingRoutes.ts`, porque el riesgo
+real es que *parece* montable.
+
+**Lo que sí vale la pena rescatar:** el webhook vivo NO maneja
+`customer.subscription.created/updated/deleted` ni `charge.dispute.created`. Esos
+huecos son reales. La forma correcta de cerrarlos es **portar esos handlers al webhook
+vivo**, contra la tabla `"Invoices"` real — no montar un endpoint rival.
 
 **M3. Sin conciliación.** No hay job que compare lo que el proveedor dice que cobró
 contra lo acreditado. Un webhook perdido es dinero perdido en silencio. Es el requisito
