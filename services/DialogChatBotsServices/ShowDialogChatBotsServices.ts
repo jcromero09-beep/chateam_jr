@@ -13,13 +13,17 @@ import DialogChatBots from "../../models/DialogChatBots";
  * instancia explotable. Pero un `ShowDialogChatBotsServices(req.params.contactId)`
  * nuevo sí lo sería, y nada lo detendría.
  *
- * `companyId` es opcional para no romper a nadie, pero **pásalo siempre que lo
- * tengas**: el tenant se hereda del contacto vía un INNER JOIN, así que no cuesta
- * una consulta extra — sigue siendo una sola query.
+ * `companyId` es OBLIGATORIO desde 2026-07-29. Era opcional para no romper a
+ * nadie al introducirlo, pero eso dejaba la puerta abierta: un llamador nuevo
+ * podía omitirlo y nadie se enteraba. Obligarlo convierte un default seguro en
+ * una imposibilidad estructural — el compilador no deja llamar sin tenant.
+ *
+ * No cuesta una consulta extra: el tenant se hereda del contacto vía INNER JOIN,
+ * sigue siendo una sola query.
  */
 const ShowDialogChatBotsServices = async (
   contactId: number | string,
-  companyId?: number
+  companyId: number
 ): Promise<DialogChatBots | void> => {
   const dialog = await DialogChatBots.findOne({
     where: {
@@ -32,17 +36,13 @@ const ShowDialogChatBotsServices = async (
         order: [[{ model: Chatbot, as: "chatbots" }, "id", "ASC"]]
       },
       // INNER JOIN contra el contacto de esa empresa: si el contacto es de otra,
-      // no hay fila. Solo se añade cuando el llamador sabe la empresa.
-      ...(companyId != null
-        ? [
-            {
-              model: Contact,
-              attributes: [] as string[],
-              required: true,
-              where: { companyId }
-            }
-          ]
-        : [])
+      // no hay fila.
+      {
+        model: Contact,
+        attributes: [] as string[],
+        required: true,
+        where: { companyId }
+      }
     ]
   });
 

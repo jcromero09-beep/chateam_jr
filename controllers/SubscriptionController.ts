@@ -27,7 +27,7 @@ import ApplePurchase from "../models/ApplePurchase.js";
 import ProvisionCreditsService from "../services/AICreditServices/ProvisionCreditsService";
 import { getPayPalClient } from "../services/PaypalService/paypalConfig.js";
 import { getPaypalAccessToken, getPaypalBaseUrl } from "../services/PaymentSync/PaypalProductService.js";
-import { processPaidPlanPayment } from "../services/SubscriptionService/PlanPaymentService.js";
+import { processPaidPlanPayment, claimInvoiceForPayment } from "../services/SubscriptionService/PlanPaymentService.js";
 // const app = express();
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
@@ -887,7 +887,10 @@ async function handleCheckoutCompleted(dataObject: any) {
     return;
   }
 
-  if (invoice.status === "paid") {
+  // Reclamo ATÓMICO. El `if (status === "paid") return` de antes era read-then-write:
+  // dos reintentos concurrentes de Stripe leían ambos "no pagada" y ambos
+  // procesaban → créditos y extensión de suscripción por duplicado.
+  if (!(await claimInvoiceForPayment(invoice.id))) {
     console.log(`✅ Factura ${invoice.id} ya procesada para checkout ${stripeId}`);
     return;
   }
@@ -958,6 +961,26 @@ async function handleInvoicePaid(dataObject: any) {
     } as any);
     console.log(`✅ Factura inicial de suscripción ya pagada: ${invoice.id}`);
     return;
+  }
+
+  // Reclamo ATÓMICO — solo en el camino de la factura INICIAL.
+  //
+  // Ahí `createNewInvoice` es false: se ACTUALIZA la factura encontrada, así que
+  // bloquear esa fila y marcarla pagada es exactamente el reclamo correcto.
+  //
+  // ⚠️ En la RENOVACIÓN (`createNewInvoice: true`) NO aplica: la factura
+  // encontrada es la del ciclo anterior y sirve de plantilla — bloquearla no
+  // impediría que dos webhooks concurrentes CREEN dos facturas nuevas para el
+  // mismo `stripeInvoiceId`. Ahí el guard sigue siendo el read-then-write de
+  // `alreadyCreatedInvoice` de más arriba, y la race sigue abierta. Cerrarla
+  // necesita otra herramienta (índice UNIQUE sobre `stripe_id`, o un
+  // findOrCreate atómico), no un lock de fila. Queda anotado en el plan como
+  // pendiente, NO se finge arreglado.
+  if (isInitialSubscriptionInvoice) {
+    if (!(await claimInvoiceForPayment(invoice.id))) {
+      console.log(`✅ Factura ${invoice.id} ya reclamada para ${stripeInvoiceId}`);
+      return;
+    }
   }
 
   await processPaidPlanPayment({

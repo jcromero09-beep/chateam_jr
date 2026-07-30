@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 
 import AppError from "../errors/AppError";
 import Whatsapp from "../models/Whatsapp";
+import logger from "../utils/logger";
 import { updateTraceContext } from "../utils/traceContext";
 
 /**
@@ -25,6 +26,58 @@ const normalizeRoute = (req: Request): string => {
     })
     .join("/");
   return `${req.method} ${path}`;
+};
+
+/**
+ * Contador de tráfico de la superficie `api`.
+ *
+ * ## Por qué hace falta
+ *
+ * El guard de tenant lleva esta superficie en modo `observe` y en 22 h de
+ * producción no registró **ni una** query sin filtrar. Ese resultado es
+ * **ambiguo**: puede significar "todo lo que pasó ya venía scopeado" o "no pasó
+ * nada". No hay log de acceso HTTP que lo distinga, y de esa distinción depende
+ * si tiene sentido pasar `TENANT_SCOPE_GUARD_API` a `enforce`:
+ *
+ *   - Tráfico > 0 y 0 hallazgos  → la superficie está limpia, enforce es seguro.
+ *   - Tráfico = 0                → no se ha probado nada; enforce es un salto a
+ *                                  ciegas sobre endpoints que quizá nadie usa.
+ *
+ * Se cuenta en memoria y se vuelca cada `API_SURFACE_SUMMARY_MS` (default 10
+ * min) solo si hubo tráfico, igual que el inventario de helpers/tenantScope: un
+ * log por request en `/api/send` sería un incidente de logs por sí mismo.
+ */
+const API_SURFACE_SUMMARY_MS = Number(
+  process.env.API_SURFACE_SUMMARY_MS || 10 * 60 * 1000
+);
+
+const apiSurfaceHits = new Map<string, number>();
+let apiSurfaceTimer: NodeJS.Timeout | undefined;
+
+/** Tráfico acumulado por ruta, de más a menos. Para tests y diagnóstico. */
+export const getApiSurfaceHits = (): Array<{ route: string; count: number }> =>
+  [...apiSurfaceHits.entries()]
+    .map(([route, count]) => ({ route, count }))
+    .sort((a, b) => b.count - a.count);
+
+export const resetApiSurfaceHits = (): void => {
+  apiSurfaceHits.clear();
+};
+
+const recordApiSurfaceRequest = (route: string): void => {
+  apiSurfaceHits.set(route, (apiSurfaceHits.get(route) || 0) + 1);
+
+  if (apiSurfaceTimer) return;
+  apiSurfaceTimer = setInterval(() => {
+    const hits = getApiSurfaceHits();
+    if (!hits.length) return;
+    logger.info(
+      { total: hits.reduce((n, h) => n + h.count, 0), routes: hits },
+      "[apiSurface] tráfico por la API pública (tokenAuth) — contexto para el guard de tenant"
+    );
+  }, API_SURFACE_SUMMARY_MS);
+  // unref: este contador nunca debe mantener el proceso vivo.
+  apiSurfaceTimer.unref?.();
 };
 
 const isAuthApi = async (
@@ -64,10 +117,12 @@ const isAuthApi = async (
   // que cada servicio filtrase a mano. Arranca en modo 'observe' para esta
   // superficie (ver TENANT_SCOPE_GUARD_API en helpers/tenantScope).
   if (whatsapp?.companyId != null) {
+    const route = normalizeRoute(req);
+    recordApiSurfaceRequest(route);
     updateTraceContext({
       companyId: whatsapp.companyId,
       tenantSurface: "api",
-      tenantRoute: normalizeRoute(req)
+      tenantRoute: route
     });
   }
 

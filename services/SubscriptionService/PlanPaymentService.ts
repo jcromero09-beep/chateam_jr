@@ -179,3 +179,79 @@ export const processPaidPlanPayment = async ({
 
   return { invoice: paidInvoice, company };
 };
+
+/**
+ * Reclama una factura para procesar su pago, de forma ATÓMICA.
+ *
+ * ## El problema que cierra
+ *
+ * Los handlers de webhook de Stripe desduplicaban así:
+ *
+ *   const invoice = await Invoices.findOne({ where: { stripe_id } });
+ *   if (invoice.status === "paid") return;      // lee
+ *   await processPaidPlanPayment({ invoice });  // escribe
+ *
+ * Eso es un *read-then-write* sin lock. Stripe reintenta ante cualquier no-2xx y
+ * puede solapar entregas: **dos webhooks concurrentes leen los dos "no pagada" y
+ * los dos procesan**. Y procesar dos veces no es cosmético — `processPaidPlanPayment`
+ * llama a `ProvisionCreditsService` y a `updateDueDateByCompanyId`, o sea, dobla
+ * créditos y dobla la extensión de la suscripción.
+ *
+ * El camino de créditos (`processSubplanPurchase`) ya lo resolvía bien con
+ * transacción + `SELECT … FOR UPDATE`. Esto lleva el MISMO patrón al camino de
+ * facturas, para que haya una sola forma de hacerlo en todo el código de dinero.
+ *
+ * ## Por qué la transacción es corta
+ *
+ * Solo cubre bloquear → comprobar → marcar. El trabajo lento de
+ * `processPaidPlanPayment` (provisión de créditos, emails, eventos de Facebook,
+ * reinicio de sesiones) queda FUERA: sostener un lock de fila mientras se manda
+ * un email es cómo se construye un atasco en la base de datos.
+ *
+ * ## Semántica de fallo
+ *
+ * Se marca `paid` antes de provisionar créditos. Si la provisión falla después,
+ * queda una factura pagada sin créditos. **Eso ya pasaba antes** —
+ * `processPaidPlanPayment` actualiza la factura y luego provisiona dentro de un
+ * try/catch que se traga el error— así que este cambio no introduce un modo de
+ * fallo nuevo. Lo que sí evita es el doble cobro de créditos, que es peor.
+ *
+ * @returns `true` si esta llamada ganó la reclamación y debe procesar.
+ *          `false` si otra la ganó (ya está pagada) → el caller debe salir SIN
+ *          efectos secundarios.
+ */
+export const claimInvoiceForPayment = async (
+  invoiceId: number
+): Promise<boolean> => {
+  const sequelize = Invoices.sequelize;
+  if (!sequelize) {
+    throw new Error("Invoices no está asociada a una instancia de Sequelize");
+  }
+
+  const transaction = await sequelize.transaction();
+  try {
+    const invoice = await Invoices.findByPk(invoiceId, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!invoice) {
+      await transaction.commit();
+      console.warn(`[claimInvoice] Factura ${invoiceId} no encontrada`);
+      return false;
+    }
+
+    if (invoice.status === "paid") {
+      await transaction.commit();
+      console.log(`[claimInvoice] Factura ${invoiceId} ya estaba pagada — se descarta`);
+      return false;
+    }
+
+    await invoice.update({ status: "paid" } as any, { transaction });
+    await transaction.commit();
+    return true;
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+};
