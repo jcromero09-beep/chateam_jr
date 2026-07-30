@@ -5529,6 +5529,123 @@ async function applyMessageEdit(
     return false;
 }
 
+/**
+ * Salida de la fase de FlowBuilder. `isMenu` NO es un detalle interno: lo
+ * consume dispatchIntegration aguas abajo, y por eso esta fase —la única de las
+ * cuatro— devuelve un objeto en vez de un booleano.
+ */
+interface FlowQuestionOutcome {
+  /** El nodo `question` consumió el mensaje ⇒ handleMessageInner debe terminar. */
+  handled: boolean;
+  /** El nodo actual del flow detenido es de tipo `menu`. */
+  isMenu: boolean;
+}
+
+/**
+ * Fase de FlowBuilder de handleMessageInner: mira en qué nodo quedó detenido el
+ * flujo del ticket (`ticket.flowStopped` + `ticket.lastFlowId`) y, si es un nodo
+ * `question`, toma el cuerpo del mensaje como respuesta, lo guarda en
+ * `dataWebhook.variables[answerKey]`, avanza al siguiente nodo y dispara
+ * ActionsWebhookService.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 4 inputs, 1 output
+ * (`isMenu`) y 0 reasignaciones de locales externos. `body` aparece en un grep
+ * ingenuo como si saliera, pero son DOS `const body` de bloques hermanos —el de
+ * aquí y el del bloque de fuera-de-expediente— y el tool los marca AMBIGUOS por
+ * eso mismo. El de esta región muere dentro de su `if`.
+ *
+ * `isOpenai` e `isQuestion` se calculan y no salen: sus únicos consumidores
+ * externos están dentro de bloques comentados (IA legacy, reemplazada por
+ * SupervisorAI).
+ *
+ * Se llama DENTRO del try de handleMessageInner: el manejo de errores no cambia.
+ */
+async function handleFlowBuilderQuestion(
+  msg: proto.IWebMessageInfo,
+  ticket: any,
+  contact: any,
+  whatsapp: any
+): Promise<FlowQuestionOutcome> {
+    const flow = await FlowBuilderModel.findOne({
+      where: { id: ticket.flowStopped, active: true }
+    });
+
+    let isMenu = false;
+    let isOpenai = false;
+    let isQuestion = false;
+
+    if (flow) {
+      isMenu =
+        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
+          ?.type === "menu";
+      isOpenai =
+        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
+          ?.type === "openai";
+      isQuestion =
+        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
+          ?.type === "question";
+    }
+
+    if (!isNil(flow) && isQuestion && !msg.key.fromMe) {
+       console.log(
+        "|============= QUESTION =============|",
+        JSON.stringify(flow, null, 4)
+      );
+      const body = getBodyMessage(msg);
+      if (body) {
+        const nodes: INodes[] = flow.flow["nodes"];
+        const nodeSelected = flow.flow["nodes"].find(
+          (node: any) => node.id === ticket.lastFlowId
+        );
+
+        const connections: IConnections[] = flow.flow["connections"];
+
+        const { message, answerKey } = nodeSelected.data.typebotIntegration;
+        const oldDataWebhook = ticket.dataWebhook;
+
+        const nodeIndex = nodes.findIndex(node => node.id === nodeSelected.id);
+
+        const lastFlowId = String(nodes[nodeIndex + 1].id);
+         await ticket.update({
+          lastFlowId: lastFlowId,
+          dataWebhook: {
+            variables: {
+              [answerKey]: body
+            }
+          }
+        });
+
+        await ticket.save();
+
+        const mountDataContact = {
+          number: contact.number,
+          name: contact.name,
+          email: contact.email
+        };
+        console.log('ActionsWebhookService', 7)
+        await ActionsWebhookService(
+          whatsapp.id,
+          parseInt(ticket.flowStopped),
+          ticket.companyId,
+          nodes,
+          connections,
+          String(lastFlowId),
+          null,
+          "",
+          "",
+          "",
+          ticket.id,
+          mountDataContact,
+          msg
+        );
+      }
+
+      return { handled: true, isMenu };
+    }
+
+    return { handled: false, isMenu };
+}
+
 async function handleMessageInner(
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -5742,82 +5859,9 @@ async function handleMessageInner(
 
    
 
-    const flow = await FlowBuilderModel.findOne({
-      where: { id: ticket.flowStopped, active: true }
-    });
-
-    let isMenu = false;
-    let isOpenai = false;
-    let isQuestion = false;
-
-    if (flow) {
-      isMenu =
-        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
-          ?.type === "menu";
-      isOpenai =
-        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
-          ?.type === "openai";
-      isQuestion =
-        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
-          ?.type === "question";
-    }
-
-    if (!isNil(flow) && isQuestion && !msg.key.fromMe) {
-       console.log(
-        "|============= QUESTION =============|",
-        JSON.stringify(flow, null, 4)
-      );
-      const body = getBodyMessage(msg);
-      if (body) {
-        const nodes: INodes[] = flow.flow["nodes"];
-        const nodeSelected = flow.flow["nodes"].find(
-          (node: any) => node.id === ticket.lastFlowId
-        );
-
-        const connections: IConnections[] = flow.flow["connections"];
-
-        const { message, answerKey } = nodeSelected.data.typebotIntegration;
-        const oldDataWebhook = ticket.dataWebhook;
-
-        const nodeIndex = nodes.findIndex(node => node.id === nodeSelected.id);
-
-        const lastFlowId = String(nodes[nodeIndex + 1].id);
-         await ticket.update({
-          lastFlowId: lastFlowId,
-          dataWebhook: {
-            variables: {
-              [answerKey]: body
-            }
-          }
-        });
-
-        await ticket.save();
-
-        const mountDataContact = {
-          number: contact.number,
-          name: contact.name,
-          email: contact.email
-        };
-        console.log('ActionsWebhookService', 7)
-        await ActionsWebhookService(
-          whatsapp.id,
-          parseInt(ticket.flowStopped),
-          ticket.companyId,
-          nodes,
-          connections,
-          String(lastFlowId),
-          null,
-          "",
-          "",
-          "",
-          ticket.id,
-          mountDataContact,
-          msg
-        );
-      }
-
-      return;
-    }
+    const { handled: flowQuestionHandled, isMenu } =
+      await handleFlowBuilderQuestion(msg, ticket, contact, whatsapp);
+    if (flowQuestionHandled) return;
 
     /* COMENTADO: IA Legacy con Typebot - Reemplazado por SupervisorAI
     if (isOpenai && !isNil(flow) && !ticket.queue) {
