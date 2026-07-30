@@ -62,11 +62,11 @@ Sube el techo de un eje y baja otro:
 
 | Eje | Hoy | Meta | Qué lo tapa HOY (no lo que falta construir) |
 |---|---|---|---|
-| Seguridad transversal | 7.5 | 9 | Firma de Meta y manifiesto de MercadoPago correctos **por construcción**, no por observación. Tokens globales compartidos sin abordar. |
+| Seguridad transversal | 7.5 | 9 | Firma de Meta correcta **por construcción**, no por observación. Tokens globales compartidos sin abordar. (MercadoPago retirado: ya no cuenta.) |
 | Aislamiento multi-tenant | 8.5 | 9.5 | G1 en `observe`. Todo el análisis es **estático**: no existe una prueba que intente cruzar tenants y falle. |
 | Deuda técnica | 6.5 | 9 | El monolito sigue en 6.862 L (las extracciones viven dentro). CI nunca ha estado verde. |
 | Realidad | 8.5 | 9.5 | Divergencias doc↔código conocidas y sin cerrar; bugs vivos en logs que nadie mira. |
-| Dinero | 7.5 | 9 | Nada acredita. La idempotencia es un contrato sin consumidor. |
+| Dinero | 7.5 | 9 | Auditado 29-07: el camino de créditos SÍ acredita y SÍ es idempotente (lock + transacción). Lo que falta es la race del camino de facturas, la conciliación, y una pila de billing sin cablear. |
 | Ops | 5 | 9 | **Sin frontera de despliegue.** Alertas que nadie recibe. 174 reinicios sin explicar. |
 
 El patrón: **casi ningún eje está limitado por código que falte escribir.** Están
@@ -84,8 +84,11 @@ Hoy editar un `.ts` y reiniciar es desplegar. No hay rollback que no sea `git`, 
 de probar antes, ni protección contra un guardado accidental.
 
 Mínimo viable, en orden de coste creciente:
-1. **Checkout separado para producción** (`/opt/chateam` o similar) + PM2 apuntando ahí.
-   El árbol de desarrollo deja de ser producción. Coste: bajo. Impacto: máximo.
+1. **Checkout separado para producción** (`/opt/chateam`) + PM2 apuntando ahí. El árbol
+   de desarrollo deja de ser producción. Coste: bajo. Impacto: máximo.
+   **Decidido por JC (2026-07-29). Runbook completo, con rollback y la trampa de la
+   sesión de Baileys: [`RUNBOOK-frontera-produccion.md`](RUNBOOK-frontera-produccion.md).**
+   Lo ejecuta JC en ventana: implica reiniciar sesiones vivas de Baileys.
 2. **Deploy = `git pull` + `pm2 reload`** en ese checkout, con el commit fijado por tag.
 3. Staging con la `docker-compose.staging.yml` que ya existe sin usar.
 
@@ -172,10 +175,10 @@ fallo que el handoff advertía.
 **Verificación:** un contador de `accepted`/`rejected` por proveedor en el log de
 arranque diario, y `rejected == 0` con tráfico > 0.
 
-### S2. Confirmar el manifiesto de MercadoPago
-Sigue saliendo de la documentación, no de un webhook recibido. Si está mal, se rechaza
-el 100 % del tráfico legítimo. **Un webhook de prueba desde el panel lo cierra en 30
-segundos.** Es el ítem de mejor relación valor/coste de todo el plan.
+### S2. ~~Manifiesto de MercadoPago~~ — RETIRADO
+MercadoPago no es una vía real (decisión de JC). Rutas desmontadas el 29-07. El riesgo
+del manifiesto sin verificar queda anotado **dentro del comentario del mount**, para
+quien algún día lo reactive.
 
 ### S3. Los tokens globales compartidos — el hueco no abordado
 `isAuthCompany` y `envTokenAuth` autentican con `COMPANY_TOKEN` y `ENV_TOKEN`: tokens
@@ -260,24 +263,51 @@ aplica igual a la documentación: **una cifra escrita no es una medición**.
 
 ---
 
-## 7. Vía DINERO (7.5 → 9)
+## 7. Vía DINERO (7.5 → 9) — reescrita tras la auditoría
 
-### M1. Cablear la acreditación
-`processWebhook` ya devuelve `creditable`. Falta el consumidor: acreditar saldo cuando
-`creditable === true` y el estado sea terminal (`approved` / `paid`). El contrato está
-puesto **antes** que el consumidor, que era el objetivo.
+> Las vías reales son **PayPal y Stripe** (decisión de JC, 2026-07-29). CoinGate y
+> MercadoPago quedan fuera. Esta sección se reescribió entera después de auditar
+> Stripe: el estado es **bastante mejor** de lo que suponía la primera versión.
 
-### M2. Unificar PayPal
-`AISubplanPurchaseController` tiene su propio patrón de idempotencia
-(`findProcessedPaypalSubplanPurchase`), distinto del de CoinGate/MercadoPago. Dos
-mecanismos para el mismo problema es un bug esperando turno.
+### Lo que ya está bien (auditado, no supuesto)
 
-### M3. Conciliación proveedor ↔ ledger
-Job diario que compara lo que el proveedor dice que cobró contra lo acreditado. Sin
-esto, un fallo de webhook es dinero perdido en silencio. **Requisito antes de facturar
-de verdad**, igual que la idempotencia lo era antes de acreditar.
+- **Un solo webhook de Stripe vivo**: `POST /subscription/stripewebhook`. Valida HMAC
+  **fail-closed en las cuatro rutas de fallo** (sin secret, sin clave, sin cabecera de
+  firma, firma inválida → 400, nunca procesa). Soporta varios signing secrets separados
+  por coma, o sea rotación sin corte. El raw body está bien cableado en `app.ts` (parser
+  `raw` antes del JSON global **y** `/stripewebhook` en `RAW_BODY_PATHS`).
+- **La acreditación de créditos SÍ es idempotente, y bien**: `processSubplanPurchase`
+  abre transacción, hace `SELECT … FOR UPDATE` sobre la company —lo que serializa dos
+  confirmaciones del mismo pago en paralelo— y comprueba `AiTokenTransaction` por
+  `stripeSessionId`/`stripeSubscriptionId` antes de sumar.
+- **PayPal y Stripe ya comparten ese mecanismo.** La primera versión de este plan decía
+  "PayPal tiene su propio patrón, hay que unificarlos": **era incorrecto**. Los dos
+  desembocan en `processSubplanPurchase`.
 
----
+### Lo que falta
+
+**M1. La race del camino de facturas.** El path de planes/invoices desduplica por
+estado (`if (invoice.status === "paid") return`), que es *read-then-write* sin lock —
+a diferencia del de créditos. Dos reintentos concurrentes de Stripe pueden leer los dos
+"no pagada". Ventana estrecha, consecuencia cara. Se cierra con el mismo patrón que ya
+usa el camino de créditos, o con una constraint única.
+
+**M2. Pila de billing entera SIN CABLEAR.** `routes/billingRoutes.ts` **no se monta en
+ningún sitio**: nadie importa ese router. Con él quedan muertos `BillingController` y
+`services/StripeService.ts` (577 L), incluido su `processWebhook` —que, a diferencia del
+vivo, **no valida firma**: delega en `stripeService.processWebhook` sin el
+fail-closed—. Es código que *parece* una superficie de pago probada y no lo es. Alguien
+que monte ese router en el futuro estaría abriendo un webhook de pago sin verificar.
+Decidir: cuarentena o borrado.
+
+**M3. Sin conciliación.** No hay job que compare lo que el proveedor dice que cobró
+contra lo acreditado. Un webhook perdido es dinero perdido en silencio. Es el requisito
+que sigue al de idempotencia, igual que la idempotencia lo era antes de acreditar.
+
+**M4. Rieles retirados.** CoinGate y MercadoPago desmontados el 2026-07-29 (código en el
+repo, cableado comentado). La idempotencia que se construyó para ellos vive en
+`helpers/paymentWebhookIdempotency` y es agnóstica de proveedor: **es la pieza que
+resuelve M1** si se decide llevar el camino de facturas al ledger.
 
 ## 8. Orden de ejecución
 

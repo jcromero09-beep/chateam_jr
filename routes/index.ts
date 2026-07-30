@@ -225,7 +225,8 @@ import aiEmailTemplateRoutes from "./aiEmailTemplateRoutes";
 
 import aiTeamRoutes from "./aiTeamRoutes";
 
-import aiMercadoPagoRoutes from "./aiMercadoPagoRoutes";
+// MercadoPago RETIRADO 2026-07-29 — ver el comentario del mount más abajo.
+// import aiMercadoPagoRoutes from "./aiMercadoPagoRoutes";
 import aiCorrectionRoutes from "./aiCorrectionRoutes";
 // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones
 import aiCorrectionReviewRoutes from "./aiCorrectionReviewRoutes";
@@ -461,7 +462,24 @@ routes.use(aiHeygenRoutes);          // /ai/heygen
 routes.use(aiRealtimeAudioRoutes);   // /ai/realtime-audio
 routes.use(aiEmailTemplateRoutes);   // /ai/email-templates
 routes.use(aiTeamRoutes);            // /ai/teams
-routes.use(aiMercadoPagoRoutes);     // /ai/mercado-pago
+// ============================================================================
+// MercadoPago — RETIRADO 2026-07-29
+//
+// Decisión de JC: las vías de cobro reales son PayPal y Stripe. MercadoPago no
+// aplica. Se retira el CABLEADO, no el código: routes/aiMercadoPagoRoutes.ts,
+// controllers/AIMercadoPagoController.ts y services/AIMercadoPagoServices/
+// siguen en el repo; volver a montarlo es descomentar esta línea y su import.
+//
+// Por qué retirarlo: `/ai/mercadopago/webhook` es público (sin isAuth) y
+// `createPreference` dispara llamadas salientes con nuestro access token. Una
+// superficie de pago que nadie usa es riesgo sin contrapartida.
+//
+// Nota para quien lo reactive: la validación de firma se construyó contra la
+// DOCUMENTACIÓN de MercadoPago, nunca contra un webhook real recibido. Si el
+// manifiesto (`id:…;request-id:…;ts:…;`) estuviera mal, el endpoint rechazaría
+// el 100% del tráfico legítimo. Probar con un webhook real ANTES de confiar.
+// ============================================================================
+// routes.use(aiMercadoPagoRoutes);     // /ai/mercado-pago
 routes.use(aiCorrectionRoutes);      // /ai/corrections + /ai/memories
 routes.use(aiCorrectionReviewRoutes); // Sprint 1 — /ai/correction-review
 
