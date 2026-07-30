@@ -83,12 +83,48 @@ Los otros cuatro modelos con `status` (`Whatsapps`, `Tickets`, `Invoices`,
 `Campaigns`) también tienen la columna `character varying`; ahí no hubo drift
 porque el código ya los trata como texto.
 
+## ✅ De paso: fuga parcial de tokens en 5 sitios
+
+Mirando el contexto del aviso apareció esto, en cada operación de Meta:
+
+```
+[MetaMarketing] 📋 facebookSystemUserToken: SET (EAAM2fltLUkoBQzZBgki...2PZAzQZDZD)
+```
+
+**30 caracteres del token de sistema en claro** — 20 del principio y 10 del final —
+en un log de 74 MB con permisos `rwxrwxrwx` que nadie rota. El patrón
+`token.substring(0, 20) + "..."` estaba repetido en **5 ficheros** (MetaMarketing,
+Telegram, SyncDatasets, metaManualConnect, metaSend).
+
+Es tentador porque parece prudente, pero no lo es: 30 caracteres no permiten
+reconstruir el token, pero son más de lo necesario para nada. Lo que se quería
+saber en el log es "¿está puesto?" y "¿sigue siendo el mismo?", y para eso basta
+una huella no reversible: `utils/tokenFingerprint` →
+`SET (len=211, sha256:9f2a1c4b7e08)`.
+
+La longitud se conserva porque distingue un token real de uno truncado o de
+relleno, que es un fallo de configuración habitual.
+
 ## Pendientes del triaje, por valor
 
-**A. Los 1.088 DeprecationWarnings (nº 1).** No son un bug, son un problema de
-señal: con ese volumen, los 9 errores reales de arriba son el 0,8 % de las líneas.
-Localizar el `promisify` sobre una función que ya devuelve Promise y quitarlo hace
-legible el resto.
+**A. ✅ HECHO — Los 1.088 DeprecationWarnings (nº 1).**
+
+No era un bug de código: era **de clasificación**. El handler por defecto de Node
+para el evento `warning` escribe con `console.error`, y `utils/consoleToLogger`
+enruta `console.error` a `logger.error` —con buen motivo, para unificar formato y
+sanitizar secretos—. Efecto no buscado: **todo aviso del runtime se contaba como
+error**, y los 9 errores reales quedaban en el 0,8 % de las líneas.
+
+`utils/processWarnings.ts` desengancha el handler por defecto, loguea a `warn` y
+**deduplica**: la primera aparición de cada `(name, code, message)` con su traza —
+que es lo único que sirve para localizar el origen— y a partir de ahí solo cuenta,
+con resumen periódico. Mismo criterio que el inventario de `tenantScope` y el
+contador de `tokenAuth`.
+
+Nota: **no se localizó el `promisify` culpable.** No salta al importar el grafo de
+Meta, solo en llamada, así que está en una dependencia y hace falta una llamada
+real a Meta con `--trace-deprecation` para pinpointearlo. Da igual para el problema
+de señal —el aviso ahora sale una vez con su traza—, pero queda sin cerrar.
 
 **B. El bucle de reintentos de Meta (nº 2).** El permiso de company 9 no se va a
 conceder solo. Un error permanente que se reintenta indefinidamente son ~190

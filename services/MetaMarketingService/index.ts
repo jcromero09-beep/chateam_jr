@@ -9,6 +9,7 @@ import { TokenManager } from "./TokenManager";
 import { MarketingCache } from "./MarketingCache";
 import { AuditLogger } from "./AuditLogger";
 import cache from "../../libs/cache";
+import { tokenFingerprint } from "../../utils/tokenFingerprint";
 
 interface TimeRange {
   since: string;
@@ -263,7 +264,14 @@ export const getCompanyMetaConfig = async (companyId: number, whatsappId?: numbe
   logger.info(`[MetaMarketing] 📋 facebookAdAccountId: ${settings.facebookAdAccountId || "NOT SET"}`);
   logger.info(`[MetaMarketing] 📋 facebookBusinessId: ${settings.facebookBusinessId || "NOT SET"}`);
   logger.info(`[MetaMarketing] 📋 facebookAppId: ${settings.facebookAppId || "NOT SET"}`);
-  logger.info(`[MetaMarketing] 📋 facebookSystemUserToken: ${settings.facebookSystemUserToken ? `SET (${settings.facebookSystemUserToken.substring(0, 20)}...${settings.facebookSystemUserToken.slice(-10)})` : "NOT SET"}`);
+  // Antes esta línea volcaba 30 caracteres del token en claro (los 20 primeros y
+  // los 10 últimos) en CADA llamada — y este bloque corre en cada operación de
+  // Meta, así que el log de PM2 (74 MB, permisos rwxrwxrwx) acumulaba miles de
+  // muestras. El valor de diagnóstico que se quería era "¿está puesto y es el
+  // mismo de siempre?", y para eso basta una huella no reversible.
+  logger.info(
+    `[MetaMarketing] 📋 facebookSystemUserToken: ${tokenFingerprint(settings.facebookSystemUserToken)}`
+  );
 
   if (!settings.facebookSystemUserToken) {
     logger.error(`[MetaMarketing] ❌ No Facebook token configured`);

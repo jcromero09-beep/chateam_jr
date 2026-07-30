@@ -4,6 +4,7 @@ import FacebookDataset from "../../models/FacebookDataset";
 import { GRAPH_API_VERSION } from "../../config/metaGraph"; // [Fase2·A2.1] fuente única versión
 import CompaniesSettings from "../../models/CompaniesSettings";
 import { MetaMarketing } from "../../meta-marketing/src";
+import { tokenFingerprint } from "../../utils/tokenFingerprint";
 import {
     getCompanyAccessToken,
     getWABAId
@@ -200,7 +201,7 @@ const SyncDatasets = async (companyId?: number): Promise<{
             // Get access token for this company
             console.log(`🔑 [SyncDatasets] Obteniendo access token para company ${company.id}...`);
             const accessToken = await getCompanyAccessToken(company.id);
-            console.log(`✅ [SyncDatasets] Access token obtenido: ${accessToken.substring(0, 20)}...`);
+            console.log(`✅ [SyncDatasets] Access token obtenido: ${tokenFingerprint(accessToken)}`);
 
             const metaClient = new MetaMarketing({
                 accessToken,

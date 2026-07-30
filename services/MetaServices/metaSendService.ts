@@ -1,5 +1,6 @@
 // services/MetaServices/metaSendService.ts
 import { waPost, createMetaClient } from "./metaClient";
+import { tokenFingerprint } from "../../utils/tokenFingerprint";
 
 // Versiones dinámicas que reciben las credenciales específicas
 export async function markAsReadDynamic(messageId: string, phoneNumberId: string, accessToken: string) {
@@ -28,7 +29,7 @@ export async function sendTextDynamic(to: string, body: string, phoneNumberId: s
   console.log("📤 [META-TEXT] ========== DEBUG ENVÍO TEXTO ==========");
   console.log("📤 [META-TEXT] URL:", `https://graph.facebook.com/v24.0/${phoneNumberId}/messages`);
   console.log("📤 [META-TEXT] phoneNumberId:", phoneNumberId);
-  console.log("📤 [META-TEXT] accessToken:", accessToken ? `${accessToken.substring(0, 20)}...` : 'NO DEFINIDO');
+  console.log("📤 [META-TEXT] accessToken:", tokenFingerprint(accessToken));
   console.log("📤 [META-TEXT] to:", to);
   console.log("📤 [META-TEXT] body:", body);
   console.log("📤 [META-TEXT] PAYLOAD COMPLETO:", JSON.stringify(payload, null, 2));
