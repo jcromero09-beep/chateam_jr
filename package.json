@@ -42,7 +42,8 @@
     "type-check": "tsc -p tsconfig.json --noEmit",
     "type-check:files": "./scripts/tsc-check.sh",
     "test:unit": "jest",
-    "format:check": "prettier --check \"{controllers,services,models,routes,middleware,helpers,utils,config}/**/*.{ts,tsx}\""
+    "format:check": "prettier --check \"{controllers,services,models,routes,middleware,helpers,utils,config}/**/*.{ts,tsx}\"",
+    "format:check:diff": "./scripts/format-check-diff.sh"
   },
   "dependencies": {
     "@adiwajshing/keyed-db": "^0.2.4",

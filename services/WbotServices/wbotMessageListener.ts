@@ -5350,15 +5350,28 @@ async function rejectAudioIfNotAccepted(
  * de la ventana configurada en la conexión, persiste el mensaje y responde con el
  * aviso de vacaciones, cortando el resto del flujo.
  *
- * Se mueve VERBATIM, incluido un bug de precedencia que NO se toca aquí: la
- * condición es `!isNil(whatsapp.collectiveVacationMessage && !isGroup)` — el `&&`
- * cae DENTRO del isNil, así que evalúa `isNil(<boolean>)`, que es siempre false, y
- * el guard de grupo nunca se aplica. Corregirlo cambia comportamiento (los grupos
- * empezarían a recibir el aviso o dejarían de recibirlo según el mensaje), así que
- * es una decisión aparte, no parte de una extracción.
+ * ## Sobre el `!isGroup` que ya no está (decisión de JC, 2026-07-29)
+ *
+ * La condición era `!isNil(collectiveVacationMessage && !isGroup)`: el `&&` caía
+ * DENTRO del `isNil`, así que se evaluaba `isNil(<booleano>)` —siempre false— y
+ * **el guard de grupo nunca decidía nada**. El comportamiento real era "los grupos
+ * también reciben el aviso".
+ *
+ * Decisión de negocio: los grupos SÍ deben recibirlo. Por tanto el `!isGroup`
+ * sobraba, y la condición pasa a `!isNil(collectiveVacationMessage)`, que expresa
+ * literalmente lo que el código ya hacía. **Cambio de conducta: ninguno** — es una
+ * clarificación, no un arreglo. `isGroup` se conserva como parámetro porque la
+ * firma la fija el contrato medido de la extracción.
+ *
+ * ## Lo que este cambio NO arregla
+ *
+ * `isNil("")` es `false`, así que una conexión con el mensaje en **cadena vacía**
+ * sigue entrando aquí y mandando un texto en blanco al cliente. Eso es un bug
+ * distinto y necesita su propia decisión (¿tratar "" como "sin configurar"?): un
+ * `isNil` no lo cubre, haría falta comprobar el contenido.
  *
  * Contrato medido con tests/harness/wbotRegionContract.cjs: 8 inputs, 0 outputs,
- * 0 reasignaciones. El único retipeo es el `return;` -> `return true;`.
+ * 0 reasignaciones. El único retipeo fue el `return;` -> `return true;`.
  *
  * El try/catch que traga errores viaja con la región, así que el manejo de errores
  * tampoco cambia.
@@ -5378,7 +5391,7 @@ async function sendCollectiveVacationReply(
         //MENSAGEM DE FÉRIAS COLETIVAS
 
 
-        if (!isNil(whatsapp.collectiveVacationMessage && !isGroup)) {
+        if (!isNil(whatsapp.collectiveVacationMessage)) {
           const currentDate = moment();
 
 

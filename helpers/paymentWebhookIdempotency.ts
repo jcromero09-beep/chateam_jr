@@ -48,7 +48,10 @@ export type PaymentProvider = "coingate" | "mercadopago";
  *  - ledger-error   → el ledger falló; sin garantía de unicidad, se rechaza
  *                     acreditar (conservador: mejor no acreditar que acreditar dos veces).
  */
-export type NotCreditableReason = "duplicate" | "no-company-ref" | "ledger-error";
+export type NotCreditableReason =
+  | "duplicate"
+  | "no-company-ref"
+  | "ledger-error";
 
 export interface PaymentEventVerdict {
   /** true solo si es la primera vez que se ve esta transición Y hay empresa. */
@@ -73,7 +76,9 @@ export interface PaymentEventVerdict {
  * Devuelve null si no encaja: es preferible no atribuir a atribuir mal (una
  * atribución equivocada acreditaría a otra empresa).
  */
-export const parseCompanyRef = (ref: string | null | undefined): number | null => {
+export const parseCompanyRef = (
+  ref: string | null | undefined,
+): number | null => {
   if (!ref || typeof ref !== "string") return null;
   const m = /^(?:chateam|company)_(\d+)_/.exec(ref.trim());
   if (!m) return null;
@@ -114,16 +119,16 @@ export const registerPaymentEvent = async (input: {
         provider: input.provider,
         externalId: input.externalId,
         reference: input.reference ?? null,
-        eventKey
+        eventKey,
       },
-      "[paymentWebhook] sin empresa derivable de la referencia — evento NO acreditable"
+      "[paymentWebhook] sin empresa derivable de la referencia — evento NO acreditable",
     );
     return {
       creditable: false,
       reason: "no-company-ref",
       companyId: null,
       eventKey,
-      ledgerEntryId: null
+      ledgerEntryId: null,
     };
   }
 
@@ -132,7 +137,7 @@ export const registerPaymentEvent = async (input: {
     provider: input.provider,
     eventKey,
     providerMessageId: input.externalId,
-    payload: input.payload ?? null
+    payload: input.payload ?? null,
   });
 
   if (entry.accepted) {
@@ -144,10 +149,16 @@ export const registerPaymentEvent = async (input: {
 
   logger.info(
     { provider: input.provider, companyId, eventKey, reason },
-    "[paymentWebhook] evento descartado (no acreditable)"
+    "[paymentWebhook] evento descartado (no acreditable)",
   );
 
-  return { creditable: false, reason, companyId, eventKey, ledgerEntryId: entry.id };
+  return {
+    creditable: false,
+    reason,
+    companyId,
+    eventKey,
+    ledgerEntryId: entry.id,
+  };
 };
 
 export default { parseCompanyRef, paymentEventKey, registerPaymentEvent };
