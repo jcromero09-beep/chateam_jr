@@ -29,10 +29,17 @@
 # ficheros que no pediste. Eso es esperado: el resumen agrupa por fichero para
 # que se vea de un vistazo cuáles son tuyos y cuáles preexistentes.
 #
-# A 2026-07-29 la línea base del repo son **37 errores preexistentes** en
-# controllers/WhatsAppController.ts (16), controllers/MessageController.ts (16),
-# config/upload.ts (4) y middleware/isAuth.ts (1). Un fichero limpio es el que
-# no aparece en el resumen.
+# A 2026-07-29, con el include correcto, el grafo de los ficheros calientes
+# (wbotMessageListener, WhatsAppController, MessageController, upload, isAuth)
+# da **0 errores**. Un fichero limpio es el que no aparece en el resumen.
+#
+# Ojo con la cifra que circulaba antes: "37 errores preexistentes" era la trampa
+# nº1 de esta lista. 36 de esos 37 eran `req.user does not exist` producidos por
+# un tsconfig ad-hoc SIN `@types/**`; el único real era el TS2353 de isAuth, ya
+# arreglado. Si alguien vuelve a reportar decenas de errores en controllers,
+# sospechar del include antes que del código.
+#
+# El programa COMPLETO (`npm run type-check`) sigue sin poder medirse: OOM.
 
 set -uo pipefail
 
