@@ -497,6 +497,38 @@ function handleInvoiceCreate() {
 // Idempotente: usa Companies.expirationWarningSentAt y .expirationNotifiedAt
 // para evitar reenvíos. Se resetean cuando dueDate se renueva.
 // ============================================================
+/**
+ * `where` para "empresas activas" — SIN comparar contra un booleano.
+ *
+ * ## El bug que arregla (encontrado en el triaje de logs, 2026-07-30)
+ *
+ * Tres cron jobs hacían `Company.findAll({ where: { status: true } })` y los tres
+ * llevaban fallando **cada noche** con:
+ *
+ *     operator does not exist: character varying = boolean
+ *
+ * Causa: **drift entre el modelo y el esquema.** `models/Company.ts` declara
+ * `@Column(DataType.BOOLEAN) status: boolean`, pero la columna real en Postgres es
+ * `character varying`. Sequelize generaba `WHERE "status" = true` y Postgres lo
+ * rechaza — la query entera lanza, así que el job no procesaba NADA. No era una
+ * empresa que fallaba: era el job completo caído.
+ *
+ * En dos de los tres sitios había un `as any` que es justo lo que impidió que
+ * TypeScript avisara.
+ *
+ * ## Por qué dos valores
+ *
+ * En producción la columna tiene `'true'` (16 filas) y `'active'` (1). Son dos
+ * convenciones conviviendo. Se aceptan las dos a propósito: el objetivo aquí es
+ * devolver la vida a los jobs, no decidir cuál es la buena — normalizar los datos
+ * y arreglar el tipo del modelo es un cambio aparte y más ancho (`company.status`
+ * viene tipado como boolean en todo el código, así que un `if (company.status)`
+ * hoy es truthy incluso con la cadena "false").
+ */
+const WHERE_COMPANY_ACTIVE = {
+  status: { [Op.in]: ["true", "active"] }
+} as any;
+
 function handleCompanyExpirationAlert() {
   cron.schedule('0 9 * * *', async () => {
     try {
@@ -505,7 +537,7 @@ function handleCompanyExpirationAlert() {
       ).default;
 
       const companies = await Company.findAll({
-        where: { status: true }
+        where: WHERE_COMPANY_ACTIVE
       });
 
       const today = moment().startOf('day');
@@ -992,7 +1024,7 @@ function handleMonthlyCalendar(): void {
     try {
       const { getOrCreatePackage, currentPeriod } = await import("./services/CampaignApprovalService");
       const CampaignApproval = (await import("./models/CampaignApproval")).default;
-      const companies = await Company.findAll({ where: { status: true } as any });
+      const companies = await Company.findAll({ where: WHERE_COMPANY_ACTIVE });
       for (const c of companies) {
         try {
           if (day === 20) {
@@ -1020,7 +1052,7 @@ function handleStatsNightly(): void {
     logger.info("📊 [stats.nightly] Iniciando motor estadístico...");
     try {
       const { runStatsForCompany } = await import("./services/StatsRecommendationService");
-      const companies = await Company.findAll({ where: { status: true } as any });
+      const companies = await Company.findAll({ where: WHERE_COMPANY_ACTIVE });
       let total = 0;
       for (const c of companies) {
         try {
