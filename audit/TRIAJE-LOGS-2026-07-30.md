@@ -28,7 +28,7 @@ acotado a 28–30 de julio.
 | Nº | Patrón | Vol. | Qué es |
 |---|---|---|---|
 | 1 | `DeprecationWarning: promisify on a function that returns a Promise` | **1.088** | Ruido. Ahoga todo lo demás. |
-| 2 | Meta `(#200) Ad account owner has NOT grant ads_management` (company 9) | ~190 | Permiso no concedido por el cliente. **Reintenta en bucle.** |
+| 2 | Meta `(#200) Ad account owner has NOT grant ads_management` (company 9) | ~190 | Permiso no concedido. El cortocircuito existía pero su TTL empataba con el cron. **ARREGLADO abajo.** |
 | 3 | `[Watchdog] No alive nodes available for reassignment!` | 29 | Operativo. |
 | 4 | `operator does not exist: character varying = boolean` | 9 | **Bug real. ARREGLADO abajo.** |
 | 5 | `[unhandledRejection] Operation timeout` | 3 | Rechazos sin manejar. |
@@ -126,11 +126,52 @@ Meta, solo en llamada, así que está en una dependencia y hace falta una llamad
 real a Meta con `--trace-deprecation` para pinpointearlo. Da igual para el problema
 de señal —el aviso ahora sale una vez con su traza—, pero queda sin cerrar.
 
-**B. El bucle de reintentos de Meta (nº 2).** El permiso de company 9 no se va a
-conceder solo. Un error permanente que se reintenta indefinidamente son ~190
-líneas/día y llamadas a la API de Meta que cuentan para el rate limit — de hecho ahí
-está también el `Application request limit reached`. Necesita backoff, o marcar la
-cuenta y dejar de intentar hasta que alguien la reactive.
+**B. ✅ HECHO — El bucle de reintentos de Meta (nº 2). El cortocircuito existía y
+no ahorraba ni una llamada.**
+
+Lo primero que apareció al mirar: **ya había un circuit breaker**
+(`disableMetaCalls` / `META_DISABLED_TTL`), bien pensado y bien comentado. La
+pregunta no era "hay que añadir backoff" sino "por qué el que hay no frena nada".
+
+### El fallo: dos periodos idénticos
+
+```
+META_DISABLED_TTL                = 60 * 60          // exactamente 1 h
+handleImportInsightsDaily        = '0 * * * *'      // exactamente cada hora
+```
+
+El bloqueo expiraba justo cuando el cron volvía a disparar. **Cada ejecución del
+cron encontraba el cortocircuito recién caducado**, reintentaba, fallaba y lo
+reabría. El log lo confirma con precisión: un intento por hora, en punto, sin
+excepción.
+
+Un cortocircuito impecable que salvaba exactamente cero llamadas. No hay error en
+su lógica: el error es haber acoplado su TTL al periodo de un cron.
+
+### El arreglo: que el bloqueo crezca
+
+1 h → 2 → 4 → 8 → 16 → 24 (techo). Así **ningún periodo de cron puede volver a
+empatar con él**, que es la propiedad que faltaba — ajustar los números para que
+no coincidieran habría dejado la misma trampa para el día que alguien cambie la
+cadencia del cron.
+
+Efecto medido: de **24 intentos al día a 5**.
+
+Dos detalles que hacen que funcione de verdad:
+
+- El contador de fallos vive en su **propia clave, con TTL más largo que el
+  bloqueo**. Si caducaran a la vez, volvería a 0 en cada ciclo y el backoff nunca
+  crecería — el mismo bug de acoplamiento escrito de otra forma.
+- `clearMetaDisabled` (que ya llamaba `testConnection`) **borra también el
+  contador**. Arreglar la cuenta la reactiva al instante: nadie espera 24 h por
+  fallos ya resueltos. El backoff mide fallos *consecutivos*, y una recuperación
+  rompe la racha por definición.
+
+### Sobre conceder el permiso de company 9
+
+Resuelve el síntoma de esa empresa; no toca el defecto. Cualquier otra cuenta con
+el token caducado o el permiso revocado caía en el mismo bucle. Por eso el arreglo
+va en la clase, no en el caso.
 
 **C. ✅ HECHO — `[unhandledRejection]` (nº 5), y la hipótesis era FALSA.**
 
