@@ -2,7 +2,17 @@
 // Las variables de infraestructura se inyectan aqui. bootstrap.ts usa dotenv SIN override,
 // por lo que estas tienen prioridad sobre el .env del backup (que solo aporta secretos/API keys).
 const NODE22 = '/home/jcromero09/.nvm/versions/node/v22.22.0/bin/node';
-const CWD = '/home/jcromero09/chateam_jr';
+// El cwd sale de la UBICACIÓN DEL PROPIO FICHERO, no de una ruta fija.
+//
+// Estaba hardcodeado a /home/jcromero09/chateam_jr, que es el árbol de
+// DESARROLLO. Con la frontera de producción (checkout aparte en /opt/chateam)
+// eso significaba que arrancar desde el checkout de producción habría hecho que
+// PM2 ejecutase igualmente el código de desarrollo — justo lo contrario de lo
+// que se pretende, y sin ningún síntoma visible.
+//
+// Con __dirname, el mismo fichero versionado sirve en los dos árboles y cada uno
+// arranca el suyo.
+const CWD = __dirname;
 
 const infraEnv = {
   NODE_ENV: 'production',
