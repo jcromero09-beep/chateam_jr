@@ -138,6 +138,30 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
 
+    # [Ola 2 verificabilidad] Golden-master de BD: 5 suites / 40 tests / 12 snapshots
+    # que proyectan el estado observable (contacts/tickets/messages, sin ids ni
+    # fechas) tras procesar un mensaje entrante. Es el único gate del repo que
+    # detecta un CAMBIO DE CONDUCTA: si un snapshot se reescribe, algo cambió.
+    # Hasta ahora solo corría a mano en el NAS.
+    #
+    # Reusa el postgres y el redis de este job. tests/harness/dbEnv.cjs toma estas
+    # variables si existen y cae a los valores del NAS si no.
+    #
+    # NO VERIFICADO EN CI todavía: depende de que el step de migraciones de arriba
+    # deje el esquema completo (`db:migrate` corre `node dist/scripts/runMigrations.js`,
+    # que necesita un build previo que este job no hace). Si falla, ése es el
+    # siguiente hilo, no el harness. En local pasa 40/40.
+    - name: Golden-master de BD (conducta)
+      run: npm run test:golden
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: chateam_test
+        DB_USER: postgres
+        DB_PASS: postgres
+        REDIS_URI: redis://localhost:6379
+
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
       with:
@@ -155,6 +179,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # ROTO desde siempre, medido 2026-07-31: `exec -T app` apunta a un servicio que
+    # docker-compose.test.yml NO define — solo declara postgres_test y redis_test.
+    # Nunca se detectó porque el job `lint` lleva bloqueando el pipeline desde antes.
+    # El arreglo es correr los tests EN EL RUNNER contra los dos contenedores (como
+    # hace el job `test`), no dentro de un contenedor de app inexistente.
+    # No se toca en esta ola: primero hay que ver el pipeline correr entero.
     - name: Start services with Docker Compose
       run: |
         docker-compose -f docker-compose.test.yml up -d

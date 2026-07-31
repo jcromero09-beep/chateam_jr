@@ -148,9 +148,27 @@ fallos propios — eso es información nueva, no una regresión.
 Con el CI en verde, el gate solo dice "compila y no empeora el tipado". Falta que diga
 "no rompiste la conducta".
 
-- **Ejecutar en CI los golden-master de BD que ya existen**: `handleMessage.dbtest.ts`
-  (18 tests / 12 snapshots) y `verifyQueue.dbtest.ts`. Hoy solo corren a mano. El job
-  `integration-tests` ya levanta `docker-compose.test.yml`, así que la infraestructura está.
+- **Ejecutar en CI los golden-master de BD que ya existen**: son **5 suites / 40 tests /
+  12 snapshots** (no 2 suites como decía la versión anterior de este plan). Hoy solo corren
+  a mano.
+
+  Corrección a este mismo documento: dije que "la infraestructura está" porque
+  `integration-tests` levanta `docker-compose.test.yml`. **Falso**: ese job hace
+  `docker-compose exec -T app …` y el compose **no define ningún servicio `app`** — solo
+  `postgres_test` y `redis_test`. Ese job está roto desde siempre y nadie lo vio porque
+  `lint` bloquea el pipeline antes de llegar.
+
+  La infraestructura que sí sirve es la del job `test`: ya tiene service containers de
+  Postgres y Redis. El golden-master se engancha ahí.
+
+  **Hecho** (`npm run test:golden`, step `Golden-master de BD (conducta)` en el job `test`).
+  Prerrequisito que hubo que resolver: `tests/harness/dbEnv.cjs` fijaba puerto 5434 y rol
+  `harness_test`, valores del NAS, así que el harness no podía correr en ningún otro sitio.
+  Ahora son defaults y el entorno manda; en local no cambia nada.
+
+  **Sin verificar en CI**: el step depende de que `db:migrate` deje el esquema completo, y
+  ese comando corre `node dist/scripts/runMigrations.js`, que necesita un build que el job
+  no hace. Si falla, el hilo siguiente es ése, no el harness.
 - **Cobertura declarada, no perseguida**: 504 tests para 450 k líneas es ~1 por cada 890. Poner
   un objetivo global de cobertura sería teatro. Lo que sí cabe es un umbral **por carpeta tocada**
   en el diff, con el mismo criterio que `format-check-diff.sh`: el árbol converge según se toca.
