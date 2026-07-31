@@ -90,16 +90,50 @@ Los runners `ubuntu-latest` tienen 16 GB; el NAS no. El OOM local no implica OOM
 
 *Riesgo declarado*: es posible que `tsc` no quepa ni en 6 GB. En ese caso aplica A3.
 
-### A3 · (Solo si A2 no basta) Trocear el typecheck
+### A3 · (Solo si A2 no basta) Trocear el typecheck — **BLOQUEADO, con prerrequisito medido**
 
-`tsconfig.json` incluye `**/*.ts` sobre 293 k líneas de backend. La salida estándar es
-**project references**: un `tsconfig` por área (`models`, `services`, `controllers`, `routes`)
-con `composite: true`, y un `tsconfig.solution.json` que las referencia. `tsc -b` compila por
-proyecto y cachea, así que cada área cabe en memoria y las siguientes pasadas son incrementales.
+La salida estándar sería **project references**: un `tsconfig` por área con `composite: true` y
+un `tsconfig.solution.json` que las referencia. **No es aplicable hoy**: project references exige
+un grafo **acíclico** entre proyectos, y hay 13 imports invertidos (medido 2026-07-31):
 
-Requisito no negociable, por §0: **cada tsconfig de área debe incluir `@types/**/*.d.ts`**.
+| Sentido invertido | Ficheros |
+| --- | --- |
+| `services` → `controllers` | 2 |
+| `services` → `routes` | 1 |
+| `helpers` \| `libs` \| `utils` → `services` | 10 |
 
-*Aceptación*: `npx tsc -b` termina en el NAS sin OOM.
+Romper esos 13 es el prerrequisito. Hasta entonces, lo que sí existe es
+**`scripts/type-check-area.sh`**: typecheck de un área o un fichero, con
+`@types/**/*.d.ts` siempre en el `include` (§0) y detección del OOM por exit code —
+un `grep -c "error TS"` sobre un tsc que murió devuelve 0 y se lee como "limpio".
+
+```bash
+bash scripts/type-check-area.sh services/WbotServices   # OK, 0 errores
+bash scripts/type-check-area.sh models
+```
+
+*Aceptación (revisada)*: cada área tocada por un cambio typechequea limpia antes del commit.
+El typecheck global queda en manos de A2.
+
+### A4 · Dos imports muertos que ensuciaban el grafo
+
+- `services/DriveBackupService.ts`: `import { google } from 'googleapis'` — símbolo sin usar
+  (la carga real es el `await import()` de `getGoogle()`).
+- `…/ActionsWebhookFacebookService.ts`: `import { fi } from "date-fns/locale"` — el locale finés,
+  autoimport del IDE, sin un solo uso.
+
+**Medición honesta**: quitar el primero **no reduce el grafo**. TypeScript resuelve
+`await import('literal')` igual que un import estático, así que los 897 `.d.ts` de googleapis
+siguen entrando (4.037 ficheros en el grafo de un controller, antes y después). Sacarlos de
+verdad exige `@googleapis/drive` en lugar del paquete monolítico: cambio de dependencia, sin
+tests que cubran el backup a Drive. **No se hace en esta ola.**
+
+### A5 · Nota sobre por qué el OOM no se puede reproducir "bien" en el NAS
+
+El NAS tenía en la medición **load 52 con 4 cores y 2 GB disponibles de 15**. Un `tsc` sobre un
+único controller tardó 251 s. El OOM local es real pero **no es atribuible al proyecto**: es
+memoria disponible, no tamaño del código. Cualquier conclusión sobre si `type-check` pasa o no
+tiene que venir del runner de CI, no de aquí.
 
 ### Qué mueve esta ola
 

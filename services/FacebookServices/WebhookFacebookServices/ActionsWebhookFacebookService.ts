@@ -29,7 +29,9 @@ import UpdateTicketService from "../../TicketServices/UpdateTicketService";
 import FindOrCreateATicketTrakingService from "../../TicketServices/FindOrCreateATicketTrakingService";
 import ShowQueueService from "../../QueueService/ShowQueueService";
 import ffmpeg from "fluent-ffmpeg";
-import { fi } from "date-fns/locale";
+// [Ola 1 verificabilidad] eliminado `import { fi } from "date-fns/locale"`: el
+// símbolo `fi` (locale finés) no aparecía en ninguna otra línea del fichero — es un
+// autoimport del IDE — y metía los locales de date-fns en el grafo de tipos.
 import queue from "../../../libs/queue";
 import { sendInstagramMessage, sendInstagramAttachment } from "../graphAPI";
 const os = require("os");

@@ -41,8 +41,15 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    # ESLint y tsc recorren un grafo grande: un solo controller arrastra ~4.000
+    # ficheros de tipos (googleapis aporta 897, @redis 510, @sentry 330). Con el
+    # heap por defecto de V8 (~2 GB) los dos vuelcan core SIN emitir diagnóstico,
+    # que es indistinguible de "el step falló por un error de código". El runner
+    # ubuntu-latest tiene 16 GB: 6 GB de heap le sobran y quitan la ambigüedad.
     - name: Run ESLint
       run: npm run lint
+      env:
+        NODE_OPTIONS: --max-old-space-size=6144
 
     # Solo los ficheros del diff. `format:check` sobre el árbol entero falla en
     # 1.400 ficheros (el repo nunca se formateó) y bloqueaba este job — y con él
@@ -52,8 +59,15 @@ jobs:
     - name: Check formatting (solo el diff)
       run: bash scripts/format-check-diff.sh
 
+    # Ver la nota de ESLint. Si aun con 6 GB muriese, la salida NO es inmediata:
+    # project references exige un grafo acíclico y hoy hay 13 imports invertidos
+    # (services->controllers x2, services->routes x1, helpers|libs|utils->services
+    # x10). Habría que romperlos antes. Medido el 2026-07-31, ver
+    # audit/PLAN-VERIFICABILIDAD.md §2.A3.
     - name: TypeScript check
       run: npm run type-check
+      env:
+        NODE_OPTIONS: --max-old-space-size=6144
 
     - name: any-ratchet (bloquea 'any' nuevo)
       run: bash scripts/any-ratchet.sh
