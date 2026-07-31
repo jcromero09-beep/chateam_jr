@@ -1,8 +1,48 @@
 # Runbook — separar producción del árbol de desarrollo
 
-> **Este runbook NO lo ejecuta el agente.** Implica reiniciar `chateam-node` y
-> `chateam-worker`, que sostienen sesiones vivas de Baileys. Es una operación con
-> corte, no un cambio de código. Lo lanza JC en la ventana que elija.
+> ## ✅ EJECUTADO el 2026-07-30. Producción corre desde `/opt/chateam`.
+>
+> Se deja el runbook porque documenta el procedimiento y, sobre todo, **las cinco
+> cosas que salieron mal**. La versión original de este documento tenía
+> instrucciones equivocadas; abajo están corregidas.
+>
+> ### Lo que este runbook decía mal
+>
+> 1. **"La sesión de Baileys es el riesgo principal."** Falso. Las credenciales
+>    viven en **Redis** (`sessions:{whatsappId}:*` vía `cacheLayer`), no en disco.
+>    Mover el checkout no las toca y el reinicio las relee. El riesgo que más
+>    miedo daba no existía.
+> 2. **`pm2 start ecosystem.config.cjs`.** Ese fichero está obsoleto: apunta a
+>    `/home/deploy/chateam_jr` (ruta inexistente aquí) y define apps `node-1`/
+>    `node-2`, no `chateam-node`. Habría roto producción. El bueno es
+>    `ecosystem.chateam.local.config.cjs`.
+> 3. **`public/` son 17 GB.** Son **4,9 GB**. El symlink sigue siendo correcto.
+> 4. **Faltaba "pushear primero".** No se pudo (gate de permisos), y da igual: se
+>    clona del árbol LOCAL, que ya tiene los commits. Lo que NO hay que hacer es
+>    `git fetch origin && git checkout main` después de repuntar el remoto a
+>    GitHub — traería el estado viejo.
+> 5. **No mencionaba `--require tsx/cjs`.** Sin él el worker entra en bucle de
+>    reinicio (ver abajo).
+>
+> ### Los tres bugs que la operación DESTAPÓ (y que se arreglaron)
+>
+> - **8 ficheros escribían fuera del repo.** `config/*.ts` y `helpers/addLogs.ts`
+>   están a un nivel de la raíz y usaban `../..`, que apunta al PADRE del repo.
+>   Invisible con el padre en `/home/jcromero09` (escribible); en `/opt` el
+>   arranque muere con `EACCES: mkdir '/opt/private'`. La app llevaba escribiendo
+>   36 ficheros de log en `/home/jcromero09/logs`, fuera del repo, sin que nadie
+>   lo supiera.
+> - **PM2 no reconocía el ecosystem.** `pm2 start` decide por EXTENSIÓN;
+>   `ecosystem.chateam.local.cjs` no encajaba y PM2 lo arrancó **como script**:
+>   un proceso llamado `ecosystem.chateam.local` en vez de las dos apps.
+>   Renombrado a `.config.cjs`.
+> - **Faltaba `--require tsx/cjs`** en el ecosystem. `queues.ts` hace `require()`
+>   de ficheros `.ts`; sin el hook, el worker cargaba 5 colas en vez de 17 y
+>   moría en bucle. Los procesos viejos SÍ lo llevaban — prueba de que nunca se
+>   habían arrancado desde ese fichero.
+>
+> **Ninguno de los tres lo causó la frontera. Los tres estaban ahí y ella los
+> expuso**, que es exactamente para lo que sirve tener una segunda copia.
 
 ## El problema
 
@@ -53,14 +93,13 @@ Estas rutas viven dentro del árbol actual y **no** deben duplicarse:
 
 | Ruta | Qué es | Qué hacer |
 |---|---|---|
-| `public/` | **17 GB de adjuntos reales de clientes.** | **Symlink**, nunca copia. |
+| `public/` | **4,9 GB de adjuntos reales de clientes.** | **Symlink**, nunca copia. |
 | `.env` | Secretos. No está en git. | Copiar a mano, verificar permisos. |
-| Sesión de Baileys | Credenciales de las conexiones de WhatsApp. | Ver dónde las guarda la config; si se pierden, todas las conexiones piden QR otra vez. |
+| Sesión de Baileys | Credenciales de WhatsApp. | **Nada que hacer: viven en Redis**, no en disco. Verificado en `helpers/useMultiFileAuthState.ts`. |
 | `logs/` | Histórico. | Dejar el viejo donde está. |
 
-⚠️ **Confirmar dónde vive la sesión de Baileys ANTES de reiniciar.** Si está dentro
-del árbol y no se migra, el resultado es todas las conexiones en `qrcode` y hay que
-re-escanear una por una. Es el riesgo principal de esta operación.
+✅ **Resuelto: la sesión de Baileys vive en Redis** (`sessions:{whatsappId}:*`), no en
+disco. Era el riesgo que este runbook marcaba como principal y no existía.
 
 ## Procedimiento
 
@@ -93,7 +132,9 @@ cd /opt/chateam && npx tsx server-distributed.ts
 
 # 6. Repuntar PM2  ← AQUÍ EMPIEZA EL CORTE
 pm2 delete chateam-node chateam-worker
-cd /opt/chateam && pm2 start ecosystem.config.cjs
+cd /opt/chateam && pm2 start ecosystem.chateam.local.config.cjs
+#    NO ecosystem.config.cjs: está obsoleto (apunta a /home/deploy) y define
+#    apps node-1/node-2, no chateam-node.
 pm2 save                     # sin esto, un reboot lo pierde
 
 # 7. Verificar
@@ -123,7 +164,7 @@ Si eso da 0, la frontera existe.
 
 ```bash
 pm2 delete chateam-node chateam-worker
-cd /home/jcromero09/chateam_jr && pm2 start ecosystem.config.cjs && pm2 save
+cd /home/jcromero09/chateam_jr && pm2 start ecosystem.chateam.local.config.cjs && pm2 save
 ```
 
 Vuelve a la situación de partida. Por eso el paso 3 usa symlink y no `mv`: nada
