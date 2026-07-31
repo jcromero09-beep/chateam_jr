@@ -37,8 +37,19 @@ import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
 import CreateCampaignMessageService from "../CampaignMessageServices/CreateCampaignMessageService";
 import logCampaignMessageFlow from "../CampaignMessageServices/CampaignMessageFlowLogger";
 import { serializeConversionData } from "../CampaignMessageServices/CtwaClidResolver";
-import { getBodyMessage } from "./wbotMessageParsers";
-import { logInfo, logError } from "../../utils/logger";
+import {
+  getBodyMessage,
+  getTypeMessage,
+  findCaption,
+  extractEditedBody,
+  extractEditedOriginalWid,
+  extractEditedRemoteJids,
+  extractEditedTimestamp
+} from "./wbotMessageParsers";
+import moment from "moment";
+import * as Sentry from "@sentry/node";
+import { getIO } from "../../libs/socket";
+import { logInfo, logError, logWarn } from "../../utils/logger";
 
 
 // [Tier 11] Slice extraido in-situ de handleMessage: contador de no-leidos (unreadMessages).
@@ -490,4 +501,348 @@ export async function recordCampaignAttribution(
 	      });
 	    }
     // ================= Fin detección de campaña =================
+}
+
+export const mergeMessageDataJson = (dataJson: string | null, patch: Record<string, any>): string => {
+  let current: Record<string, any> = {};
+
+  if (dataJson) {
+    try {
+      current = JSON.parse(dataJson);
+    } catch (_err) {
+      current = { rawDataJson: dataJson };
+    }
+  }
+
+  return JSON.stringify({
+    ...current,
+    ...patch
+  });
+};
+
+export const findMessageEditFallback = async ({
+  companyId,
+  ticketId,
+  remoteJids,
+  editedAt,
+  fromMe,
+  include = undefined
+}: {
+  companyId: number;
+  ticketId?: number;
+  remoteJids: string[];
+  editedAt: Date;
+  fromMe?: boolean;
+  include?: any;
+}): Promise<Message | null> => {
+  if (remoteJids.length === 0) return null;
+
+  const windowStart = new Date(editedAt.getTime() - 30 * 60 * 1000);
+  const windowEnd = new Date(editedAt.getTime() + 60 * 1000);
+  const baseWhere: any = {
+    companyId,
+    remoteJid: { [Op.in]: remoteJids },
+    createdAt: { [Op.between]: [windowStart, windowEnd] },
+    messageStatus: { [Op.ne]: "deleted" }
+  };
+
+  if (ticketId) baseWhere.ticketId = ticketId;
+
+  const fromMeCandidates = Array.from(
+    new Set([fromMe, false, true].filter(value => typeof value === "boolean"))
+  );
+
+  for (const fromMeCandidate of fromMeCandidates) {
+    const message = await Message.findOne({
+      where: {
+        ...baseWhere,
+        fromMe: fromMeCandidate
+      },
+      include,
+      order: [["createdAt", "DESC"]]
+    });
+
+    if (message) return message;
+  }
+
+  return null;
+};
+
+/**
+ * Fase de rechazo de audio de handleMessageInner: si el contacto o el canal no
+ * aceptan notas de voz, responde con el texto de rechazo (el configurable de la
+ * conexión, o el genérico) citando el mensaje original, y lo persiste.
+ *
+ * La condición combina tres cosas y por eso vive en un IIFE: el override por
+ * conexión (`whatsapp.acceptAudio`, que puede ser null = sin override), el ajuste
+ * de empresa (`settings.acceptAudioMessageContact`) y la preferencia del contacto.
+ * Se movió tal cual: no se tocó esa precedencia.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 7 inputs, 0 outputs,
+ * 0 reasignaciones de locales externos y 0 `return` propios ⇒ movimiento VERBATIM.
+ *
+ * Se llama DENTRO del try de handleMessageInner: el manejo de errores no cambia.
+ */
+export async function rejectAudioIfNotAccepted(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  ticket: any,
+  contact: any,
+  whatsapp: any,
+  settings: any,
+  ticketTraking: any
+): Promise<void> {
+  // Import lazy: rompe el ciclo (verifyMessage/verifyMediaMessage viven en el
+  // monolito, que las usa 18 y 7 veces — moverlas es otro proyecto). Al
+  // ejecutarse, el monolito ya esta cargado: devuelve el modulo cacheado.
+  const { verifyMessage, verifyMediaMessage } = (await import("./wbotMessageListener")) as any;
+    // Verificação se aceita audio do contato
+    if (
+      getTypeMessage(msg) === "audioMessage" &&
+      !msg.key.fromMe &&
+      (!ticket.isGroup || whatsapp.groupAsTicket === "enabled") &&
+      (() => {
+        const ow = (whatsapp as any)?.acceptAudio;
+        const channelOverride = ow === null || ow === undefined ? null : Boolean(ow);
+        const channelAcceptsAudio =
+          channelOverride !== null
+            ? channelOverride
+            : settings?.acceptAudioMessageContact !== "disabled";
+        return !contact?.acceptAudioMessage || !channelAcceptsAudio;
+      })()
+    ) {
+      const _customRejAudio = (((whatsapp as any)?.rejectAudioMessage) || "").trim();
+      const _defaultRejAudio = `\u200e*Asistente Virtual*:\nLamentablemente no podemos escuchar ni enviar audio a través de este canal de soporte, envíe un mensaje de *texto*.`;
+      const _rejAudioText = _customRejAudio ? `\u200e${_customRejAudio}` : _defaultRejAudio;
+      const sentMessage = await wbot.sendMessage(
+        `${contact.number}@c.us`,
+        {
+          text: _rejAudioText
+        },
+        {
+          quoted: {
+            key: msg.key,
+            message: {
+              extendedTextMessage: msg.message.extendedTextMessage
+            }
+          }
+        }
+      );
+      await verifyMessage(sentMessage, ticket, contact, ticketTraking);
+    }
+}
+
+/**
+ * ¿Hay un mensaje de vacaciones REAL configurado?
+ *
+ * `isNil` no basta: solo cubre null/undefined, y la cadena vacía es el estado
+ * normal de un campo de texto sin rellenar. Sin esto se enviaba un mensaje en
+ * blanco al cliente.
+ */
+const hasVacationMessage = (message: unknown): boolean =>
+  typeof message === "string" && message.trim().length > 0;
+
+/**
+ * Fase de vacaciones colectivas de handleMessageInner: si el entrante cae dentro
+ * de la ventana configurada en la conexión, persiste el mensaje y responde con el
+ * aviso de vacaciones, cortando el resto del flujo.
+ *
+ * ## Sobre el `!isGroup` que ya no está (decisión de JC, 2026-07-29)
+ *
+ * La condición era `!isNil(collectiveVacationMessage && !isGroup)`: el `&&` caía
+ * DENTRO del `isNil`, así que se evaluaba `isNil(<booleano>)` —siempre false— y
+ * **el guard de grupo nunca decidía nada**. El comportamiento real era "los grupos
+ * también reciben el aviso".
+ *
+ * Decisión de negocio: los grupos SÍ deben recibirlo. Por tanto el `!isGroup`
+ * sobraba, y la condición pasa a `!isNil(collectiveVacationMessage)`, que expresa
+ * literalmente lo que el código ya hacía. **Cambio de conducta: ninguno** — es una
+ * clarificación, no un arreglo. `isGroup` se conserva como parámetro porque la
+ * firma la fija el contrato medido de la extracción.
+ *
+ * ## La cadena vacía cuenta como "sin configurar" (decisión de JC, 2026-07-30)
+ *
+ * La condición era `isNil(...)`, que solo es cierto para null/undefined. Con el
+ * mensaje en **cadena vacía** —o en espacios— se entraba igual y se le mandaba al
+ * cliente un texto EN BLANCO. Nadie configura un aviso de vacaciones vacío a
+ * propósito: es el campo sin rellenar.
+ *
+ * Ahora se mira el contenido, no solo la nulidad. Cambio de conducta acotado y
+ * deliberado: una conexión con la ventana activa y el mensaje vacío deja de
+ * enviar nada (antes enviaba un mensaje en blanco).
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 8 inputs, 0 outputs,
+ * 0 reasignaciones. El único retipeo fue el `return;` -> `return true;`.
+ *
+ * El try/catch que traga errores viaja con la región, así que el manejo de errores
+ * tampoco cambia.
+ */
+export async function sendCollectiveVacationReply(
+  msg: proto.IWebMessageInfo,
+  wbot: Session,
+  ticket: any,
+  contact: any,
+  whatsapp: any,
+  ticketTraking: any,
+  hasMedia: boolean,
+  isGroup: boolean
+): Promise<boolean> {
+  // Import lazy: rompe el ciclo (verifyMessage/verifyMediaMessage viven en el
+  // monolito, que las usa 18 y 7 veces — moverlas es otro proyecto). Al
+  // ejecutarse, el monolito ya esta cargado: devuelve el modulo cacheado.
+  const { verifyMessage, verifyMediaMessage } = (await import("./wbotMessageListener")) as any;
+    try {
+      if (!msg.key.fromMe) {
+        //MENSAGEM DE FÉRIAS COLETIVAS
+
+
+        if (hasVacationMessage(whatsapp.collectiveVacationMessage)) {
+          const currentDate = moment();
+
+
+          if (
+            currentDate.isBetween(
+              moment(whatsapp.collectiveVacationStart),
+              moment(whatsapp.collectiveVacationEnd)
+            )
+          ) {
+
+            if (hasMedia) {
+
+              await verifyMediaMessage(
+                msg,
+                ticket,
+                contact,
+                ticketTraking,
+                false,
+                false,
+                wbot
+              );
+            } else {
+              await verifyMessage(msg, ticket, contact, ticketTraking);
+            }
+
+            wbot.sendMessage(contact.remoteJid, {
+              text: whatsapp.collectiveVacationMessage
+            });
+
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      Sentry.captureException(e);
+    }
+
+    return false;
+}
+
+/**
+ * Fase de edición de handleMessageInner: un `editedMessage` / `protocolMessage`
+ * no es un mensaje nuevo, es un UPDATE sobre uno ya persistido. Localiza el
+ * original (por wid, y si no aparece por el fallback de remoteJids + timestamp),
+ * le pone el body nuevo, deja rastro en dataJson.lastEdit y emite los dos eventos
+ * de socket.
+ *
+ * Devuelve `true` SIEMPRE que el mensaje era una edición —incluso cuando no se
+ * encontró el original o no había body—, porque los tres `return;` originales
+ * cortaban el flujo igual. Un mensaje de edición nunca continúa hacia ticket
+ * tracking, colas ni chatbot.
+ *
+ * OJO: dos de esos tres `return;` son inline (`if (cond) return;`), no líneas
+ * sueltas. Un extractor que solo mire líneas propias los deja sin convertir y la
+ * función cae al `return false;` final ⇒ el mensaje editado seguiría hacia el
+ * chatbot. El script lo asevera con un contador.
+ *
+ * Contrato medido con tests/harness/wbotRegionContract.cjs: 4 inputs, 0 outputs,
+ * 0 reasignaciones de locales externos.
+ *
+ * El try/catch interno (que traga y reporta a Sentry) viaja con la región.
+ */
+export async function applyMessageEdit(
+  msg: proto.IWebMessageInfo,
+  companyId: number,
+  ticket: any,
+  msgType: string
+): Promise<boolean> {
+    if (msgType === "editedMessage" || msgType === "protocolMessage") {
+      const msgKeyIdEdited = extractEditedOriginalWid(msg.key, msg.message);
+      const fallbackBodyEdited = findCaption(msg.message);
+      const bodyEdited = extractEditedBody(msg.message) ??
+        (typeof fallbackBodyEdited === "string" ? fallbackBodyEdited : null);
+
+
+      // // console.log("bodyEdited", bodyEdited)
+      const io = getIO();
+      try {
+        if (!msgKeyIdEdited || bodyEdited === null) return true;
+
+        let messageToUpdate = await Message.findOne({
+          where: {
+            wid: msgKeyIdEdited,
+            companyId,
+            ticketId: ticket.id
+          }
+        });
+
+        if (!messageToUpdate) {
+          const remoteJids = extractEditedRemoteJids(msg.key, msg.message);
+          const editedAt = extractEditedTimestamp(msg.message);
+
+          messageToUpdate = await findMessageEditFallback({
+            companyId,
+            ticketId: ticket.id,
+            remoteJids,
+            editedAt,
+            fromMe: Boolean(msg.key?.fromMe)
+          });
+
+          if (messageToUpdate) {
+            logWarn(
+              `[MessageEdit] upsert_fallback_match originalWid=${msgKeyIdEdited} messageId=${messageToUpdate.id} fromMe=${messageToUpdate.fromMe} remoteJids=${remoteJids.join(",")}`
+            );
+          }
+        }
+
+        if (!messageToUpdate) return true;
+
+        await messageToUpdate.update({
+          isEdited: true,
+          body: bodyEdited,
+          dataJson: mergeMessageDataJson(messageToUpdate.dataJson, {
+            lastEdit: {
+              source: "baileys.messages.upsert",
+              editedAt: new Date().toISOString(),
+              key: msg.key,
+              message: msg.message
+            }
+          })
+        });
+
+        await ticket.update({ lastMessage: bodyEdited });
+
+
+        io.of(String(companyId))
+          // .to(String(ticket.id))
+          .emit(`company-${companyId}-appMessage`, {
+            action: "update",
+            message: messageToUpdate
+          });
+
+        io.of(String(companyId))
+          // .to(ticket.status)
+          // .to("notification")
+          // .to(String(ticket.id))
+          .emit(`company-${companyId}-ticket`, {
+            action: "update",
+            ticket
+          });
+      } catch (err) {
+        Sentry.captureException(err);
+        logError(`Error handling message ack. Err: ${err}`);
+      }
+      return true;
+    }
+
+    return false;
 }
