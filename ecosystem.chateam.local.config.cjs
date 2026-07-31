@@ -39,7 +39,18 @@ module.exports = {
     {
       name: 'chateam-node',
       script: NODE22,
-      args: '--max-old-space-size=2048 --import tsx/esm server-distributed.ts',
+// `--require tsx/cjs` es OBLIGATORIO además de `--import tsx/esm`.
+//
+// El proyecto mezcla ESM e importaciones CJS: `queues.ts` hace
+// `require('./jobs/EmailCampaign')` sobre ficheros .ts, y sin el hook de CJS eso
+// falla con `Cannot find module './jobs/EmailCampaign'` aunque el fichero exista
+// y esté versionado.
+//
+// Faltaba en este fichero. Los procesos que corrían en producción SÍ lo llevaban
+// —se ve en sus args— lo que prueba que no se habían arrancado desde aquí. Al
+// arrancar el worker con este ecosystem, entró en bucle de reinicio: cargaba 5
+// colas en vez de 8 y moría con "Error al iniciar el worker".
+      args: '--max-old-space-size=2048 --import tsx/esm --require tsx/cjs server-distributed.ts',
       interpreter: 'none',
       cwd: CWD,
       env: { ...infraEnv, NODE_ID: 'node-1', PORT: '3010', MAX_SESSIONS: '250' },
@@ -51,7 +62,7 @@ module.exports = {
     {
       name: 'chateam-worker',
       script: NODE22,
-      args: '--max-old-space-size=1024 --import tsx/esm worker.ts',
+      args: '--max-old-space-size=1024 --import tsx/esm --require tsx/cjs worker.ts',
       interpreter: 'none',
       cwd: CWD,
       env: { ...infraEnv, NODE_ID: 'worker', DISTRIBUTED_MODE: 'true', DB_POOL_MAX: '10' },
