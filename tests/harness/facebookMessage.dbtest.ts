@@ -89,7 +89,8 @@ import { handleMessage } from "../../services/FacebookServices/facebookMessageLi
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
-import { truncateAll, seedTenant, seedChannelConnection, snapshotState } from "./dbHelpers";
+import WhatsappQueue from "../../models/WhatsappQueue";
+import { truncateAll, seedTenant, seedChannelConnection, seedQueues, snapshotState } from "./dbHelpers";
 import { fbFixtures, FB_CONTACT_PSID } from "./facebookFixtures";
 
 // Ciclo de vida a nivel de FICHERO: `sequelize.close()` es global, así que tenerlo
@@ -147,6 +148,54 @@ describe("facebook handleMessage (characterization DB)", () => {
 
     const msg = await Message.findOne({ where: { companyId } });
     if (msg) expect((msg as any).fromMe).toBe(true);
+  });
+});
+
+/**
+ * Con >=2 colas el listener no asigna directo: presenta el menú. Es el camino de
+ * `verifyQueue`, que en este canal mide 134 L y en meta 72 — la pieza más divergente
+ * de las tres y la única que aún no estaba descrita aquí. Sin este caso, cualquier
+ * unificación de verifyQueue se haría a ciegas.
+ */
+async function seedFacebookTenantConColas() {
+  const { companyId, conn } = await seedFacebookTenant();
+  // Nombres y colores propios: seedTenant ya siembra una cola "Soporte" (#00AABB) y
+  // Queue tiene unicidad por (name, companyId) — reusar el nombre revienta el seed.
+  const [ventas, soporte] = await seedQueues(companyId, [
+    { name: "Ventas FB", color: "#111111", greetingMessage: "Bienvenido a Ventas" },
+    { name: "Soporte FB", color: "#222222", greetingMessage: "Bienvenido a Soporte" }
+  ]);
+  await WhatsappQueue.create({ whatsappId: (conn as any).id, queueId: (ventas as any).id } as any);
+  await WhatsappQueue.create({ whatsappId: (conn as any).id, queueId: (soporte as any).id } as any);
+  return { companyId, conn, ventas, soporte };
+}
+
+describe("facebook verifyQueue — menú de colas (characterization DB)", () => {
+  it("con 2 colas el primer mensaje NO asigna cola (presenta menú)", async () => {
+    const { companyId, conn } = await seedFacebookTenantConColas();
+
+    await handleMessage(conn as any, fbFixtures.text("hola"), "facebook", companyId);
+
+    const ticket = await Ticket.findOne({ where: { companyId } });
+    expect(ticket).not.toBeNull();
+    expect((ticket as any).queueId).toBeNull();
+  });
+
+  it("responder '1' selecciona la primera cola", async () => {
+    const { companyId, conn, ventas } = await seedFacebookTenantConColas();
+
+    await handleMessage(conn as any, fbFixtures.text("hola"), "facebook", companyId);
+    await handleMessage(conn as any, fbFixtures.text("1"), "facebook", companyId);
+
+    const ticket = await Ticket.findOne({ where: { companyId } });
+    // Se fija lo que HAGA el listener; si al unificar verifyQueue cambia, salta.
+    expect({ asignada: (ticket as any)?.queueId === (ventas as any).id }).toMatchSnapshot();
+  });
+
+  it("menú de colas: estado completo", async () => {
+    const { companyId, conn } = await seedFacebookTenantConColas();
+    await handleMessage(conn as any, fbFixtures.text("hola"), "facebook", companyId);
+    expect(await snapshotState(companyId)).toMatchSnapshot();
   });
 });
 

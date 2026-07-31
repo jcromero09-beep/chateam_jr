@@ -108,7 +108,8 @@ import Whatsapp from "../../models/Whatsapp";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
-import { truncateAll, seedTenant, snapshotState } from "./dbHelpers";
+import WhatsappQueue from "../../models/WhatsappQueue";
+import { truncateAll, seedTenant, seedQueues, snapshotState } from "./dbHelpers";
 import {
   metaFixtures,
   META_PHONE_NUMBER_ID,
@@ -185,6 +186,54 @@ describe("meta handleMetaWebhookMessage (characterization DB)", () => {
     await handleMetaWebhookMessage(metaFixtures.objetoAjeno());
 
     expect(await Ticket.count({ where: { companyId } })).toBe(0);
+  });
+});
+
+/**
+ * Con >=2 colas el listener presenta el menú en vez de asignar directo: es el camino
+ * de `verifyQueue`, la pieza más divergente entre canales (352 L en wbot, 134 en
+ * facebook, 72 aquí) y la única que quedaba sin describir. Sin este caso, unificarla
+ * sería a ciegas.
+ */
+async function seedMetaTenantConColas() {
+  const { companyId, conn } = await seedMetaTenant();
+  // Nombres propios: seedTenant ya siembra una cola "Soporte" y Queue tiene unicidad
+  // por (name, companyId).
+  const [ventas, soporte] = await seedQueues(companyId, [
+    { name: "Ventas Meta", color: "#331111", greetingMessage: "Bienvenido a Ventas" },
+    { name: "Soporte Meta", color: "#332222", greetingMessage: "Bienvenido a Soporte" }
+  ]);
+  await WhatsappQueue.create({ whatsappId: (conn as any).id, queueId: (ventas as any).id } as any);
+  await WhatsappQueue.create({ whatsappId: (conn as any).id, queueId: (soporte as any).id } as any);
+  return { companyId, conn, ventas, soporte };
+}
+
+describe("meta verifyQueue — menú de colas (characterization DB)", () => {
+  it("con 2 colas el primer mensaje NO asigna cola (presenta menú)", async () => {
+    const { companyId } = await seedMetaTenantConColas();
+
+    await handleMetaWebhookMessage(metaFixtures.text("hola", "wamid.MENU.1"));
+
+    const ticket = await Ticket.findOne({ where: { companyId } });
+    expect(ticket).not.toBeNull();
+    expect((ticket as any).queueId).toBeNull();
+  });
+
+  it("responder '1' selecciona la primera cola", async () => {
+    const { companyId, ventas } = await seedMetaTenantConColas();
+
+    await handleMetaWebhookMessage(metaFixtures.text("hola", "wamid.MENU.2"));
+    await handleMetaWebhookMessage(metaFixtures.text("1", "wamid.MENU.3"));
+
+    const ticket = await Ticket.findOne({ where: { companyId } });
+    // Se fija lo que HAGA el listener; si al unificar verifyQueue cambia, salta.
+    expect({ asignada: (ticket as any)?.queueId === (ventas as any).id }).toMatchSnapshot();
+  });
+
+  it("menú de colas: estado completo", async () => {
+    const { companyId } = await seedMetaTenantConColas();
+    await handleMetaWebhookMessage(metaFixtures.text("hola", "wamid.MENU.4"));
+    expect(await snapshotState(companyId)).toMatchSnapshot();
   });
 });
 

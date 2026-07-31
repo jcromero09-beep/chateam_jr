@@ -37,7 +37,7 @@ set -uo pipefail
 # Recalibrado el 2026-07-31 con la salida de este mismo script.
 BASELINE_PROD=3740
 # Informativo. Si se quisiera trincar tambien los tests, aqui esta el numero.
-BASELINE_TESTS=549
+BASELINE_TESTS=571
 
 cd "$(dirname "$0")/.." || exit 2
 

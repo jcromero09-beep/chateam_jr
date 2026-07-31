@@ -130,3 +130,50 @@ exports[`facebook handleMessage — golden master (estado observable) texto entr
   ],
 }
 `;
+
+exports[`facebook verifyQueue — menú de colas (characterization DB) menú de colas: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Facebook",
+      "number": "7777777777777777",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "hola",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": null,
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "facebook",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "hola",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`facebook verifyQueue — menú de colas (characterization DB) responder '1' selecciona la primera cola 1`] = `
+{
+  "asignada": true,
+}
+`;
