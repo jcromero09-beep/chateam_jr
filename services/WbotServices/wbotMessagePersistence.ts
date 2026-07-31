@@ -43,6 +43,7 @@ import User from "../../models/User";
 import Whatsapp from "../../models/Whatsapp";
 import { getIO } from "../../libs/socket";
 import CreateMessageService from "../MessageServices/CreateMessageService";
+import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import logger, { logError, logWarn } from "../../utils/logger";
 import {
   getBodyMessage,
@@ -243,21 +244,14 @@ const downloadMedia = async (msg: proto.IWebMessageInfo, isImported: Date = null
 };
 
 
+// [Ola 3] La resolución por wid es común a los tres canales y vive en
+// ./MessageServices/FindQuotedMessageService. Aquí queda solo lo propio de
+// Baileys: de dónde se saca el id del citado.
 export const verifyQuotedMessage = async (
   msg: proto.IWebMessageInfo
 ): Promise<Message | null> => {
   if (!msg) return null;
-  const quoted = getQuotedMessageId(msg);
-
-  if (!quoted) return null;
-
-  const quotedMsg = await Message.findOne({
-    where: { wid: quoted }
-  });
-
-  if (!quotedMsg) return null;
-
-  return quotedMsg;
+  return findQuotedByWid(getQuotedMessageId(msg));
 };
 
 export const verifyMediaMessage = async (

@@ -27,6 +27,7 @@ import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
+import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import ShowQueueIntegrationService from "../QueueIntegrationServices/ShowQueueIntegrationService";
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
@@ -188,15 +189,15 @@ const downloadMetaMedia = async (
 };
 
 // quoted
+// [Ola 3] La resolución por wid es común a los tres canales y vive en
+// ../MessageServices/FindQuotedMessageService. Aquí queda solo lo propio de Meta:
+// de dónde se saca el id del citado.
 const verifyQuotedMessage = async (msg: any): Promise<Message | null> => {
   if (!msg) return null;
-  const quotedId =
+  return findQuotedByWid(
     msg?.context?.id || // Meta interactive/context
-    msg?.reply_to?.mid; // compat si alguna lib lo mapea así
-  if (!quotedId) return null;
-
-  const quotedMsg = await Message.findOne({ where: { wid: quotedId } });
-  return quotedMsg || null;
+      msg?.reply_to?.mid // compat si alguna lib lo mapea así
+  );
 };
 
 // ===== Crear/actualizar Contacto (Meta) =====

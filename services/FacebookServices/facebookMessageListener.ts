@@ -18,6 +18,7 @@ import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
+import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import { getProfile, profilePsid, sendText } from "./graphAPI";
 import Whatsapp from "../../models/Whatsapp";
@@ -199,19 +200,12 @@ export const verifyMessageMedia = async (
   });
 };
 
+// [Ola 3] La resolución por wid es común a los tres canales y vive en
+// ../MessageServices/FindQuotedMessageService. Aquí queda solo lo propio de
+// Messenger/Instagram: de dónde se saca el id del citado.
 export const verifyQuotedMessage = async (msg: any): Promise<Message | null> => {
   if (!msg) return null;
-  const quoted = msg?.reply_to?.mid;
-
-  if (!quoted) return null;
-
-  const quotedMsg = await Message.findOne({
-    where: { wid: quoted }
-  });
-
-  if (!quotedMsg) return null;
-
-  return quotedMsg;
+  return findQuotedByWid(msg?.reply_to?.mid);
 };
 
 

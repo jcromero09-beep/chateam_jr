@@ -44,19 +44,35 @@ corre `npm audit --audit-level moderate` y Snyk; `integration-tests` levanta
 
 ### 1.1 El ratchet de `any` nació roto
 
-No es que se hayan colado 211 `any`. Es que **el baseline y el script miden cosas distintas**:
+No es que se hayan colado 211 `any`. Es que **el `BASELINE` escrito no salió de ejecutar el
+script**. Medido en `9714a8c` (2026-07-17, la fecha del propio baseline), con el `grep` real:
 
-| Medición en `9714a8c` (2026-07-17, fecha del baseline) | Valor |
+| Medición | Valor |
 | --- | --- |
-| Ocurrencias — `grep -rEo … \| wc -l`, que es **lo que el script comprueba** | **4.193** |
-| Líneas — `grep -rE … \| wc -l` (sin `-o`) | **4.059** |
+| Ocurrencias — `grep -rEo … \| wc -l`, que es **lo que el script comprueba** | **4.152** |
+| Líneas — `grep -rE … \| wc -l` (sin `-o`) | **4.019** |
 | `BASELINE` escrito en el script | **4.048** |
 
-El baseline se fijó contando **líneas** y el gate comprueba **ocurrencias**. Una línea con dos
-`any` cuenta 1 vs 2. El gate por tanto **jamás pudo pasar, ni el día que se escribió**.
+4.048 no coincide con ninguna de las dos. La hipótesis más plausible sigue siendo que se contó
+por líneas unos commits antes, pero **no es demostrable**: lo único demostrado es que el gate
+fallaba ya el día que se creó (4.152 > 4.048).
 
-La deriva real desde entonces es pequeña: +66 ocurrencias (4.193 → 4.259) en dos semanas.
-El refactor del wbot de hoy la redujo: en los ficheros tocados el conteo bajó de 127 a 123.
+> **Corrección** a la primera versión de este documento, que daba 4.193 / 4.059. Esas cifras
+> salieron de un `grep` que en shells interactivos está alias-ado a **ugrep con
+> `--ignore-files`**: respeta `.gitignore`, así que no ve `dist/` ni otros directorios
+> ignorados, y da un número distinto del que obtiene el script en CI (4.289 vs 4.330 hoy).
+> La conclusión de fondo no cambia; las cifras sí. Queda anotado dentro del propio script.
+
+### 1.2 Producción y tests, contadores separados
+
+Al añadir los golden-master de meta y facebook (§4) el gate falló con +30 `any` — todos de
+casts a modelos Sequelize en los tests, que es idiomático y no es la deuda que este gate quiere
+frenar. Con un único contador, cada golden-master nuevo obligaba a subir el `BASELINE`, y eso
+además se comía el margen de producción.
+
+Ahora son dos: **producción bloquea** (`BASELINE_PROD=3740`), **tests informan**
+(`BASELINE_TESTS=549`). Verificado en ambos sentidos: pasa en verde, y añadiendo un `any` a un
+fichero de producción falla con exit 1.
 
 ---
 
@@ -205,6 +221,24 @@ si es una necesidad del canal o un arreglo que nunca se propagó.
 Y hay una asimetría decisiva: el wbot tiene golden-master; **meta y facebook no tienen ninguno**.
 Unificar hoy significaría mover código de dos canales que nadie sabe describir.
 
+### 4.2.bis El diff de conductas, ya medido
+
+Con los tres golden-master puestos (§4.3 paso 1, **hecho**), se puede comparar el estado que
+deja cada canal ante el **mismo escenario**: texto entrante, contacto nuevo, empresa con una
+cola. De 11 campos observables, **8 coinciden** (status `pending`, isBot, unreadMessages 1,
+queueId null, amountUsedBotQueues 0, useIntegration, typebotStatus, fromMe). Divergen tres:
+
+| Campo | wbot | meta | facebook | ¿Es del canal? |
+| --- | --- | --- | --- | --- |
+| `ticket.channel` | `whatsapp` | `meta` | `facebook` | **Sí**, legítimo |
+| `message.ack` | **1** | **3** | **3** | **No.** Un entrante recién llegado queda en ack 1 en wbot y en 3 en los otros dos |
+| `message.mediaType` | **`conversation`** | `null` | `null` | **No.** wbot guarda el tipo de mensaje de Baileys en un campo que los otros dejan null |
+
+Los dos últimos son inconsistencias reales que afectan a la UI y a cualquier informe que agrupe
+por canal. **No se tocan en esta ola**: cambiar un ack o un mediaType es un cambio de conducta,
+y lo que hoy existe es la capacidad de detectarlo, no todavía la decisión de cuál de los tres
+tiene razón. Esa decisión es de producto.
+
 ### 4.3 Secuencia obligada
 
 1. **Golden-master para `metaMessageListener` y `facebookMessageListener`**, calcados del que ya
@@ -212,8 +246,19 @@ Unificar hoy significaría mover código de dos canales que nadie sabe describir
    messages sin ids ni fechas. Es el mismo trabajo que ya se hizo una vez, con plantilla.
 2. **Diff de conductas**, función a función, con los tres golden-masters puestos: dónde difieren
    y por qué. Sale una tabla de decisiones, no un merge.
-3. **Extraer solo lo idéntico** primero (`verifyQuotedMessage`, las tres iguales) a un módulo
-   compartido. Gate: los tres golden-masters sin reescribir snapshots.
+3. **Extraer solo lo idéntico** primero. ✅ **Hecho** — con una corrección: este plan daba las
+   tres `verifyQuotedMessage` por idénticas *porque medían lo mismo* (16 L cada una). No lo
+   eran. Cada canal saca el id del citado de un sitio distinto —`getQuotedMessageId(msg)` en
+   wbot, `msg.context.id || msg.reply_to.mid` en meta, `msg.reply_to.mid` en facebook— y eso es
+   conducta legítima del canal. Lo idéntico era la **segunda mitad**: con el id en la mano,
+   buscar el `Message` por `wid`.
+
+   Eso es lo que se extrajo a `services/MessageServices/FindQuotedMessageService.ts`. Cada
+   listener conserva su extracción y delega la resolución. Gate: los tres golden-master,
+   54 tests / 19 snapshots, sin reescribir ninguno.
+
+   La lección para los lotes que vienen: **el tamaño no es evidencia de duplicación**. Hay que
+   leer las tres antes de decidir qué se comparte.
 4. **Después** lo divergente, una función por lote, con la decisión de conducta explícita en el
    commit.
 
