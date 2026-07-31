@@ -95,14 +95,16 @@ class PreDeployValidator {
       'database/migrations/20250101000001-create-tenants-table.ts',
       'helpers/TenantManager.ts',
       'middleware/tenantMiddleware.ts',
-      'models/CompanyBilling.ts',
-      'models/Invoice.ts',
-      'models/Refund.ts',
-      'services/StripeService.ts',
       'models/Media.ts',
       'services/FileLifecycleService.ts'
     ];
 
+    // NOTA (2026-07-30): de estas listas se quitaron StripeService, Invoice,
+    // CompanyBilling y Refund. Estaban en cuarentena por no haber funcionado
+    // NUNCA —modelos sin registrar contra tablas inexistentes—, y su presencia
+    // aquí ilustra el límite de este chequeo: **comprobar que un fichero existe
+    // no dice nada sobre si funciona**. Esta validación estuvo dando verde
+    // durante meses sobre una pila de billing que no podía ejecutarse.
     let phase1Complete = 0;
     phase1Files.forEach(file => {
       const exists = fs.existsSync(path.join(this.projectRoot, file));
@@ -305,9 +307,6 @@ class PreDeployValidator {
 
     // Verificar modelos
     const modelsChecks = [
-      'models/CompanyBilling.ts',
-      'models/Invoice.ts',
-      'models/Refund.ts',
       'models/Media.ts',
       'models/LeadSource.ts'
     ];
@@ -477,7 +476,6 @@ class PreDeployValidator {
 
     // Verificar que existen servicios de seguridad
     const securityServices = [
-      'services/StripeService.ts',
       'middleware/tenantMiddleware.ts'
     ];
 

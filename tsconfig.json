@@ -28,6 +28,7 @@
       "node_modules",
       "dist",
       "_legacy",
+      "_cuarentena",
       "src10",
       "audit-service",
       "frontend",

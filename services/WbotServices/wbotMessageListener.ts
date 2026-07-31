@@ -5346,6 +5346,16 @@ async function rejectAudioIfNotAccepted(
 }
 
 /**
+ * ¿Hay un mensaje de vacaciones REAL configurado?
+ *
+ * `isNil` no basta: solo cubre null/undefined, y la cadena vacía es el estado
+ * normal de un campo de texto sin rellenar. Sin esto se enviaba un mensaje en
+ * blanco al cliente.
+ */
+const hasVacationMessage = (message: unknown): boolean =>
+  typeof message === "string" && message.trim().length > 0;
+
+/**
  * Fase de vacaciones colectivas de handleMessageInner: si el entrante cae dentro
  * de la ventana configurada en la conexión, persiste el mensaje y responde con el
  * aviso de vacaciones, cortando el resto del flujo.
@@ -5363,12 +5373,16 @@ async function rejectAudioIfNotAccepted(
  * clarificación, no un arreglo. `isGroup` se conserva como parámetro porque la
  * firma la fija el contrato medido de la extracción.
  *
- * ## Lo que este cambio NO arregla
+ * ## La cadena vacía cuenta como "sin configurar" (decisión de JC, 2026-07-30)
  *
- * `isNil("")` es `false`, así que una conexión con el mensaje en **cadena vacía**
- * sigue entrando aquí y mandando un texto en blanco al cliente. Eso es un bug
- * distinto y necesita su propia decisión (¿tratar "" como "sin configurar"?): un
- * `isNil` no lo cubre, haría falta comprobar el contenido.
+ * La condición era `isNil(...)`, que solo es cierto para null/undefined. Con el
+ * mensaje en **cadena vacía** —o en espacios— se entraba igual y se le mandaba al
+ * cliente un texto EN BLANCO. Nadie configura un aviso de vacaciones vacío a
+ * propósito: es el campo sin rellenar.
+ *
+ * Ahora se mira el contenido, no solo la nulidad. Cambio de conducta acotado y
+ * deliberado: una conexión con la ventana activa y el mensaje vacío deja de
+ * enviar nada (antes enviaba un mensaje en blanco).
  *
  * Contrato medido con tests/harness/wbotRegionContract.cjs: 8 inputs, 0 outputs,
  * 0 reasignaciones. El único retipeo fue el `return;` -> `return true;`.
@@ -5391,7 +5405,7 @@ async function sendCollectiveVacationReply(
         //MENSAGEM DE FÉRIAS COLETIVAS
 
 
-        if (!isNil(whatsapp.collectiveVacationMessage)) {
+        if (hasVacationMessage(whatsapp.collectiveVacationMessage)) {
           const currentDate = moment();
 
 

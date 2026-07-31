@@ -10,7 +10,7 @@
 
 import * as Sentry from "@sentry/node";
 import moment from "moment";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import lodash from "lodash";
 const { isNil } = lodash;
 
@@ -518,16 +518,28 @@ function handleInvoiceCreate() {
  *
  * ## Por qué dos valores
  *
- * En producción la columna tiene `'true'` (16 filas) y `'active'` (1). Son dos
- * convenciones conviviendo. Se aceptan las dos a propósito: el objetivo aquí es
- * devolver la vida a los jobs, no decidir cuál es la buena — normalizar los datos
- * y arreglar el tipo del modelo es un cambio aparte y más ancho (`company.status`
- * viene tipado como boolean en todo el código, así que un `if (company.status)`
- * hoy es truthy incluso con la cadena "false").
+ * En producción la columna tenía `'true'` (16 filas) y `'active'` (1): dos
+ * convenciones conviviendo. Se aceptan las dos.
+ *
+ * ## Por qué compara sobre un CAST y no directamente
+ *
+ * `CAST(status AS text) IN ('true','active')` funciona con la columna en TEXTO y
+ * también con la columna ya migrada a BOOLEAN (donde el cast devuelve
+ * `'true'`/`'false'`).
+ *
+ * Eso quita una trampa de orden real: la migración
+ * `20260730000001-companies-status-to-boolean` se aplica a mano por SQL y el
+ * despliegue es un `pm2 restart` aparte. Con un predicado que solo valiera para
+ * una de las dos formas, hacerlo en el orden equivocado volvería a tumbar los
+ * tres cron — y el que lo hiciera no tendría por qué saberlo.
+ *
+ * Cuando la migración esté aplicada y verificada, esto puede simplificarse a
+ * `{ status: true }`.
  */
-const WHERE_COMPANY_ACTIVE = {
-  status: { [Op.in]: ["true", "active"] }
-} as any;
+const WHERE_COMPANY_ACTIVE = Sequelize.where(
+  Sequelize.cast(Sequelize.col("status"), "text"),
+  { [Op.in]: ["true", "active"] }
+) as any;
 
 function handleCompanyExpirationAlert() {
   cron.schedule('0 9 * * *', async () => {

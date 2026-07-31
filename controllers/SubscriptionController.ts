@@ -11,6 +11,7 @@ import options from "../config/Gn.js";
 import Company from "../models/Company.js";
 import Invoices from "../models/Invoices.js";
 import logger from "../utils/logger.js";
+import { sendOpsAlert } from "../helpers/opsAlert.js";
 import { getIO } from "../libs/socket.js";
 import Setting from "../models/Setting.js";
 import User from "../models/User.js";
@@ -1040,21 +1041,44 @@ async function handleSubscriptionDeleted(dataObject: any) {
       })
     : null;
 
+  const canceledAt = dataObject?.canceled_at
+    ? new Date(dataObject.canceled_at * 1000).toISOString()
+    : null;
+  const cancelReason = dataObject?.cancellation_details?.reason ?? null;
+
   logger.warn(
     {
       subscriptionId,
       companyId: invoice?.companyId ?? null,
       invoiceId: invoice?.id ?? null,
       status: dataObject?.status,
-      canceledAt: dataObject?.canceled_at
-        ? new Date(dataObject.canceled_at * 1000).toISOString()
-        : null,
-      cancelReason: dataObject?.cancellation_details?.reason ?? null
+      canceledAt,
+      cancelReason
     },
     invoice
       ? `[Stripe] Suscripción CANCELADA para company ${invoice.companyId} — no se suspende nada automáticamente, requiere decisión`
       : `[Stripe] Suscripción CANCELADA (${subscriptionId}) sin factura asociada — no se pudo identificar la empresa`
   );
+
+  // Avisar sin cortar (decisión de JC): una cancelación suele ser un cambio de
+  // tarjeta o un impago recuperable. Cortar el servicio desde un webhook
+  // convierte un problema de cobro en un cliente perdido.
+  await sendOpsAlert({
+    key: `stripe-subcancel:${subscriptionId}`,
+    subject: `[chateam] Suscripción cancelada${invoice ? ` — company ${invoice.companyId}` : ""}`,
+    body: [
+      `Se canceló una suscripción de Stripe. NO se ha suspendido nada.`,
+      ``,
+      `Empresa:      ${invoice?.companyId ?? "NO IDENTIFICADA (sin factura asociada)"}`,
+      `Suscripción:  ${subscriptionId}`,
+      `Cancelada:    ${canceledAt || "—"}`,
+      `Motivo:       ${cancelReason || "—"}`,
+      `Estado:       ${dataObject?.status || "—"}`,
+      ``,
+      `Qué revisar: si fue un fallo de cobro recuperable (tarjeta caducada),`,
+      `contactar antes de que expire lo ya pagado.`
+    ].join("\n")
+  });
 }
 
 /**
@@ -1079,6 +1103,11 @@ async function handleChargeDisputeCreated(dataObject: any) {
       } as any)
     : null;
 
+  const amount = dataObject?.amount != null ? dataObject.amount / 100 : null;
+  const dueBy = dataObject?.evidence_details?.due_by
+    ? new Date(dataObject.evidence_details.due_by * 1000).toISOString()
+    : null;
+
   logger.error(
     {
       disputeId: dataObject?.id,
@@ -1097,6 +1126,25 @@ async function handleChargeDisputeCreated(dataObject: any) {
     `[Stripe] CONTRACARGO abierto${invoice ? ` (company ${invoice.companyId})` : ""} — ` +
       `hay que responder con pruebas antes de la fecha límite o el importe se pierde`
   );
+
+  await sendOpsAlert({
+    key: `stripe-dispute:${dataObject?.id}`,
+    subject: `[chateam] CONTRACARGO ${amount != null ? `${amount} ${String(dataObject?.currency || "").toUpperCase()}` : ""}`.trim(),
+    body: [
+      `Se abrió un contracargo. Hay un PLAZO para responder con pruebas;`,
+      `si vence, el importe se pierde.`,
+      ``,
+      `Empresa:      ${invoice?.companyId ?? "NO IDENTIFICADA"}`,
+      `Importe:      ${amount != null ? amount : "—"} ${String(dataObject?.currency || "").toUpperCase()}`,
+      `Motivo:       ${dataObject?.reason || "—"}`,
+      `Estado:       ${dataObject?.status || "—"}`,
+      `Fecha límite: ${dueBy || "—"}`,
+      ``,
+      `Disputa:      ${dataObject?.id}`,
+      `Cargo:        ${dataObject?.charge}`,
+      `Factura:      ${invoice?.id ?? "—"}`
+    ].join("\n")
+  });
 }
 
 async function handleInvoicePaymentFailed(dataObject: any) {
