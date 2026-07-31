@@ -64,6 +64,9 @@ import { getContactMessage } from "./wbotContactResolver";
 // salieron del monolito a ./wbotMessagePersistence, así que aquí ya no hay ciclo
 // que romper. Eran tres `await import` que existían solo por eso.
 import { verifyMessage, verifyMediaMessage } from "./wbotMessagePersistence";
+// [Refactor Ola 7] También normal: handleMessageIntegration salió del monolito a
+// ./wbotIntegrations, así que aquí ya no queda ciclo que romper.
+import { handleMessageIntegration } from "./wbotIntegrations";
 
 /** Igual que en el monolito:154 — forma minima del "me" de Baileys. */
 interface IMe {
@@ -1268,10 +1271,6 @@ export async function dispatchIntegration(
   isMenu: boolean,
   isFirstMsg: any
 ): Promise<boolean> {
-  // Import lazy: handleMessageIntegration vive en el monolito (624 L, 6 usos,
-  // 5 deps propias). Romper el ciclo aqui cuesta una linea; moverla, un
-  // proyecto. Al ejecutarse el monolito ya esta cargado: modulo cacheado.
-  const { handleMessageIntegration } = (await import("./wbotMessageListener")) as any;
     logger.info(`[Integration] Verificando - isBot: ${ticket.isBot}, whatsappId: ${ticket.whatsappId}, useAIOrchestrator: ${ticket.whatsapp?.useAIOrchestrator}, integrationId: ${ticket.whatsapp?.integrationId}, aiStatus: ${ticket.aiStatus}, useIntegration: ${ticket.useIntegration}`);
 
     // ============================================================

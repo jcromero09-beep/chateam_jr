@@ -11,10 +11,10 @@
  * módulo pasándoles un ctx explícito de 14 variables (verificado con
  * tests/harness/wbotClosureFreeVars.cjs). Esta ola solo cambia de fichero.
  *
- * Dependencias: este módulo NO importa de wbotMessageListener salvo un `await
- * import` lazy para handleMessageIntegration — el único ciclo que queda. La pila
- * de persistencia (verifyMessage/verifyMediaMessage) se importa normal desde
- * ./wbotMessagePersistence, que salió del monolito en el lote anterior justo para
+ * Dependencias: este módulo NO importa NADA de wbotMessageListener. La pila
+ * de persistencia (verifyMessage/verifyMediaMessage) y handleMessageIntegration
+ * se importan normal desde ./wbotMessagePersistence y ./wbotIntegrations, que
+ * salieron del monolito en los lotes anteriores justo para
  * que este bloque pudiera moverse sin ciclo.
  */
 import path from "path";
@@ -58,6 +58,9 @@ import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import SendWhatsAppMedia, { getMessageOptions } from "./SendWhatsAppMedia";
 import { getBodyMessage } from "./wbotMessageParsers";
 import { verifyMediaMessage, verifyMessage } from "./wbotMessagePersistence";
+// [Refactor Ola 7] Era el único `await import` de este módulo: handleMessageIntegration
+// salió del monolito a ./wbotIntegrations y ya no hay ciclo que romper.
+import { handleMessageIntegration } from "./wbotIntegrations";
 
 // Mismo alias que el monolito (y que libs/wbot): el socket con el id de la sesión.
 type Session = WASocket & {
@@ -1607,11 +1610,6 @@ const verifyQueue = async (
           `[verifyQueue] supervisor_ai bloqueado por useAIOrchestrator=false en whatsappId=${wbot.id}`
         );
       } else {
-
-        // [Refactor Ola 5] Único ciclo que queda con el monolito: handleMessageIntegration
-        // son 624 L con 5 dependencias propias — moverla es otro proyecto. Import lazy,
-        // mismo patrón que dispatchIntegration en wbotMessageIngest.
-        const { handleMessageIntegration } = (await import("./wbotMessageListener")) as any;
 
         await handleMessageIntegration(
           msg,
