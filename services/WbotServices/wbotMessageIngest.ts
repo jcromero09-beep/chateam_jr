@@ -60,6 +60,10 @@ import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import ShowQueueIntegrationService from "../QueueIntegrationServices/ShowQueueIntegrationService";
 import QueueIntegrations from "../../models/QueueIntegrations";
 import { getContactMessage } from "./wbotContactResolver";
+// [Refactor Ola 5] Import normal, ya no lazy: verifyMessage/verifyMediaMessage
+// salieron del monolito a ./wbotMessagePersistence, así que aquí ya no hay ciclo
+// que romper. Eran tres `await import` que existían solo por eso.
+import { verifyMessage, verifyMediaMessage } from "./wbotMessagePersistence";
 
 /** Igual que en el monolito:154 — forma minima del "me" de Baileys. */
 interface IMe {
@@ -170,8 +174,6 @@ export const persistIncomingMessage = async (
     msg.message?.documentMessage?.contextInfo?.isForwarded;
 
   if (useLGPD) return undefined;
-  // Import lazy: rompe el ciclo (verifyMessage/verifyMediaMessage viven en el monolito).
-  const { verifyMessage, verifyMediaMessage } = (await import("./wbotMessageListener")) as any;
   if (hasMedia) {
     return verifyMediaMessage(msg, ticket, contact, ticketTraking, isMsgForwarded, false, wbot);
   }
@@ -609,10 +611,6 @@ export async function rejectAudioIfNotAccepted(
   settings: any,
   ticketTraking: any
 ): Promise<void> {
-  // Import lazy: rompe el ciclo (verifyMessage/verifyMediaMessage viven en el
-  // monolito, que las usa 18 y 7 veces — moverlas es otro proyecto). Al
-  // ejecutarse, el monolito ya esta cargado: devuelve el modulo cacheado.
-  const { verifyMessage, verifyMediaMessage } = (await import("./wbotMessageListener")) as any;
     // Verificação se aceita audio do contato
     if (
       getTypeMessage(msg) === "audioMessage" &&
@@ -704,10 +702,6 @@ export async function sendCollectiveVacationReply(
   hasMedia: boolean,
   isGroup: boolean
 ): Promise<boolean> {
-  // Import lazy: rompe el ciclo (verifyMessage/verifyMediaMessage viven en el
-  // monolito, que las usa 18 y 7 veces — moverlas es otro proyecto). Al
-  // ejecutarse, el monolito ya esta cargado: devuelve el modulo cacheado.
-  const { verifyMessage, verifyMediaMessage } = (await import("./wbotMessageListener")) as any;
     try {
       if (!msg.key.fromMe) {
         //MENSAGEM DE FÉRIAS COLETIVAS
