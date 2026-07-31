@@ -250,7 +250,7 @@ const selfRefs = new Set(SELECTED);
 
 for (const [name, info] of refs) {
   if (selfRefs.has(name)) continue;
-  if (JS_GLOBALS.has(name)) continue;
+  if (JS_GLOBALS.has(name) || TYPE_REFS.has(name)) continue;
   if (importedNames.has(name)) {
     const mod = importedNames.get(name);
     if (!usedImports.has(mod)) usedImports.set(mod, []);
