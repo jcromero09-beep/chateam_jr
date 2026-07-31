@@ -29,6 +29,7 @@ import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketServi
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
+import { resolveFlowTrigger } from "../WebhookService/ResolveFlowTriggerService";
 import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import ShowQueueIntegrationService from "../QueueIntegrationServices/ShowQueueIntegrationService";
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
@@ -130,12 +131,9 @@ const getTextFromMetaMessage = (message: any): string => {
   }
 };
 
-const normalizeText = (text: string): string =>
-  (text || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
+// [Ola 3] normalizeText se fue con las cuatro prioridades a
+// ../WebhookService/ResolveFlowTriggerService (exportada como normalizeFlowText).
+// Facebook tenia una copia identica declarada DENTRO de su flowbuilderIntegration.
 
 const buildMetaCampaignDebug = (message: any) => {
   const referral = message?.referral || message?.context?.referral || null;
@@ -638,83 +636,28 @@ const flowbuilderIntegration = async (
   const body = getTextFromMetaMessage(metaMsg);
   await ticket.update({ lastMessage: body });
 
-  const bodyNorm = normalizeText(body || "");
-  const isInFlow = !!ticket?.flowWebhook;
+  // [Ola 3] Las cuatro prioridades del FlowBuilder son comunes a este canal y a
+  // Facebook — eran copia literal la una de la otra. La decisión de QUÉ flow
+  // disparar vive en ../WebhookService/ResolveFlowTriggerService; aquí solo queda
+  // la ejecución, que sí es del canal.
+  const trigger = await resolveFlowTrigger(ticket, whatsapp, contact, body, isFirstMsg);
+  if (!trigger) return;
 
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
-  const listPhrase = await FlowCampaignModel.findAll({
-    where: { whatsappId: whatsapp.id }
-  });
-
-  const flowDispar = listPhrase.find(i =>
-    bodyNorm.includes(normalizeText(i.phrase))
+  console.log(`[FlowBuilder-Meta] Prioridad ${trigger.prioridad}: ${trigger.motivo}`);
+  await ActionsWebhookMetaService(
+    whatsapp,
+    trigger.flowId,
+    ticket.companyId,
+    trigger.nodes,
+    trigger.connections,
+    trigger.startNodeId,
+    null,
+    "",
+    "",
+    trigger.bodyArg,
+    ticket.id,
+    trigger.contactData
   );
-
-  if (flowDispar) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 1: Palabra clave →", flowDispar.phrase);
-      await ActionsWebhookMetaService(
-        whatsapp, flowDispar.flowId, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
-  if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 2: Continuación flujo activo");
-      await ActionsWebhookMetaService(
-        whatsapp, parseInt(ticket.flowStopped), ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        String(ticket.lastFlowId),
-        null, "", "", body, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
-  // isFirstMsg = Ticket object (existe ticket previo) en Meta/FB
-  if (isFirstMsg && whatsapp.flowIdWelcome) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdWelcome, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 3: Contacto con ticket → flowIdWelcome");
-      await ActionsWebhookMetaService(
-        whatsapp, whatsapp.flowIdWelcome, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 4: CONTACTO SIN TICKET PREVIO → flowIdNotPhrase ───
-  if (!isFirstMsg && whatsapp.flowIdNotPhrase) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdNotPhrase, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
-      await ActionsWebhookMetaService(
-        whatsapp, whatsapp.flowIdNotPhrase, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
 };
 
 // ====== Verify Queue (idéntico patrón a tu FB, enviando por Meta) ======

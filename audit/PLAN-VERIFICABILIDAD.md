@@ -286,6 +286,28 @@ la conducta es idéntica; lo que cambia es que la divergencia está **declarada 
 en vez de escondida en tres cuerpos casi iguales. Corregirlos es un cambio de conducta y
 necesita su decisión y su test.
 
+### 4.5 `flowbuilderIntegration`: meta y facebook eran copia literal
+
+Tercera pieza. Las cuatro prioridades del FlowBuilder —palabra clave (FlowCampaign),
+continuación de flujo activo, `flowIdWelcome`, `flowIdNotPhrase`— estaban escritas dos veces
+con **los mismos `where`, los mismos argumentos y los mismos comentarios de sección**. Solo
+cambiaba de dónde sale el body y a qué `ActionsWebhook*Service` se llama.
+
+La decisión de **qué** flow disparar vive ahora en
+`services/WebhookService/ResolveFlowTriggerService.ts`, que resuelve y devuelve un descriptor;
+cada canal **ejecuta** con su propio servicio. 89 L -> 34 en meta, 92 -> 33 en facebook.
+
+Matiz de conducta preservado: solo se dispara un flow por mensaje, y la prioridad se decide
+**en cuanto coincide**, aunque su flow resulte no existir o estar inactivo — no cae a la
+siguiente. El resolvedor devuelve `null` en ese caso y el llamante sale, igual que antes.
+
+**wbot queda fuera, y no por comodidad.** Su prioridad 2 tiene un sub-camino que los otros dos
+no tienen: si existe un `WebhookModel` con `hash_id = ticket.hashFlowId`, continúa por ahí
+pasando `dataWebhook`, `config.details` y `hashFlowId`, y su `ActionsWebhookService` recibe
+además el `msg` de Baileys. Eso no es duplicación, es una funcionalidad que solo existe en ese
+canal; forzarla en el descriptor dejaría campos muertos para dos de tres. Cuando se decida si
+esa continuación por webhook debe existir en Meta y Facebook, el sitio ya está.
+
 *Aceptación por lote*: los tres golden-masters pasan sin que se reescriba ningún snapshot.
 
 *Herramienta*: `tests/harness/wbotTopLevelDeps.cjs` mide el contrato de un grupo de funciones

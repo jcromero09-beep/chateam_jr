@@ -20,6 +20,7 @@ import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateConta
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
+import { resolveFlowTrigger } from "../WebhookService/ResolveFlowTriggerService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import { getProfile, profilePsid, sendText } from "./graphAPI";
 import Whatsapp from "../../models/Whatsapp";
@@ -46,7 +47,6 @@ import { ActionsWebhookService } from "../WebhookService/ActionsWebhookService";
 import { FlowBuilderModel } from "../../models/FlowBuilder";
 import { FlowDefaultModel } from "../../models/FlowDefault";
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
-import { FlowCampaignModel } from "../../models/FlowCampaign";
 import { differenceInMilliseconds } from "date-fns";
 import { ActionsWebhookFacebookService } from "./WebhookFacebookServices/ActionsWebhookFacebookService";
 import { get } from "http";
@@ -269,89 +269,30 @@ const flowbuilderIntegration = async (
   contact: Contact,
   message: any,
 ) => {
-
   await ticket.update({ lastMessage: message.text });
 
-  const normalizeText = (text: string): string => {
-    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-  };
+  // [Ola 3] Las cuatro prioridades del FlowBuilder son comunes a este canal y a
+  // Meta — eran copia literal la una de la otra. La decisión de QUÉ flow disparar
+  // vive en ../WebhookService/ResolveFlowTriggerService; aquí solo queda la
+  // ejecución, que sí es del canal.
+  const trigger = await resolveFlowTrigger(ticket, getSession, contact, message.text, isFirstMsg);
+  if (!trigger) return;
 
-  const messageNormalized = normalizeText(message.text || "");
-  const isInFlow = !!ticket?.flowWebhook;
-
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
-  const listPhrase = await FlowCampaignModel.findAll({
-    where: { whatsappId: getSession.id }
-  });
-
-  const flowDispar = listPhrase.find(item =>
-    messageNormalized.includes(normalizeText(item.phrase))
+  console.log(`[FlowBuilder-FB] Prioridad ${trigger.prioridad}: ${trigger.motivo}`);
+  await ActionsWebhookFacebookService(
+    getSession,
+    trigger.flowId,
+    ticket.companyId,
+    trigger.nodes,
+    trigger.connections,
+    trigger.startNodeId,
+    null,
+    "",
+    "",
+    trigger.bodyArg,
+    ticket.id,
+    trigger.contactData
   );
-
-  if (flowDispar) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 1: Palabra clave →", flowDispar.phrase);
-      await ActionsWebhookFacebookService(
-        getSession, flowDispar.flowId, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
-  if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 2: Continuación flujo activo");
-      await ActionsWebhookFacebookService(
-        getSession, parseInt(ticket.flowStopped), ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        String(ticket.lastFlowId),
-        null, "", "", message.text, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
-  if (isFirstMsg && getSession.flowIdWelcome) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdWelcome, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 3: Contacto con ticket previo → flowIdWelcome");
-      await ActionsWebhookFacebookService(
-        getSession, getSession.flowIdWelcome, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 4: CONTACTO EXISTENTE → flowIdNotPhrase ───
-  if (!isFirstMsg && getSession.flowIdNotPhrase) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdNotPhrase, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
-      await ActionsWebhookFacebookService(
-        getSession, getSession.flowIdNotPhrase, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
 }
 
 export const handleMessage = async (
