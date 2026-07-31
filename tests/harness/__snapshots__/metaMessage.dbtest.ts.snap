@@ -1,0 +1,124 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`meta handleMetaWebhookMessage — golden master (estado observable) el mismo wamid dos veces: estado completo (dedupe del canal) 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Meta",
+      "number": "593988888888",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": null,
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "meta",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`meta handleMetaWebhookMessage — golden master (estado observable) texto entrante: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Meta",
+      "number": "593988888888",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": null,
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "meta",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`meta handleMetaWebhookMessage — golden master (estado observable) webhook de estado (status), no de mensaje: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Meta",
+      "number": "593988888888",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": null,
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "meta",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;

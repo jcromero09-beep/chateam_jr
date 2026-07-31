@@ -73,6 +73,33 @@ export async function seedTenant(label = "") {
 }
 
 /**
+ * Conexión de un canal que NO es Baileys (facebook / instagram / meta).
+ *
+ * `seedTenant` crea un Whatsapp sin `channel`, que es lo que espera el listener de
+ * Baileys. Los otros dos listeners buscan su conexión por campos propios:
+ * facebookMessageListener hace `Whatsapp.findOne({ where: { facebookPageUserId } })`,
+ * así que sin ese campo poblado el flujo entero muere con un TypeError al leer
+ * `getSession.id`. Este helper es el prerrequisito para caracterizarlos.
+ */
+export async function seedChannelConnection(
+  companyId: number,
+  opts: {
+    channel: "facebook" | "instagram" | "meta";
+    facebookPageUserId?: string;
+    facebookUserToken?: string;
+    name?: string;
+  }
+) {
+  return Whatsapp.create({
+    name: opts.name ?? `conn-${opts.channel}`,
+    companyId,
+    channel: opts.channel,
+    facebookPageUserId: opts.facebookPageUserId ?? "1111111111111111",
+    facebookUserToken: opts.facebookUserToken ?? "fb-token-de-test"
+  } as any);
+}
+
+/**
  * Enlaza una conexión Meta a una conexión Baileys para activar la coexistencia.
  *
  * `resolveMetaCoexistence` busca un Whatsapp con
