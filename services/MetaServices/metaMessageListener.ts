@@ -28,6 +28,7 @@ import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateConta
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
+import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
 import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import ShowQueueIntegrationService from "../QueueIntegrationServices/ShowQueueIntegrationService";
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
@@ -596,20 +597,17 @@ const flowBuilderQueue = async (
   contact: Contact,
   isFirstMsg: Ticket
 ) => {
-  const flow = await FlowBuilderModel.findOne({
-    where: { id: ticket.flowStopped, active: true }
+  // [Ola 3] Contexto del flow detenido: común a los tres canales. Este canal es el
+  // único que comprobaba null, así que mantiene `onMissing: "null"`.
+  // Ver ../WebhookService/ResolveStoppedFlowService.
+  const ctx = await resolveStoppedFlow(ticket, contact, {
+    requireActive: true,
+    onMissing: "null"
   });
-  if (!flow || !ticket.lastFlowId) return;
+  if (!ctx || !ticket.lastFlowId) return;
   if (["closed", "interrupted", "open"].includes(ticket.status)) return;
 
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  const nodes: INodes[] = flow.flow["nodes"];
-  const connections: IConnections[] = flow.flow["connections"];
+  const { nodes, connections, contactData: mountDataContact } = ctx;
   const body = getTextFromMetaMessage(metaMsg);
 
   await ActionsWebhookMetaService(

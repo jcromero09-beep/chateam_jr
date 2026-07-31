@@ -260,7 +260,31 @@ tiene razón. Esa decisión es de producto.
    La lección para los lotes que vienen: **el tamaño no es evidencia de duplicación**. Hay que
    leer las tres antes de decidir qué se comparte.
 4. **Después** lo divergente, una función por lote, con la decisión de conducta explícita en el
-   commit.
+   commit. Primer lote hecho: `flowBuilderQueue` (ver §4.4).
+
+### 4.4 `flowBuilderQueue`: tres arreglos que nunca se propagaron
+
+Segunda pieza unificada, y la que mejor ilustra el coste de la triplicación. El tramo común
+—cargar el flow de `ticket.flowStopped`, sacar `nodes`/`connections`, montar
+`{number, name, email}`— se fue a `services/WebhookService/ResolveStoppedFlowService.ts`.
+Lo que cada canal conserva es su llamada a su propio `ActionsWebhook*Service`.
+
+Al comparar las tres aparecieron divergencias que **no son del canal**:
+
+| Comprobación | wbot | meta | facebook |
+| --- | --- | --- | --- |
+| filtra `active: true` | sí | sí | **no** |
+| comprueba `flow == null` | no | **sí** | no |
+| guarda por `ticket.status` | sí | sí | **no** |
+
+Dos son bugs latentes: sin `active` se reanudan flows desactivados (facebook), y sin el
+null-check `flow.flow["nodes"]` lanza `TypeError` cuando el flow no existe (wbot y facebook —
+meta lo arregló y nadie lo llevó a los otros dos).
+
+**No se corrigen aquí.** El servicio los reproduce vía `requireActive` y `onMissing`, así que
+la conducta es idéntica; lo que cambia es que la divergencia está **declarada en la llamada**
+en vez de escondida en tres cuerpos casi iguales. Corregirlos es un cambio de conducta y
+necesita su decisión y su test.
 
 *Aceptación por lote*: los tres golden-masters pasan sin que se reescriba ningún snapshot.
 

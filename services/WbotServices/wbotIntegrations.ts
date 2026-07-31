@@ -64,6 +64,7 @@ import { ActionsWebhookService } from "../WebhookService/ActionsWebhookService";
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
 
 import { getBodyMessage, getTypeMessage } from "./wbotMessageParsers";
+import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
 import { verifyMessage, verifyQuotedMessage } from "./wbotMessagePersistence";
 
 // Mismo alias que el monolito (y que libs/wbot): el socket con el id de la sesión.
@@ -1123,18 +1124,15 @@ const flowBuilderQueue = async (
 ) => {
   const body = getBodyMessage(msg);
 
-  const flow = await FlowBuilderModel.findOne({
-    where: { id: ticket.flowStopped, active: true }
+  // [Ola 3] Contexto del flow detenido: común a los tres canales. Las opciones
+  // reproducen la conducta que tenía ESTE canal — filtra active, y si no hay flow
+  // explota igual que antes (aquí no había null-check). Ver
+  // ../WebhookService/ResolveStoppedFlowService.
+  const ctx = await resolveStoppedFlow(ticket, contact, {
+    requireActive: true,
+    onMissing: "throw"
   });
-
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  const nodes: INodes[] = flow.flow["nodes"];
-  const connections: IConnections[] = flow.flow["connections"];
+  const { nodes, connections, contactData: mountDataContact } = ctx!;
 
   if (!ticket.lastFlowId) {
     return;

@@ -19,6 +19,7 @@ import Ticket from "../../models/Ticket";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
+import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import { getProfile, profilePsid, sendText } from "./graphAPI";
 import Whatsapp from "../../models/Whatsapp";
@@ -218,23 +219,16 @@ const flowBuilderQueue = async (
   isFirstMsg: Ticket,
 ) => {
 
-  const flow = await FlowBuilderModel.findOne({
-    where: {
-      id: ticket.flowStopped,
-    }
+  // [Ola 3] Contexto del flow detenido: común a los tres canales. Las opciones
+  // reproducen la conducta que tenía ESTE canal — a diferencia de wbot y meta, aquí
+  // NO se filtra por `active`, así que se reanudan también flows desactivados. Es
+  // una divergencia real, no del canal; se preserva a propósito y queda declarada
+  // en la llamada. Ver ../WebhookService/ResolveStoppedFlowService.
+  const ctx = await resolveStoppedFlow(ticket, contact, {
+    requireActive: false,
+    onMissing: "throw"
   });
-
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-
-
-
-  const nodes: INodes[] = flow.flow["nodes"]
-  const connections: IConnections[] = flow.flow["connections"]
+  const { nodes, connections, contactData: mountDataContact } = ctx!;
 
   if (!ticket.lastFlowId) {
     return
