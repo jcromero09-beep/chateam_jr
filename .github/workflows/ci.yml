@@ -226,23 +226,32 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # ROTO desde siempre, medido 2026-07-31: `exec -T app` apunta a un servicio que
-    # docker-compose.test.yml NO define — solo declara postgres_test y redis_test.
-    # Nunca se detectó porque el job `lint` lleva bloqueando el pipeline desde antes.
-    # El arreglo es correr los tests EN EL RUNNER contra los dos contenedores (como
-    # hace el job `test`), no dentro de un contenedor de app inexistente.
-    # No se toca en esta ola: primero hay que ver el pipeline correr entero.
-    - name: Start services with Docker Compose
-      run: |
-        docker-compose -f docker-compose.test.yml up -d
-        sleep 30
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
 
+    - name: Install dependencies
+      run: npm ci
+
+    # [2026-08-01] Este job estaba roto de raíz: hacía
+    # `docker-compose exec -T app npm run test:integration` y docker-compose.test.yml
+    # NO define ningún servicio `app` — solo postgres_test y redis_test. Nunca falló a
+    # la vista porque `lint` bloqueaba el pipeline antes de llegar aquí.
+    #
+    # Y al arreglarlo aparece que los contenedores tampoco hacían falta: las 3 suites
+    # de tests/integration usan mocks (`const mockApp = { post: jest.fn(), … }`), no
+    # levantan la app ni tocan la base. Corren en 4 segundos.
+    #
+    # OJO con lo que esto significa: se llaman "de integración" pero no integran nada
+    # — no hay un servidor real ni una petición HTTP de verdad. Convertirlos en tests
+    # reales (supertest contra la app montada) es un proyecto aparte; el gate que hoy
+    # sí verifica conducta de punta a punta es el golden-master del job `test`.
     - name: Run integration tests
-      run: |
-        docker-compose -f docker-compose.test.yml exec -T app npm run test:integration
-
-    - name: Stop services
-      run: docker-compose -f docker-compose.test.yml down
+      run: npm run test:integration
+      env:
+        NODE_ENV: test
 
   # ==========================================
   # SECURITY SCAN

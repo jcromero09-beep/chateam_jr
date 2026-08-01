@@ -13,9 +13,30 @@
 --
 -- ## Lo que este fichero NO hace
 --
--- NO valida que las migraciones funcionen. Ése es el precio de la decisión, y está
--- tomado a sabiendas: arreglar las 28 migraciones rotas es un proyecto aparte. Hasta
--- entonces, una migración nueva puede colarse rota sin que el CI se entere.
+-- NO valida que las migraciones funcionen. Una migración nueva puede colarse rota sin
+-- que el CI se entere.
+--
+-- ## Por qué no basta con "arreglar las migraciones" (medido 2026-08-01)
+--
+-- Se investigó, y el objetivo estaba mal planteado. De las 28 que fallan al levantar
+-- desde cero, solo 7 fallan por su cuenta; las otras 21 son cascada: esperan tablas
+-- que nadie crea. Y esas tablas SÍ existen en producción:
+--
+--   Roles · AIAffiliatePrograms · AISubplans · UGCSocialPosts · WhatsAppTemplates
+--   AIAgentConfigs · AIProviderConfigs · AISupportCorrections · AffiliateWallets
+--   FacebookDatasets · UGCPostComments · reminder_templates
+--
+-- No hay NINGUNA migración que las cree. Se hicieron con `sequelize.sync()` o a mano.
+--
+-- Hay además un lote entero (20250101*: tenants, CompanyBilling, Refunds, LeadSources,
+-- Media) REGISTRADO en SequelizeMeta como aplicado cuyas tablas no existen en
+-- producción: se marcó sin ejecutarse.
+--
+-- Conclusión: **el esquema real no se puede reconstruir desde el histórico de
+-- migraciones**, y forzar las 28 crearía en CI un esquema DISTINTO al de producción —
+-- justo lo contrario de lo que se busca. Recuperar esa capacidad exige generar las
+-- migraciones que faltan a partir de este volcado, que es un proyecto propio.
+-- Mientras tanto, este fichero es la fuente de verdad.
 --
 -- ## Cómo se regenera
 --
