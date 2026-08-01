@@ -10,7 +10,7 @@
 import "dotenv/config";
 import path from "path";
 import fs from "fs";
-import { Sequelize } from "sequelize";
+import { Sequelize, QueryInterface } from "sequelize";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // [2026-08-01] El proyecto es ESM ("module": "ES2022" en tsconfig), y en ESM
@@ -41,6 +41,26 @@ const PROJECT_ROOT = isRunningFromDist
 
 const COMPILED_DIR = path.join(PROJECT_ROOT, "dist", "database", "migrations");
 const SOURCE_DIR = path.join(PROJECT_ROOT, "database", "migrations");
+/**
+ * Forma de una migración. Se contemplan las tres envolturas posibles porque el
+ * interop CJS/ESM las deja en sitios distintos: `module.exports` (las 387 de este
+ * repo) acaba en `.default`, `export default` también, y una hipotética exportación
+ * nombrada queda en la raíz del módulo.
+ */
+type MigrationFn = (
+  queryInterface: QueryInterface,
+  sequelize: typeof Sequelize
+) => Promise<unknown>;
+
+interface Migration {
+  up?: MigrationFn;
+  down?: MigrationFn;
+}
+
+type MigrationModule = Migration & {
+  default?: Migration & { default?: Migration };
+};
+
 const MIGRATIONS_DIR = fs.existsSync(COMPILED_DIR) ? COMPILED_DIR : SOURCE_DIR;
 const USES_COMPILED = MIGRATIONS_DIR === COMPILED_DIR;
 
@@ -105,8 +125,11 @@ const main = async () => {
       // la primera migración. Con `import()` dinámico funcionan las dos formas — las
       // migraciones de este repo usan `module.exports`, que el interop deja en
       // `.default`, y las que usen `export default` caen en el mismo sitio.
-      const mod: any = await import(pathToFileURL(fullPath).href);
-      const migration = mod.default?.default || mod.default || mod;
+      const mod = (await import(
+        pathToFileURL(fullPath).href
+      )) as MigrationModule;
+      const migration: Migration =
+        mod.default?.default || mod.default || mod;
       if (typeof migration.up !== "function") {
         throw new Error(`La migración ${file} no exporta función up()`);
       }
