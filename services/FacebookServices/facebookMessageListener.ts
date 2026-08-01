@@ -214,7 +214,10 @@ export const verifyQuotedMessage = async (msg: any): Promise<Message | null> => 
 };
 
 
-const flowBuilderQueue = async (
+// Exportada para poder probar la guarda por `ticket.status` sin tener que montar
+// todo el camino del listener (que exige isMenu y un body numérico). Ver
+// tests/harness/facebookFlowBuilderQueue.dbtest.ts.
+export const flowBuilderQueue = async (
   ticket: Ticket,
   message: any,
   getSession: Whatsapp,
