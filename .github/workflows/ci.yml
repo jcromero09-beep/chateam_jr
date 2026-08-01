@@ -160,7 +160,7 @@ jobs:
     # desde database/migrations, así que no debería repetirse — si algún dbtest falla
     # por una columna, mirar primero si su migración existe.
     - name: Golden-master de BD (conducta)
-      run: npm run test:golden
+      run: npm run test:golden -- --json --outputFile=/tmp/jest-golden.json
       env:
         NODE_ENV: test
         DB_HOST: localhost
@@ -169,6 +169,16 @@ jobs:
         DB_USER: postgres
         DB_PASS: postgres
         REDIS_URI: redis://localhost:6379
+
+    # Los logs del runner piden autenticación aunque el repo sea público (la API
+    # devuelve 403 y las anotaciones solo dicen "exit code 1"), así que un
+    # golden-master en rojo no se podía diagnosticar sin abrir la web a mano. El step
+    # summary sí se publica con el run y se lee sin credenciales: aquí queda escrito
+    # QUÉ test cayó y con qué mensaje. `if: always()` porque hace falta justo cuando
+    # el step anterior ha fallado.
+    - name: Resumen del golden-master
+      if: always()
+      run: node scripts/ci-jest-summary.cjs /tmp/jest-golden.json >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
