@@ -279,7 +279,7 @@ async function botText(ctx: VerifyQueueCtx) {
           String(files.id),
         );
 
-        for (const [index, file] of files.options.entries()) {
+        for (const [_index, file] of files.options.entries()) {
           const mediaSrc = {
             fieldname: "medias",
             originalname: file.path,
@@ -741,7 +741,7 @@ async function botList(ctx: VerifyQueueCtx) {
           String(files.id),
         );
 
-        for (const [index, file] of files.options.entries()) {
+        for (const [_index, file] of files.options.entries()) {
           const mediaSrc = {
             fieldname: "medias",
             originalname: file.path,
@@ -1260,7 +1260,7 @@ async function botButton(ctx: VerifyQueueCtx) {
           String(files.id),
         );
 
-        for (const [index, file] of files.options.entries()) {
+        for (const [_index, file] of files.options.entries()) {
           const mediaSrc = {
             fieldname: "medias",
             originalname: file.path,
@@ -1405,7 +1405,7 @@ async function botButton(ctx: VerifyQueueCtx) {
 
     wbot.sendPresenceUpdate("composing", contact.remoteJid);
 
-    const body = formatBody(`\u200e${greetingMessage}\n\n${options}`, ticket);
+    const _body = formatBody(`\u200e${greetingMessage}\n\n${options}`, ticket);
 
     await CreateLogTicketService({
       ticketId: ticket.id,
@@ -1586,7 +1586,7 @@ async function botButton(ctx: VerifyQueueCtx) {
               if (newMsg) {
                 await wbot.upsertMessage(newMsg, "notify");
               }
-            } catch (error) {}
+            } catch (error) { /* se ignora a propósito: el envío es best-effort */ }
           },
           1000,
           ticket.id,
@@ -1664,7 +1664,7 @@ async function botButton(ctx: VerifyQueueCtx) {
             if (newMsg) {
               await wbot.upsertMessage(newMsg, "notify");
             }
-          } catch (error) {}
+          } catch (error) { /* se ignora a propósito: el envío es best-effort */ }
         },
         1000,
         ticket.id,
@@ -1835,7 +1835,7 @@ const verifyQueue = async (
           String(files.id),
         );
 
-        for (const [index, file] of files.options.entries()) {
+        for (const [_index, file] of files.options.entries()) {
           const mediaSrc = {
             fieldname: "medias",
             originalname: file.path,
@@ -1969,7 +1969,7 @@ const verifyQueue = async (
     return;
   }
 
-  let choosenQueue =
+  const choosenQueue =
     chatbot && queues.length === 1
       ? queues[+selectedOption]
       : queues[+selectedOption - 1];

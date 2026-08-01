@@ -46,8 +46,14 @@ jobs:
     # heap por defecto de V8 (~2 GB) los dos vuelcan core SIN emitir diagnóstico,
     # que es indistinguible de "el step falló por un error de código". El runner
     # ubuntu-latest tiene 16 GB: 6 GB de heap le sobran y quitan la ambigüedad.
-    - name: Run ESLint
-      run: npm run lint
+    # `npm run lint` daba 1.233 errores heredados y dejaba este job SIEMPRE en rojo,
+    # bloqueando build e integration-tests, que dependen de él. Solo 3 de esos 1.233
+    # son auto-corregibles; limpiarlos es un proyecto aparte.
+    #
+    # El trinquete aplica lo ya decidido para prettier y para `any`: la deuda no puede
+    # crecer, y se paga según se toca cada fichero. Ver scripts/eslint-ratchet.sh.
+    - name: "ESLint (trinquete: no admite errores nuevos)"
+      run: bash scripts/eslint-ratchet.sh
       env:
         NODE_OPTIONS: --max-old-space-size=6144
 

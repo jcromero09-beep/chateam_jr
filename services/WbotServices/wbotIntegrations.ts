@@ -181,9 +181,9 @@ const sendDialogflowAwswer = async (
     });
   }
 
-  const image = dialogFlowReply.parameters.image?.stringValue ?? undefined;
+  const _image = dialogFlowReply.parameters.image?.stringValue ?? undefined;
 
-  const react = dialogFlowReply.parameters.react?.stringValue ?? undefined;
+  const _react = dialogFlowReply.parameters.react?.stringValue ?? undefined;
 
   const audio = dialogFlowReply.encodedAudio.toString("base64") ?? undefined;
 
@@ -301,10 +301,10 @@ const flowbuilderIntegration = async (
   ticket: Ticket,
   contact: Contact,
   isFirstMsg?: Ticket,
-  isTranfered?: boolean,
+  _isTranfered?: boolean,
 ) => {
-  const io = getIO();
-  const quotedMsg = await verifyQuotedMessage(msg);
+  const _io = getIO();
+  const _quotedMsg = await verifyQuotedMessage(msg);
   const body = getBodyMessage(msg);
 
   if (!msg.key.fromMe && ticket.status === "closed") {
@@ -1277,7 +1277,7 @@ const flowBuilderQueue = async (
   whatsapp: Whatsapp,
   companyId: number,
   contact: Contact,
-  isFirstMsg: Ticket,
+  _isFirstMsg: Ticket,
 ) => {
   const body = getBodyMessage(msg);
 
