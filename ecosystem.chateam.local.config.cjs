@@ -32,6 +32,20 @@ const infraEnv = {
   FRONTEND_URL: 'https://padeldev.codigo.plus',
   BACKEND_URL: 'https://padeldev.codigo.plus/be',
   APP_URL: 'https://padeldev.codigo.plus',
+
+  // ── Avisos operativos (helpers/opsAlert.ts) ────────────────────────────────
+  // [2026-07-31, decisión de JC] Destinatario de contracargos, cancelaciones y
+  // demás avisos de operación. Sin esto, opsAlert los deja SOLO en el log.
+  OPS_ALERT_EMAIL: 'jcromero09@gmail.com',
+  //
+  // El destinatario por sí solo NO basta: SendMail cae a nodemailer y sin
+  // MAIL_HOST el envío falla — y opsAlert se lo traga (nunca lanza), así que el
+  // aviso se perdería igual, pero encima sin el mensaje claro de "no configurado".
+  // Se usa el Postfix del propio NAS, que ya escucha en 127.0.0.1:25 y no pide
+  // auth. Puerto 25 => nodemailer no fuerza TLS (secure solo con 465 o ssl).
+  MAIL_HOST: '127.0.0.1',
+  MAIL_PORT: '25',
+  MAIL_FROM: 'chateam@nas.codigo.plus',
 };
 
 module.exports = {
