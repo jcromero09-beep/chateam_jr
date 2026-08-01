@@ -79,6 +79,12 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
 
+    # Para que el resumen del golden-master pueda publicarse como comentario del PR
+    # cuando falle (ver el step "Comentar el fallo en el PR").
+    permissions:
+      contents: read
+      pull-requests: write
+
     services:
       # La misma imagen que corre en el NAS. `postgres:15` no vale por dos motivos:
       # producción es 17, y el esquema necesita la extensión `vector` (pgvector),
@@ -178,7 +184,24 @@ jobs:
     # el step anterior ha fallado.
     - name: Resumen del golden-master
       if: always()
-      run: node scripts/ci-jest-summary.cjs /tmp/jest-golden.json >> "$GITHUB_STEP_SUMMARY"
+      run: |
+        node scripts/ci-jest-summary.cjs /tmp/jest-golden.json > /tmp/resumen-golden.md
+        cat /tmp/resumen-golden.md >> "$GITHUB_STEP_SUMMARY"
+
+    # El step summary se ve en la web pero NO se expone por API, así que un fallo
+    # seguía necesitando que un humano entrara a copiarlo. Un comentario del PR sí se
+    # lee sin credenciales. Solo cuando falla, para no llenar el hilo de ruido.
+    - name: Comentar el fallo en el PR
+      if: failure() && github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        jq -Rn --rawfile cuerpo /tmp/resumen-golden.md '{body: $cuerpo}' > /tmp/comentario.json
+        curl -sf -X POST \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+          -d @/tmp/comentario.json > /dev/null
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
