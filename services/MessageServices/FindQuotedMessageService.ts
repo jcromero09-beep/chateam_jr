@@ -24,7 +24,7 @@
 import Message from "../../models/Message";
 
 export const findQuotedByWid = async (
-  wid?: string | null
+  wid?: string | null,
 ): Promise<Message | null> => {
   if (!wid) return null;
 

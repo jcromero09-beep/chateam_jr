@@ -29,6 +29,10 @@ interface ScheduleData {
 interface Request {
   scheduleData: ScheduleData;
   id: string | number;
+  // [2026-08-01 · IDOR] Mismo caso que TagServices: ShowService(id) sin companyId
+  // busca el agendamiento SIN filtrar por empresa (Sequelize ignora un
+  // `companyId: undefined` en el where). El controller ya lo tenía extraído.
+  companyId: string | number;
   mediaPath: string | null,
   mediaName: string | null,
 }
@@ -38,8 +42,9 @@ const UpdateUserService = async ({
   id,
   mediaPath,
   mediaName,
+  companyId,
 }: Request): Promise<ScheduledMessages | undefined> => {
-  const schedule = await ShowService(id);
+  const schedule = await ShowService(id, companyId);
 
   const {
     data_mensagem_programada,

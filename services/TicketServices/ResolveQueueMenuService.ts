@@ -57,11 +57,11 @@ export const resolveQueueMenu = async (
   connection: Whatsapp,
   ticket: Ticket,
   contact: Contact,
-  body: string
+  body: string,
 ): Promise<QueueMenuOutcome | null> => {
   const { queues, greetingMessage } = await ShowWhatsAppService(
     connection.id!,
-    ticket.companyId
+    ticket.companyId,
   );
 
   // 1. Una sola cola: se asigna sin preguntar.
@@ -71,7 +71,7 @@ export const resolveQueueMenu = async (
     await UpdateTicketService({
       ticketData: { queueId: queues[0].id, isBot: chatbot },
       ticketId: ticket.id,
-      companyId: ticket.companyId
+      companyId: ticket.companyId,
     });
     return null;
   }
@@ -92,7 +92,7 @@ export const resolveQueueMenu = async (
     await UpdateTicketService({
       ticketData: { queueId: choosenQueue.id },
       ticketId: ticket.id,
-      companyId: ticket.companyId
+      companyId: ticket.companyId,
     });
 
     if (choosenQueue.chatbots.length > 0) {
@@ -102,7 +102,7 @@ export const resolveQueueMenu = async (
       });
       return {
         motivo: "cola-elegida",
-        texto: `${choosenQueue.greetingMessage}\n\n${options}\n[#] Voltar para o menu principal`
+        texto: `${choosenQueue.greetingMessage}\n\n${options}\n[#] Voltar para o menu principal`,
       };
     }
 

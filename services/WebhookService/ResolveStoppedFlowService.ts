@@ -47,7 +47,7 @@ export interface StoppedFlowContext {
 export const buildFlowContactData = (contact: Contact) => ({
   number: contact.number,
   name: contact.name,
-  email: contact.email
+  email: contact.email,
 });
 
 export const resolveStoppedFlow = async (
@@ -61,7 +61,7 @@ export const resolveStoppedFlow = async (
      * `"throw"` deja explotar el acceso a `flow.flow` como hoy en wbot y facebook.
      */
     onMissing: "null" | "throw";
-  }
+  },
 ): Promise<StoppedFlowContext | null> => {
   const where: { id: string; active?: boolean } = { id: ticket.flowStopped };
   if (opts.requireActive) where.active = true;
@@ -75,14 +75,14 @@ export const resolveStoppedFlow = async (
     // que dice qué pasó en vez de "Cannot read properties of null".
     throw new TypeError(
       `[resolveStoppedFlow] no hay flow ${ticket.flowStopped} ` +
-        `(active=${opts.requireActive}) para el ticket ${ticket.id}`
+        `(active=${opts.requireActive}) para el ticket ${ticket.id}`,
     );
   }
 
   return {
     nodes: flow.flow["nodes"],
     connections: flow.flow["connections"],
-    contactData: buildFlowContactData(contact)
+    contactData: buildFlowContactData(contact),
   };
 };
 

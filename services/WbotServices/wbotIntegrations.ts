@@ -24,12 +24,7 @@ import axios from "axios";
 import { join } from "path";
 import { readFile } from "fs";
 
-import {
-  delay,
-  proto,
-  WAMessage,
-  WASocket
-} from "baileys";
+import { delay, proto, WAMessage, WASocket } from "baileys";
 
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -76,23 +71,31 @@ async function sendMessageWithAntiBan(
   wbot: any,
   jid: string,
   content: any,
-  messageType: "text" | "media" | "audio" = "text"
+  messageType: "text" | "media" | "audio" = "text",
 ) {
   try {
     // 1. Aplicar protección anti-ban (delays + typing simulation)
-    const antiBanResult = await antiBanManager.applyAntiBan(wbot, jid, messageType);
+    const antiBanResult = await antiBanManager.applyAntiBan(
+      wbot,
+      jid,
+      messageType,
+    );
 
     if (!antiBanResult.success) {
       logWarn("⚠️ Anti-ban blocked message", {
         jid,
         reason: antiBanResult.reason,
-        messageType
+        messageType,
       });
 
       // Si está bloqueado por rate limit, esperar y reintentar UNA vez
       if (antiBanResult.reason?.includes("Rate limit")) {
         await delay(5000); // Esperar 5s adicionales
-        const retryResult = await antiBanManager.applyAntiBan(wbot, jid, messageType);
+        const retryResult = await antiBanManager.applyAntiBan(
+          wbot,
+          jid,
+          messageType,
+        );
 
         if (!retryResult.success) {
           throw new Error(`Message blocked: ${antiBanResult.reason}`);
@@ -110,17 +113,16 @@ async function sendMessageWithAntiBan(
     logInfo("✅ Message sent successfully with anti-ban", {
       jid,
       messageType,
-      messageId: sentMessage?.key?.id
+      messageId: sentMessage?.key?.id,
     });
 
     return sentMessage;
-
   } catch (error) {
     logError("❌ Error sending message with anti-ban", {
       jid,
       messageType,
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
     });
     throw error;
   }
@@ -133,7 +135,7 @@ const sendDialogflowAwswer = async (
   contact: Contact,
   inputAudio: string | undefined,
   companyId: number,
-  queueIntegration: QueueIntegrations
+  queueIntegration: QueueIntegrations,
 ) => {
   const session = await createDialogflowSessionWithModel(queueIntegration);
 
@@ -150,14 +152,14 @@ const sendDialogflowAwswer = async (
     contact.remoteJid,
     getBodyMessage(msg),
     queueIntegration.language,
-    inputAudio
+    inputAudio,
   );
 
   if (!dialogFlowReply) {
     wbot.sendPresenceUpdate("composing", contact.remoteJid);
 
     const bodyDuvida = formatBody(
-      `\u200e *${queueIntegration?.name}:*No pude entender tu pregunta.`
+      `\u200e *${queueIntegration?.name}:*No pude entender tu pregunta.`,
     );
 
     await delay(1000);
@@ -165,7 +167,7 @@ const sendDialogflowAwswer = async (
     await wbot.sendPresenceUpdate("paused", contact.remoteJid);
 
     const sentMessage = await wbot.sendMessage(`${contact.number}@c.us`, {
-      text: bodyDuvida
+      text: bodyDuvida,
     });
 
     await verifyMessage(sentMessage, ticket, contact);
@@ -175,7 +177,7 @@ const sendDialogflowAwswer = async (
   if (dialogFlowReply.endConversation) {
     await ticket.update({
       contactId: ticket.contact.id,
-      useIntegration: false
+      useIntegration: false,
     });
   }
 
@@ -202,7 +204,7 @@ const sendDialogflowAwswer = async (
         message.text.text[0],
         lastMessage,
         audio,
-        queueIntegration
+        queueIntegration,
       );
     }
   }
@@ -215,7 +217,7 @@ async function sendDelayedMessages(
   message: string,
   lastMessage: string,
   audio: string | undefined,
-  queueIntegration: QueueIntegrations
+  queueIntegration: QueueIntegrations,
 ) {
   const companyId = ticket.companyId;
   // // console.log("GETTING WHATSAPP SEND DELAYED MESSAGES", ticket.whatsappId, wbot.id)
@@ -233,7 +235,7 @@ async function sendDelayedMessages(
   //   }
   // }
   const sentMessage = await wbot.sendMessage(`${contact.number}@c.us`, {
-    text: `\u200e *${queueIntegration?.name}:* ` + message
+    text: `\u200e *${queueIntegration?.name}:* ` + message,
   });
 
   await verifyMessage(sentMessage, ticket, contact);
@@ -279,12 +281,12 @@ async function sendDelayedMessages(
       setTimeout(async () => {
         await ticket.update({
           contactId: ticket.contact.id,
-          useIntegration: true
+          useIntegration: true,
         });
         await UpdateTicketService({
           ticketId: ticket.id,
           ticketData: { status: "closed" },
-          companyId: companyId
+          companyId: companyId,
         });
       }, 3000);
     }
@@ -299,26 +301,25 @@ const flowbuilderIntegration = async (
   ticket: Ticket,
   contact: Contact,
   isFirstMsg?: Ticket,
-  isTranfered?: boolean
+  isTranfered?: boolean,
 ) => {
   const io = getIO();
   const quotedMsg = await verifyQuotedMessage(msg);
   const body = getBodyMessage(msg);
 
- 
   if (!msg.key.fromMe && ticket.status === "closed") {
     await ticket.update({ status: "pending" });
     await ticket.reload({
       include: [
         { model: Queue, as: "queue" },
         { model: User, as: "user" },
-        { model: Contact, as: "contact" }
-      ]
+        { model: Contact, as: "contact" },
+      ],
     });
     await UpdateTicketService({
       ticketData: { status: "pending", integrationId: ticket.integrationId },
       ticketId: ticket.id,
-      companyId
+      companyId,
     });
   }
 
@@ -329,7 +330,7 @@ const flowbuilderIntegration = async (
   const whatsapp = await ShowWhatsAppService(wbot.id!, companyId);
 
   const listPhrase = await FlowCampaignModel.findAll({
-    where: { whatsappId: whatsapp.id }
+    where: { whatsappId: whatsapp.id },
   });
 
   const normalizeText = (text: string): string => {
@@ -346,23 +347,26 @@ const flowbuilderIntegration = async (
   const mountDataContact = {
     number: contact.number,
     name: contact.name,
-    email: contact.email
+    email: contact.email,
   };
 
   // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
   // Siempre tiene prioridad máxima — usa normalización para coincidencia robusta
-  const flowDispar = listPhrase.find(item =>
-    bodyNormalized.includes(normalizeText(item.phrase))
+  const flowDispar = listPhrase.find((item) =>
+    bodyNormalized.includes(normalizeText(item.phrase)),
   );
 
   if (flowDispar) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: flowDispar.flowId, active: true }
+      where: { id: flowDispar.flowId, active: true },
     });
     if (flow) {
       const nodes: INodes[] = flow.flow["nodes"];
       const connections: IConnections[] = flow.flow["connections"];
-      console.log("[FlowBuilder] Prioridad 1: Palabra clave detectada →", flowDispar.phrase);
+      console.log(
+        "[FlowBuilder] Prioridad 1: Palabra clave detectada →",
+        flowDispar.phrase,
+      );
       await ActionsWebhookService(
         whatsapp.id,
         flowDispar.flowId,
@@ -370,9 +374,12 @@ const flowbuilderIntegration = async (
         nodes,
         connections,
         flow.flow["nodes"][0].id,
-        null, "", "", null,
+        null,
+        "",
+        "",
+        null,
         ticket.id,
-        mountDataContact
+        mountDataContact,
       );
     }
     return; // ← SALIR — solo 1 flujo por mensaje
@@ -384,18 +391,20 @@ const flowbuilderIntegration = async (
     const webhook = await WebhookModel.findOne({
       where: {
         company_id: ticket.companyId,
-        hash_id: ticket.hashFlowId
-      }
+        hash_id: ticket.hashFlowId,
+      },
     });
 
     if (webhook && webhook.config["details"]) {
       const flow = await FlowBuilderModel.findOne({
-        where: { id: webhook.config["details"].idFlow, active: true }
+        where: { id: webhook.config["details"].idFlow, active: true },
       });
       if (flow) {
         const nodes: INodes[] = flow.flow["nodes"];
         const connections: IConnections[] = flow.flow["connections"];
-        console.log("[FlowBuilder] Prioridad 2: Continuación flujo activo (webhook)");
+        console.log(
+          "[FlowBuilder] Prioridad 2: Continuación flujo activo (webhook)",
+        );
         await ActionsWebhookService(
           whatsapp.id,
           webhook.config["details"].idFlow,
@@ -407,17 +416,19 @@ const flowbuilderIntegration = async (
           webhook.config["details"],
           String(ticket.hashFlowId),
           body,
-          ticket.id
+          ticket.id,
         );
       }
     } else if (ticket.flowStopped && ticket.lastFlowId) {
       const flow = await FlowBuilderModel.findOne({
-        where: { id: ticket.flowStopped, active: true }
+        where: { id: ticket.flowStopped, active: true },
       });
       if (flow) {
         const nodes: INodes[] = flow.flow["nodes"];
         const connections: IConnections[] = flow.flow["connections"];
-        console.log("[FlowBuilder] Prioridad 2: Continuación flujo activo (flowStopped)");
+        console.log(
+          "[FlowBuilder] Prioridad 2: Continuación flujo activo (flowStopped)",
+        );
         await ActionsWebhookService(
           whatsapp.id,
           parseInt(ticket.flowStopped),
@@ -425,11 +436,13 @@ const flowbuilderIntegration = async (
           nodes,
           connections,
           String(ticket.lastFlowId),
-          null, "", "",
+          null,
+          "",
+          "",
           body,
           ticket.id,
           mountDataContact,
-          msg
+          msg,
         );
       }
     }
@@ -440,7 +453,7 @@ const flowbuilderIntegration = async (
   // isFirstMsg = null significa que NO existe ticket previo = contacto nuevo
   if (!isFirstMsg && whatsapp.flowIdWelcome) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: whatsapp.flowIdWelcome, active: true }
+      where: { id: whatsapp.flowIdWelcome, active: true },
     });
     if (flow) {
       const nodes: INodes[] = flow.flow["nodes"];
@@ -453,10 +466,13 @@ const flowbuilderIntegration = async (
         nodes,
         connections,
         flow.flow["nodes"][0].id,
-        null, "", "", null,
+        null,
+        "",
+        "",
+        null,
         ticket.id,
         mountDataContact,
-        msg
+        msg,
       );
     }
     return; // ← SALIR — solo 1 flujo por mensaje
@@ -466,12 +482,14 @@ const flowbuilderIntegration = async (
   // isFirstMsg = Ticket object significa que SÍ existe ticket previo = contacto conocido
   if (isFirstMsg && whatsapp.flowIdNotPhrase) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: whatsapp.flowIdNotPhrase, active: true }
+      where: { id: whatsapp.flowIdNotPhrase, active: true },
     });
     if (flow) {
       const nodes: INodes[] = flow.flow["nodes"];
       const connections: IConnections[] = flow.flow["connections"];
-      console.log("[FlowBuilder] Prioridad 4: Contacto EXISTENTE → flowIdNotPhrase");
+      console.log(
+        "[FlowBuilder] Prioridad 4: Contacto EXISTENTE → flowIdNotPhrase",
+      );
       await ActionsWebhookService(
         whatsapp.id,
         whatsapp.flowIdNotPhrase,
@@ -479,10 +497,13 @@ const flowbuilderIntegration = async (
         nodes,
         connections,
         flow.flow["nodes"][0].id,
-        null, "", "", null,
+        null,
+        "",
+        "",
+        null,
         ticket.id,
         mountDataContact,
-        msg
+        msg,
       );
     }
     return; // ← SALIR — solo 1 flujo por mensaje
@@ -497,36 +518,40 @@ export const handleMessageIntegration = async (
   isMenu: boolean,
   whatsapp: Whatsapp,
   contact: Contact,
-  isFirstMsg: Ticket | null
+  isFirstMsg: Ticket | null,
 ): Promise<void> => {
   const msgType = getTypeMessage(msg);
 
   if (queueIntegration?.urlN8N) {
     // (1) Prepara el payload que n8n espera
     const payload = {
-    //  tenantId: String(ticket.tenantId || contact?.tenantId || "0993186252001"),
-      msg: msg?.message?.conversation
-        || msg?.message?.extendedTextMessage?.text
-        || msg?.message?.imageMessage?.caption
-        || msgType // fallback
+      //  tenantId: String(ticket.tenantId || contact?.tenantId || "0993186252001"),
+      msg:
+        msg?.message?.conversation ||
+        msg?.message?.extendedTextMessage?.text ||
+        msg?.message?.imageMessage?.caption ||
+        msgType, // fallback
     };
-  
+
     // (2) Llama a n8n y espera la respuesta
     // Migrado de `request` (deprecado: SSRF + form-data unsafe-random) a axios.
     // axios auto-serializa/parsea JSON, auto-descomprime gzip y rechaza status
     // >=400 por defecto (mismo contrato que el callback anterior).
     const n8nAxios = await axios.post(queueIntegration.urlN8N, payload, {
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      timeout: 60000
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      timeout: 60000,
     });
     const n8nResp = n8nAxios.data; // JSON parseado si n8n respondió JSON
-  
+
     // (3) Log completo de lo que devolvió n8n
     console.log("Respuesta completa de n8n:", n8nResp);
-  
+
     // (4) Armar el reply como string para WhatsApp
     let reply: string;
-  
+
     if (typeof n8nResp === "string") {
       reply = n8nResp; // si n8n devuelve texto plano
     } else if (typeof n8nResp === "object") {
@@ -537,9 +562,12 @@ export const handleMessageIntegration = async (
     }
     // (4) Responder por WhatsApp (ajusta a tu lib/SDK)
     await wbot.sendMessage(msg.key.remoteJid!, { text: reply });
-  
+
     // (5) (Opcional) actualizar ticket/metadata
-    await ticket.update({ useIntegration: true, integrationId: queueIntegration.id });
+    await ticket.update({
+      useIntegration: true,
+      integrationId: queueIntegration.id,
+    });
   } else if (queueIntegration.type === "dialogflow") {
     let inputAudio: string | undefined;
 
@@ -553,7 +581,7 @@ export const handleMessageIntegration = async (
           "..",
           "public",
           `company${companyId}`,
-          filename
+          filename,
         ),
         "base64",
         (err, data) => {
@@ -561,7 +589,7 @@ export const handleMessageIntegration = async (
           if (err) {
             logError("Error reading audio file", { error: err?.message });
           }
-        }
+        },
       );
     } else {
       inputAudio = undefined;
@@ -576,14 +604,14 @@ export const handleMessageIntegration = async (
           ticket.contact,
           inputAudio,
           companyId,
-          queueIntegration
+          queueIntegration,
         );
       },
       500,
-      ticket.id
+      ticket.id,
     );
     debouncedSentMessage();
-  /* COMENTADO: Typebot - Ya no funcional con IA
+    /* COMENTADO: Typebot - Ya no funcional con IA
   } else if (queueIntegration.type === "typebot") {
     // await typebots(ticket, msg, wbot, queueIntegration);
     await typebotListener({ ticket, msg, wbot, typebot: queueIntegration });
@@ -594,7 +622,8 @@ export const handleMessageIntegration = async (
     // Clasifica intención → despacha al agente correcto → responde
     // ═══════════════════════════════════════════════════════════════
 
-    const AITurnLedgerService = require("../AIAgentServices/AITurnLedgerService").default;
+    const AITurnLedgerService =
+      require("../AIAgentServices/AITurnLedgerService").default;
     const aiTurnId = AITurnLedgerService.createTurnId();
     const logAITurn = (event: Record<string, any>) => {
       void AITurnLedgerService.logEvent({
@@ -604,7 +633,7 @@ export const handleMessageIntegration = async (
         contactId: contact?.id,
         whatsappId: whatsapp?.id ?? ticket.whatsappId,
         channel: "whatsapp",
-        ...event
+        ...event,
       });
     };
     logAITurn({
@@ -614,8 +643,8 @@ export const handleMessageIntegration = async (
         providerMessageId: msg?.key?.id || null,
         ticketStatus: ticket.status,
         aiStatus: ticket.aiStatus,
-        isBot: ticket.isBot
-      }
+        isBot: ticket.isBot,
+      },
     });
 
     // 🛡️ Guard central: respetar permiso de la conexión.
@@ -627,35 +656,36 @@ export const handleMessageIntegration = async (
       logger.info(
         `[SupervisorAI] Bloqueado: useAIOrchestrator=false en whatsappId=${
           whatsapp?.id ?? ticket?.whatsappId
-        } (ticket=${ticket.id})`
+        } (ticket=${ticket.id})`,
       );
       logAITurn({
         eventType: "eligibility_checked",
         eventStatus: "blocked",
         reason: "orchestrator_disabled",
-        metadata: { whatsappId: whatsapp?.id ?? ticket?.whatsappId }
+        metadata: { whatsappId: whatsapp?.id ?? ticket?.whatsappId },
       });
       return;
     }
 
-    const AIExecutionGuardService = require("../AIAgentServices/AIExecutionGuardService").default;
+    const AIExecutionGuardService =
+      require("../AIAgentServices/AIExecutionGuardService").default;
     const aiGuard = await AIExecutionGuardService.canRunSupervisorAI({
       companyId,
       ticketId: ticket.id,
       whatsapp: whatsapp || ticket.whatsapp,
       whatsappId: whatsapp?.id ?? ticket.whatsappId,
-      source: "supervisor_ai_wbot"
+      source: "supervisor_ai_wbot",
     });
 
     if (!aiGuard.allowed) {
       logger.info(
-        `[SupervisorAI] Bloqueado por guard: ticket=${ticket.id}, reason=${aiGuard.reason}`
+        `[SupervisorAI] Bloqueado por guard: ticket=${ticket.id}, reason=${aiGuard.reason}`,
       );
       logAITurn({
         eventType: "eligibility_checked",
         eventStatus: "blocked",
         reason: aiGuard.reason,
-        metadata: { source: "AIExecutionGuardService" }
+        metadata: { source: "AIExecutionGuardService" },
       });
       return;
     }
@@ -664,7 +694,7 @@ export const handleMessageIntegration = async (
       eventType: "eligibility_checked",
       eventStatus: "ok",
       reason: "guard_allowed",
-      metadata: { source: "AIExecutionGuardService" }
+      metadata: { source: "AIExecutionGuardService" },
     });
 
     // ✅ CONDICIONES PARA NO RESPONDER
@@ -672,8 +702,14 @@ export const handleMessageIntegration = async (
 
     // 1. Si está desactivado manualmente (isBot = false)
     if (ticket.isBot === false) {
-      logger.info(`[SupervisorAI] Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`);
-      logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "ticket_isbot_false" });
+      logger.info(
+        `[SupervisorAI] Ticket ${ticket.id} tiene isBot=false (desactivado manualmente) - no responde`,
+      );
+      logAITurn({
+        eventType: "eligibility_checked",
+        eventStatus: "blocked",
+        reason: "ticket_isbot_false",
+      });
       return;
     }
 
@@ -681,20 +717,39 @@ export const handleMessageIntegration = async (
 
     // 2. Si tiene usuario asignado Y el bot NO está activo manualmente
     if (ticket.userId && !isBotActivo) {
-      logger.info(`[SupervisorAI] Ticket ${ticket.id} tiene usuario asignado - no responde`);
-      logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "human_assigned", metadata: { userId: ticket.userId } });
+      logger.info(
+        `[SupervisorAI] Ticket ${ticket.id} tiene usuario asignado - no responde`,
+      );
+      logAITurn({
+        eventType: "eligibility_checked",
+        eventStatus: "blocked",
+        reason: "human_assigned",
+        metadata: { userId: ticket.userId },
+      });
       return;
     }
     // 3. Si está abierto Y el bot NO está activo manualmente
-    if (ticket.status === 'open' && !isBotActivo) {
-      logger.info(`[SupervisorAI] Ticket ${ticket.id} está en estado open - no responde`);
-      logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "ticket_open_without_bot_override" });
+    if (ticket.status === "open" && !isBotActivo) {
+      logger.info(
+        `[SupervisorAI] Ticket ${ticket.id} está en estado open - no responde`,
+      );
+      logAITurn({
+        eventType: "eligibility_checked",
+        eventStatus: "blocked",
+        reason: "ticket_open_without_bot_override",
+      });
       return;
     }
     // 4. Si está cerrado (nunca responde)
-    if (ticket.status === 'closed') {
-      logger.info(`[SupervisorAI] Ticket ${ticket.id} está cerrado - no responde`);
-      logAITurn({ eventType: "eligibility_checked", eventStatus: "blocked", reason: "ticket_closed" });
+    if (ticket.status === "closed") {
+      logger.info(
+        `[SupervisorAI] Ticket ${ticket.id} está cerrado - no responde`,
+      );
+      logAITurn({
+        eventType: "eligibility_checked",
+        eventStatus: "blocked",
+        reason: "ticket_closed",
+      });
       return;
     }
 
@@ -707,12 +762,17 @@ export const handleMessageIntegration = async (
       const rawBody = getBodyMessage(msg);
       const aiInput = normalizeSupervisorAIText(rawBody);
       if (!aiInput.text) {
-        logger.info(`[SupervisorAI] Entrada no textual omitida: ticket=${ticket.id}, reason=${aiInput.reason}, chars=${aiInput.originalChars}`);
+        logger.info(
+          `[SupervisorAI] Entrada no textual omitida: ticket=${ticket.id}, reason=${aiInput.reason}, chars=${aiInput.originalChars}`,
+        );
         logAITurn({
           eventType: "prefilter_checked",
           eventStatus: "skipped",
           reason: aiInput.reason || "non_text_input",
-          metadata: { originalBodyChars: aiInput.originalChars, sanitized: aiInput.wasSanitized }
+          metadata: {
+            originalBodyChars: aiInput.originalChars,
+            sanitized: aiInput.wasSanitized,
+          },
         });
         return;
       }
@@ -721,8 +781,14 @@ export const handleMessageIntegration = async (
       logAITurn({
         eventType: "prefilter_checked",
         eventStatus: "ok",
-        reason: aiInput.wasSanitized ? (aiInput.reason || "body_sanitized") : "body_present",
-        metadata: { bodyChars: body.length, originalBodyChars: aiInput.originalChars, sanitized: aiInput.wasSanitized }
+        reason: aiInput.wasSanitized
+          ? aiInput.reason || "body_sanitized"
+          : "body_present",
+        metadata: {
+          bodyChars: body.length,
+          originalBodyChars: aiInput.originalChars,
+          sanitized: aiInput.wasSanitized,
+        },
       });
 
       // ═══════════════════════════════════════════════════════════════
@@ -730,9 +796,11 @@ export const handleMessageIntegration = async (
       // race conditions (otro mensaje entrante procesándose en paralelo)
       // NO tocamos integrationId ni useIntegration — esos son para FlowBuilder
       // ═══════════════════════════════════════════════════════════════
-      if (ticket.aiStatus !== 'active') {
-        await ticket.update({ aiStatus: 'active' });
-        logger.info(`[SupervisorAI] aiStatus=active marcado ANTES de procesar: ticket=${ticket.id}`);
+      if (ticket.aiStatus !== "active") {
+        await ticket.update({ aiStatus: "active" });
+        logger.info(
+          `[SupervisorAI] aiStatus=active marcado ANTES de procesar: ticket=${ticket.id}`,
+        );
       }
 
       // Fix (2026-07-09): await import en vez de require() CommonJS. Baileys (vía
@@ -740,21 +808,23 @@ export const handleMessageIntegration = async (
       // sin condición "require") y el require() CJS reventaba con "No exports main defined"
       // ANTES de entrar a processMessage → fallback "dificultades técnicas". await import
       // usa el loader ESM y resuelve la condición "import" del paquete. Función async.
-      const SupervisorService = (await import("../AIAgentServices/SupervisorService")).default;
+      const SupervisorService = (
+        await import("../AIAgentServices/SupervisorService")
+      ).default;
 
       // Cargar historial del ticket (últimos 20 mensajes para contexto)
       const recentMessages = await Message.findAll({
         where: { ticketId: ticket.id },
         order: [["createdAt", "DESC"]],
-        limit: 20
+        limit: 20,
       });
       const ticketHistory = recentMessages.reverse().map((m: any) => ({
         role: m.fromMe ? "assistant" : "user",
-        content: normalizeSupervisorAIText(m.body || "").text || ""
+        content: normalizeSupervisorAIText(m.body || "").text || "",
       }));
 
       logger.info(
-        `[SupervisorAI] Procesando msg empresa=${companyId} ticket=${ticket.id}: "${body.substring(0, 60)}..."`
+        `[SupervisorAI] Procesando msg empresa=${companyId} ticket=${ticket.id}: "${body.substring(0, 60)}..."`,
       );
 
       const aiResponse = await SupervisorService.processMessage({
@@ -767,39 +837,47 @@ export const handleMessageIntegration = async (
         contactInfo: {
           name: contact?.name || undefined,
           number: contact?.number || undefined,
-          email: contact?.email || undefined
+          email: contact?.email || undefined,
         },
         channel: "whatsapp",
-        turnId: aiTurnId
+        turnId: aiTurnId,
       });
 
-      logger.info(`[SupervisorAI] Respuesta - agente: ${aiResponse.agentUsed}, confianza: ${aiResponse.confidence}`);
+      logger.info(
+        `[SupervisorAI] Respuesta - agente: ${aiResponse.agentUsed}, confianza: ${aiResponse.confidence}`,
+      );
 
       // 🆕 Gatekeeper decidió no enviar respuesta (ej: cliente solo dijo "gracias")
       // Respetamos la decisión y NO enviamos nada al cliente; solo devolvemos aiStatus a 'passive'.
       if (aiResponse.skipSend) {
         logger.info(
           `[SupervisorAI] skipSend=true (gatekeeper decidió ignorar). ` +
-          `Motivo: ${aiResponse.metadata?.gatekeeperReasoning || 'sin motivo'}`
+            `Motivo: ${aiResponse.metadata?.gatekeeperReasoning || "sin motivo"}`,
         );
         try {
-          await ticket.update({ aiStatus: 'passive' });
-        } catch { /* silenciar */ }
+          await ticket.update({ aiStatus: "passive" });
+        } catch {
+          /* silenciar */
+        }
         responseSent = true; // marcamos como "respondido" para que no intente más abajo
         logAITurn({
           eventType: "send_result",
           eventStatus: "skipped",
           reason: "gatekeeper_skip_send",
-          metadata: { gatekeeperDecision: aiResponse.gatekeeperDecision || null }
+          metadata: {
+            gatekeeperDecision: aiResponse.gatekeeperDecision || null,
+          },
         });
       } else if (aiResponse.shouldEscalate) {
         // ═══════════════════════════════════════════════════════════════
         // Derivar a humano - buscar cola por defecto del WhatsApp
         // ═══════════════════════════════════════════════════════════════
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
         try {
-          const SupervisorActionsService = (await import("../AIAgentServices/SupervisorActionsService")).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge al arrastrar queues
+          const SupervisorActionsService = (
+            await import("../AIAgentServices/SupervisorActionsService")
+          ).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge al arrastrar queues
 
           // Guardar el mensaje de escalada
           await SupervisorActionsService.saveAgentMessage({
@@ -808,7 +886,7 @@ export const handleMessageIntegration = async (
             content: aiResponse.message,
             agentUsed: aiResponse.agentUsed,
             intent: aiResponse.intent,
-            confidence: aiResponse.confidence
+            confidence: aiResponse.confidence,
           });
 
           // Derivar a cola humana
@@ -816,32 +894,44 @@ export const handleMessageIntegration = async (
             ticket.id,
             companyId,
             whatsapp?.id,
-            aiResponse.escalationReason
+            aiResponse.escalationReason,
           );
 
           // Mensaje de escalada
           const escalationMsg =
             "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️";
-          await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: escalationMsg }, "text");
+          await sendMessageWithAntiBan(
+            wbot,
+            msg.key.remoteJid!,
+            { text: escalationMsg },
+            "text",
+          );
           responseSent = true;
 
           logger.info(
-            `[SupervisorAI] Escalado a humano: ticket=${ticket.id}, razón=${aiResponse.escalationReason}`
+            `[SupervisorAI] Escalado a humano: ticket=${ticket.id}, razón=${aiResponse.escalationReason}`,
           );
           logAITurn({
             eventType: "send_result",
             eventStatus: "ok",
             reason: "escalated_to_human",
-            metadata: { agentUsed: aiResponse.agentUsed, escalationReason: aiResponse.escalationReason }
+            metadata: {
+              agentUsed: aiResponse.agentUsed,
+              escalationReason: aiResponse.escalationReason,
+            },
           });
         } catch (escalationError: any) {
-          logger.error(`[SupervisorAI] Error en escalada: ${escalationError.message}`);
+          logger.error(
+            `[SupervisorAI] Error en escalada: ${escalationError.message}`,
+          );
           if (!responseSent) {
             await sendMessageWithAntiBan(
               wbot,
               msg.key.remoteJid!,
-              { text: "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️" },
-              "text"
+              {
+                text: "Te comunicamos con un asesor humano. En breve te atenderán. 🙋‍♂️",
+              },
+              "text",
             );
             responseSent = true;
           }
@@ -851,7 +941,9 @@ export const handleMessageIntegration = async (
         // Guardar respuesta del agente IA en la BD + clasificar etapa
         // ═══════════════════════════════════════════════════════════════
         try {
-          const SupervisorActionsService = (await import("../AIAgentServices/SupervisorActionsService")).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge al arrastrar queues
+          const SupervisorActionsService = (
+            await import("../AIAgentServices/SupervisorActionsService")
+          ).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge al arrastrar queues
 
           // Guardar mensaje del agente + crear AIAgentLog + encolar FeedbackInferenceJob
           await SupervisorActionsService.saveAgentMessage({
@@ -864,20 +956,26 @@ export const handleMessageIntegration = async (
             confidence: aiResponse.confidence,
             tokensUsed: aiResponse.totalTokens,
             latencyMs: aiResponse.totalLatencyMs,
-            shouldCreateAIAgentLog: true
+            shouldCreateAIAgentLog: true,
           });
-
         } catch (actionError: any) {
-          logger.warn(`[SupervisorActions] Error guardando mensaje: ${actionError.message}`);
+          logger.warn(
+            `[SupervisorActions] Error guardando mensaje: ${actionError.message}`,
+          );
         }
 
         // Enviar respuesta del agente IA (delay 1.5s para evitar anti-ban)
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        await sendMessageWithAntiBan(wbot, msg.key.remoteJid!, { text: aiResponse.message }, "text");
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await sendMessageWithAntiBan(
+          wbot,
+          msg.key.remoteJid!,
+          { text: aiResponse.message },
+          "text",
+        );
         responseSent = true;
         logger.info(
           `[SupervisorAI] Respuesta enviada: ticket=${ticket.id}, agente=${aiResponse.agentUsed}, ` +
-          `confianza=${aiResponse.confidence}, latencia=${aiResponse.totalLatencyMs}ms`
+            `confianza=${aiResponse.confidence}, latencia=${aiResponse.totalLatencyMs}ms`,
         );
         logAITurn({
           eventType: "send_result",
@@ -885,33 +983,45 @@ export const handleMessageIntegration = async (
           reason: "ai_response_sent",
           inputTokens: aiResponse.totalTokens?.input || 0,
           outputTokens: aiResponse.totalTokens?.output || 0,
-          metadata: { agentUsed: aiResponse.agentUsed, intent: aiResponse.intent }
+          metadata: {
+            agentUsed: aiResponse.agentUsed,
+            intent: aiResponse.intent,
+          },
         });
 
         let kanbanStageResult: any = null;
         try {
-          const SupervisorActionsService = (await import("../AIAgentServices/SupervisorActionsService")).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge al arrastrar queues
-          kanbanStageResult = await SupervisorActionsService.classifyTicketStageAfterReplySent(
-            ticket.id,
-            companyId,
-            aiResponse.intent,
-            aiResponse.agentUsed,
-            { conversionSource: "orchestrator_reply_sent_whatsapp" }
-          );
+          const SupervisorActionsService = (
+            await import("../AIAgentServices/SupervisorActionsService")
+          ).default; // fix 2026-07-10: await import (ESM) evita whatsapp-rust-bridge al arrastrar queues
+          kanbanStageResult =
+            await SupervisorActionsService.classifyTicketStageAfterReplySent(
+              ticket.id,
+              companyId,
+              aiResponse.intent,
+              aiResponse.agentUsed,
+              { conversionSource: "orchestrator_reply_sent_whatsapp" },
+            );
           logger.info(
             `[SupervisorAI] Kanban post-envio resultado: ticket=${ticket.id} ` +
-            `stage=${kanbanStageResult?.stage || "none"} moved=${kanbanStageResult?.moved || false} ` +
-            `alreadyInStage=${kanbanStageResult?.alreadyInStage || false} ` +
-            `fallback=${kanbanStageResult?.fallbackRecommended || false} ` +
-            `reason=${kanbanStageResult?.skippedReason || "none"}`
+              `stage=${kanbanStageResult?.stage || "none"} moved=${kanbanStageResult?.moved || false} ` +
+              `alreadyInStage=${kanbanStageResult?.alreadyInStage || false} ` +
+              `fallback=${kanbanStageResult?.fallbackRecommended || false} ` +
+              `reason=${kanbanStageResult?.skippedReason || "none"}`,
           );
         } catch (stageError: any) {
-          kanbanStageResult = { fallbackRecommended: true, skippedReason: "cheap_classifier_error" };
-          logger.warn(`[SupervisorAI] Error clasificando Kanban post-envio: ${stageError.message}`);
+          kanbanStageResult = {
+            fallbackRecommended: true,
+            skippedReason: "cheap_classifier_error",
+          };
+          logger.warn(
+            `[SupervisorAI] Error clasificando Kanban post-envio: ${stageError.message}`,
+          );
         }
 
         try {
-          const ZepMemoryService = require("../AIAgentServices/ZepMemoryService").default;
+          const ZepMemoryService =
+            require("../AIAgentServices/ZepMemoryService").default;
           ZepMemoryService.addConversationTurnAsync({
             companyId,
             ticketId: ticket.id,
@@ -922,17 +1032,25 @@ export const handleMessageIntegration = async (
             userMessage: body,
             assistantMessage: aiResponse.message,
             agentUsed: aiResponse.agentUsed,
-            intent: aiResponse.intent
+            intent: aiResponse.intent,
           });
         } catch (zepError: any) {
-          logger.warn(`[SupervisorAI] Zep post-envio omitido: ${zepError.message}`);
+          logger.warn(
+            `[SupervisorAI] Zep post-envio omitido: ${zepError.message}`,
+          );
         }
 
         if (kanbanStageResult?.fallbackRecommended) {
           try {
-            const { enqueueStageClassifierJob } = await import("../../workers/stageClassifier.worker");
-            const { getApiKeyWithFallback } = await import("../AIProviderService");
-            const openAiApiKey = await getApiKeyWithFallback("openai", "OPENAI_API_KEY", companyId);
+            const { enqueueStageClassifierJob } =
+              await import("../../workers/stageClassifier.worker");
+            const { getApiKeyWithFallback } =
+              await import("../AIProviderService");
+            const openAiApiKey = await getApiKeyWithFallback(
+              "openai",
+              "OPENAI_API_KEY",
+              companyId,
+            );
 
             if (openAiApiKey) {
               await enqueueStageClassifierJob({
@@ -944,26 +1062,36 @@ export const handleMessageIntegration = async (
                 lastClientMessage: body || "",
                 assistantMessage: aiResponse.message || "",
                 source: "orchestrator_reply_sent_whatsapp_fallback",
-                fallbackReason: kanbanStageResult?.skippedReason || "unknown"
+                fallbackReason: kanbanStageResult?.skippedReason || "unknown",
               });
               logger.info(
                 `[SupervisorAI] StageClassifier fallback encolado: ticket=${ticket.id} ` +
-                `reason=${kanbanStageResult?.skippedReason || "unknown"}`
+                  `reason=${kanbanStageResult?.skippedReason || "unknown"}`,
               );
             } else {
-              logger.warn(`[SupervisorAI] StageClassifier fallback omitido sin API key: ticket=${ticket.id}`);
+              logger.warn(
+                `[SupervisorAI] StageClassifier fallback omitido sin API key: ticket=${ticket.id}`,
+              );
             }
           } catch (classifierError: any) {
-            logger.warn(`[SupervisorAI] Error encolando StageClassifier fallback: ${classifierError.message}`);
+            logger.warn(
+              `[SupervisorAI] Error encolando StageClassifier fallback: ${classifierError.message}`,
+            );
           }
         } else {
-          logger.info(`[SupervisorAI] StageClassifier fallback omitido: ticket=${ticket.id}`);
+          logger.info(
+            `[SupervisorAI] StageClassifier fallback omitido: ticket=${ticket.id}`,
+          );
         }
 
         // Enviar imágenes de QuickReplies matcheados (si tienen media)
         // NO repetir imágenes ya enviadas en este ticket
-        const quickRepliesWithMedia = (aiResponse.metadata?.quickReplies || []) as Array<{
-          shortcode: string; message: string; mediaPath?: string; mediaName?: string;
+        const quickRepliesWithMedia = (aiResponse.metadata?.quickReplies ||
+          []) as Array<{
+          shortcode: string;
+          message: string;
+          mediaPath?: string;
+          mediaName?: string;
         }>;
 
         // Gate: NO enviar imágenes de QuickReply cuando:
@@ -971,14 +1099,15 @@ export const handleMessageIntegration = async (
         // 2. Se va a escalar (shouldEscalate) — no enviar catálogo si estamos cerrando con handoff
         // (El bloqueo por "primer mensaje" se hace aguas arriba en SupervisorService,
         // omitiendo la búsqueda de QuickReplies; así no se contamina el historial de envíos.)
-        const isFallbackResponse = (aiResponse.metadata as any)?.isFallback === true;
+        const isFallbackResponse =
+          (aiResponse.metadata as any)?.isFallback === true;
         const willEscalate = aiResponse.shouldEscalate === true;
         const skipQuickReplyMedia = isFallbackResponse || willEscalate;
 
         if (quickRepliesWithMedia.length > 0 && skipQuickReplyMedia) {
           logger.info(
             `[SupervisorAI] QuickReply media omitido: ticket=${ticket.id}, ` +
-            `fallback=${isFallbackResponse}, escalate=${willEscalate}`
+              `fallback=${isFallbackResponse}, escalate=${willEscalate}`,
           );
         }
 
@@ -992,11 +1121,11 @@ export const handleMessageIntegration = async (
           const alreadySent = await Message.findAll({
             where: { ticketId: ticket.id, fromMe: true, mediaType: "image" },
             attributes: ["body", "mediaUrl"],
-            raw: true
+            raw: true,
           });
           // Comparar por mediaPath (nombre del archivo) Y por shortcode en el body
           const sentMediaPaths = new Set(
-            alreadySent.map((m: any) => m.mediaUrl || "").filter(Boolean)
+            alreadySent.map((m: any) => m.mediaUrl || "").filter(Boolean),
           );
           const sentShortcodes = new Set(
             alreadySent
@@ -1005,7 +1134,7 @@ export const handleMessageIntegration = async (
                 const body = (m.body || "").toLowerCase();
                 return body;
               })
-              .filter(Boolean)
+              .filter(Boolean),
           );
 
           for (const qr of quickRepliesWithMedia) {
@@ -1014,29 +1143,42 @@ export const handleMessageIntegration = async (
             // Verificar si ya se envió por mediaPath O por contenido similar
             const alreadySentByPath = sentMediaPaths.has(qr.mediaPath);
             const alreadySentByContent = Array.from(sentShortcodes).some(
-              sent => sent.includes(qr.shortcode.toLowerCase()) ||
-                      (qr.message && sent.includes(qr.message.substring(0, 30).toLowerCase()))
+              (sent) =>
+                sent.includes(qr.shortcode.toLowerCase()) ||
+                (qr.message &&
+                  sent.includes(qr.message.substring(0, 30).toLowerCase())),
             );
 
             if (alreadySentByPath || alreadySentByContent) {
-              logger.info(`[SupervisorAI] QuickReply /${qr.shortcode} ya enviado en este ticket (path=${alreadySentByPath}, content=${alreadySentByContent}), omitiendo`);
+              logger.info(
+                `[SupervisorAI] QuickReply /${qr.shortcode} ya enviado en este ticket (path=${alreadySentByPath}, content=${alreadySentByContent}), omitiendo`,
+              );
               continue;
             }
 
-            const filePath = path.join(publicDir, `company${companyId}`, "quickMessage", qr.mediaPath);
+            const filePath = path.join(
+              publicDir,
+              `company${companyId}`,
+              "quickMessage",
+              qr.mediaPath,
+            );
 
             if (fs.existsSync(filePath)) {
-              await new Promise(resolve => setTimeout(resolve, 1500));
+              await new Promise((resolve) => setTimeout(resolve, 1500));
               try {
                 await sendMessageWithAntiBan(
                   wbot,
                   msg.key.remoteJid!,
                   { image: { url: filePath }, caption: qr.message || "" },
-                  "media"
+                  "media",
                 );
-                logger.info(`[SupervisorAI] QuickReply media enviado: /${qr.shortcode} → ${qr.mediaName}`);
+                logger.info(
+                  `[SupervisorAI] QuickReply media enviado: /${qr.shortcode} → ${qr.mediaName}`,
+                );
               } catch (mediaErr: any) {
-                logger.warn(`[SupervisorAI] Error enviando media /${qr.shortcode}: ${mediaErr.message}`);
+                logger.warn(
+                  `[SupervisorAI] Error enviando media /${qr.shortcode}: ${mediaErr.message}`,
+                );
               }
             } else {
               logger.warn(`[SupervisorAI] Archivo no encontrado: ${filePath}`);
@@ -1045,36 +1187,51 @@ export const handleMessageIntegration = async (
         }
       }
     } catch (err) {
-      logger.error(`[SupervisorAI] Error procesando msg ticket=${ticket.id}: ${err.message}`);
-      logAITurn({ eventType: "turn_failed", eventStatus: "error", reason: err?.message || "unknown_error" });
-      const AIExecutionGuardService = require("../AIAgentServices/AIExecutionGuardService").default;
+      logger.error(
+        `[SupervisorAI] Error procesando msg ticket=${ticket.id}: ${err.message}`,
+      );
+      logAITurn({
+        eventType: "turn_failed",
+        eventStatus: "error",
+        reason: err?.message || "unknown_error",
+      });
+      const AIExecutionGuardService =
+        require("../AIAgentServices/AIExecutionGuardService").default;
       if (AIExecutionGuardService.isAIExecutionBillingError(err)) {
         logger.warn(
-          `[SupervisorAI] Error de saldo/créditos, no se envía fallback al cliente: ticket=${ticket.id}, error=${err.message}`
+          `[SupervisorAI] Error de saldo/créditos, no se envía fallback al cliente: ticket=${ticket.id}, error=${err.message}`,
         );
         try {
-          await ticket.update({ aiStatus: 'handoff', status: "pending" });
+          await ticket.update({ aiStatus: "handoff", status: "pending" });
         } catch (updateErr: any) {
-          logger.error(`[SupervisorAI] Error actualizando ticket a pending: ${updateErr.message}`);
+          logger.error(
+            `[SupervisorAI] Error actualizando ticket a pending: ${updateErr.message}`,
+          );
         }
         return;
       }
       // Solo enviar fallback genérico si NO se envió una respuesta IA previamente
       if (!responseSent) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         await sendMessageWithAntiBan(
           wbot,
           msg.key.remoteJid!,
-          { text: "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏" },
-          "text"
+          {
+            text: "Disculpa, estoy teniendo dificultades técnicas. Un asesor te atenderá pronto. 🙏",
+          },
+          "text",
         );
       } else {
-        logger.warn(`[SupervisorAI] Respuesta ya fue enviada, NO se envía fallback duplicado: ticket=${ticket.id}`);
+        logger.warn(
+          `[SupervisorAI] Respuesta ya fue enviada, NO se envía fallback duplicado: ticket=${ticket.id}`,
+        );
       }
       try {
-        await ticket.update({ aiStatus: 'handoff', status: "pending" });
+        await ticket.update({ aiStatus: "handoff", status: "pending" });
       } catch (updateErr: any) {
-        logger.error(`[SupervisorAI] Error actualizando ticket a pending: ${updateErr.message}`);
+        logger.error(
+          `[SupervisorAI] Error actualizando ticket a pending: ${updateErr.message}`,
+        );
       }
     }
     return;
@@ -1082,7 +1239,7 @@ export const handleMessageIntegration = async (
     if (!isMenu) {
       const integrations = await ShowQueueIntegrationService(
         ticket.whatsapp?.integrationId,
-        companyId
+        companyId,
       );
       await flowbuilderIntegration(
         msg,
@@ -1091,7 +1248,7 @@ export const handleMessageIntegration = async (
         integrations,
         ticket,
         contact,
-        isFirstMsg
+        isFirstMsg,
       );
     } else {
       if (
@@ -1106,7 +1263,7 @@ export const handleMessageIntegration = async (
           whatsapp,
           companyId,
           contact,
-          isFirstMsg
+          isFirstMsg,
         );
       }
     }
@@ -1120,7 +1277,7 @@ const flowBuilderQueue = async (
   whatsapp: Whatsapp,
   companyId: number,
   contact: Contact,
-  isFirstMsg: Ticket
+  isFirstMsg: Ticket,
 ) => {
   const body = getBodyMessage(msg);
 
@@ -1131,7 +1288,7 @@ const flowBuilderQueue = async (
   // legible. Ver ../WebhookService/ResolveStoppedFlowService.
   const ctx = await resolveStoppedFlow(ticket, contact, {
     requireActive: true,
-    onMissing: "null"
+    onMissing: "null",
   });
   if (!ctx) {
     return;
@@ -1162,7 +1319,7 @@ const flowBuilderQueue = async (
     body,
     ticket.id,
     mountDataContact,
-    msg
+    msg,
   );
 
   //const integrations = await ShowQueueIntegrationService(ticket.whatsapp?.integrationId, companyId);

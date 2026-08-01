@@ -13,7 +13,11 @@ import service from "../services/MediaBackupService";
 import { logError } from "../utils/logger";
 
 const getCompanyId = (req: Request): number => {
-  return Number(req.user?.companyId || req.user?.company?.id || 0);
+  // [2026-08-01] Se quita el fallback `req.user?.company?.id`: esa propiedad no
+  // existe en el token (ver @types/express.d.ts), así que SIEMPRE era undefined y
+  // el `|| 0` era quien respondía. No es cambio de conducta, es quitar código
+  // muerto que además tapaba un error de tipos real.
+  return Number(req.user?.companyId || 0);
 };
 
 const isSuper = (req: Request): boolean => {

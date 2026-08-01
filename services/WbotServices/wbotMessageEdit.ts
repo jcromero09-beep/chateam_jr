@@ -17,12 +17,7 @@
  * eran y siguen siendo privadas del subsistema.
  */
 import * as Sentry from "@sentry/node";
-import {
-  aesDecryptGCM,
-  hkdf,
-  proto,
-  WAMessageUpdate
-} from "baileys";
+import { aesDecryptGCM, hkdf, proto, WAMessageUpdate } from "baileys";
 
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
@@ -34,11 +29,11 @@ import {
   extractEditedOriginalWid,
   extractEditedRemoteJids,
   extractEditedTimestamp,
-  getEditProtocolMessage
+  getEditProtocolMessage,
 } from "./wbotMessageParsers";
 import {
   findMessageEditFallback,
-  mergeMessageDataJson
+  mergeMessageDataJson,
 } from "./wbotMessageIngest";
 
 const isMessageEditPayload = (message: any): boolean =>
@@ -53,8 +48,7 @@ const isSecretEncryptedEditPayload = (message: any): boolean => {
 
 const hasPossibleEditShape = (message: any): boolean =>
   Boolean(
-    isSecretEncryptedEditPayload(message) ||
-    isMessageEditPayload(message)
+    isSecretEncryptedEditPayload(message) || isMessageEditPayload(message),
   );
 
 const summarizeForMessageEditLog = (value: any, depth = 0): any => {
@@ -65,29 +59,34 @@ const summarizeForMessageEditLog = (value: any, depth = 0): any => {
   if (Buffer.isBuffer(value)) return `[buffer:${value.length}]`;
   if (value instanceof Uint8Array) return `[uint8array:${value.length}]`;
   if (Array.isArray(value)) {
-    return value.slice(0, 20).map(item => summarizeForMessageEditLog(item, depth + 1));
+    return value
+      .slice(0, 20)
+      .map((item) => summarizeForMessageEditLog(item, depth + 1));
   }
   if (typeof value !== "object") return value;
 
-  return Object.entries(value).reduce((acc, [key, nested]) => {
-    acc[key] = summarizeForMessageEditLog(nested, depth + 1);
-    return acc;
-  }, {} as Record<string, any>);
+  return Object.entries(value).reduce(
+    (acc, [key, nested]) => {
+      acc[key] = summarizeForMessageEditLog(nested, depth + 1);
+      return acc;
+    },
+    {} as Record<string, any>,
+  );
 };
 
 const logMessageEditProbe = (
   source: "messages.update" | "messages.upsert",
   companyId: number,
-  payload: any
+  payload: any,
 ): void => {
   try {
     const raw = JSON.stringify(summarizeForMessageEditLog(payload));
     logWarn(
-      `[MessageEditProbe] source=${source} companyId=${companyId} payload=${raw.slice(0, 6000)}`
+      `[MessageEditProbe] source=${source} companyId=${companyId} payload=${raw.slice(0, 6000)}`,
     );
   } catch (err: any) {
     logWarn(
-      `[MessageEditProbe] source=${source} companyId=${companyId} stringify_error=${err?.message || err}`
+      `[MessageEditProbe] source=${source} companyId=${companyId} stringify_error=${err?.message || err}`,
     );
   }
 };
@@ -95,16 +94,16 @@ const logMessageEditProbe = (
 const logMessageEditFailure = (
   reason: string,
   companyId: number,
-  payload: Record<string, any>
+  payload: Record<string, any>,
 ): void => {
   try {
     const raw = JSON.stringify(summarizeForMessageEditLog(payload));
     logWarn(
-      `[MessageEditFailure] reason=${reason} companyId=${companyId} payload=${raw.slice(0, 6000)}`
+      `[MessageEditFailure] reason=${reason} companyId=${companyId} payload=${raw.slice(0, 6000)}`,
     );
   } catch (err: any) {
     logWarn(
-      `[MessageEditFailure] reason=${reason} companyId=${companyId} stringify_error=${err?.message || err}`
+      `[MessageEditFailure] reason=${reason} companyId=${companyId} stringify_error=${err?.message || err}`,
     );
   }
 };
@@ -137,29 +136,29 @@ const buildMessageSecretKey = (
   originalWid: string,
   originalSender: string,
   modificationSender: string,
-  originalMessageSecret: Buffer
+  originalMessageSecret: Buffer,
 ): Buffer => {
   const useCaseSecret = Buffer.concat([
     Buffer.from(originalWid, "utf8"),
     Buffer.from(originalSender, "utf8"),
     Buffer.from(modificationSender, "utf8"),
-    Buffer.from(modificationType, "utf8")
+    Buffer.from(modificationType, "utf8"),
   ]);
 
   return Buffer.from(
-    hkdf(originalMessageSecret, 32, { info: useCaseSecret.toString("latin1") })
+    hkdf(originalMessageSecret, 32, { info: useCaseSecret.toString("latin1") }),
   );
 };
 
 const decryptSecretEncryptedEdit = (
   secretEncryptedMessage: any,
   originalMessage: Message,
-  incomingKey: any
+  incomingKey: any,
 ): proto.IMessage | null => {
   const originalData = parseMessageDataJson(originalMessage.dataJson);
   const originalWid = secretEncryptedMessage?.targetMessageKey?.id;
   const originalMessageSecret = toBuffer(
-    originalData?.message?.messageContextInfo?.messageSecret
+    originalData?.message?.messageContextInfo?.messageSecret,
   );
   const encPayload = toBuffer(secretEncryptedMessage?.encPayload);
   const encIv = toBuffer(secretEncryptedMessage?.encIv);
@@ -178,9 +177,12 @@ const decryptSecretEncryptedEdit = (
         originalMessage.remoteJid,
         secretEncryptedMessage?.targetMessageKey?.remoteJid,
         incomingKey?.remoteJid,
-        incomingKey?.remoteJidAlt
-      ].filter((value): value is string => typeof value === "string" && value.includes("@"))
-    )
+        incomingKey?.remoteJidAlt,
+      ].filter(
+        (value): value is string =>
+          typeof value === "string" && value.includes("@"),
+      ),
+    ),
   );
 
   for (const originalSender of originalJidCandidates) {
@@ -191,19 +193,25 @@ const decryptSecretEncryptedEdit = (
           originalWid,
           originalSender,
           modificationSender,
-          originalMessageSecret
+          originalMessageSecret,
         );
-        const decrypted = aesDecryptGCM(encPayload, key, encIv, Buffer.alloc(0));
+        const decrypted = aesDecryptGCM(
+          encPayload,
+          key,
+          encIv,
+          Buffer.alloc(0),
+        );
         const decoded = proto.Message.decode(decrypted);
         const protocolMessage = decoded?.protocolMessage;
 
         if (
-          protocolMessage?.type === proto.Message.ProtocolMessage.Type.MESSAGE_EDIT &&
+          protocolMessage?.type ===
+            proto.Message.ProtocolMessage.Type.MESSAGE_EDIT &&
           protocolMessage?.key?.id === originalWid &&
           protocolMessage?.editedMessage
         ) {
           logInfo(
-            `[MessageEdit] secret_encrypted_decrypted messageId=${originalMessage.id} wid=${originalWid} originalSender=${originalSender} modificationSender=${modificationSender}`
+            `[MessageEdit] secret_encrypted_decrypted messageId=${originalMessage.id} wid=${originalWid} originalSender=${originalSender} modificationSender=${modificationSender}`,
           );
           return decoded;
         }
@@ -218,7 +226,7 @@ const decryptSecretEncryptedEdit = (
 
 const handleSecretEncryptedMessageEdit = async (
   message: proto.IWebMessageInfo | WAMessageUpdate,
-  companyId: number
+  companyId: number,
 ): Promise<boolean> => {
   const editMessage =
     (message as WAMessageUpdate).update?.message ||
@@ -231,7 +239,7 @@ const handleSecretEncryptedMessageEdit = async (
   if (!originalWid) {
     logMessageEditFailure("secret_encrypted_missing_original_wid", companyId, {
       key: message.key,
-      secretEncryptedMessage
+      secretEncryptedMessage,
     });
     return true;
   }
@@ -239,15 +247,15 @@ const handleSecretEncryptedMessageEdit = async (
   const originalMessage = await Message.findOne({
     where: {
       wid: originalWid,
-      companyId
-    }
+      companyId,
+    },
   });
 
   if (!originalMessage) {
     logMessageEditFailure("secret_encrypted_original_not_found", companyId, {
       key: message.key,
       originalWid,
-      secretEncryptedMessage
+      secretEncryptedMessage,
     });
     return true;
   }
@@ -255,7 +263,7 @@ const handleSecretEncryptedMessageEdit = async (
   const decodedMessage = decryptSecretEncryptedEdit(
     secretEncryptedMessage,
     originalMessage,
-    message.key
+    message.key,
   );
 
   if (!decodedMessage) {
@@ -264,7 +272,7 @@ const handleSecretEncryptedMessageEdit = async (
       originalWid,
       originalMessageId: originalMessage.id,
       hasOriginalDataJson: Boolean(originalMessage.dataJson),
-      secretEncryptedMessage
+      secretEncryptedMessage,
     });
     return true;
   }
@@ -273,23 +281,21 @@ const handleSecretEncryptedMessageEdit = async (
     {
       key: {
         ...message.key,
-        id: originalWid
+        id: originalWid,
       },
       update: {
-        message: decodedMessage
-      }
+        message: decodedMessage,
+      },
     } as WAMessageUpdate,
-    companyId
+    companyId,
   );
 };
 
 // extractEditedBody/OriginalWid/RemoteJids/Timestamp -> ./wbotMessageParsers (Tier 1)
 
-
-
 const handleMessageEditUpdate = async (
   messageUpdate: WAMessageUpdate,
-  companyId: number
+  companyId: number,
 ): Promise<boolean> => {
   const editMessage = (messageUpdate.update as any)?.message;
   if (isSecretEncryptedEditPayload(editMessage)) {
@@ -304,22 +310,19 @@ const handleMessageEditUpdate = async (
       key: messageUpdate.key,
       updateKeys: Object.keys(messageUpdate.update || {}),
       protocolMessage: getEditProtocolMessage(editMessage),
-      message: editMessage
+      message: editMessage,
     });
     return true;
   }
 
-  const originalWid = extractEditedOriginalWid(
-    messageUpdate.key,
-    editMessage
-  );
+  const originalWid = extractEditedOriginalWid(messageUpdate.key, editMessage);
   if (!originalWid) {
     logMessageEditFailure("missing_original_wid", companyId, {
       key: messageUpdate.key,
       editedBodyPreview: editedBody.slice(0, 120),
       updateKeys: Object.keys(messageUpdate.update || {}),
       protocolMessage: getEditProtocolMessage(editMessage),
-      message: editMessage
+      message: editMessage,
     });
     return true;
   }
@@ -328,31 +331,34 @@ const handleMessageEditUpdate = async (
     let messageToUpdate = await Message.findOne({
       where: {
         wid: originalWid,
-        companyId
+        companyId,
       },
       include: [
         {
           model: Ticket,
           as: "ticket",
-          include: ["contact", "queue", "whatsapp"]
+          include: ["contact", "queue", "whatsapp"],
         },
         {
           model: Message,
           as: "quotedMsg",
-          include: ["contact"]
-        }
-      ]
+          include: ["contact"],
+        },
+      ],
     });
 
     if (!messageToUpdate) {
-      const remoteJids = extractEditedRemoteJids(messageUpdate.key, editMessage);
+      const remoteJids = extractEditedRemoteJids(
+        messageUpdate.key,
+        editMessage,
+      );
       const editedAt = extractEditedTimestamp(editMessage);
       logMessageEditFailure("direct_match_miss_trying_fallback", companyId, {
         originalWid,
         key: messageUpdate.key,
         remoteJids,
         editedAt: editedAt.toISOString(),
-        editedBodyPreview: editedBody.slice(0, 120)
+        editedBodyPreview: editedBody.slice(0, 120),
       });
       messageToUpdate = await findMessageEditFallback({
         companyId,
@@ -363,19 +369,19 @@ const handleMessageEditUpdate = async (
           {
             model: Ticket,
             as: "ticket",
-            include: ["contact", "queue", "whatsapp"]
+            include: ["contact", "queue", "whatsapp"],
           },
           {
             model: Message,
             as: "quotedMsg",
-            include: ["contact"]
-          }
-        ]
+            include: ["contact"],
+          },
+        ],
       });
 
       if (messageToUpdate) {
         logWarn(
-          `[MessageEdit] fallback_match originalWid=${originalWid} messageId=${messageToUpdate.id} fromMe=${messageToUpdate.fromMe} remoteJids=${remoteJids.join(",")}`
+          `[MessageEdit] fallback_match originalWid=${originalWid} messageId=${messageToUpdate.id} fromMe=${messageToUpdate.fromMe} remoteJids=${remoteJids.join(",")}`,
         );
       }
     }
@@ -387,7 +393,7 @@ const handleMessageEditUpdate = async (
         remoteJids: extractEditedRemoteJids(messageUpdate.key, editMessage),
         editedAt: extractEditedTimestamp(editMessage).toISOString(),
         editedBodyPreview: editedBody.slice(0, 120),
-        protocolMessage: getEditProtocolMessage(editMessage)
+        protocolMessage: getEditProtocolMessage(editMessage),
       });
       return true;
     }
@@ -401,9 +407,9 @@ const handleMessageEditUpdate = async (
           source: "baileys.messages.update",
           editedAt,
           key: messageUpdate.key,
-          update: (messageUpdate.update as any)?.message
-        }
-      })
+          update: (messageUpdate.update as any)?.message,
+        },
+      }),
     });
 
     const ticket = messageToUpdate.ticket;
@@ -418,36 +424,38 @@ const handleMessageEditUpdate = async (
         {
           model: Ticket,
           as: "ticket",
-          include: ["contact", "queue", "whatsapp"]
+          include: ["contact", "queue", "whatsapp"],
         },
         {
           model: Message,
           as: "quotedMsg",
-          include: ["contact"]
-        }
-      ]
+          include: ["contact"],
+        },
+      ],
     });
 
     const io = getIO();
     io.of(String(companyId)).emit(`company-${companyId}-appMessage`, {
       action: "update",
       message: {
-        ...(messageToUpdate.get ? messageToUpdate.get({ plain: true }) : messageToUpdate),
-        ticketId: messageToUpdate.ticketId
+        ...(messageToUpdate.get
+          ? messageToUpdate.get({ plain: true })
+          : messageToUpdate),
+        ticketId: messageToUpdate.ticketId,
       },
       ticket: messageToUpdate.ticket,
-      contact: messageToUpdate.ticket?.contact
+      contact: messageToUpdate.ticket?.contact,
     });
 
     if (messageToUpdate.ticket) {
       io.of(String(companyId)).emit(`company-${companyId}-ticket`, {
         action: "update",
-        ticket: messageToUpdate.ticket
+        ticket: messageToUpdate.ticket,
       });
     }
 
     logInfo(
-      `[MessageEdit] updated messageId=${messageToUpdate.id} ticketId=${messageToUpdate.ticketId} wid=${originalWid}`
+      `[MessageEdit] updated messageId=${messageToUpdate.id} ticketId=${messageToUpdate.ticketId} wid=${originalWid}`,
     );
     return true;
   } catch (err) {
@@ -457,10 +465,12 @@ const handleMessageEditUpdate = async (
       error: {
         name: (err as any)?.name,
         message: (err as any)?.message || String(err),
-        stack: (err as any)?.stack
-      }
+        stack: (err as any)?.stack,
+      },
     });
-    logError(`Error handling message edit. Err: ${(err as any)?.message || err}`);
+    logError(
+      `Error handling message edit. Err: ${(err as any)?.message || err}`,
+    );
     return true;
   }
 };
@@ -475,5 +485,5 @@ export {
   logMessageEditProbe,
   logMessageEditFailure,
   handleSecretEncryptedMessageEdit,
-  handleMessageEditUpdate
+  handleMessageEditUpdate,
 };

@@ -70,7 +70,7 @@ export const resolveFlowTrigger = async (
   whatsapp: Whatsapp,
   contact: Contact,
   body: string,
-  isFirstMsg: Ticket | null | undefined
+  isFirstMsg: Ticket | null | undefined,
 ): Promise<FlowTrigger | null> => {
   const contactData = buildFlowContactData(contact);
   const bodyNorm = normalizeFlowText(body);
@@ -81,7 +81,7 @@ export const resolveFlowTrigger = async (
     flowId: number,
     flow: FlowBuilderModel,
     startNodeId: string,
-    bodyArg: string | null
+    bodyArg: string | null,
   ): FlowTrigger => ({
     prioridad,
     motivo,
@@ -90,20 +90,20 @@ export const resolveFlowTrigger = async (
     connections: flow.flow["connections"],
     startNodeId,
     bodyArg,
-    contactData
+    contactData,
   });
 
   // ─── PRIORIDAD 1: palabra clave (FlowCampaign) ───
   const listPhrase = await FlowCampaignModel.findAll({
-    where: { whatsappId: whatsapp.id }
+    where: { whatsappId: whatsapp.id },
   });
-  const flowDispar = listPhrase.find(i =>
-    bodyNorm.includes(normalizeFlowText(i.phrase))
+  const flowDispar = listPhrase.find((i) =>
+    bodyNorm.includes(normalizeFlowText(i.phrase)),
   );
 
   if (flowDispar) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: flowDispar.flowId, active: true }
+      where: { id: flowDispar.flowId, active: true },
     });
     // Coincidió la prioridad: se decide aquí aunque el flow no exista.
     if (!flow) return null;
@@ -113,14 +113,14 @@ export const resolveFlowTrigger = async (
       flowDispar.flowId,
       flow,
       flow.flow["nodes"][0].id,
-      null
+      null,
     );
   }
 
   // ─── PRIORIDAD 2: continuación de flujo activo ───
   if (!!ticket.flowWebhook && ticket.flowStopped && ticket.lastFlowId) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: ticket.flowStopped, active: true }
+      where: { id: ticket.flowStopped, active: true },
     });
     if (!flow) return null;
     return armar(
@@ -129,14 +129,14 @@ export const resolveFlowTrigger = async (
       parseInt(ticket.flowStopped),
       flow,
       String(ticket.lastFlowId),
-      body
+      body,
     );
   }
 
   // ─── PRIORIDAD 3: hay ticket previo → flowIdWelcome ───
   if (isFirstMsg && whatsapp.flowIdWelcome) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: whatsapp.flowIdWelcome, active: true }
+      where: { id: whatsapp.flowIdWelcome, active: true },
     });
     if (!flow) return null;
     return armar(
@@ -145,14 +145,14 @@ export const resolveFlowTrigger = async (
       whatsapp.flowIdWelcome,
       flow,
       flow.flow["nodes"][0].id,
-      null
+      null,
     );
   }
 
   // ─── PRIORIDAD 4: sin ticket previo → flowIdNotPhrase ───
   if (!isFirstMsg && whatsapp.flowIdNotPhrase) {
     const flow = await FlowBuilderModel.findOne({
-      where: { id: whatsapp.flowIdNotPhrase, active: true }
+      where: { id: whatsapp.flowIdNotPhrase, active: true },
     });
     if (!flow) return null;
     return armar(
@@ -161,7 +161,7 @@ export const resolveFlowTrigger = async (
       whatsapp.flowIdNotPhrase,
       flow,
       flow.flow["nodes"][0].id,
-      null
+      null,
     );
   }
 

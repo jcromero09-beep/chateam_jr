@@ -147,7 +147,7 @@ export const update = async (
   const tagData = req.body;
   const { companyId } = req.user;
 
-  const tag = await UpdateService({ tagData, id: tagId });
+  const tag = await UpdateService({ tagData, id: tagId, companyId });
 
   // Hook Meta: si el check está activo, sincronizar custom conversion en Meta.
   // Si Meta falla, el servicio deja metaConversionStatus=failed + metaLastError

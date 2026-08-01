@@ -29,7 +29,7 @@ import ShowChatBotByChatbotIdServices from "../ChatBotServices/ShowChatBotByChat
 export const resetDialogStage = async (
   contact: Contact,
   chatbotId: number,
-  ticket: Ticket
+  ticket: Ticket,
 ) => {
   try {
     await DeleteDialogChatBotsServices(contact.id);
@@ -41,7 +41,7 @@ export const resetDialogStage = async (
       awaiting: 1,
       contactId: contact.id,
       chatbotId,
-      queueId: bots.queueId
+      queueId: bots.queueId,
     });
   } catch (error) {
     await ticket.update({ isBot: false });

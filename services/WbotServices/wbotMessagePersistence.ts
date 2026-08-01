@@ -28,12 +28,7 @@ import fs from "fs";
 import * as Sentry from "@sentry/node";
 import { Op } from "sequelize";
 import ffmpeg from "fluent-ffmpeg";
-import {
-  downloadMediaMessage,
-  proto,
-  WAMessage,
-  WASocket
-} from "baileys";
+import { downloadMediaMessage, proto, WAMessage, WASocket } from "baileys";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import Message from "../../models/Message";
@@ -49,7 +44,7 @@ import {
   getBodyMessage,
   getQuotedMessageId,
   getTimestampMessage,
-  getTypeMessage
+  getTypeMessage,
 } from "./wbotMessageParsers";
 
 // Mismo alias que el monolito (y que libs/wbot): el socket con el id de la sesión.
@@ -60,7 +55,7 @@ type Session = WASocket & {
 // [movido de wbotMessageListener L189-233] normalizeBaileysAck
 const normalizeBaileysAck = (
   status: string | number | null | undefined,
-  fallback: number | undefined = 1
+  fallback: number | undefined = 1,
 ): number | undefined => {
   if (status === null || status === undefined) return fallback;
 
@@ -120,18 +115,24 @@ const getUnpackedMessage = (msg: proto.IWebMessageInfo) => {
     msg.message?.interactiveMessage?.header ||
     msg.message?.highlyStructuredMessage?.hydratedHsm?.hydratedTemplate ||
     msg.message
-  )
-}
+  );
+};
 const getMessageMedia = (message: proto.IMessage) => {
   return (
     message?.imageMessage ||
     message?.audioMessage ||
     message?.videoMessage ||
     message?.stickerMessage ||
-    message?.documentMessage || null
+    message?.documentMessage ||
+    null
   );
-}
-const downloadMedia = async (msg: proto.IWebMessageInfo, isImported: Date = null, wbot: Session, ticket: Ticket) => {
+};
+const downloadMedia = async (
+  msg: proto.IWebMessageInfo,
+  isImported: Date = null,
+  wbot: Session,
+  ticket: Ticket,
+) => {
   const unpackedMessage = getUnpackedMessage(msg);
   const message = getMessageMedia(unpackedMessage);
   if (!message) {
@@ -160,7 +161,7 @@ const downloadMedia = async (msg: proto.IWebMessageInfo, isImported: Date = null
     if (msg.message?.stickerMessage?.url?.includes(urlAnt)) {
       msg.message.stickerMessage.url = msg.message?.stickerMessage.url.replace(
         urlAnt,
-        final
+        final,
       );
     }
   }
@@ -173,16 +174,16 @@ const downloadMedia = async (msg: proto.IWebMessageInfo, isImported: Date = null
       {},
       {
         logger,
-        reuploadRequest: wbot.updateMediaMessage
-      }
+        reuploadRequest: wbot.updateMediaMessage,
+      },
     );
   } catch (err) {
     if (isImported) {
-       console.log(
-        "Falha ao fazer o download de uma mensagem importada, provavelmente a mensagem já não esta mais disponível"
+      console.log(
+        "Falha ao fazer o download de uma mensagem importada, provavelmente a mensagem já não esta mais disponível",
       );
     } else {
-       console.error("Erro ao baixar mídia:", err);
+      console.error("Erro ao baixar mídia:", err);
     }
   }
 
@@ -237,18 +238,17 @@ const downloadMedia = async (msg: proto.IWebMessageInfo, isImported: Date = null
   const media = {
     data: buffer,
     mimetype: mineType.mimetype,
-    filename
+    filename,
   };
 
   return media;
 };
 
-
 // [Ola 3] La resolución por wid es común a los tres canales y vive en
 // ./MessageServices/FindQuotedMessageService. Aquí queda solo lo propio de
 // Baileys: de dónde se saca el id del citado.
 export const verifyQuotedMessage = async (
-  msg: proto.IWebMessageInfo
+  msg: proto.IWebMessageInfo,
 ): Promise<Message | null> => {
   if (!msg) return null;
   return findQuotedByWid(getQuotedMessageId(msg));
@@ -261,7 +261,7 @@ export const verifyMediaMessage = async (
   ticketTraking: TicketTraking,
   isForwarded: boolean = false,
   isPrivate: boolean = false,
-  wbot: Session
+  wbot: Session,
 ): Promise<Message> => {
   const io = getIO();
   const quotedMsg = await verifyQuotedMessage(msg);
@@ -290,16 +290,16 @@ export const verifyMediaMessage = async (
         participant: msg.key.participant,
         timestamp: getTimestampMessage(msg.messageTimestamp),
         createdAt: new Date(
-          Math.floor(getTimestampMessage(msg.messageTimestamp) * 1000)
+          Math.floor(getTimestampMessage(msg.messageTimestamp) * 1000),
         ).toISOString(),
         dataJson: JSON.stringify(msg),
         ticketImported: ticket.imported,
         isForwarded,
-        isPrivate
+        isPrivate,
       };
 
       await ticket.update({
-        lastMessage: body
+        lastMessage: body,
       });
       logError("ERR_WAPP_DOWNLOAD_MEDIA");
       return CreateMessageService({ messageData, companyId: companyId });
@@ -347,7 +347,7 @@ export const verifyMediaMessage = async (
         "..",
         "..",
         "public",
-        `company${companyId}`
+        `company${companyId}`,
       );
 
       // const folder = `public/company${companyId}`; // Correção adicionada por Altemir 16-08-2023
@@ -359,7 +359,7 @@ export const verifyMediaMessage = async (
       await writeFile(
         join(folder, media.filename),
         media.data.toString("base64"),
-        "base64"
+        "base64",
       ) // Correção adicionada por Altemir 16-08-2023
         .then(() => {
           // // console.log("Arquivo salvo com sucesso!");
@@ -376,7 +376,8 @@ export const verifyMediaMessage = async (
               return;
             } else {
               // Intentar convertir otros formatos de audio a .ogg
-              outputFile = inputFile.substring(0, inputFile.lastIndexOf('.')) + '.ogg';
+              outputFile =
+                inputFile.substring(0, inputFile.lastIndexOf(".")) + ".ogg";
             }
 
             return new Promise<void>((resolve, reject) => {
@@ -387,20 +388,27 @@ export const verifyMediaMessage = async (
                 .on("end", () => {
                   // Actualizar media.filename para usar el archivo convertido
                   media.filename = path.basename(outputFile);
-                  console.log(`✅ Audio convertido: ${inputFile} → ${outputFile}`);
+                  console.log(
+                    `✅ Audio convertido: ${inputFile} → ${outputFile}`,
+                  );
 
                   // Opcional: eliminar archivo original
                   try {
                     fs.unlinkSync(inputFile);
                     console.log(`🗑️ Archivo original eliminado: ${inputFile}`);
                   } catch (err) {
-                    console.warn(`⚠️ No se pudo eliminar archivo original: ${err.message}`);
+                    console.warn(
+                      `⚠️ No se pudo eliminar archivo original: ${err.message}`,
+                    );
                   }
 
                   resolve();
                 })
                 .on("error", (err: any) => {
-                  console.error(`❌ Error convirtiendo audio ${inputFile} a ${outputFile}:`, err);
+                  console.error(
+                    `❌ Error convirtiendo audio ${inputFile} a ${outputFile}:`,
+                    err,
+                  );
                   reject(err);
                 });
             });
@@ -416,7 +424,7 @@ export const verifyMediaMessage = async (
         ticket,
         contact,
         media,
-        quotedMsg
+        quotedMsg,
       });
       Sentry.captureException(err);
       logError(err);
@@ -434,27 +442,26 @@ export const verifyMediaMessage = async (
       mediaUrl: media.filename,
       mediaType: media.mimetype.split("/")[0],
       quotedMsgId: quotedMsg?.id,
-      ack:
-        normalizeBaileysAck(msg.status) ?? 1,
+      ack: normalizeBaileysAck(msg.status) ?? 1,
       remoteJid: msg.key.remoteJid,
       participant: msg.key.participant,
       dataJson: JSON.stringify(msg),
       ticketTrakingId: ticketTraking?.id,
       createdAt: new Date(
-        Math.floor(getTimestampMessage(msg.messageTimestamp) * 1000)
+        Math.floor(getTimestampMessage(msg.messageTimestamp) * 1000),
       ).toISOString(),
       ticketImported: ticket.imported,
       isForwarded,
-      isPrivate
+      isPrivate,
     };
 
     await ticket.update({
-      lastMessage: body || media.filename
+      lastMessage: body || media.filename,
     });
 
     const newMessage = await CreateMessageService({
       messageData,
-      companyId: companyId
+      companyId: companyId,
     });
 
     if (!msg.key.fromMe && ticket.status === "closed") {
@@ -483,14 +490,14 @@ export const verifyMediaMessage = async (
           "amountUsedBotQueuesNPS",
           "lgpdSendMessageAt",
           "isBot",
-          "aiStatus"
+          "aiStatus",
         ],
         include: [
           { model: Queue, as: "queue" },
           { model: User, as: "user" },
           { model: Contact, as: "contact" },
-          { model: Whatsapp, as: "whatsapp" }
-        ]
+          { model: Whatsapp, as: "whatsapp" },
+        ],
       });
 
       io.of(String(companyId))
@@ -499,7 +506,7 @@ export const verifyMediaMessage = async (
         .emit(`company-${companyId}-ticket`, {
           action: "update",
           ticket,
-          ticketId: ticket.id
+          ticketId: ticket.id,
         });
     }
 
@@ -515,7 +522,7 @@ export const verifyMessage = async (
   contact: Contact,
   ticketTraking?: TicketTraking,
   isPrivate?: boolean,
-  isForwarded: boolean = false
+  isForwarded: boolean = false,
 ) => {
   // // console.log("Mensagem recebida:", JSON.stringify(msg, null, 2));
   const io = getIO();
@@ -534,17 +541,19 @@ export const verifyMessage = async (
         ticketId: ticket.id,
         body: body,
         fromMe: true,
-        wid: { [Op.like]: 'pending_%' },
-        companyId
-      }
+        wid: { [Op.like]: "pending_%" },
+        companyId,
+      },
     });
     if (existingPendingMessage) {
-      console.log(`[verifyMessage] Mensaje pending previo ID=${existingPendingMessage.id}, actualizando wid a ${msg.key.id}`);
+      console.log(
+        `[verifyMessage] Mensaje pending previo ID=${existingPendingMessage.id}, actualizando wid a ${msg.key.id}`,
+      );
       await existingPendingMessage.update({
         wid: msg.key.id,
         dataJson: JSON.stringify(msg),
-        messageStatus: 'sent',
-        sentAt: new Date()
+        messageStatus: "sent",
+        sentAt: new Date(),
       });
     }
   }
@@ -558,22 +567,21 @@ export const verifyMessage = async (
     mediaType: getTypeMessage(msg),
     read: msg.key.fromMe,
     quotedMsgId: quotedMsg?.id,
-    ack:
-      normalizeBaileysAck(msg.status) ?? 1,
+    ack: normalizeBaileysAck(msg.status) ?? 1,
     remoteJid: msg.key.remoteJid,
     participant: msg.key.participant,
     dataJson: JSON.stringify(msg),
     ticketTrakingId: ticketTraking?.id,
     isPrivate,
     createdAt: new Date(
-      Math.floor(getTimestampMessage(msg.messageTimestamp) * 1000)
+      Math.floor(getTimestampMessage(msg.messageTimestamp) * 1000),
     ).toISOString(),
     ticketImported: ticket.imported,
-    isForwarded
+    isForwarded,
   };
 
   await ticket.update({
-    lastMessage: body
+    lastMessage: body,
   });
 
   await CreateMessageService({ messageData, companyId: companyId });
@@ -585,8 +593,8 @@ export const verifyMessage = async (
         { model: Queue, as: "queue" },
         { model: User, as: "user" },
         { model: Contact, as: "contact" },
-        { model: Whatsapp, as: "whatsapp" }
-      ]
+        { model: Whatsapp, as: "whatsapp" },
+      ],
     });
 
     // io.to("closed").emit(`company-${companyId}-ticket`, {
@@ -602,7 +610,7 @@ export const verifyMessage = async (
         .emit(`company-${companyId}-ticket`, {
           action: "update",
           ticket,
-          ticketId: ticket.id
+          ticketId: ticket.id,
         });
     }
   }

@@ -44,13 +44,19 @@ interface TagData {
 interface Request {
   tagData: TagData;
   id: string | number;
+  // [2026-08-01 · IDOR] Sin esto, ShowService(id) buscaba el tag SIN filtrar por
+  // empresa: Sequelize ignora un `companyId: undefined` en el where, así que un
+  // usuario de la empresa A podía actualizar tags de la B pasando su id. El
+  // controller ya tenía el companyId a mano; solo faltaba propagarlo.
+  companyId: string | number;
 }
 
 const UpdateUserService = async ({
   tagData,
-  id
+  id,
+  companyId
 }: Request): Promise<Tag | undefined> => {
-  const tag = await ShowService(id);
+  const tag = await ShowService(id, companyId);
 
   const schema = Yup.object().shape({
     name: Yup.string().min(3)
