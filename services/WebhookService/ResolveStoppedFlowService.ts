@@ -24,10 +24,14 @@
  * `flow.flow["nodes"]` lanza TypeError cuando el flow no existe — meta lo arregló,
  * wbot y facebook no.
  *
- * **Este servicio NO los corrige**: `requireActive` y `onMissing` reproducen la
- * conducta de cada llamante tal cual. Cambiarla es un cambio de conducta y necesita
- * su propia decisión y su propio test. Lo que cambia hoy es que la divergencia se ve
- * en la firma en lugar de estar escondida en tres cuerpos casi iguales.
+ * **Resuelto el 2026-07-31 (decisión de JC).** Los tres llamantes usan ya
+ * `requireActive: true` y `onMissing: "null"`: nadie reanuda flows desactivados y
+ * nadie revienta cuando el flow no aparece. Facebook llevaba además sin la guarda
+ * por `ticket.status`, que ahora tiene.
+ *
+ * Las dos opciones se conservan a propósito aunque hoy los tres pasen lo mismo: son
+ * el sitio donde declarar una divergencia si algún canal necesita otra cosa, en vez
+ * de que vuelva a esconderse dentro de un cuerpo duplicado.
  */
 import { FlowBuilderModel } from "../../models/FlowBuilder";
 import Contact from "../../models/Contact";

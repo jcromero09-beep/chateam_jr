@@ -219,16 +219,24 @@ const flowBuilderQueue = async (
   isFirstMsg: Ticket,
 ) => {
 
-  // [Ola 3] Contexto del flow detenido: común a los tres canales. Las opciones
-  // reproducen la conducta que tenía ESTE canal — a diferencia de wbot y meta, aquí
-  // NO se filtra por `active`, así que se reanudan también flows desactivados. Es
-  // una divergencia real, no del canal; se preserva a propósito y queda declarada
-  // en la llamada. Ver ../WebhookService/ResolveStoppedFlowService.
+  // [Ola 3 · conducta alineada 2026-07-31, decisión de JC] Este canal era el único
+  // que NO filtraba por `active` (reanudaba flows desactivados) y el único sin la
+  // guarda por estado del ticket. Ahora se comporta como wbot y meta.
+  if (["closed", "interrupted", "open"].includes(ticket.status)) {
+    return;
+  }
+
+  // `onMissing: "null"` en vez de "throw": si el flow no existe o está inactivo se
+  // sale en silencio, como hacía meta. Antes reventaba con TypeError al leer
+  // `flow.flow["nodes"]`. Ver ../WebhookService/ResolveStoppedFlowService.
   const ctx = await resolveStoppedFlow(ticket, contact, {
-    requireActive: false,
-    onMissing: "throw"
+    requireActive: true,
+    onMissing: "null"
   });
-  const { nodes, connections, contactData: mountDataContact } = ctx!;
+  if (!ctx) {
+    return;
+  }
+  const { nodes, connections, contactData: mountDataContact } = ctx;
 
   if (!ticket.lastFlowId) {
     return

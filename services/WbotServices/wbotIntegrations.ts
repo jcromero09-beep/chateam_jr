@@ -1124,15 +1124,19 @@ const flowBuilderQueue = async (
 ) => {
   const body = getBodyMessage(msg);
 
-  // [Ola 3] Contexto del flow detenido: común a los tres canales. Las opciones
-  // reproducen la conducta que tenía ESTE canal — filtra active, y si no hay flow
-  // explota igual que antes (aquí no había null-check). Ver
-  // ../WebhookService/ResolveStoppedFlowService.
+  // [Ola 3 · conducta alineada 2026-07-31, decisión de JC] `onMissing: "null"` en
+  // vez de "throw": si el flow no existe o está inactivo se sale en silencio, como
+  // ya hacía meta. Antes reventaba con TypeError al leer `flow.flow["nodes"]` —
+  // dentro del try/catch del listener, así que el mensaje se perdía sin rastro
+  // legible. Ver ../WebhookService/ResolveStoppedFlowService.
   const ctx = await resolveStoppedFlow(ticket, contact, {
     requireActive: true,
-    onMissing: "throw"
+    onMissing: "null"
   });
-  const { nodes, connections, contactData: mountDataContact } = ctx!;
+  if (!ctx) {
+    return;
+  }
+  const { nodes, connections, contactData: mountDataContact } = ctx;
 
   if (!ticket.lastFlowId) {
     return;
