@@ -46,6 +46,28 @@ const infraEnv = {
   MAIL_HOST: '127.0.0.1',
   MAIL_PORT: '25',
   MAIL_FROM: 'chateam@nas.codigo.plus',
+
+  // ── Aislamiento multi-tenant (helpers/tenantScope) ─────────────────────────
+  // [2026-08-01, decisión de JC] La superficie `api` (middleware/tokenAuth:
+  // /api/send y familia) arrancó en modo `observe` a propósito: hasta que tokenAuth
+  // empezó a propagar el companyId, el guard quedaba INERTE ahí, y activarlo de
+  // golpe podía dejar a un endpoint devolviendo vacío sin avisar.
+  //
+  // Evidencia para pasar a enforce, medida en los logs de PM2:
+  //   · CERO observaciones "would inject" — el inventario que el modo observe
+  //     acumula para esta decisión está vacío.
+  //   · CERO tráfico registrado en la superficie api en todo el log (83 MB).
+  //   · Los 24 avisos "la query pedía OTRA empresa" son de la superficie `http`,
+  //     que YA está en enforce: es el guard trabajando, no un agujero.
+  //
+  // O sea: no hay ninguna ruta que hoy dependa de consultar cross-company por esa
+  // vía. Dejarlo en observe mantiene la puerta abierta para cuando llegue tráfico;
+  // enforce la cierra antes.
+  //
+  // Cubierto por tests: tests/unit/tenant-scope-surface.test.ts (el caso
+  // TENANT_SCOPE_GUARD_API=enforce) y tests/harness/crossTenant.dbtest.ts
+  // (aislamiento real contra BD). Suite completa verificada con este valor puesto.
+  TENANT_SCOPE_GUARD_API: 'enforce',
 };
 
 module.exports = {
