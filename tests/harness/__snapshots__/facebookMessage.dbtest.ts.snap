@@ -1,0 +1,179 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`facebook handleMessage — golden master (estado observable) PSID del contacto: el listener usa recipient en los entrantes 1`] = `
+{
+  "esElRecipient": true,
+  "name": "Cliente Facebook",
+  "number": "7777777777777777",
+}
+`;
+
+exports[`facebook handleMessage — golden master (estado observable) eco (fromMe): estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Facebook",
+      "number": "7777777777777777",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "Respondo a tu mensaje",
+      "fromMe": true,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "text",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "facebook",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Respondo a tu mensaje",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 0,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`facebook handleMessage — golden master (estado observable) el mismo mid dos veces: estado completo (dedupe del canal) 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Facebook",
+      "number": "7777777777777777",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "text",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "facebook",
+      "isBot": false,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`facebook handleMessage — golden master (estado observable) texto entrante: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Facebook",
+      "number": "7777777777777777",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "Hola, necesito ayuda",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "text",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "facebook",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "Hola, necesito ayuda",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`facebook verifyQueue — menú de colas (characterization DB) menú de colas: estado completo 1`] = `
+{
+  "contacts": [
+    {
+      "isGroup": false,
+      "name": "Cliente",
+      "number": "593999999999",
+    },
+    {
+      "isGroup": false,
+      "name": "Cliente Facebook",
+      "number": "7777777777777777",
+    },
+  ],
+  "messages": [
+    {
+      "ack": 3,
+      "body": "hola",
+      "fromMe": false,
+      "isDeleted": false,
+      "isEdited": false,
+      "mediaType": "text",
+    },
+  ],
+  "tickets": [
+    {
+      "amountUsedBotQueues": 0,
+      "channel": "facebook",
+      "isBot": true,
+      "isGroup": false,
+      "lastMessage": "hola",
+      "queueId": null,
+      "status": "pending",
+      "typebotStatus": false,
+      "unreadMessages": 1,
+      "useIntegration": false,
+    },
+  ],
+}
+`;
+
+exports[`facebook verifyQueue — menú de colas (characterization DB) responder '1' selecciona la primera cola 1`] = `
+{
+  "asignada": true,
+}
+`;

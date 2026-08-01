@@ -19,7 +19,9 @@ const redisBaseUrl = redisPassword
 export const REDIS_URI_CONNECTION = explicitRedisUrl || redisBaseUrl;
 export const REDIS_OPT_LIMITER_MAX = process.env.REDIS_OPT_LIMITER_MAX || 1;
 export const REDIS_OPT_LIMITER_DURATION = process.env.REDIS_OPT_LIMITER_DURATION || 3000;
-export const REDIS_SECRET_KEY = process.env.REDIS_SECRET_KEY || "MULTI100";
+// REDIS_SECRET_KEY (default público "MULTI100", heredado del upstream) se eliminó:
+// estaba exportado pero no lo consumía nadie. Un secreto muerto solo sirve para
+// que alguien lo cablee más adelante creyendo que es seguro.
 export const REDIS_URI_MSG_CONN = process.env.REDIS_URI_ACK || '';
 
 export const stripRedisAuth = (url: string): string => {

@@ -19,8 +19,7 @@ import ShowDialogChatBotsServices from "../DialogChatBotsServices/ShowDialogChat
 import ShowQueueService from "../QueueService/ShowQueueService";
 import ShowChatBotServices from "../ChatBotServices/ShowChatBotServices";
 import DeleteDialogChatBotsServices from "../DialogChatBotsServices/DeleteDialogChatBotsServices";
-import ShowChatBotByChatbotIdServices from "../ChatBotServices/ShowChatBotByChatbotIdServices";
-import CreateDialogChatBotsServices from "../DialogChatBotsServices/CreateDialogChatBotsServices";
+import { resetDialogStage } from "../DialogChatBotsServices/ResetDialogStageService";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import formatBody from "../../helpers/Mustache";
 import UpdateTicketService from "../TicketServices/UpdateTicketService";
@@ -43,27 +42,12 @@ type Session = WASocket & {
 
 const isNumeric = (value: string) => /^-?\d+$/.test(value);
 
-export const deleteAndCreateDialogStage = async (
-  contact: Contact,
-  chatbotId: number,
-  ticket: Ticket
-) => {
-  try {
-    await DeleteDialogChatBotsServices(contact.id);
-    const bots = await ShowChatBotByChatbotIdServices(chatbotId);
-    if (!bots) {
-      await ticket.update({ isBot: false });
-    }
-    return await CreateDialogChatBotsServices({
-      awaiting: 1,
-      contactId: contact.id,
-      chatbotId,
-      queueId: bots.queueId
-    });
-  } catch (error) {
-    await ticket.update({ isBot: false });
-  }
-};
+// [Ola 3] El cuerpo era IDÉNTICO al del otro ChatbotListener —comprobado
+// carácter a carácter— y no dependía del canal: sus tres llamadas son a
+// servicios de dominio. Vive en
+// ../DialogChatBotsServices/ResetDialogStageService. Aquí queda el alias con
+// el nombre de siempre, que es como lo llaman el resto de puntos del fichero.
+export const deleteAndCreateDialogStage = resetDialogStage;
 
 const sendMessage = async (
   wbot: Session,
@@ -698,7 +682,7 @@ export const sayChatbot = async (
 
   if (!queueId && selectedOption && msg.key.fromMe) return;
 
-  const getStageBot = await ShowDialogChatBotsServices(contact.id);
+  const getStageBot = await ShowDialogChatBotsServices(contact.id, contact.companyId);
 
   // let enabledIntegrationActive: any
 

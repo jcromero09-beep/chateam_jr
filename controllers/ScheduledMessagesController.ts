@@ -93,7 +93,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     const files = req.files as Express.Multer.File[];
     const file = head(files);
 
-    const schedule = await UpdateService({ scheduleData, id: scheduleId, mediaPath: file ? file?.filename : null, mediaName: file ? file?.originalname : null });
+    const schedule = await UpdateService({ scheduleData, id: scheduleId, companyId, mediaPath: file ? file?.filename : null, mediaName: file ? file?.originalname : null });
 
     // Adiciona o trabalho atualizado na fila para o worker processar
     add("ScheduledMessages", { id: schedule.id, companyId });

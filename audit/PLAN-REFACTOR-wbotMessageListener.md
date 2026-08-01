@@ -211,3 +211,103 @@ commit, verificando el golden-master + una sonda real por rama.
 - **handleMessage: unwrapped y verificado** (wrapper + handleMessageInner, sonda real ✓).
 - **handleMessageInner interno: mapeado, NO descompuesto** — bloqueado por el golden-master.
   Es una fase dedicada, no un paso más de esta sesión.
+
+---
+
+## Golden-master de handleMessageInner — MONTADO (2026-07-28)
+
+El prerequisito está cumplido. `tests/harness/handleMessage.dbtest.ts` pasó de 6 tests
+de humo (conteos) a **18 tests, 12 snapshots**, contra `chateam_test` real.
+El matriz del prerequisito queda **cubierto entero**.
+
+### Qué cambió
+`dbHelpers.snapshotState(companyId)` devuelve una proyección **determinista y normalizada**
+del estado persistido (contacts / tickets / messages), sin ids ni fechas. Los tests de humo
+afirmaban conteos y dejaban pasar cualquier cambio de contenido; ahora cada escenario fija
+el estado observable entero, así que una extracción que altere un body, un flag o el orden
+de persistencia falla el snapshot.
+
+### Cobertura (matriz del prerequisito)
+| Rama | Estado |
+|---|---|
+| texto entrante | ✅ snapshot |
+| fromMe vs inbound | ✅ snapshot |
+| media (imagen + caption) | ✅ snapshot |
+| grupo | ✅ snapshot |
+| edición (protocolMessage type=14) | ✅ snapshot |
+| dedupe (mismo `msg.key.id` ×2) | ✅ snapshot + assert de ledger |
+| chatbot (menú con ≥2 colas) | ✅ snapshot |
+| coexistencia Meta (drop in/out, asimetría, control) | ✅ 4 tests + snapshots |
+
+### Hallazgo del golden-master: dos capas de dedupe con claves distintas
+Montar el test cazó una divergencia que la lectura de una sola capa no revela:
+
+1. `InboundEventLedger` → `UNIQUE(companyId, eventKey)` con el eventKey **prefijado por
+   provider** (`baileys:X` vs `baileys_fromme:X`) → discrimina dirección, acepta ambos.
+2. `CreateMessageService` → busca por `(wid, companyId)`, **sin provider** → no discrimina;
+   la segunda no crea fila, actualiza la primera.
+
+Resultado con el mismo wid en ambas direcciones: **2 entradas de ledger, 1 solo Message**.
+En producción un entrante y un saliente nunca comparten wid, así que no se manifiesta — pero
+queda fijado para que mover cualquiera de las dos capas no lo altere en silencio.
+
+### Cómo correrlo
+```
+npx jest --config jest.db.config.cjs tests/harness/handleMessage.dbtest.ts --forceExit
+```
+Serial obligatorio (`maxWorkers: 1`, ya en la config): todos los `*.dbtest` comparten
+`chateam_test` con `truncateAll` en cada `beforeEach`.
+
+**OJO con el ciclo de vida:** `sequelize.close()` es global. Los hooks `beforeAll/afterAll`
+van a nivel de FICHERO, no por `describe` — si cada describe abre y cierra el pool, el primer
+`afterAll` deja a los siguientes sin conexión.
+
+### Dos órdenes que fijan los tests de coexistencia
+Demostrados, no supuestos (el test usa un número que `seedTenant` NO siembra, así que el
+contacto solo puede existir si `verifyContact` llegó a correr):
+- `verifyContact` corre **antes** del drop → un mensaje descartado **igual crea el contacto**.
+- El drop de coex ocurre **antes** del dedupe → **no** deja entrada en `InboundEventLedger`.
+
+Una descomposición que reordene cualquiera de las dos rompe estos snapshots.
+
+### Siguiente paso (ya desbloqueado)
+Extraer, **una por commit**, verificando el golden-master entre cada una:
+`resolveTicketContext()` → `handleMedia()` → `dispatchIntegration()` → `handleRatingStep()`.
+Los early-returns de la fase de resolución (fromMe-skip, no-whatsapp, group-not-allowed,
+coex-drop, dedupe.drop) tienen que volverse señal (`return null`) — ese es el único tramo
+que NO es movimiento verbatim.
+
+
+---
+
+## Extracción 1/3 — `resolveTicketContext()` — HECHA (2026-07-28)
+
+209 líneas (la fase de resolución entera) fuera de `handleMessageInner`.
+
+### El contrato salió más chico de lo previsto
+El plan estimaba "~20+ locales que el resto consume". Medido sobre el cuerpo
+restante (usos y asignaciones, uno por uno): **solo 12 de 21** se leen después.
+No se consumen `msgContact`, `groupContact`, `tagsId`, `enableLGPD`,
+`baileysLedgerEntryId`, `coexConversationId`, `coexCanonicalNumber`, `mutex` ni
+`linkedMeta` — se quedan dentro de la función extraída.
+
+Y **ninguno de los 12 se reasigna** aguas abajo, así que el destructure es `const`.
+(Dos coincidencias de reasignación resultaron falsos positivos: una `const msgType`
+en un scope interno que shadowea, y un `ticket=` dentro de un template string.)
+
+### Lo único que no fue verbatim
+Los 5 `return;` de descarte → `return null;`, y el `return { …12 }` del camino feliz.
+Nada más se retipeó: el cuerpo se movió con un script, no a mano.
+
+La llamada queda DENTRO del try existente, así que el manejo de errores no cambia:
+lo que lance sigue cayendo en el mismo catch.
+
+### Verificación
+- Golden-master: **18/18, 12 snapshots passed sin reescribir**. Conducta idéntica.
+- `tsc --noEmit` sobre el fichero: **0 errores** (los 37 del programa son
+  preexistentes en WhatsAppController/MessageController/upload/isAuth).
+
+### Pendiente: 2/3 y 3/3
+`handleMedia()` y `dispatchIntegration()`. El método queda probado y es repetible:
+medir el contrato con usos/asignaciones sobre el cuerpo restante → mover con script
+(nunca a mano) → golden-master + tsc acotado → un commit por extracción.

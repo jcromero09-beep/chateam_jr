@@ -15,7 +15,16 @@
 import fs from 'fs';
 import path from 'path';
 import archiver from 'archiver';
-import { google } from 'googleapis';
+// [Ola 1 verificabilidad] eliminado `import { google } from 'googleapis'`: el
+// símbolo no se usaba en ninguna línea del fichero — la carga real es el
+// `await import('googleapis')` de getGoogle(), abajo.
+//
+// MEDIDO: quitarlo NO reduce el grafo de tipos. TypeScript resuelve un
+// `await import('literal')` igual que un import estático, así que los ~897 .d.ts
+// de googleapis siguen entrando (comprobado: 4.037 ficheros en el grafo de un
+// solo controller, antes y después). Para sacarlos de verdad haría falta
+// `@googleapis/drive` en vez del paquete monolítico — cambio de dependencia, no
+// de import, y sin tests que cubran el backup a Drive. No se hace aquí.
 import CompaniesSettings from '../models/CompaniesSettings';
 import Company from '../models/Company';
 import logger, { logError, logInfo, logWarn } from '../utils/logger';

@@ -9,6 +9,7 @@ import { TokenManager } from "./TokenManager";
 import { MarketingCache } from "./MarketingCache";
 import { AuditLogger } from "./AuditLogger";
 import cache from "../../libs/cache";
+import { tokenFingerprint } from "../../utils/tokenFingerprint";
 
 interface TimeRange {
   since: string;
@@ -72,7 +73,29 @@ const META_THROTTLE_CODES = new Set([4, 17, 32, 613, 80000, 80003, 80004, 80014]
 // empresa tuviera dos conexiones con ad accounts distintos y solo una rota, el
 // peor caso es devolver lista vacia durante el TTL — mejor que el 500 actual.
 // testConnection limpia la marca en cuanto la cuenta vuelve a responder.
-const META_DISABLED_TTL = 60 * 60; // 1 h
+//
+// ## Por qué el bloqueo CRECE y no es fijo (arreglo 2026-07-30)
+//
+// El TTL era fijo: exactamente 1 h. Y `handleImportInsightsDaily` corre
+// `cron.schedule('0 * * * *')` — **exactamente cada hora**. Los dos periodos
+// coincidían, así que el bloqueo expiraba justo cuando el cron volvía a
+// disparar: el cortocircuito estaba perfectamente construido y **no ahorraba ni
+// una sola llamada**. En el log de producción se ve el resultado exacto — un
+// intento por hora, en punto, indefinidamente, para una cuenta cuyo permiso
+// (`#200 ads_management`) no se va a conceder solo. ~190 líneas de error al día
+// y cuota de la API de Meta quemada; de ahí salía también el
+// `Application request limit reached`.
+//
+// Acoplar el TTL al periodo de un cron es frágil aunque se ajusten los números:
+// cambiar la cadencia del cron volvería a romperlo en silencio. La respuesta
+// correcta a un error que no se arregla reintentando es **esperar cada vez más**.
+//
+// 1ª vez 1 h, luego 2, 4, 8… hasta un techo de 24 h. El contador se borra en
+// cuanto la cuenta vuelve a funcionar (`clearMetaDisabled`, que ya llama
+// testConnection), así que arreglar la cuenta la reactiva al instante — el
+// usuario no espera 24 h por haber acumulado fallos.
+const META_DISABLED_TTL_BASE = 60 * 60; // 1 h
+const META_DISABLED_TTL_MAX = 24 * 60 * 60; // 24 h
 
 const META_FATAL_CONFIG_CODES = new Set<number>([
   META_ERROR_CODES.INVALID_TOKEN,
@@ -83,21 +106,47 @@ const META_FATAL_CONFIG_CODES = new Set<number>([
 const metaDisabledKey = (companyId: number): string =>
   `meta_marketing:disabled:company_${companyId}`;
 
+/**
+ * Contador de fallos consecutivos, en su propia clave.
+ *
+ * Vive MÁS que el bloqueo a propósito (TTL máximo + 1 h): si caducara a la vez,
+ * el contador volvería a 0 en cada ciclo y el backoff nunca crecería — sería el
+ * mismo bug de acoplamiento que se está arreglando, escrito de otra forma.
+ */
+const metaFailStreakKey = (companyId: number): string =>
+  `meta_marketing:disabled_streak:company_${companyId}`;
+
+/** 1h, 2h, 4h, 8h, 16h, 24h (techo). */
+export const backoffSeconds = (streak: number): number =>
+  Math.min(META_DISABLED_TTL_BASE * 2 ** Math.max(0, streak - 1), META_DISABLED_TTL_MAX);
+
 const disableMetaCalls = async (
   companyId: number,
   message: string,
   statusCode: number
 ): Promise<void> => {
   try {
+    const streakRaw = await cache.get(metaFailStreakKey(companyId));
+    const streak = Number(streakRaw || 0) + 1;
+    const ttl = backoffSeconds(streak);
+
     await cache.set(
       metaDisabledKey(companyId),
       JSON.stringify({ message, statusCode }),
       "EX",
-      META_DISABLED_TTL
+      ttl
     );
+    // El contador sobrevive al bloqueo (ver metaFailStreakKey).
+    await cache.set(
+      metaFailStreakKey(companyId),
+      String(streak),
+      "EX",
+      META_DISABLED_TTL_MAX + META_DISABLED_TTL_BASE
+    );
+
     logger.warn(
-      `[MetaMarketing] 🔇 Llamadas a Meta Ads apagadas ${META_DISABLED_TTL / 60} min ` +
-      `para company ${companyId}: ${message}`
+      `[MetaMarketing] 🔇 Llamadas a Meta Ads apagadas ${ttl / 60} min ` +
+      `(fallo consecutivo nº ${streak}) para company ${companyId}: ${message}`
     );
   } catch (err: unknown) {
     logger.error(`[MetaMarketing] No se pudo marcar la cuenta como no utilizable: ${String(err)}`);
@@ -121,6 +170,11 @@ const readMetaDisabled = async (
 export const clearMetaDisabled = async (companyId: number): Promise<void> => {
   try {
     await cache.del(metaDisabledKey(companyId));
+    // También el contador: si no, arreglar la cuenta la reactiva pero el
+    // siguiente fallo —aunque fuese meses después y por otra causa— arrancaría
+    // ya en 16 h de bloqueo. El backoff debe medir fallos CONSECUTIVOS, y una
+    // recuperación rompe la racha por definición.
+    await cache.del(metaFailStreakKey(companyId));
   } catch (err: unknown) {
     logger.error(`[MetaMarketing] No se pudo limpiar el cortocircuito: ${String(err)}`);
   }
@@ -263,7 +317,14 @@ export const getCompanyMetaConfig = async (companyId: number, whatsappId?: numbe
   logger.info(`[MetaMarketing] 📋 facebookAdAccountId: ${settings.facebookAdAccountId || "NOT SET"}`);
   logger.info(`[MetaMarketing] 📋 facebookBusinessId: ${settings.facebookBusinessId || "NOT SET"}`);
   logger.info(`[MetaMarketing] 📋 facebookAppId: ${settings.facebookAppId || "NOT SET"}`);
-  logger.info(`[MetaMarketing] 📋 facebookSystemUserToken: ${settings.facebookSystemUserToken ? `SET (${settings.facebookSystemUserToken.substring(0, 20)}...${settings.facebookSystemUserToken.slice(-10)})` : "NOT SET"}`);
+  // Antes esta línea volcaba 30 caracteres del token en claro (los 20 primeros y
+  // los 10 últimos) en CADA llamada — y este bloque corre en cada operación de
+  // Meta, así que el log de PM2 (74 MB, permisos rwxrwxrwx) acumulaba miles de
+  // muestras. El valor de diagnóstico que se quería era "¿está puesto y es el
+  // mismo de siempre?", y para eso basta una huella no reversible.
+  logger.info(
+    `[MetaMarketing] 📋 facebookSystemUserToken: ${tokenFingerprint(settings.facebookSystemUserToken)}`
+  );
 
   if (!settings.facebookSystemUserToken) {
     logger.error(`[MetaMarketing] ❌ No Facebook token configured`);

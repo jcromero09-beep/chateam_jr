@@ -2,13 +2,11 @@ import { Request, Response } from 'express';
 import AttributionDashboardService from '../services/AttributionServices/AttributionDashboardService';
 import logger, { logError, logInfo, logWarn, logDebug } from '../utils/logger';
 
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: number;
-    companyId: number;
-    profile?: string;
-  };
-}
+// [2026-08-01] Aquí había un `AuthenticatedRequest extends Request` que redeclaraba
+// `user` con un shape menor que el global de @types/express.d.ts, y por eso chocaba
+// (TS2430). El tipo global ya trae `user` con todos sus campos, así que el alias
+// sobra: `Request` de express vale tal cual.
+type AuthenticatedRequest = Request;
 
 /**
  * GET /attribution/dashboard

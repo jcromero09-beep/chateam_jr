@@ -57,7 +57,13 @@ export type LedgerProvider =
   | "meta_comment"
   | "baileys"
   | "baileys_fromme"
-  | "baileys_ack";
+  | "baileys_ack"
+  // Webhooks de pago. Reutilizan este ledger porque la garantía que necesitan
+  // —INSERT atómico bajo UNIQUE(companyId, eventKey)— es exactamente la misma.
+  // Su eventKey es `{idExterno}:{estado}`: la unidad idempotente de un pago es
+  // la TRANSICIÓN, no el pago (ver helpers/paymentWebhookIdempotency).
+  | "coingate"
+  | "mercadopago";
 
 export interface RegisterOrDropInput {
   companyId: number;

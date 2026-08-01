@@ -27,16 +27,16 @@ import {
 
 import { AI_IMAGE_PRICING, AI_IMAGE_CONFIG } from "../config/aiImagePricing";
 
-// Extender tipos de Express para incluir user
-declare module 'express-serve-static-core' {
-  interface Request {
-    user?: {
-      id: number;
-      companyId: number;
-      profile?: string;
-    };
-  }
-}
+// [2026-08-01] Aquí había un `declare module 'express-serve-static-core'` que
+// redefinía `req.user` con solo { id, companyId, profile? }. No era local: al
+// augmentar el módulo donde Express declara Request DE VERDAD, ganaba sobre
+// `@types/express.d.ts` (que augmenta el namespace global) y dejaba a `req.user` sin
+// `super`, `company`, `roleId`, `clientType`… EN TODO EL PROYECTO.
+//
+// Ése era el origen de los 26 errores de `npm run type-check`: 26 controllers y
+// middlewares leyendo campos que sí existen en el token pero que este bloque borraba
+// del tipo. El tipo bueno y completo está en @types/express.d.ts; no hace falta
+// declarar nada aquí.
 
 // ============================================================================
 // POST /api/ai-image-generation

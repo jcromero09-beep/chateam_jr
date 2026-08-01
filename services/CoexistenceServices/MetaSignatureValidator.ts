@@ -5,15 +5,17 @@
  * Previene replay/forgery en el endpoint /webhooks/meta.
  *
  * Modo de operación (controlado por env META_SIGNATURE_MODE):
- *   'enforce' — rechaza requests sin firma válida (HTTP 403)
- *   'warn'    — logea warning pero permite (rollout seguro)
+ *   'enforce' — rechaza requests sin firma válida (HTTP 403)  ← POR DEFECTO
+ *   'warn'    — logea warning pero permite (escotilla de rollout)
  *   'off'     — desactivado (no validar)
  *
- * Por defecto es 'warn' para no romper el servicio en el deploy inicial.
- * Migrar a 'enforce' cuando se confirme vía logs que todas las firmas son válidas.
+ * El default es 'enforce': un webhook que acepta firmas inválidas es un canal
+ * de inyección abierto (cualquiera puede POSTear mensajes/comentarios falsos al
+ * inbox de un tenant). 'warn' sigue disponible para un rollout gradual, pero es
+ * una decisión explícita que hay que escribir en el env.
  *
- * Requiere:
- *   process.env.FACEBOOK_APP_SECRET  (ya configurado en .env según memoria)
+ * Requiere process.env.FACEBOOK_APP_SECRET. Si falta, en modo 'enforce' se
+ * rechaza TODO el tráfico entrante de Meta — por eso se avisa al arranque.
  */
 import { createHmac, timingSafeEqual } from "crypto";
 import logger from "../../utils/logger";
@@ -21,9 +23,9 @@ import logger from "../../utils/logger";
 export type SignatureMode = "enforce" | "warn" | "off";
 
 export const getSignatureMode = (): SignatureMode => {
-  const raw = (process.env.META_SIGNATURE_MODE || "warn").toLowerCase();
-  if (raw === "enforce" || raw === "off") return raw;
-  return "warn";
+  const raw = (process.env.META_SIGNATURE_MODE || "enforce").toLowerCase();
+  if (raw === "warn" || raw === "off") return raw;
+  return "enforce";
 };
 
 const getAppSecret = (): string | null => {
@@ -130,8 +132,33 @@ export const shouldAcceptWebhook = (
   return { accept: true, result };
 };
 
+/**
+ * Aviso al arranque. En 'enforce' sin FACEBOOK_APP_SECRET todos los webhooks de
+ * Meta devuelven 403 y la ingesta se corta en silencio: el fallo se manifiesta
+ * como "dejaron de entrar mensajes", que es carísimo de diagnosticar a posteriori.
+ * Preferimos gritarlo en el boot.
+ */
+export const assertMetaSignatureConfig = (): void => {
+  const mode = getSignatureMode();
+  if (mode === "enforce" && !getAppSecret()) {
+    logger.error(
+      "[coex.security] META_SIGNATURE_MODE=enforce pero FACEBOOK_APP_SECRET no está configurado: " +
+        "TODOS los webhooks de Meta (WhatsApp Cloud, páginas FB/IG) serán rechazados con 403. " +
+        "Configurá FACEBOOK_APP_SECRET, o poné META_SIGNATURE_MODE=warn de forma explícita mientras tanto."
+    );
+    return;
+  }
+  if (mode !== "enforce") {
+    logger.warn(
+      `[coex.security] META_SIGNATURE_MODE=${mode}: los webhooks de Meta aceptan firmas inválidas. ` +
+        "Es un canal de inyección abierto — volvé a 'enforce' en cuanto puedas."
+    );
+  }
+};
+
 export default {
   validateMetaSignature,
   shouldAcceptWebhook,
-  getSignatureMode
+  getSignatureMode,
+  assertMetaSignatureConfig
 };

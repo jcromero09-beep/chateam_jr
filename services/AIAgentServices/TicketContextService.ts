@@ -28,8 +28,21 @@ class TicketContextService {
 
   /**
    * Extrae el contexto de tags de un ticket
+   *
+   * [W1-SEC-IDOR] `companyId` es OBLIGATORIO desde 2026-07-29. `TicketTag` no
+   * tiene columna `companyId`, así que el guard estructural de tenant nunca la
+   * enganchó: sin este parámetro, un `ticketId` de otra empresa devolvería SUS
+   * etiquetas. Con él, el JOIN contra `Tag` pasa a INNER y acotado a la empresa,
+   * así que un ticket ajeno da contexto vacío.
+   *
+   * Era opcional al introducirlo para no romper llamadores; se endurece porque
+   * un opcional deja la puerta abierta a que uno nuevo lo omita en silencio.
+   * No cuesta una consulta extra: es el mismo JOIN que ya se hacía.
    */
-  static async getTicketContext(ticketId: number): Promise<TicketTagContext> {
+  static async getTicketContext(
+    ticketId: number,
+    companyId: number
+  ): Promise<TicketTagContext> {
     try {
       // 1. Buscar todas las tags del ticket
       const ticketTags = await TicketTag.findAll({
@@ -37,7 +50,9 @@ class TicketContextService {
         include: [{
           model: Tag,
           as: 'tag',
-          attributes: ['id', 'name', 'key', 'kanban', 'description']
+          attributes: ['id', 'name', 'key', 'kanban', 'description'],
+          required: true,
+          where: { companyId }
         }]
       });
 

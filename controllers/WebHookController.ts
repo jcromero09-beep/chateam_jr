@@ -7,13 +7,30 @@ import { handleMessage } from "../services/FacebookServices/facebookMessageListe
 import IngestCommentService from "../services/SocialCommentServices/IngestCommentService";
 import { extractCommentEvents } from "../services/SocialCommentServices/extractCommentEvents";
 import logger from "../utils/logger";
+// Validación HMAC X-Hub-Signature-256. Este callback ingiere mensajería y
+// comentarios de páginas FB/IG: sin firma, cualquiera puede POSTear eventos
+// falsos e inyectarlos en el inbox de un tenant (basta con acertar el
+// facebookPageUserId, que no es secreto).
+import {
+  shouldAcceptWebhook as verifyMetaSignature,
+  getSignatureMode
+} from "../services/CoexistenceServices/MetaSignatureValidator";
+import { getTraceId } from "../utils/traceContext";
+import { getMetaVerifyToken } from "../helpers/metaVerifyToken";
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
-  const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "whaticket";
+  const VERIFY_TOKEN = getMetaVerifyToken();
 
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
+
+  if (!VERIFY_TOKEN) {
+    logger.error(
+      "[Webhook FB] VERIFY_TOKEN no configurado — se rechaza el handshake de suscripción"
+    );
+    return res.status(403).json({ message: "Forbidden" });
+  }
 
   if (mode && token) {
     if (mode === "subscribe" && token === VERIFY_TOKEN) {
@@ -30,10 +47,33 @@ export const webHook = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
+  // Firma HMAC ANTES de cualquier procesamiento. Mismo modo/env que el resto
+  // de webhooks Meta (META_SIGNATURE_MODE).
+  const sigHeader =
+    req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"];
+  const sigCheck = verifyMetaSignature(
+    (req as any).rawBody,
+    sigHeader,
+    getTraceId()
+  );
+  if (!sigCheck.accept) {
+    logger.error(
+      `[Webhook FB] Firma HMAC inválida (mode=${getSignatureMode()}, reason=${sigCheck.result.reason}) — rechazando`
+    );
+    return res
+      .status(403)
+      .json({ error: "invalid_signature", reason: sigCheck.result.reason });
+  }
+
   try {
     const { body } = req;
 
-  console.log("Estructura completa del body:", JSON.stringify(body, null, 2));
+    // Antes se volcaba el body completo con JSON.stringify(body, null, 2): eso
+    // imprime mensajes y teléfonos de clientes en claro en el log. Se deja solo
+    // la traza mínima para diagnóstico.
+    logger.debug(
+      `[Webhook FB] evento recibido object=${body?.object} entries=${body?.entry?.length ?? 0} sig=${sigCheck.result.reason}`
+    );
 
     if (body.object === "page" || body.object === "instagram") {
       let channel: string;

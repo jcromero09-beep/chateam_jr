@@ -15,9 +15,9 @@ const envTokenAuth = (
     const { token: bodyToken } = req.body as TokenPayload;
     const { token: queryToken } = req.query as TokenPayload;
 
-    console.log("|========= | middleware | ========|", req.query)
+    // Antes había aquí un console.log(req.query) que volcaba el ENV_TOKEN en
+    // claro al log en cada request. Misma fuga que la Ola de secretos en logs.
 
-    
     if (queryToken === process.env.ENV_TOKEN) {
       return next();
     }

@@ -23,11 +23,13 @@ import ApiUsages from "../../models/ApiUsages";
 import { useDate } from "../../utils/useDate";
 // Si tu Webhook Meta está en otra ruta, ajusta este import:
 import { ActionsWebhookMetaService } from "../WebhookService/ActionsWebhookMetaService";
-import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
-import UpdateTicketService from "../TicketServices/UpdateTicketService";
+import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
+import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
+import { resolveFlowTrigger } from "../WebhookService/ResolveFlowTriggerService";
+import { resolveQueueMenu } from "../TicketServices/ResolveQueueMenuService";
 import ShowQueueIntegrationService from "../QueueIntegrationServices/ShowQueueIntegrationService";
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
 
@@ -46,7 +48,7 @@ import {
 import { getIO } from "../../libs/socket";
 import formatBody from "../../helpers/Mustache";
 import lodash from "lodash";
-const { head, isNil, isNull } = lodash;
+const { isNil } = lodash;
 import { logInfo, logError, logWarn } from "../../config/logger";
 import { normalizeSupervisorAIText } from "../AIAgentServices/AIInputGuardService";
 
@@ -128,12 +130,9 @@ const getTextFromMetaMessage = (message: any): string => {
   }
 };
 
-const normalizeText = (text: string): string =>
-  (text || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
+// [Ola 3] normalizeText se fue con las cuatro prioridades a
+// ../WebhookService/ResolveFlowTriggerService (exportada como normalizeFlowText).
+// Facebook tenia una copia identica declarada DENTRO de su flowbuilderIntegration.
 
 const buildMetaCampaignDebug = (message: any) => {
   const referral = message?.referral || message?.context?.referral || null;
@@ -188,15 +187,15 @@ const downloadMetaMedia = async (
 };
 
 // quoted
+// [Ola 3] La resolución por wid es común a los tres canales y vive en
+// ../MessageServices/FindQuotedMessageService. Aquí queda solo lo propio de Meta:
+// de dónde se saca el id del citado.
 const verifyQuotedMessage = async (msg: any): Promise<Message | null> => {
   if (!msg) return null;
-  const quotedId =
+  return findQuotedByWid(
     msg?.context?.id || // Meta interactive/context
-    msg?.reply_to?.mid; // compat si alguna lib lo mapea así
-  if (!quotedId) return null;
-
-  const quotedMsg = await Message.findOne({ where: { wid: quotedId } });
-  return quotedMsg || null;
+      msg?.reply_to?.mid // compat si alguna lib lo mapea así
+  );
 };
 
 // ===== Crear/actualizar Contacto (Meta) =====
@@ -288,6 +287,13 @@ const verifyMessageMetaText = async (
     fromMe,
     read: fromMe,
     quotedMsgId: quotedMsg?.id,
+    // [2026-07-31, decisión de JC] Este campo NO estaba y quedaba null. No era
+    // cosmético: OpenAiMetaService (L536) construye el historial de la IA saltando
+    // todo mensaje cuyo mediaType no sea "conversation" | "extendedTextMessage" |
+    // "text", así que TODOS los textos de este canal se caían del historial — el
+    // agente respondía sin contexto de la conversación, en silencio. "text" es el
+    // valor que ese mismo filtro ya contemplaba.
+    mediaType: "text",
     ack: 3,
     dataJson: JSON.stringify(dataJson || metaMsg),
     channel: "meta",
@@ -595,20 +601,17 @@ const flowBuilderQueue = async (
   contact: Contact,
   isFirstMsg: Ticket
 ) => {
-  const flow = await FlowBuilderModel.findOne({
-    where: { id: ticket.flowStopped, active: true }
+  // [Ola 3] Contexto del flow detenido: común a los tres canales. Este canal es el
+  // único que comprobaba null, así que mantiene `onMissing: "null"`.
+  // Ver ../WebhookService/ResolveStoppedFlowService.
+  const ctx = await resolveStoppedFlow(ticket, contact, {
+    requireActive: true,
+    onMissing: "null"
   });
-  if (!flow || !ticket.lastFlowId) return;
+  if (!ctx || !ticket.lastFlowId) return;
   if (["closed", "interrupted", "open"].includes(ticket.status)) return;
 
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  const nodes: INodes[] = flow.flow["nodes"];
-  const connections: IConnections[] = flow.flow["connections"];
+  const { nodes, connections, contactData: mountDataContact } = ctx;
   const body = getTextFromMetaMessage(metaMsg);
 
   await ActionsWebhookMetaService(
@@ -639,83 +642,28 @@ const flowbuilderIntegration = async (
   const body = getTextFromMetaMessage(metaMsg);
   await ticket.update({ lastMessage: body });
 
-  const bodyNorm = normalizeText(body || "");
-  const isInFlow = !!ticket?.flowWebhook;
+  // [Ola 3] Las cuatro prioridades del FlowBuilder son comunes a este canal y a
+  // Facebook — eran copia literal la una de la otra. La decisión de QUÉ flow
+  // disparar vive en ../WebhookService/ResolveFlowTriggerService; aquí solo queda
+  // la ejecución, que sí es del canal.
+  const trigger = await resolveFlowTrigger(ticket, whatsapp, contact, body, isFirstMsg);
+  if (!trigger) return;
 
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
-  const listPhrase = await FlowCampaignModel.findAll({
-    where: { whatsappId: whatsapp.id }
-  });
-
-  const flowDispar = listPhrase.find(i =>
-    bodyNorm.includes(normalizeText(i.phrase))
+  console.log(`[FlowBuilder-Meta] Prioridad ${trigger.prioridad}: ${trigger.motivo}`);
+  await ActionsWebhookMetaService(
+    whatsapp,
+    trigger.flowId,
+    ticket.companyId,
+    trigger.nodes,
+    trigger.connections,
+    trigger.startNodeId,
+    null,
+    "",
+    "",
+    trigger.bodyArg,
+    ticket.id,
+    trigger.contactData
   );
-
-  if (flowDispar) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 1: Palabra clave →", flowDispar.phrase);
-      await ActionsWebhookMetaService(
-        whatsapp, flowDispar.flowId, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
-  if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 2: Continuación flujo activo");
-      await ActionsWebhookMetaService(
-        whatsapp, parseInt(ticket.flowStopped), ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        String(ticket.lastFlowId),
-        null, "", "", body, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
-  // isFirstMsg = Ticket object (existe ticket previo) en Meta/FB
-  if (isFirstMsg && whatsapp.flowIdWelcome) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdWelcome, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 3: Contacto con ticket → flowIdWelcome");
-      await ActionsWebhookMetaService(
-        whatsapp, whatsapp.flowIdWelcome, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 4: CONTACTO SIN TICKET PREVIO → flowIdNotPhrase ───
-  if (!isFirstMsg && whatsapp.flowIdNotPhrase) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: whatsapp.flowIdNotPhrase, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-Meta] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
-      await ActionsWebhookMetaService(
-        whatsapp, whatsapp.flowIdNotPhrase, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
 };
 
 // ====== Verify Queue (idéntico patrón a tu FB, enviando por Meta) ======
@@ -725,68 +673,17 @@ const verifyQueue = async (
   ticket: Ticket,
   contact: Contact
 ) => {
-  const { queues, greetingMessage } = await ShowWhatsAppService(
-    whatsapp.id!,
-    ticket.companyId
-  );
+  // [Ola 3] La decisión —asignar directo, aceptar la opción elegida o presentar el
+  // menú— es común a este canal y a Facebook y vive en
+  // ../TicketServices/ResolveQueueMenuService. Aquí queda el envío por Cloud API.
+  const resultado = await resolveQueueMenu(whatsapp, ticket, contact, getTextFromMetaMessage(metaMsg));
+  if (!resultado) return;
 
   const to = contact.number.replace("+", "");
+  // phoneNumberId contiene el Phone Number ID de Meta
+  const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
 
-  if (queues.length === 1) {
-    const firstQueue = head(queues);
-    const chatbot = Boolean(firstQueue?.chatbots?.length);
-    await UpdateTicketService({
-      ticketData: { queueId: queues[0].id, isBot: chatbot },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-    return;
-  }
-
-  let selectedOption = "";
-
-  if (ticket.status !== "lgpd") {
-    selectedOption = getTextFromMetaMessage(metaMsg);
-  } else {
-    if (!isNil(ticket.lgpdAcceptedAt)) {
-      await ticket.update({ status: "pending" });
-      await ticket.reload();
-    }
-  }
-
-  const choosenQueue = queues[+selectedOption - 1];
-
-  if (choosenQueue) {
-    await UpdateTicketService({
-      ticketData: { queueId: choosenQueue.id },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-
-    // phoneNumberId contiene el Phone Number ID de Meta
-    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
-
-    if (choosenQueue.chatbots.length > 0) {
-      let options = "";
-      choosenQueue.chatbots.forEach((c, idx) => {
-        options += `[${idx + 1}] - ${c.name}\n`;
-      });
-
-      const body = `${choosenQueue.greetingMessage}\n\n${options}\n[#] Voltar para o menu principal`;
-      await sendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-    } else {
-      const body = `${choosenQueue.greetingMessage}`;
-      await sendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-    }
-
-  } else {
-    // phoneNumberId contiene el Phone Number ID de Meta
-    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
-    let options = "";
-    queues.forEach((q, idx) => (options += `[${idx + 1}] - ${q.name}\n`));
-    const body = `${greetingMessage}\n\n${options}`;
-    await sendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-  }
+  await sendTextDynamic(to, formatBody(resultado.texto, ticket), phoneNumberId, whatsapp.tokenMeta);
 };
 
 // ====== Handle principal (como tu handleMessage de FB, pero Meta) ======

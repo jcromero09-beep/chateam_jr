@@ -2,6 +2,7 @@ import axios from "axios";
 import Whatsapp from "../../models/Whatsapp";
 import logger, { logError, logInfo, logWarn, logDebug } from "../../utils/logger";
 import telegramLogger from "../../utils/telegramLogger";
+import { tokenFingerprint } from "../../utils/tokenFingerprint";
 
 interface TelegramBotInfo {
   ok: boolean;
@@ -104,7 +105,7 @@ const StartTelegramSession = async (
     telegramLogger.error(`❌ Error al iniciar sesión Telegram Bot`, error, {
       telegramId,
       companyId,
-      botToken: botToken ? `${botToken.substring(0, 10)}...` : 'undefined',
+      botToken: tokenFingerprint(botToken),
       errorMessage: error.message
     });
     

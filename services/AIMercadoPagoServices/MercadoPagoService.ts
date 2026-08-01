@@ -3,6 +3,19 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 import logger from "../../utils/logger";
+// La validación de firma vive en un módulo propio (sin createRequire) para
+// poder testearla aislada. Se re-exporta para no romper a los consumidores.
+import {
+  verifyWebhookSignature,
+  SignatureVerdict
+} from "./mercadoPagoSignature";
+import {
+  registerPaymentEvent,
+  NotCreditableReason
+} from "../../helpers/paymentWebhookIdempotency";
+
+export { verifyWebhookSignature };
+export type { SignatureVerdict };
 
 export interface MercadoPagoConfig {
   accessToken: string;
@@ -24,6 +37,13 @@ export interface PaymentResult {
   currency: string;
   paymentMethod: string;
   payer: { email: string; name?: string };
+  /**
+   * `external_reference` del pago — la referencia `company_{companyId}_{ts}` que
+   * se puso al crear la preferencia. Es lo único que ata la notificación a una
+   * empresa, y sin empresa no hay clave de idempotencia
+   * (ver helpers/paymentWebhookIdempotency).
+   */
+  externalReference: string | null;
 }
 
 /**
@@ -129,7 +149,9 @@ const getPayment = async (paymentId: string): Promise<PaymentResult> => {
       payer: {
         email: data.payer?.email || '',
         name: data.payer?.first_name ? `${data.payer.first_name} ${data.payer.last_name || ''}`.trim() : undefined
-      }
+      },
+      externalReference:
+        data.external_reference != null ? String(data.external_reference) : null
     };
   } catch (error: any) {
     logger.error(`[MercadoPago] Error getting payment: ${error.message}`);
@@ -138,24 +160,58 @@ const getPayment = async (paymentId: string): Promise<PaymentResult> => {
 };
 
 /**
- * Process webhook notification
+ * Resultado del webhook: el pago releído de la API más el verdicto de
+ * idempotencia. `creditable` es la señal que debe mirar cualquier código que
+ * llegue a tocar saldo — hoy nadie lo hace, y por eso hay que dejarlo puesto
+ * ANTES de que alguien lo haga.
+ */
+export interface MercadoPagoWebhookOutcome {
+  payment: PaymentResult;
+  creditable: boolean;
+  reason?: NotCreditableReason;
+  companyId: number | null;
+}
+
+/**
+ * Process webhook notification.
+ *
+ * MercadoPago manda VARIAS notificaciones por el mismo pago (una por cambio de
+ * estado, más reintentos ante cualquier no-2xx), así que el dedupe va por
+ * `(pago, estado)` y no por pago: si fuese solo por pago, la notificación de
+ * `approved` —la que acredita— se descartaría por haber visto antes la de
+ * `pending`. El estado se toma del que devuelve la API, no del body.
  */
 const processWebhook = async (
   type: string,
   dataId: string
-): Promise<PaymentResult | null> => {
+): Promise<MercadoPagoWebhookOutcome | null> => {
   if (type !== 'payment') {
     logger.info(`[MercadoPago] Webhook ignored: type=${type}`);
     return null;
   }
 
   const payment = await getPayment(dataId);
+
+  const verdict = await registerPaymentEvent({
+    provider: 'mercadopago',
+    reference: payment.externalReference,
+    externalId: payment.id,
+    status: payment.status,
+    payload: { type, dataId }
+  });
+
   logger.info(
     `[MercadoPago] Webhook processed: payment=${payment.id}, status=${payment.status}, ` +
-    `amount=${payment.transactionAmount} ${payment.currency}`
+    `amount=${payment.transactionAmount} ${payment.currency}, ` +
+    `creditable=${verdict.creditable}${verdict.reason ? ` (${verdict.reason})` : ''}`
   );
 
-  return payment;
+  return {
+    payment,
+    creditable: verdict.creditable,
+    reason: verdict.reason,
+    companyId: verdict.companyId
+  };
 };
 
 /**
@@ -169,5 +225,6 @@ export default {
   createPreference,
   getPayment,
   processWebhook,
-  isConfigured
+  isConfigured,
+  verifyWebhookSignature
 };

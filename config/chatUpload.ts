@@ -9,7 +9,18 @@ import multer from "multer";
 import fs from "fs";
 import { validateFile, sanitizeFileName } from "../helpers/fileValidation";
 
-const publicFolder = path.resolve(currentDir, "..", "..", "public");
+// [Portabilidad 2026-07-30] Sobraba un `..`.
+//
+// Este fichero está a UN nivel de la raíz del repo, así que `../..` no apunta al
+// repo: apunta a su PADRE. Es un resto de cuando el código vivía bajo `src/`
+// (desde `src/config/`, `../..` sí era la raíz). Al aplanar `src/` la ruta se
+// quedó saliéndose.
+//
+// No se notaba porque el padre era /home/jcromero09, escribible: la app creaba y
+// usaba /home/jcromero09/{private,certs,logs} sin que nadie lo viera. Se destapó
+// al montar el checkout de producción en /opt/chateam, donde el padre es /opt y
+// el arranque muere con EACCES: mkdir '/opt/private'.
+const publicFolder = path.resolve(currentDir, "..", "public");
 
 export const chatUploadConfig = {
   storage: multer.diskStorage({

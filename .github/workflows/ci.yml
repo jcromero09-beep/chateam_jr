@@ -26,6 +26,11 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        # checkout@v4 clona con fetch-depth:1 por defecto → no hay histórico y
+        # `git diff <base>...HEAD` no existe. El paso de formato valida solo el
+        # diff, así que necesita el histórico.
+        fetch-depth: 0
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -36,14 +41,33 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    # ESLint y tsc recorren un grafo grande: un solo controller arrastra ~4.000
+    # ficheros de tipos (googleapis aporta 897, @redis 510, @sentry 330). Con el
+    # heap por defecto de V8 (~2 GB) los dos vuelcan core SIN emitir diagnóstico,
+    # que es indistinguible de "el step falló por un error de código". El runner
+    # ubuntu-latest tiene 16 GB: 6 GB de heap le sobran y quitan la ambigüedad.
     - name: Run ESLint
       run: npm run lint
+      env:
+        NODE_OPTIONS: --max-old-space-size=6144
 
-    - name: Check formatting
-      run: npm run format:check
+    # Solo los ficheros del diff. `format:check` sobre el árbol entero falla en
+    # 1.400 ficheros (el repo nunca se formateó) y bloqueaba este job — y con él
+    # build, integration-tests y los deploys, que dependen de `lint`. Formatear
+    # todo de golpe arrasaría el git blame; así el árbol converge según se toca.
+    # Ver scripts/format-check-diff.sh.
+    - name: Check formatting (solo el diff)
+      run: bash scripts/format-check-diff.sh
 
+    # Ver la nota de ESLint. Si aun con 6 GB muriese, la salida NO es inmediata:
+    # project references exige un grafo acíclico y hoy hay 13 imports invertidos
+    # (services->controllers x2, services->routes x1, helpers|libs|utils->services
+    # x10). Habría que romperlos antes. Medido el 2026-07-31, ver
+    # audit/PLAN-VERIFICABILIDAD.md §2.A3.
     - name: TypeScript check
       run: npm run type-check
+      env:
+        NODE_OPTIONS: --max-old-space-size=6144
 
     - name: any-ratchet (bloquea 'any' nuevo)
       run: bash scripts/any-ratchet.sh
@@ -92,8 +116,13 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    # `npm run db:migrate` ejecuta dist/scripts/runMigrations.js, y este job no hace
+    # build: el step fallaba SIEMPRE antes de llegar a los tests. El propio script lo
+    # dice en su cabecera ("npm run build && npm run db:migrate"). Se corre la fuente
+    # con tsx —ya es dependencia del proyecto— en vez de compilar todo el árbol solo
+    # para migrar. `db:migrate` se deja como está porque producción sí parte de dist.
     - name: Run database migrations
-      run: npm run db:migrate
+      run: npx tsx scripts/runMigrations.ts
       env:
         NODE_ENV: test
         DB_HOST: localhost
@@ -114,6 +143,31 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
 
+    # [Ola 2 verificabilidad] Golden-master de BD: 9 suites / 72 tests / 23 snapshots
+    # que proyectan el estado observable (contacts/tickets/messages, sin ids ni
+    # fechas) tras procesar un mensaje entrante, en los TRES canales (wbot, Meta,
+    # Messenger). Es el único gate del repo que detecta un CAMBIO DE CONDUCTA: si un
+    # snapshot se reescribe, algo cambió. Hasta ahora solo corría a mano en el NAS.
+    #
+    # Reusa el postgres y el redis de este job. tests/harness/dbEnv.cjs toma estas
+    # variables si existen y cae a los valores del NAS si no.
+    #
+    # Depende de que el step de migraciones deje el esquema completo. Ojo a una
+    # deriva conocida: chateam_test (el NAS) llegó a no tener DialogChatBots.awaiting
+    # porque el clon se hizo antes de esa migración. Aquí el esquema se construye
+    # desde database/migrations, así que no debería repetirse — si algún dbtest falla
+    # por una columna, mirar primero si su migración existe.
+    - name: Golden-master de BD (conducta)
+      run: npm run test:golden
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: chateam_test
+        DB_USER: postgres
+        DB_PASS: postgres
+        REDIS_URI: redis://localhost:6379
+
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
       with:
@@ -131,6 +185,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # ROTO desde siempre, medido 2026-07-31: `exec -T app` apunta a un servicio que
+    # docker-compose.test.yml NO define — solo declara postgres_test y redis_test.
+    # Nunca se detectó porque el job `lint` lleva bloqueando el pipeline desde antes.
+    # El arreglo es correr los tests EN EL RUNNER contra los dos contenedores (como
+    # hace el job `test`), no dentro de un contenedor de app inexistente.
+    # No se toca en esta ola: primero hay que ver el pipeline correr entero.
     - name: Start services with Docker Compose
       run: |
         docker-compose -f docker-compose.test.yml up -d

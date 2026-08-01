@@ -15,10 +15,14 @@ import Whatsapp from "../../models/Whatsapp";
 import { getWhatsAppSubscribedApps } from "../FacebookServices/graphAPI";
 import CompaniesSettings from "../../models/CompaniesSettings";
 import { getCompanyFacebookCredentials } from "../FacebookServices/getCompanyFBConfig";
+import { getMetaVerifyToken } from "../../helpers/metaVerifyToken";
 
 const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION || "v24.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "whaticket";
+// Sin default: "whaticket" es el literal público del proyecto upstream, así que
+// no autentica nada. Si falta, la suscripción falla con un mensaje claro en vez
+// de registrarse en Meta con un token que conoce cualquiera.
+const VERIFY_TOKEN = getMetaVerifyToken();
 
 // Webhook callback URL para nuestro servidor
 const WEBHOOK_CALLBACK_URL =
@@ -103,6 +107,19 @@ async function subscribeAppToWhatsAppWebhooks(
     "smb_message_echoes",
   ];
 
+  if (!VERIFY_TOKEN) {
+    const msg =
+      "VERIFY_TOKEN no está configurado: no se puede suscribir el webhook en Meta. " +
+      "Generá un valor aleatorio y configuralo en el entorno del backend.";
+    logger.error(`[MetaAppSetup] ${msg}`);
+    return {
+      configured: false,
+      callbackUrl: WEBHOOK_CALLBACK_URL,
+      fields,
+      error: msg
+    };
+  }
+
   try {
     const { data } = await axios.post(
       `${GRAPH_BASE}/${appId}/subscriptions`,
@@ -135,7 +152,7 @@ async function subscribeAppToWhatsAppWebhooks(
     let diagnostics = errMsg;
     if (errMsg.includes("unknown error")) {
       diagnostics += ` | Posible causa: Meta no pudo verificar el webhook URL (${WEBHOOK_CALLBACK_URL}). ` +
-        `Asegurate de que GET ${WEBHOOK_CALLBACK_URL}?hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=test ` +
+        `Asegurate de que GET ${WEBHOOK_CALLBACK_URL}?hub.mode=subscribe&hub.verify_token=<VERIFY_TOKEN>&hub.challenge=test ` +
         `retorne 200 con el challenge.`;
     }
     if (errCode) diagnostics += ` | code=${errCode}`;

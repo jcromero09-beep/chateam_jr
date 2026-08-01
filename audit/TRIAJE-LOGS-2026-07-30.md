@@ -1,0 +1,285 @@
+# Triaje de logs de producción — 2026-07-30
+
+Fuente: `~/.pm2/logs/chateam-node-out.log` (74 MB, ventana 17-07 → 30-07).
+
+> ⚠️ **`chateam-node-error.log` está congelado desde el 16 de julio.** El logger
+> escribe a stdout, así que los errores reales viven en `out.log` mezclados con los
+> INFO. Quien busque errores en el fichero que se llama "error" no encuentra nada y
+> concluye que no los hay.
+
+## Lo primero: el log mezcla lo vivo con lo ya arreglado
+
+~500 líneas ERROR **por día**, constante en las dos semanas. Pero un conteo sobre
+todo el fichero engaña: los tres errores más llamativos del total
+—`WHERE parameter "companyId" has invalid "undefined" value` (38),
+`column "undefined" does not exist` (87), `OFFSET NaN` (24)— **no aparecen en los
+últimos 3 días**. Están arreglados.
+
+Uno de ellos se pudo confirmar hasta el commit: el `companyId undefined` salía de
+`CampaignController.findList`, y ese código ya lleva el comentario
+`[Seguridad C-1/S]` de una sesión anterior que lo corrigió (leía `req.query` en vez
+de `req.user` — era además un IDOR).
+
+**Un triaje sin ventana temporal produce trabajo falso.** Todo lo de abajo está
+acotado a 28–30 de julio.
+
+## Inventario vivo (28–30 julio)
+
+| Nº | Patrón | Vol. | Qué es |
+|---|---|---|---|
+| 1 | `DeprecationWarning: promisify on a function that returns a Promise` | **1.088** | Ruido. Ahoga todo lo demás. |
+| 2 | Meta `(#200) Ad account owner has NOT grant ads_management` (company 9) | ~190 | Permiso no concedido. El cortocircuito existía pero su TTL empataba con el cron. **ARREGLADO abajo.** |
+| 3 | `[Watchdog] No alive nodes available for reassignment!` | 29 | Operativo. |
+| 4 | `operator does not exist: character varying = boolean` | 9 | **Bug real. ARREGLADO abajo.** |
+| 5 | `[unhandledRejection] Operation timeout` | 3 | Rechazos sin manejar. |
+| 6 | `[coex.error]` | 4 | A revisar. |
+
+## ✅ ARREGLADO — tres cron jobs caídos cada noche (nº 4)
+
+`handleCompanyExpirationAlert`, `[stats.nightly]` y `[calendar]` hacían:
+
+```ts
+Company.findAll({ where: { status: true } as any })
+```
+
+Postgres lo rechaza: `operator does not exist: character varying = boolean`. Y como
+la query lanza, **no fallaba una empresa: fallaba el job entero**. Llevaban así al
+menos las dos semanas que cubre el log.
+
+### La causa es drift entre el modelo y el esquema
+
+```
+models/Company.ts:56   @Column(DataType.BOOLEAN)  status: boolean;
+Postgres  Companies.status →  character varying
+```
+
+El call site no estaba mal: era coherente con lo que el modelo declara. **El modelo
+es el que miente.** En dos de los tres sitios había además un `as any`, que es justo
+lo que impidió que TypeScript avisara.
+
+### Y los datos tienen dos convenciones
+
+```
+status = 'true'    16 filas
+status = 'active'    1 fila
+```
+
+El arreglo acepta las dos (`Op.in`) a propósito: el objetivo era devolver la vida a
+los jobs, no decidir cuál convención es la buena. Verificado contra la BD real: el
+predicado nuevo devuelve las 17 empresas.
+
+### ⚠️ Lo que este arreglo NO cierra
+
+`company.status` sigue tipado como `boolean` en todo el código mientras la columna
+es texto. Consecuencia: **`if (company.status)` es truthy incluso si el valor fuera
+la cadena `"false"`.** Hoy no hay ninguna fila con ese valor, así que no se
+manifiesta — pero es un fallo esperando a que alguien escriba `"false"`.
+
+Arreglarlo de verdad son dos pasos que necesitan decisión: normalizar los datos a
+una sola convención, y corregir el tipo del modelo. Eso toca todo lo que lee
+`company.status`, así que es un cambio aparte.
+
+Los otros cuatro modelos con `status` (`Whatsapps`, `Tickets`, `Invoices`,
+`Campaigns`) también tienen la columna `character varying`; ahí no hubo drift
+porque el código ya los trata como texto.
+
+## ✅ De paso: fuga parcial de tokens en 5 sitios
+
+Mirando el contexto del aviso apareció esto, en cada operación de Meta:
+
+```
+[MetaMarketing] 📋 facebookSystemUserToken: SET (EAAM2fltLUkoBQzZBgki...2PZAzQZDZD)
+```
+
+**30 caracteres del token de sistema en claro** — 20 del principio y 10 del final —
+en un log de 74 MB con permisos `rwxrwxrwx` que nadie rota. El patrón
+`token.substring(0, 20) + "..."` estaba repetido en **5 ficheros** (MetaMarketing,
+Telegram, SyncDatasets, metaManualConnect, metaSend).
+
+Es tentador porque parece prudente, pero no lo es: 30 caracteres no permiten
+reconstruir el token, pero son más de lo necesario para nada. Lo que se quería
+saber en el log es "¿está puesto?" y "¿sigue siendo el mismo?", y para eso basta
+una huella no reversible: `utils/tokenFingerprint` →
+`SET (len=211, sha256:9f2a1c4b7e08)`.
+
+La longitud se conserva porque distingue un token real de uno truncado o de
+relleno, que es un fallo de configuración habitual.
+
+## Pendientes del triaje, por valor
+
+**A. ✅ HECHO — Los 1.088 DeprecationWarnings (nº 1).**
+
+No era un bug de código: era **de clasificación**. El handler por defecto de Node
+para el evento `warning` escribe con `console.error`, y `utils/consoleToLogger`
+enruta `console.error` a `logger.error` —con buen motivo, para unificar formato y
+sanitizar secretos—. Efecto no buscado: **todo aviso del runtime se contaba como
+error**, y los 9 errores reales quedaban en el 0,8 % de las líneas.
+
+`utils/processWarnings.ts` desengancha el handler por defecto, loguea a `warn` y
+**deduplica**: la primera aparición de cada `(name, code, message)` con su traza —
+que es lo único que sirve para localizar el origen— y a partir de ahí solo cuenta,
+con resumen periódico. Mismo criterio que el inventario de `tenantScope` y el
+contador de `tokenAuth`.
+
+Nota: **no se localizó el `promisify` culpable.** No salta al importar el grafo de
+Meta, solo en llamada, así que está en una dependencia y hace falta una llamada
+real a Meta con `--trace-deprecation` para pinpointearlo. Da igual para el problema
+de señal —el aviso ahora sale una vez con su traza—, pero queda sin cerrar.
+
+**B. ✅ HECHO — El bucle de reintentos de Meta (nº 2). El cortocircuito existía y
+no ahorraba ni una llamada.**
+
+Lo primero que apareció al mirar: **ya había un circuit breaker**
+(`disableMetaCalls` / `META_DISABLED_TTL`), bien pensado y bien comentado. La
+pregunta no era "hay que añadir backoff" sino "por qué el que hay no frena nada".
+
+### El fallo: dos periodos idénticos
+
+```
+META_DISABLED_TTL                = 60 * 60          // exactamente 1 h
+handleImportInsightsDaily        = '0 * * * *'      // exactamente cada hora
+```
+
+El bloqueo expiraba justo cuando el cron volvía a disparar. **Cada ejecución del
+cron encontraba el cortocircuito recién caducado**, reintentaba, fallaba y lo
+reabría. El log lo confirma con precisión: un intento por hora, en punto, sin
+excepción.
+
+Un cortocircuito impecable que salvaba exactamente cero llamadas. No hay error en
+su lógica: el error es haber acoplado su TTL al periodo de un cron.
+
+### El arreglo: que el bloqueo crezca
+
+1 h → 2 → 4 → 8 → 16 → 24 (techo). Así **ningún periodo de cron puede volver a
+empatar con él**, que es la propiedad que faltaba — ajustar los números para que
+no coincidieran habría dejado la misma trampa para el día que alguien cambie la
+cadencia del cron.
+
+Efecto medido: de **24 intentos al día a 5**.
+
+Dos detalles que hacen que funcione de verdad:
+
+- El contador de fallos vive en su **propia clave, con TTL más largo que el
+  bloqueo**. Si caducaran a la vez, volvería a 0 en cada ciclo y el backoff nunca
+  crecería — el mismo bug de acoplamiento escrito de otra forma.
+- `clearMetaDisabled` (que ya llamaba `testConnection`) **borra también el
+  contador**. Arreglar la cuenta la reactiva al instante: nadie espera 24 h por
+  fallos ya resueltos. El backoff mide fallos *consecutivos*, y una recuperación
+  rompe la racha por definición.
+
+### Sobre conceder el permiso de company 9
+
+Resuelve el síntoma de esa empresa; no toca el defecto. Cualquier otra cuenta con
+el token caducado o el permiso revocado caía en el mismo bucle. Por eso el arreglo
+va en la clase, no en el caso.
+
+**C. ✅ HECHO — `[unhandledRejection]` (nº 5), y la hipótesis era FALSA.**
+
+Los tenía por candidatos a explicar los 174 reinicios. **No lo son**, y de paso
+queda contestado el O2 del plan.
+
+### Los 174 reinicios no son inestabilidad
+
+Contado sobre el log entero:
+
+| | |
+|---|---|
+| arranques | 179 |
+| paradas limpias (`Graceful shutdown`) previas | **128** |
+| `uncaughtException` | **0** |
+| OOM / `FATAL ERROR` | **0** |
+
+72 % de los arranques van precedidos de una parada limpia, y **no hay un solo
+crash por excepción ni por memoria**. La distribución por día lo remata:
+
+```
+20-07  1     26-07  10
+22-07  1     27-07  15
+23-07  1     28-07   8
+24-07  1     29-07   1
+```
+
+Un reinicio al día en los días tranquilos; 8–15 en el 26, 27 y 28 — exactamente
+los días de trabajo intensivo sobre este repo.
+
+**Los reinicios no son un problema de estabilidad: son O1 manifestándose.** Como
+el árbol de desarrollo ES producción, cada cambio de código necesita un `pm2
+restart` para tomar efecto. Y cada reinicio tira las sesiones de Baileys — en el
+log se ve el coste inmediato: `Socket Romero Disconnected: Connection Failure`,
+`ERR_WAPP_RECONNECT_SCHEDULED`, conexiones que quedan en `qrcode`.
+
+Arreglar O1 (checkout de producción separado) elimina esta clase de reinicio.
+Perseguir "inestabilidad" no habría llevado a ningún sitio.
+
+### Los 38 rechazos sí eran un bug, y estaba en un solo sitio
+
+```
+32 × ERR_NO_USER_FOUND
+ 5 × Operation timeout
+ 1 × Connection Closed
+```
+
+Todos salen de `middleware/isAuth.ts:93`: `updateUser(userId, companyId)` llamado
+**fire-and-forget sin `.catch()`**. Disparar y olvidar está bien —marcar "online"
+no debe bloquear la request—, pero una promesa que se rechaza y nadie escucha es
+un `unhandledRejection`.
+
+`ShowUserService` filtra por `{ id, companyId }`, así que durante una
+impersonación —donde el userId puede no pertenecer a esa empresa— lanza
+`ERR_NO_USER_FOUND`; y bajo carga expira.
+
+Los tapaba la red de `process.on("unhandledRejection")` de
+`server-distributed.ts`, que existe precisamente para que esto no reinicie el
+backend. Pero **una red de seguridad no es el sitio donde manejar un error
+conocido.** Con el `.catch()` puesto, la red vuelve a ser lo que debe ser: la
+última línea, no la primera.
+
+Detalle que confirma que era un olvido y no una decisión: la llamada de la línea
+siguiente, `touchSessionLastSeen`, **sí** tiene su `.catch()`.
+
+**D. ✅ HECHO — `[Watchdog] No alive nodes available` (nº 3), y era peor de lo que
+parecía.**
+
+No era "no ve a sus pares". Sobre el log entero:
+
+```
+149 ×  Node node-1 is DEAD. Reassigning 19..22 sessions...
+ 29 ×  No alive nodes available for reassignment!
+```
+
+**El watchdog corre DENTRO de node-1 y se estaba declarando muerto a sí mismo.**
+Acto seguido intentaba reasignar sus propias 19–22 sesiones de WhatsApp vivas, y
+abortaba porque la lista de nodos vivos estaba vacía. Cada 30 s mientras durase.
+
+### Por qué era ruido hoy y una bomba mañana
+
+Con un solo nodo, la reasignación aborta por falta de destino: molesto, inofensivo.
+**Con un node-2 presente deja de abortar**: una clave de heartbeat ausente un
+instante haría que node-1 entregase sus conversaciones en curso al otro nodo,
+tirando sesiones que funcionaban. Se arregla ahora, no cuando duela.
+
+### El arreglo
+
+El proceso que ejecuta el watchdog **está vivo por definición** — lo demuestra el
+hecho de estar ejecutando ese código. Ahora se excluye a sí mismo del chequeo, y
+si su propia clave falta lo reporta como lo que es: **un fallo del heartbeat**, no
+un nodo caído. Un nodo ajeno caído se sigue reasignando igual (hay test).
+
+### Lo que NO está confirmado: por qué desaparece la clave
+
+Descartado que sea carrera de arranque: los incidentes ocurren **horas** después
+del `[Heartbeat] Started` (13:59, 18:05, 18:24, 23:20…). Y el heartbeat **no
+registró ni un solo error** en todo el log.
+
+Escribe cada 10 s con TTL 30 s, así que hay 3× de margen. Quedan dos hipótesis, las
+dos silenciosas:
+
+1. **Event loop bloqueado más de 30 s.** El `setInterval` no dispara, la clave
+   expira y el heartbeat ni se entera. Plausible en un NAS de 4 núcleos que ya se
+   satura.
+2. **Desalojo de la clave por política de memoria de Redis.**
+
+Distinguirlas necesita acceso al Redis de producción (`maxmemory-policy`,
+`evicted_keys`), que no tengo desde aquí. El log nuevo del arreglo hace la
+distinción trivial la próxima vez que ocurra: dirá explícitamente que el proceso
+está vivo y que la clave falta.

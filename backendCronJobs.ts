@@ -10,7 +10,7 @@
 
 import * as Sentry from "@sentry/node";
 import moment from "moment";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import lodash from "lodash";
 const { isNil } = lodash;
 
@@ -497,6 +497,50 @@ function handleInvoiceCreate() {
 // Idempotente: usa Companies.expirationWarningSentAt y .expirationNotifiedAt
 // para evitar reenvíos. Se resetean cuando dueDate se renueva.
 // ============================================================
+/**
+ * `where` para "empresas activas" — SIN comparar contra un booleano.
+ *
+ * ## El bug que arregla (encontrado en el triaje de logs, 2026-07-30)
+ *
+ * Tres cron jobs hacían `Company.findAll({ where: { status: true } })` y los tres
+ * llevaban fallando **cada noche** con:
+ *
+ *     operator does not exist: character varying = boolean
+ *
+ * Causa: **drift entre el modelo y el esquema.** `models/Company.ts` declara
+ * `@Column(DataType.BOOLEAN) status: boolean`, pero la columna real en Postgres es
+ * `character varying`. Sequelize generaba `WHERE "status" = true` y Postgres lo
+ * rechaza — la query entera lanza, así que el job no procesaba NADA. No era una
+ * empresa que fallaba: era el job completo caído.
+ *
+ * En dos de los tres sitios había un `as any` que es justo lo que impidió que
+ * TypeScript avisara.
+ *
+ * ## Por qué dos valores
+ *
+ * En producción la columna tenía `'true'` (16 filas) y `'active'` (1): dos
+ * convenciones conviviendo. Se aceptan las dos.
+ *
+ * ## Por qué compara sobre un CAST y no directamente
+ *
+ * `CAST(status AS text) IN ('true','active')` funciona con la columna en TEXTO y
+ * también con la columna ya migrada a BOOLEAN (donde el cast devuelve
+ * `'true'`/`'false'`).
+ *
+ * Eso quita una trampa de orden real: la migración
+ * `20260730000001-companies-status-to-boolean` se aplica a mano por SQL y el
+ * despliegue es un `pm2 restart` aparte. Con un predicado que solo valiera para
+ * una de las dos formas, hacerlo en el orden equivocado volvería a tumbar los
+ * tres cron — y el que lo hiciera no tendría por qué saberlo.
+ *
+ * Cuando la migración esté aplicada y verificada, esto puede simplificarse a
+ * `{ status: true }`.
+ */
+const WHERE_COMPANY_ACTIVE = Sequelize.where(
+  Sequelize.cast(Sequelize.col("status"), "text"),
+  { [Op.in]: ["true", "active"] }
+) as any;
+
 function handleCompanyExpirationAlert() {
   cron.schedule('0 9 * * *', async () => {
     try {
@@ -505,7 +549,7 @@ function handleCompanyExpirationAlert() {
       ).default;
 
       const companies = await Company.findAll({
-        where: { status: true }
+        where: WHERE_COMPANY_ACTIVE
       });
 
       const today = moment().startOf('day');
@@ -992,7 +1036,7 @@ function handleMonthlyCalendar(): void {
     try {
       const { getOrCreatePackage, currentPeriod } = await import("./services/CampaignApprovalService");
       const CampaignApproval = (await import("./models/CampaignApproval")).default;
-      const companies = await Company.findAll({ where: { status: true } as any });
+      const companies = await Company.findAll({ where: WHERE_COMPANY_ACTIVE });
       for (const c of companies) {
         try {
           if (day === 20) {
@@ -1020,7 +1064,7 @@ function handleStatsNightly(): void {
     logger.info("📊 [stats.nightly] Iniciando motor estadístico...");
     try {
       const { runStatsForCompany } = await import("./services/StatsRecommendationService");
-      const companies = await Company.findAll({ where: { status: true } as any });
+      const companies = await Company.findAll({ where: WHERE_COMPANY_ACTIVE });
       let total = 0;
       for (const c of companies) {
         try {

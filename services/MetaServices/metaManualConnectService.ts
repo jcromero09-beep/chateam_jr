@@ -15,6 +15,7 @@ import axios from "axios";
 import Whatsapp from "../../models/Whatsapp";
 import { getIO } from "../../libs/socket";
 import logger from "../../utils/logger";
+import { tokenFingerprint } from "../../utils/tokenFingerprint";
 
 const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION || "v24.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -122,7 +123,7 @@ export async function requestVerificationCode(
   logger.info(`[RequestCode] ===== INICIO request_code =====`);
   logger.info(`[RequestCode] phoneNumberId: ${phoneNumberId}`);
   logger.info(`[RequestCode] method: ${method} | language: ${language}`);
-  logger.info(`[RequestCode] tokenMeta (20 chars): ${accessToken?.substring(0, 20)}...`);
+  logger.info(`[RequestCode] tokenMeta: ${tokenFingerprint(accessToken)}`);
   logger.info(`[RequestCode] URL: ${GRAPH_BASE}/${phoneNumberId}/request_code`);
 
   try {

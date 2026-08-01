@@ -18,12 +18,14 @@ import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
+import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
+import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
+import { resolveFlowTrigger } from "../WebhookService/ResolveFlowTriggerService";
+import { resolveQueueMenu } from "../TicketServices/ResolveQueueMenuService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import { getProfile, profilePsid, sendText } from "./graphAPI";
 import Whatsapp from "../../models/Whatsapp";
-import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import { debounce } from "../../helpers/Debounce";
-import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import formatBody from "../../helpers/Mustache";
 import Queue from "../../models/Queue";
 import Chatbot from "../../models/Chatbot";
@@ -31,7 +33,7 @@ import Message from "../../models/Message";
 import { sayChatbot } from "../WbotServices/ChatbotListenerFacebook";
 import ListSettingsService from "../SettingServices/ListSettingsService";
 import lodash from "lodash";
-const { isNil, isNull, head } = lodash;
+const { isNil, isNull } = lodash;
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
 import { handleMessageIntegration, handleRating, verifyRating } from "../WbotServices/wbotMessageListener";
 import CompaniesSettings from "../../models/CompaniesSettings";
@@ -44,7 +46,6 @@ import { ActionsWebhookService } from "../WebhookService/ActionsWebhookService";
 import { FlowBuilderModel } from "../../models/FlowBuilder";
 import { FlowDefaultModel } from "../../models/FlowDefault";
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
-import { FlowCampaignModel } from "../../models/FlowCampaign";
 import { differenceInMilliseconds } from "date-fns";
 import { ActionsWebhookFacebookService } from "./WebhookFacebookServices/ActionsWebhookFacebookService";
 import { get } from "http";
@@ -137,6 +138,11 @@ export const  verifyMessageFace = async (
     fromMe: fromMe ? fromMe : msg.is_echo ? true : false,
     read: fromMe ? fromMe : msg.is_echo,
     quotedMsgId: quotedMsg?.id,
+    // [2026-07-31, decisión de JC] Alineado con los otros dos canales: los textos
+    // llevan mediaType. Aquí no había un filtro que los descartara como en Meta
+    // (OpenaiServicesF&G no filtra por este campo), así que es coherencia, no un
+    // arreglo — pero deja el canal listo si alguien reusa el filtro de la IA.
+    mediaType: "text",
     ack: 3,
     dataJson: JSON.stringify(msg),
     channel: ticket.channel
@@ -199,23 +205,19 @@ export const verifyMessageMedia = async (
   });
 };
 
+// [Ola 3] La resolución por wid es común a los tres canales y vive en
+// ../MessageServices/FindQuotedMessageService. Aquí queda solo lo propio de
+// Messenger/Instagram: de dónde se saca el id del citado.
 export const verifyQuotedMessage = async (msg: any): Promise<Message | null> => {
   if (!msg) return null;
-  const quoted = msg?.reply_to?.mid;
-
-  if (!quoted) return null;
-
-  const quotedMsg = await Message.findOne({
-    where: { wid: quoted }
-  });
-
-  if (!quotedMsg) return null;
-
-  return quotedMsg;
+  return findQuotedByWid(msg?.reply_to?.mid);
 };
 
 
-const flowBuilderQueue = async (
+// Exportada para poder probar la guarda por `ticket.status` sin tener que montar
+// todo el camino del listener (que exige isMenu y un body numérico). Ver
+// tests/harness/facebookFlowBuilderQueue.dbtest.ts.
+export const flowBuilderQueue = async (
   ticket: Ticket,
   message: any,
   getSession: Whatsapp,
@@ -224,23 +226,24 @@ const flowBuilderQueue = async (
   isFirstMsg: Ticket,
 ) => {
 
-  const flow = await FlowBuilderModel.findOne({
-    where: {
-      id: ticket.flowStopped,
-    }
+  // [Ola 3 · conducta alineada 2026-07-31, decisión de JC] Este canal era el único
+  // que NO filtraba por `active` (reanudaba flows desactivados) y el único sin la
+  // guarda por estado del ticket. Ahora se comporta como wbot y meta.
+  if (["closed", "interrupted", "open"].includes(ticket.status)) {
+    return;
+  }
+
+  // `onMissing: "null"` en vez de "throw": si el flow no existe o está inactivo se
+  // sale en silencio, como hacía meta. Antes reventaba con TypeError al leer
+  // `flow.flow["nodes"]`. Ver ../WebhookService/ResolveStoppedFlowService.
+  const ctx = await resolveStoppedFlow(ticket, contact, {
+    requireActive: true,
+    onMissing: "null"
   });
-
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-
-
-
-  const nodes: INodes[] = flow.flow["nodes"]
-  const connections: IConnections[] = flow.flow["connections"]
+  if (!ctx) {
+    return;
+  }
+  const { nodes, connections, contactData: mountDataContact } = ctx;
 
   if (!ticket.lastFlowId) {
     return
@@ -281,89 +284,30 @@ const flowbuilderIntegration = async (
   contact: Contact,
   message: any,
 ) => {
-
   await ticket.update({ lastMessage: message.text });
 
-  const normalizeText = (text: string): string => {
-    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-  };
+  // [Ola 3] Las cuatro prioridades del FlowBuilder son comunes a este canal y a
+  // Meta — eran copia literal la una de la otra. La decisión de QUÉ flow disparar
+  // vive en ../WebhookService/ResolveFlowTriggerService; aquí solo queda la
+  // ejecución, que sí es del canal.
+  const trigger = await resolveFlowTrigger(ticket, getSession, contact, message.text, isFirstMsg);
+  if (!trigger) return;
 
-  const messageNormalized = normalizeText(message.text || "");
-  const isInFlow = !!ticket?.flowWebhook;
-
-  const mountDataContact = {
-    number: contact.number,
-    name: contact.name,
-    email: contact.email
-  };
-
-  // ─── PRIORIDAD 1: PALABRA CLAVE (FlowCampaign) ───
-  const listPhrase = await FlowCampaignModel.findAll({
-    where: { whatsappId: getSession.id }
-  });
-
-  const flowDispar = listPhrase.find(item =>
-    messageNormalized.includes(normalizeText(item.phrase))
+  console.log(`[FlowBuilder-FB] Prioridad ${trigger.prioridad}: ${trigger.motivo}`);
+  await ActionsWebhookFacebookService(
+    getSession,
+    trigger.flowId,
+    ticket.companyId,
+    trigger.nodes,
+    trigger.connections,
+    trigger.startNodeId,
+    null,
+    "",
+    "",
+    trigger.bodyArg,
+    ticket.id,
+    trigger.contactData
   );
-
-  if (flowDispar) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: flowDispar.flowId, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 1: Palabra clave →", flowDispar.phrase);
-      await ActionsWebhookFacebookService(
-        getSession, flowDispar.flowId, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 2: CONTINUACIÓN DE FLUJO ACTIVO ───
-  if (isInFlow && ticket.flowStopped && ticket.lastFlowId) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: ticket.flowStopped, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 2: Continuación flujo activo");
-      await ActionsWebhookFacebookService(
-        getSession, parseInt(ticket.flowStopped), ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        String(ticket.lastFlowId),
-        null, "", "", message.text, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 3: CONTACTO NUEVO → flowIdWelcome ───
-  if (isFirstMsg && getSession.flowIdWelcome) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdWelcome, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 3: Contacto con ticket previo → flowIdWelcome");
-      await ActionsWebhookFacebookService(
-        getSession, getSession.flowIdWelcome, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
-
-  // ─── PRIORIDAD 4: CONTACTO EXISTENTE → flowIdNotPhrase ───
-  if (!isFirstMsg && getSession.flowIdNotPhrase) {
-    const flow = await FlowBuilderModel.findOne({ where: { id: getSession.flowIdNotPhrase, active: true } });
-    if (flow) {
-      console.log("[FlowBuilder-FB] Prioridad 4: Contacto NUEVO → flowIdNotPhrase");
-      await ActionsWebhookFacebookService(
-        getSession, getSession.flowIdNotPhrase, ticket.companyId,
-        flow.flow["nodes"], flow.flow["connections"],
-        flow.flow["nodes"][0].id,
-        null, "", "", null, ticket.id, mountDataContact
-      );
-    }
-    return; // ← SALIR
-  }
 }
 
 export const handleMessage = async (
@@ -1230,130 +1174,18 @@ const verifyQueue = async (
   ticket: Ticket,
   contact: Contact
 ) => {
-  // //console.log("VERIFYING QUEUE", ticket.whatsappId, getSession.id)
-  const { queues, greetingMessage } = await ShowWhatsAppService(getSession.id!, ticket.companyId);
+  // [Ola 3] La decisión —asignar directo, aceptar la opción elegida o presentar el
+  // menú— es común a este canal y a Meta y vive en
+  // ../TicketServices/ResolveQueueMenuService. Aquí queda el envío por Messenger.
+  //
+  // OJO a una diferencia que se conserva: Meta pasa el texto por formatBody(); este
+  // canal nunca lo hizo, así que las plantillas Mustache no se sustituyen aquí. Está
+  // a la vista a propósito en vez de escondido dentro del servicio.
+  const resultado = await resolveQueueMenu(getSession, ticket, contact, msg.text);
+  if (!resultado) return;
 
-
-
-  if (queues.length === 1) {
-    const firstQueue = head(queues);
-    let chatbot = false;
-    if (firstQueue?.chatbots) {
-      chatbot = firstQueue?.chatbots?.length > 0;
-    }
-    await UpdateTicketService({
-      ticketData: { queueId: queues[0].id, isBot: chatbot },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-
-    return;
-  }
-
-  let selectedOption = "";
-
-  if (ticket.status !== "lgpd") {
-    selectedOption = msg.text;
-  } else {
-    if (!isNil(ticket.lgpdAcceptedAt))
-      await ticket.update({
-        status: "pending"
-      });
-
-    await ticket.reload();
-  }
-
-  const choosenQueue = queues[+selectedOption - 1];
-
-  if (choosenQueue) {
-
-    await UpdateTicketService({
-      ticketData: { queueId: choosenQueue.id },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-
-
-    if (choosenQueue.chatbots.length > 0) {
-      let options = "";
-      choosenQueue.chatbots.forEach((chatbot, index) => {
-        options += `[${index + 1}] - ${chatbot.name}\n`;
-      });
-
-      const body =
-        `${choosenQueue.greetingMessage}\n\n${options}\n[#] Voltar para o menu principal`;
-
-      const sentMessage = await sendFacebookMessage({
-        ticket,
-        body: body
-      })
-
-      // const debouncedSentChatbot = debounce(
-      //   async () => {
-      //     await sendText(
-      //   contact.number,
-      //   formatBody(body, ticket),
-      //   ticket.whatsapp.facebookUserToken
-      // );
-      //   },
-      //   3000,
-      //   ticket.id
-      // );
-      // debouncedSentChatbot();
-
-      // return await verifyMessage(msg, body, ticket, contact);
-    }
-
-    if (!choosenQueue.chatbots.length) {
-      const body = `${choosenQueue.greetingMessage}`;
-
-      const sentMessage = await sendFacebookMessage({
-        ticket,
-        body: body
-      })
-      // const debouncedSentChatbot = debounce(
-      //   async () => { await sendText(
-      //   contact.number,
-      //   formatBody(body, ticket),
-      //   ticket.whatsapp.facebookUserToken
-      // );
-
-      //   },
-      //   3000,
-      //   ticket.id
-      // );
-      // debouncedSentChatbot();
-      // return await verifyMessage(msg, body, ticket, contact);
-    }
-  } else {
-    let options = "";
-
-    queues.forEach((queue, index) => {
-      options += `[${index + 1}] - ${queue.name}\n`;
-    });
-
-    const body = `${greetingMessage}\n\n${options}`;
-
-    const sentMessage = await sendFacebookMessage({
-      ticket,
-      body: body
-    })
-    // const debouncedSentChatbot = debounce(
-    //   async () => { await 
-    //     sendText(
-    //       contact.number,
-    //       formatBody(body, ticket),
-    //       ticket.whatsapp.facebookUserToken
-    //     );
-    //   },
-    //   3000,
-    //   ticket.id
-    // );
-    // debouncedSentChatbot();
-
-    // return verifyMessage(msg, body, ticket, contact);
-
-
-
-  }
+  await sendFacebookMessage({
+    ticket,
+    body: resultado.texto
+  });
 };

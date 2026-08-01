@@ -3,6 +3,20 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 import logger from "../../utils/logger";
+// Autenticación del callback (token en la URL). Módulo aparte para poder
+// testearlo sin arrastrar el cliente HTTP de este servicio.
+import {
+  verifyCallbackToken,
+  withCallbackToken,
+  CallbackVerdict
+} from "./coingateCallbackToken";
+import {
+  registerPaymentEvent,
+  NotCreditableReason
+} from "../../helpers/paymentWebhookIdempotency";
+
+export { verifyCallbackToken };
+export type { CallbackVerdict };
 
 export interface CoingatOrder {
   id: string;
@@ -23,6 +37,12 @@ export interface CoingatePaymentResult {
   payAmount: number;
   payCurrency: string;
   createdAt: string;
+  /**
+   * `order_id` de la orden — la referencia `chateam_{companyId}_{ts}` que se puso
+   * al crearla. Es lo único que ata el callback a una empresa, y sin empresa no
+   * hay clave de idempotencia (ver helpers/paymentWebhookIdempotency).
+   */
+  orderReference: string | null;
 }
 
 /**
@@ -62,7 +82,9 @@ const createOrder = async (
         receive_currency: options.receiveCurrency || 'USD',
         title: options.title,
         description: options.description || options.title,
-        callback_url: options.callbackUrl || `${process.env.BACKEND_URL}/api/ai/coingate/webhook`,
+        callback_url: withCallbackToken(
+          options.callbackUrl || `${process.env.BACKEND_URL}/api/ai/coingate/webhook`
+        ),
         success_url: options.successUrl || `${process.env.FRONTEND_URL}/payment/success`,
         cancel_url: options.cancelUrl || `${process.env.FRONTEND_URL}/payment/cancel`
       },
@@ -119,7 +141,8 @@ const getOrder = async (orderId: string): Promise<CoingatePaymentResult> => {
       priceCurrency: data.price_currency,
       payAmount: data.pay_amount,
       payCurrency: data.pay_currency,
-      createdAt: data.created_at
+      createdAt: data.created_at,
+      orderReference: data.order_id != null ? String(data.order_id) : null
     };
   } catch (error: any) {
     logger.error(`[Coingate] Error getting order ${orderId}: ${error.message}`);
@@ -128,26 +151,69 @@ const getOrder = async (orderId: string): Promise<CoingatePaymentResult> => {
 };
 
 /**
- * Process webhook callback from Coingate
+ * Resultado del callback: la orden releída de la API más el verdicto de
+ * idempotencia. `creditable` es la señal que debe mirar cualquier código que
+ * llegue a tocar saldo — hoy nadie lo hace, y por eso hay que dejarlo puesto
+ * ANTES de que alguien lo haga.
  */
-const processWebhook = async (payload: Record<string, any>): Promise<CoingatePaymentResult | null> => {
-  const { id, status, price_amount, price_currency, pay_amount, pay_currency, created_at } = payload;
+export interface CoingateWebhookOutcome {
+  order: CoingatePaymentResult;
+  creditable: boolean;
+  reason?: NotCreditableReason;
+  companyId: number | null;
+}
+
+/**
+ * Procesa el callback de CoinGate.
+ *
+ * Del body solo se usa el `id` de la orden: todo lo demás (estado, importe,
+ * divisa) se relee de la API de CoinGate. Antes se devolvía el body tal cual,
+ * de modo que quien conociera la URL podía declarar `status: 'paid'` con el
+ * importe que quisiera.
+ *
+ * El dedupe va por `(orden, estado)` con el estado de la API, no el del body:
+ * si fuese el del body, bastaría con inventarse un estado para saltárselo.
+ */
+const processWebhook = async (
+  payload: Record<string, any>
+): Promise<CoingateWebhookOutcome | null> => {
+  const { id } = payload;
 
   if (!id) {
     logger.warn('[Coingate] Webhook received without order ID');
     return null;
   }
 
-  logger.info(`[Coingate] Webhook: order=${id}, status=${status}, amount=${price_amount} ${price_currency}`);
+  // Fuente de verdad: la API, no el remitente del callback.
+  const order = await getOrder(String(id));
+
+  const claimedStatus = payload.status;
+  if (claimedStatus && claimedStatus !== order.status) {
+    logger.warn(
+      `[Coingate] El callback declaraba status='${claimedStatus}' pero la API dice '${order.status}' ` +
+        `(order=${order.id}) — prevalece la API`
+    );
+  }
+
+  const verdict = await registerPaymentEvent({
+    provider: 'coingate',
+    reference: order.orderReference,
+    externalId: order.id,
+    status: order.status,
+    payload
+  });
+
+  logger.info(
+    `[Coingate] Webhook: order=${order.id}, status=${order.status}, ` +
+      `amount=${order.priceAmount} ${order.priceCurrency} (verificado contra la API), ` +
+      `creditable=${verdict.creditable}${verdict.reason ? ` (${verdict.reason})` : ''}`
+  );
 
   return {
-    id: String(id),
-    status,
-    priceAmount: parseFloat(price_amount),
-    priceCurrency: price_currency,
-    payAmount: parseFloat(pay_amount || '0'),
-    payCurrency: pay_currency || '',
-    createdAt: created_at || new Date().toISOString()
+    order,
+    creditable: verdict.creditable,
+    reason: verdict.reason,
+    companyId: verdict.companyId
   };
 };
 
@@ -186,5 +252,6 @@ export default {
   getOrder,
   processWebhook,
   getSupportedCurrencies,
-  isConfigured
+  isConfigured,
+  verifyCallbackToken
 };
