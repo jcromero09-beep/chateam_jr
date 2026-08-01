@@ -1586,7 +1586,9 @@ async function botButton(ctx: VerifyQueueCtx) {
               if (newMsg) {
                 await wbot.upsertMessage(newMsg, "notify");
               }
-            } catch (error) { /* se ignora a propósito: el envío es best-effort */ }
+            } catch (error) {
+              /* se ignora a propósito: el envío es best-effort */
+            }
           },
           1000,
           ticket.id,
@@ -1664,7 +1666,9 @@ async function botButton(ctx: VerifyQueueCtx) {
             if (newMsg) {
               await wbot.upsertMessage(newMsg, "notify");
             }
-          } catch (error) { /* se ignora a propósito: el envío es best-effort */ }
+          } catch (error) {
+            /* se ignora a propósito: el envío es best-effort */
+          }
         },
         1000,
         ticket.id,

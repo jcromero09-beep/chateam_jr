@@ -166,7 +166,14 @@ export async function downloadImageFromURL({
     });
 
     // Validar que sea una imagen
-    const contentType = response.headers['content-type'];
+    // [2026-08-01] axios ya no tipa los headers como string: desde el bump de
+    // seguridad son `string | number | true | string[] | AxiosHeaders`. Se
+    // normaliza a texto en vez de castear, que además cubre el caso real de que
+    // el servidor mande el header repetido y llegue como array.
+    const rawContentType = response.headers["content-type"];
+    const contentType = Array.isArray(rawContentType)
+      ? String(rawContentType[0] ?? "")
+      : String(rawContentType ?? "");
     if (!contentType || !contentType.startsWith('image/')) {
       throw new AppError("La URL no apunta a una imagen válida", 400);
     }
