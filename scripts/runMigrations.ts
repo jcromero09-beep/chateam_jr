@@ -11,6 +11,17 @@ import "dotenv/config";
 import path from "path";
 import fs from "fs";
 import { Sequelize } from "sequelize";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// [2026-08-01] El proyecto es ESM ("module": "ES2022" en tsconfig), y en ESM
+// `__dirname` NO EXISTE. Este script lo usaba, así que reventaba con
+// `ReferenceError: __dirname is not defined in ES module scope` — tanto con tsx
+// sobre la fuente como con `node dist/scripts/runMigrations.js`, porque el
+// compilado también es ESM. O sea: `npm run db:migrate` no funcionaba por ningún
+// camino. Se vio al ejecutarlo por primera vez en CI.
+//
+// Mismo patrón que usa el resto del repo para reemplazarlo.
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 const DB_HOST = process.env.DB_HOST || "localhost";
 const DB_PORT = Number(process.env.DB_PORT || 5432);
@@ -23,10 +34,10 @@ const DB_PASS = process.env.DB_PASS || "";
 //
 // Detección robusta: si el script vive dentro de /dist/, ya está compilado y
 // busca migraciones JS hermanas. Si vive en /scripts/ source, usa source migrations.
-const isRunningFromDist = __dirname.includes(`${path.sep}dist${path.sep}`);
+const isRunningFromDist = currentDir.includes(`${path.sep}dist${path.sep}`);
 const PROJECT_ROOT = isRunningFromDist
-  ? path.resolve(__dirname, "..", "..") // dist/scripts → project root
-  : path.resolve(__dirname, "..");      // scripts → project root
+  ? path.resolve(currentDir, "..", "..") // dist/scripts → project root
+  : path.resolve(currentDir, "..");      // scripts → project root
 
 const COMPILED_DIR = path.join(PROJECT_ROOT, "dist", "database", "migrations");
 const SOURCE_DIR = path.join(PROJECT_ROOT, "database", "migrations");
@@ -89,8 +100,13 @@ const main = async () => {
     const fullPath = path.join(MIGRATIONS_DIR, file);
     console.log(`\n▶️  Aplicando: ${file}`);
     try {
-      const mod = require(fullPath);
-      const migration = mod.default || mod;
+      // [2026-08-01] Era `require(fullPath)`, que en ESM tampoco existe (mismo
+      // motivo que el __dirname de arriba): fallaba con "require is not defined" en
+      // la primera migración. Con `import()` dinámico funcionan las dos formas — las
+      // migraciones de este repo usan `module.exports`, que el interop deja en
+      // `.default`, y las que usen `export default` caen en el mismo sitio.
+      const mod: any = await import(pathToFileURL(fullPath).href);
+      const migration = mod.default?.default || mod.default || mod;
       if (typeof migration.up !== "function") {
         throw new Error(`La migración ${file} no exporta función up()`);
       }

@@ -159,13 +159,21 @@ module.exports = {
 
     // Insertar tenant por defecto si no existe
     await queryInterface.sequelize.query(`
-      INSERT INTO tenants (name, subdomain, schema_name, status, settings)
+      -- [2026-08-01] created_at/updated_at son NOT NULL y su \`defaultValue:
+      -- DataTypes.NOW\` es un default de APLICACIÓN: Sequelize lo rellena al crear
+      -- vía modelo, pero este INSERT es SQL crudo y no pasa por ahí. La migración
+      -- moría con "null value in column created_at violates not-null constraint".
+      -- Se vio al levantar una BD desde cero por primera vez (nadie lo había hecho:
+      -- el runner de migraciones estaba roto).
+      INSERT INTO tenants (name, subdomain, schema_name, status, settings, created_at, updated_at)
       VALUES (
         'Default Company',
         'default',
         'tenant_default',
         'active',
-        '{"permissions": ["*"], "limits": {"users": 100, "storage": "10GB", "campaigns": 50}}'
+        '{"permissions": ["*"], "limits": {"users": 100, "storage": "10GB", "campaigns": 50}}',
+        NOW(),
+        NOW()
       )
       ON CONFLICT (subdomain) DO NOTHING;
     `);
