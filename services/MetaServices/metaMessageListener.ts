@@ -23,14 +23,13 @@ import ApiUsages from "../../models/ApiUsages";
 import { useDate } from "../../utils/useDate";
 // Si tu Webhook Meta está en otra ruta, ajusta este import:
 import { ActionsWebhookMetaService } from "../WebhookService/ActionsWebhookMetaService";
-import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import CreateMessageService from "../MessageServices/CreateMessageService";
 import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
 import { resolveFlowTrigger } from "../WebhookService/ResolveFlowTriggerService";
-import UpdateTicketService from "../TicketServices/UpdateTicketService";
+import { resolveQueueMenu } from "../TicketServices/ResolveQueueMenuService";
 import ShowQueueIntegrationService from "../QueueIntegrationServices/ShowQueueIntegrationService";
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
 
@@ -49,7 +48,7 @@ import {
 import { getIO } from "../../libs/socket";
 import formatBody from "../../helpers/Mustache";
 import lodash from "lodash";
-const { head, isNil, isNull } = lodash;
+const { isNil } = lodash;
 import { logInfo, logError, logWarn } from "../../config/logger";
 import { normalizeSupervisorAIText } from "../AIAgentServices/AIInputGuardService";
 
@@ -674,68 +673,17 @@ const verifyQueue = async (
   ticket: Ticket,
   contact: Contact
 ) => {
-  const { queues, greetingMessage } = await ShowWhatsAppService(
-    whatsapp.id!,
-    ticket.companyId
-  );
+  // [Ola 3] La decisión —asignar directo, aceptar la opción elegida o presentar el
+  // menú— es común a este canal y a Facebook y vive en
+  // ../TicketServices/ResolveQueueMenuService. Aquí queda el envío por Cloud API.
+  const resultado = await resolveQueueMenu(whatsapp, ticket, contact, getTextFromMetaMessage(metaMsg));
+  if (!resultado) return;
 
   const to = contact.number.replace("+", "");
+  // phoneNumberId contiene el Phone Number ID de Meta
+  const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
 
-  if (queues.length === 1) {
-    const firstQueue = head(queues);
-    const chatbot = Boolean(firstQueue?.chatbots?.length);
-    await UpdateTicketService({
-      ticketData: { queueId: queues[0].id, isBot: chatbot },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-    return;
-  }
-
-  let selectedOption = "";
-
-  if (ticket.status !== "lgpd") {
-    selectedOption = getTextFromMetaMessage(metaMsg);
-  } else {
-    if (!isNil(ticket.lgpdAcceptedAt)) {
-      await ticket.update({ status: "pending" });
-      await ticket.reload();
-    }
-  }
-
-  const choosenQueue = queues[+selectedOption - 1];
-
-  if (choosenQueue) {
-    await UpdateTicketService({
-      ticketData: { queueId: choosenQueue.id },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-
-    // phoneNumberId contiene el Phone Number ID de Meta
-    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
-
-    if (choosenQueue.chatbots.length > 0) {
-      let options = "";
-      choosenQueue.chatbots.forEach((c, idx) => {
-        options += `[${idx + 1}] - ${c.name}\n`;
-      });
-
-      const body = `${choosenQueue.greetingMessage}\n\n${options}\n[#] Voltar para o menu principal`;
-      await sendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-    } else {
-      const body = `${choosenQueue.greetingMessage}`;
-      await sendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-    }
-
-  } else {
-    // phoneNumberId contiene el Phone Number ID de Meta
-    const phoneNumberId = whatsapp.phoneNumberId || whatsapp.facebookPageUserId || whatsapp.number;
-    let options = "";
-    queues.forEach((q, idx) => (options += `[${idx + 1}] - ${q.name}\n`));
-    const body = `${greetingMessage}\n\n${options}`;
-    await sendTextDynamic(to, formatBody(body, ticket), phoneNumberId, whatsapp.tokenMeta);
-  }
+  await sendTextDynamic(to, formatBody(resultado.texto, ticket), phoneNumberId, whatsapp.tokenMeta);
 };
 
 // ====== Handle principal (como tu handleMessage de FB, pero Meta) ======

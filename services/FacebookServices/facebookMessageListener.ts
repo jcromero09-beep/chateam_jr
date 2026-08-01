@@ -21,12 +21,11 @@ import CreateMessageService from "../MessageServices/CreateMessageService";
 import { findQuotedByWid } from "../MessageServices/FindQuotedMessageService";
 import { resolveStoppedFlow } from "../WebhookService/ResolveStoppedFlowService";
 import { resolveFlowTrigger } from "../WebhookService/ResolveFlowTriggerService";
+import { resolveQueueMenu } from "../TicketServices/ResolveQueueMenuService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
 import { getProfile, profilePsid, sendText } from "./graphAPI";
 import Whatsapp from "../../models/Whatsapp";
-import UpdateTicketService from "../TicketServices/UpdateTicketService";
 import { debounce } from "../../helpers/Debounce";
-import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import formatBody from "../../helpers/Mustache";
 import Queue from "../../models/Queue";
 import Chatbot from "../../models/Chatbot";
@@ -34,7 +33,7 @@ import Message from "../../models/Message";
 import { sayChatbot } from "../WbotServices/ChatbotListenerFacebook";
 import ListSettingsService from "../SettingServices/ListSettingsService";
 import lodash from "lodash";
-const { isNil, isNull, head } = lodash;
+const { isNil, isNull } = lodash;
 import FindOrCreateATicketTrakingService from "../TicketServices/FindOrCreateATicketTrakingService";
 import { handleMessageIntegration, handleRating, verifyRating } from "../WbotServices/wbotMessageListener";
 import CompaniesSettings from "../../models/CompaniesSettings";
@@ -1172,130 +1171,18 @@ const verifyQueue = async (
   ticket: Ticket,
   contact: Contact
 ) => {
-  // //console.log("VERIFYING QUEUE", ticket.whatsappId, getSession.id)
-  const { queues, greetingMessage } = await ShowWhatsAppService(getSession.id!, ticket.companyId);
+  // [Ola 3] La decisión —asignar directo, aceptar la opción elegida o presentar el
+  // menú— es común a este canal y a Meta y vive en
+  // ../TicketServices/ResolveQueueMenuService. Aquí queda el envío por Messenger.
+  //
+  // OJO a una diferencia que se conserva: Meta pasa el texto por formatBody(); este
+  // canal nunca lo hizo, así que las plantillas Mustache no se sustituyen aquí. Está
+  // a la vista a propósito en vez de escondido dentro del servicio.
+  const resultado = await resolveQueueMenu(getSession, ticket, contact, msg.text);
+  if (!resultado) return;
 
-
-
-  if (queues.length === 1) {
-    const firstQueue = head(queues);
-    let chatbot = false;
-    if (firstQueue?.chatbots) {
-      chatbot = firstQueue?.chatbots?.length > 0;
-    }
-    await UpdateTicketService({
-      ticketData: { queueId: queues[0].id, isBot: chatbot },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-
-    return;
-  }
-
-  let selectedOption = "";
-
-  if (ticket.status !== "lgpd") {
-    selectedOption = msg.text;
-  } else {
-    if (!isNil(ticket.lgpdAcceptedAt))
-      await ticket.update({
-        status: "pending"
-      });
-
-    await ticket.reload();
-  }
-
-  const choosenQueue = queues[+selectedOption - 1];
-
-  if (choosenQueue) {
-
-    await UpdateTicketService({
-      ticketData: { queueId: choosenQueue.id },
-      ticketId: ticket.id,
-      companyId: ticket.companyId
-    });
-
-
-    if (choosenQueue.chatbots.length > 0) {
-      let options = "";
-      choosenQueue.chatbots.forEach((chatbot, index) => {
-        options += `[${index + 1}] - ${chatbot.name}\n`;
-      });
-
-      const body =
-        `${choosenQueue.greetingMessage}\n\n${options}\n[#] Voltar para o menu principal`;
-
-      const sentMessage = await sendFacebookMessage({
-        ticket,
-        body: body
-      })
-
-      // const debouncedSentChatbot = debounce(
-      //   async () => {
-      //     await sendText(
-      //   contact.number,
-      //   formatBody(body, ticket),
-      //   ticket.whatsapp.facebookUserToken
-      // );
-      //   },
-      //   3000,
-      //   ticket.id
-      // );
-      // debouncedSentChatbot();
-
-      // return await verifyMessage(msg, body, ticket, contact);
-    }
-
-    if (!choosenQueue.chatbots.length) {
-      const body = `${choosenQueue.greetingMessage}`;
-
-      const sentMessage = await sendFacebookMessage({
-        ticket,
-        body: body
-      })
-      // const debouncedSentChatbot = debounce(
-      //   async () => { await sendText(
-      //   contact.number,
-      //   formatBody(body, ticket),
-      //   ticket.whatsapp.facebookUserToken
-      // );
-
-      //   },
-      //   3000,
-      //   ticket.id
-      // );
-      // debouncedSentChatbot();
-      // return await verifyMessage(msg, body, ticket, contact);
-    }
-  } else {
-    let options = "";
-
-    queues.forEach((queue, index) => {
-      options += `[${index + 1}] - ${queue.name}\n`;
-    });
-
-    const body = `${greetingMessage}\n\n${options}`;
-
-    const sentMessage = await sendFacebookMessage({
-      ticket,
-      body: body
-    })
-    // const debouncedSentChatbot = debounce(
-    //   async () => { await 
-    //     sendText(
-    //       contact.number,
-    //       formatBody(body, ticket),
-    //       ticket.whatsapp.facebookUserToken
-    //     );
-    //   },
-    //   3000,
-    //   ticket.id
-    // );
-    // debouncedSentChatbot();
-
-    // return verifyMessage(msg, body, ticket, contact);
-
-
-
-  }
+  await sendFacebookMessage({
+    ticket,
+    body: resultado.texto
+  });
 };
