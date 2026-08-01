@@ -80,8 +80,11 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
+      # La misma imagen que corre en el NAS. `postgres:15` no vale por dos motivos:
+      # producción es 17, y el esquema necesita la extensión `vector` (pgvector),
+      # que la imagen oficial de postgres no trae.
       postgres:
-        image: postgres:15
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: chateam_test
@@ -116,20 +119,19 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    # `npm run db:migrate` ejecuta dist/scripts/runMigrations.js, y este job no hace
-    # build: el step fallaba SIEMPRE antes de llegar a los tests. El propio script lo
-    # dice en su cabecera ("npm run build && npm run db:migrate"). Se corre la fuente
-    # con tsx —ya es dependencia del proyecto— en vez de compilar todo el árbol solo
-    # para migrar. `db:migrate` se deja como está porque producción sí parte de dist.
-    - name: Run database migrations
-      run: npx tsx scripts/runMigrations.ts
+    # El esquema NO se construye aplicando las 387 migraciones: eso nunca ha
+    # funcionado. El runner estaba escrito para CommonJS en un proyecto ESM (ya
+    # arreglado) y, aun así, 28 migraciones fallan en cadena sobre una base vacía.
+    # Mientras eso no se limpie, este job no podía ejecutar un solo test.
+    #
+    # Se parte de database/schema.sql, volcado de producción: el CI valida contra el
+    # MISMO esquema que corre de verdad, que es justo lo que se quiere para un
+    # golden-master. El precio, asumido: este job ya no comprueba que las migraciones
+    # funcionen. Ver la cabecera de database/schema.sql.
+    - name: Load database schema
+      run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f database/schema.sql
       env:
-        NODE_ENV: test
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DB_NAME: chateam_test
-        DB_USER: postgres
-        DB_PASS: postgres
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chateam_test
 
     - name: Run unit tests
       run: npm run test:unit
