@@ -288,6 +288,13 @@ const verifyMessageMetaText = async (
     fromMe,
     read: fromMe,
     quotedMsgId: quotedMsg?.id,
+    // [2026-07-31, decisión de JC] Este campo NO estaba y quedaba null. No era
+    // cosmético: OpenAiMetaService (L536) construye el historial de la IA saltando
+    // todo mensaje cuyo mediaType no sea "conversation" | "extendedTextMessage" |
+    // "text", así que TODOS los textos de este canal se caían del historial — el
+    // agente respondía sin contexto de la conversación, en silencio. "text" es el
+    // valor que ese mismo filtro ya contemplaba.
+    mediaType: "text",
     ack: 3,
     dataJson: JSON.stringify(dataJson || metaMsg),
     channel: "meta",

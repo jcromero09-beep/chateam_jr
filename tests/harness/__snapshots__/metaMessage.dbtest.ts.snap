@@ -21,7 +21,7 @@ exports[`meta handleMetaWebhookMessage — golden master (estado observable) el 
       "fromMe": false,
       "isDeleted": false,
       "isEdited": false,
-      "mediaType": null,
+      "mediaType": "text",
     },
   ],
   "tickets": [
@@ -62,7 +62,7 @@ exports[`meta handleMetaWebhookMessage — golden master (estado observable) tex
       "fromMe": false,
       "isDeleted": false,
       "isEdited": false,
-      "mediaType": null,
+      "mediaType": "text",
     },
   ],
   "tickets": [
@@ -103,7 +103,7 @@ exports[`meta handleMetaWebhookMessage — golden master (estado observable) web
       "fromMe": false,
       "isDeleted": false,
       "isEdited": false,
-      "mediaType": null,
+      "mediaType": "text",
     },
   ],
   "tickets": [
@@ -144,7 +144,7 @@ exports[`meta verifyQueue — menú de colas (characterization DB) menú de cola
       "fromMe": false,
       "isDeleted": false,
       "isEdited": false,
-      "mediaType": null,
+      "mediaType": "text",
     },
   ],
   "tickets": [

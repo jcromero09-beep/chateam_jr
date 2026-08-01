@@ -139,6 +139,11 @@ export const  verifyMessageFace = async (
     fromMe: fromMe ? fromMe : msg.is_echo ? true : false,
     read: fromMe ? fromMe : msg.is_echo,
     quotedMsgId: quotedMsg?.id,
+    // [2026-07-31, decisión de JC] Alineado con los otros dos canales: los textos
+    // llevan mediaType. Aquí no había un filtro que los descartara como en Meta
+    // (OpenaiServicesF&G no filtra por este campo), así que es coherencia, no un
+    // arreglo — pero deja el canal listo si alguien reusa el filtro de la IA.
+    mediaType: "text",
     ack: 3,
     dataJson: JSON.stringify(msg),
     channel: ticket.channel
