@@ -19,6 +19,7 @@ import GetWhatsappWbot from "../helpers/GetWhatsappWbot";
 import SetTicketMessagesAsRead from "../helpers/SetTicketMessagesAsRead";
 import Message from "../models/Message";
 import Whatsapp from "../models/Whatsapp";
+import FindWhatsappByApiToken from "../services/WhatsappService/FindWhatsappByApiToken";
 import CreateOrUpdateContactService from "../services/ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../services/TicketServices/FindOrCreateTicketService";
 import CheckIsValidContact from "../services/WbotServices/CheckIsValidContact";
@@ -361,7 +362,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
     return res.status(401).json({ status: "ERROR", error: "Formato de token inválido" });
   }
 
-  const whatsapp = await Whatsapp.findOne({ where: { token } });
+  const whatsapp = await FindWhatsappByApiToken(token);
   if (!whatsapp) {
     return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
   }
@@ -819,7 +820,7 @@ export const indexImage = async (req: Request, res: Response): Promise<Response>
 
   const authHeader = req.headers.authorization;
   const [, token] = authHeader.split(" ");
-  const whatsapp = await Whatsapp.findOne({ where: { token } });
+  const whatsapp = await FindWhatsappByApiToken(token);
   const companyId = whatsapp.companyId;
 
   newContact.number = newContact.number.replace("-", "").replace(" ", "");
@@ -892,7 +893,7 @@ export const checkNumber = async (req: Request, res: Response): Promise<Response
 
   const authHeader = req.headers.authorization;
   const [, token] = authHeader.split(" ");
-  const whatsapp = await Whatsapp.findOne({ where: { token } });
+  const whatsapp = await FindWhatsappByApiToken(token);
   const companyId = whatsapp.companyId;
 
   const number = newContact.number.replace("-", "").replace(" ", "");
@@ -1239,7 +1240,7 @@ export const checkNumbers = async (req: Request, res: Response): Promise<void> =
     return;
   }
 
-  const whatsapp = await Whatsapp.findOne({ where: { token } });
+  const whatsapp = await FindWhatsappByApiToken(token);
   if (!whatsapp) {
     res.status(401).json({ success: false, error: "Token inválido" });
     return;
@@ -1445,7 +1446,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
   }
 
   // Buscar la conexión por token
-  const whatsapp = await Whatsapp.findOne({ where: { token } });
+  const whatsapp = await FindWhatsappByApiToken(token);
   if (!whatsapp) {
     return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
   }

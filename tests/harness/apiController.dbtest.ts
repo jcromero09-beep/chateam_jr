@@ -158,7 +158,7 @@ describe("API pública — autenticación por token (tokenAuth)", () => {
     expect(res.status).toBe(403);
   });
 
-  it("con un token válido YA NO es 401 (pasa el middleware)", async () => {
+  it("con un token VÁLIDO autentica (no 401 y tampoco 403)", async () => {
     await seedEmpresaConToken("-a", "token-empresa-a");
 
     const res = await request(buildApp())
@@ -166,9 +166,12 @@ describe("API pública — autenticación por token (tokenAuth)", () => {
       .set("Authorization", "Bearer token-empresa-a")
       .send({ number: "593999999999" });
 
-    // Qué devuelve después depende de WhatsApp, que aquí no existe. Lo que se fija
-    // es que la autenticación deja pasar: cualquier cosa menos 401.
+    // La primera versión de este test solo pedía `not.toBe(401)`, y un 403 cumplía
+    // eso: dejaba pasar el incidente de 2026-07-26, en el que `tokenAuth` rechazaba
+    // TODOS los tokens porque el campo se guarda cifrado con IV aleatorio y él
+    // buscaba por el valor en claro. Se comprueban los dos códigos a propósito.
     expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(403);
   });
 });
 

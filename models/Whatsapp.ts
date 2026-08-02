@@ -20,7 +20,7 @@ import Ticket from "./Ticket";
 import WhatsappQueue from "./WhatsappQueue";
 import Company from "./Company";
 import QueueIntegrations from "./QueueIntegrations";
-import { encryptSecret, decryptSecret } from "../helpers/secretCrypto"; // [Fase2·A3.1]
+import { encryptSecret, decryptSecret, hashSecret } from "../helpers/secretCrypto"; // [Fase2·A3.1]
 import Prompt from "./Prompt";
 import { FlowBuilderModel } from "./FlowBuilder";
 
@@ -113,6 +113,12 @@ class Whatsapp extends Model<Whatsapp> {
 
   // [W1-SEC-06] Cifrado transparente en reposo (la columna es TEXT en BD; el
   // cifrado cabe). Retrocompatible: lee plano legacy por passthrough.
+  //
+  // [2026-08-01] El setter mantiene además `tokenHash`. El cifrado usa IV aleatorio,
+  // así que la columna cifrada NO se puede buscar por igualdad: cifrar el mismo token
+  // dos veces da dos valores distintos. tokenAuth necesita encontrar la conexión a
+  // partir del token que manda el cliente, y sin esta huella determinista no podía —
+  // devolvía 403 a todo el mundo desde que se cifró el campo.
   @Column({
     type: DataType.TEXT,
     get() {
@@ -120,9 +126,20 @@ class Whatsapp extends Model<Whatsapp> {
     },
     set(value: string) {
       this.setDataValue("token", encryptSecret(value) as any);
+      this.setDataValue("tokenHash", hashSecret(value) as any);
     }
   })
   token: string;
+
+  /**
+   * HMAC-SHA256 del token, para buscarlo sin descifrar. Se mantiene solo, desde el
+   * setter de `token`: no se asigna a mano en ningún sitio.
+   *
+   * Si aparece a null en una conexión que sí tiene token, es una fila anterior al
+   * 2026-08-01 que no ha pasado por el backfill (scripts/backfillTokenHash.ts).
+   */
+  @Column(DataType.STRING(64))
+  tokenHash: string;
 
   @Column(DataType.TEXT)
   facebookUserId: string;

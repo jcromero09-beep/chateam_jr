@@ -2,6 +2,7 @@ import * as Yup from "yup";
 import { Transaction } from "sequelize";
 import AppError from "../../errors/AppError";
 import Whatsapp from "../../models/Whatsapp";
+import FindWhatsappByApiToken from "./FindWhatsappByApiToken";
 import Company from "../../models/Company";
 import Plan from "../../models/Plan";
 import sequelize from "../../database";
@@ -175,11 +176,14 @@ const CreateDemoWhatsApp = async (
             "This whatsapp token is already used.",
             async value => {
               if (!value) return false;
-              const tokenExists = await Whatsapp.findOne({
-                where: { token: value, channel },
-                transaction: t
-              });
-              return !tokenExists;
+              // [Incidente 2026-08-01] Ver CreateWhatsAppService: el where por
+              // `token` en claro no encuentra nada desde que la columna se cifra,
+              // así que esta validación de unicidad no rechazaba ningún duplicado.
+              // Se pierde el `transaction: t` porque el service busca fuera de ella;
+              // aquí da igual: se está validando contra lo ya confirmado, no contra
+              // filas que esta misma transacción vaya a insertar.
+              const tokenExists = await FindWhatsappByApiToken(value);
+              return !tokenExists || tokenExists.channel !== channel;
             }
           )
       });

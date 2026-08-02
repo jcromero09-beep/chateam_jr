@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 
 import AppError from "../errors/AppError";
 import Whatsapp from "../models/Whatsapp";
+import FindWhatsappByApiToken from "../services/WhatsappService/FindWhatsappByApiToken";
 import logger from "../utils/logger";
 import { updateTraceContext } from "../utils/traceContext";
 
@@ -97,7 +98,14 @@ const isAuthApi = async (
     // [Ola bugs 2026-07] Se eliminaron 3 console.log que volcaban el API-token de
     // Whatsapp en claro (aquí, en el getToken y en el catch). Mismo tipo de fuga que
     // la Ola de secretos en logs.
-    whatsapp = await Whatsapp.findOne({ where: { token } });
+    // [2026-08-01 · incidente] Antes: `findOne({ where: { token } })` con el valor
+    // en claro. Desde que el campo se cifra (bc102f7, 26-07) esa consulta NO PUEDE
+    // encontrar nada —el cifrado usa IV aleatorio, así que el texto guardado nunca
+    // coincide con el que manda el cliente— y el catch de abajo lo convertía en 403.
+    // La API pública llevaba seis días rechazando a todo el mundo.
+    //
+    // Se busca por la huella determinista, que el setter del modelo mantiene.
+    whatsapp = await FindWhatsappByApiToken(token);
 
     const getToken = whatsapp?.token;
     if (!getToken) {

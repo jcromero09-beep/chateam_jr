@@ -8543,6 +8543,7 @@ CREATE TABLE public."Whatsapps" (
     "complationMessage" text DEFAULT ''::text,
     "outOfHoursMessage" text DEFAULT ''::text,
     token text,
+    "tokenHash" character varying(64),
     "maxUseBotQueues" integer DEFAULT 3,
     "timeUseBotQueues" character varying(255) DEFAULT '0'::character varying,
     "expiresTicket" character varying(255) DEFAULT '0'::character varying,
@@ -16399,6 +16400,13 @@ CREATE INDEX idx_whatsapp_queues_whatsapp ON public."WhatsappQueues" USING btree
 --
 
 CREATE INDEX idx_whatsapps_company ON public."Whatsapps" USING btree ("companyId");
+
+
+--
+-- Name: whatsapps_token_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX whatsapps_token_hash ON public."Whatsapps" USING btree ("tokenHash");
 
 
 --

@@ -4,6 +4,7 @@ import { getIO } from "../libs/socket";
 import cacheLayer from "../libs/cache";
 import { removeWbot, restartWbot } from "../libs/wbot";
 import Whatsapp from "../models/Whatsapp";
+import FindWhatsappsBySameFacebookToken from "../services/WhatsappService/FindWhatsappsBySameFacebookToken";
 import AppError from "../errors/AppError";
 import DeleteBaileysService from "../services/BaileysServices/DeleteBaileysService";
 import ShowCompanyService from "../services/CompanyService/ShowCompanyService";
@@ -586,19 +587,20 @@ export const remove = async (
   }
 
   if (whatsapp.channel === "facebook" || whatsapp.channel === "instagram") {
-    const { facebookUserToken } = whatsapp;
+    // [Incidente 2026-08-01] Antes se agrupaba y se borraba con
+    // `where: { facebookUserToken }`. Dos problemas: (1) la columna está cifrada con
+    // IV aleatorio, así que ese where no encuentra nada desde el 26/07 y desconectar
+    // dejaba de arrastrar las conexiones hermanas; (2) el destroy NO filtraba por
+    // empresa, así que con el token a null —`IS NULL`— alcanzaba conexiones de otras
+    // empresas. El service agrupa por token descifrado dentro de la misma empresa, y
+    // el borrado va por ids explícitos: no puede alcanzar nada que no se haya leído.
+    const getAllSameToken = await FindWhatsappsBySameFacebookToken(whatsapp);
 
-    const getAllSameToken = await Whatsapp.findAll({
-      where: {
-        facebookUserToken
-      }
-    });
-
-    await Whatsapp.destroy({
-      where: {
-        facebookUserToken
-      }
-    });
+    if (getAllSameToken.length) {
+      await Whatsapp.destroy({
+        where: { id: getAllSameToken.map(w => w.id) }
+      });
+    }
 
     for await (const whatsapp of getAllSameToken) {
       io.of(String(companyId))
@@ -702,20 +704,20 @@ export const removeAdmin = async (
   }
 
   if (whatsapp.channel === "facebook" || whatsapp.channel === "instagram") {
-    const { facebookUserToken } = whatsapp;
+    // [Incidente 2026-08-01] Antes se agrupaba y se borraba con
+    // `where: { facebookUserToken }`. Dos problemas: (1) la columna está cifrada con
+    // IV aleatorio, así que ese where no encuentra nada desde el 26/07 y desconectar
+    // dejaba de arrastrar las conexiones hermanas; (2) el destroy NO filtraba por
+    // empresa, así que con el token a null —`IS NULL`— alcanzaba conexiones de otras
+    // empresas. El service agrupa por token descifrado dentro de la misma empresa, y
+    // el borrado va por ids explícitos: no puede alcanzar nada que no se haya leído.
+    const getAllSameToken = await FindWhatsappsBySameFacebookToken(whatsapp);
 
-    const getAllSameToken = await Whatsapp.findAll({
-
-      where: {
-        facebookUserToken
-      }
-    });
-
-    await Whatsapp.destroy({
-      where: {
-        facebookUserToken
-      }
-    });
+    if (getAllSameToken.length) {
+      await Whatsapp.destroy({
+        where: { id: getAllSameToken.map(w => w.id) }
+      });
+    }
 
     for await (const whatsapp of getAllSameToken) {
       io.of(String(companyId))

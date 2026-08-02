@@ -33,6 +33,28 @@ export function isEncrypted(value: unknown): boolean {
   return typeof value === "string" && value.startsWith(PREFIX);
 }
 
+/**
+ * Huella DETERMINISTA de un secreto, para poder BUSCARLO sin descifrar.
+ *
+ * [2026-08-01] Nace de un incidente. `encryptSecret` usa un IV aleatorio, así que
+ * cifrar dos veces el mismo valor da dos textos distintos — que es justo lo que se
+ * quiere de un cifrado, y justo lo que hace imposible un `WHERE token = ?`.
+ *
+ * Cuando se cifró `Whatsapp.token` (commit bc102f7, 2026-07-26), `tokenAuth` siguió
+ * buscando por el valor en claro contra la columna ya cifrada. No encontraba nunca
+ * nada y devolvía 403: la API pública entera quedó cerrada seis días sin que nadie lo
+ * viera, porque ningún test la ejercitaba.
+ *
+ * Es HMAC y no un SHA-256 pelado a propósito: sin la clave, quien se lleve un volcado
+ * de la base no puede confirmar si un token candidato está ahí. El precio es el mismo
+ * que el del cifrado — si cambia ENCRYPTION_KEY, las huellas dejan de coincidir y hay
+ * que recalcularlas.
+ */
+export function hashSecret(plain: string | null | undefined): string | null {
+  if (plain == null || plain === "") return null;
+  return crypto.createHmac("sha256", getKey()).update(String(plain)).digest("hex");
+}
+
 /** Cifra un secreto. Idempotente (si ya está cifrado lo devuelve igual). Vacío/null → tal cual. */
 export function encryptSecret(plain: string | null | undefined): string | null {
   if (plain == null || plain === "") return (plain as any) ?? null;

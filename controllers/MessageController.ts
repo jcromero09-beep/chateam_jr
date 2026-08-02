@@ -21,6 +21,7 @@ import Ticket from "../models/Ticket";
 import Queue from "../models/Queue";
 import User from "../models/User";
 import Whatsapp from "../models/Whatsapp";
+import FindWhatsappByApiToken from "../services/WhatsappService/FindWhatsappByApiToken";
 import jwt from "jsonwebtoken";
 const { verify } = jwt;
 import authConfig from "../config/auth";
@@ -1453,7 +1454,7 @@ export const send = async (req: Request, res: Response): Promise<Response> => {
         const authHeader = req.headers.authorization;
         const [, token] = authHeader.split(" ");
 
-        const whatsapp = await Whatsapp.findOne({ where: { token } });
+        const whatsapp = await FindWhatsappByApiToken(token);
         const companyId = whatsapp.companyId;
         const company = await ShowPlanCompanyService(companyId);
         const sendMessageWithExternalApi = company.plan.useExternalApi
