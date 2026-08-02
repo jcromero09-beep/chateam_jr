@@ -1,5 +1,12 @@
 import "../bootstrap";
 import { Dialect } from "sequelize";
+import { assertNotProductionDb } from "../helpers/prodDbGuard";
+
+// Antes de exportar nada: si este proceso iba a hablar con la base de PRODUCCIÓN sin
+// declararse de producción, aquí se para. Ver helpers/prodDbGuard — nace del
+// incidente en que un guardado desde el repo de desarrollo cifró los tokens de la API
+// y dejó a los clientes con integraciones fuera durante seis días.
+assertNotProductionDb(process.env.DB_NAME);
 
 export default {
   define: {
