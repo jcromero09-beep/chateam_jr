@@ -37,7 +37,8 @@ set -uo pipefail
 # Recalibrado el 2026-07-31 con la salida de este mismo script.
 BASELINE_PROD=3740
 # Informativo. Si se quisiera trincar tambien los tests, aqui esta el numero.
-BASELINE_TESTS=623
+# [2026-08-02] +11 con tenantScopeApi.dbtest.ts y la red de la API pública.
+BASELINE_TESTS=642
 
 cd "$(dirname "$0")/.." || exit 2
 

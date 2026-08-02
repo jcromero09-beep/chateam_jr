@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 
 import AppError from "../errors/AppError";
 import Whatsapp from "../models/Whatsapp";
+import FindWhatsappByApiToken from "../services/WhatsappService/FindWhatsappByApiToken";
 import logger from "../utils/logger";
 import { updateTraceContext } from "../utils/traceContext";
 
@@ -97,7 +98,14 @@ const isAuthApi = async (
     // [Ola bugs 2026-07] Se eliminaron 3 console.log que volcaban el API-token de
     // Whatsapp en claro (aquí, en el getToken y en el catch). Mismo tipo de fuga que
     // la Ola de secretos en logs.
-    whatsapp = await Whatsapp.findOne({ where: { token } });
+    // [2026-08-01 · incidente] Antes: `findOne({ where: { token } })` con el valor
+    // en claro. Desde que el campo se cifra (bc102f7, 26-07) esa consulta NO PUEDE
+    // encontrar nada —el cifrado usa IV aleatorio, así que el texto guardado nunca
+    // coincide con el que manda el cliente— y el catch de abajo lo convertía en 403.
+    // La API pública llevaba seis días rechazando a todo el mundo.
+    //
+    // Se busca por la huella determinista, que el setter del modelo mantiene.
+    whatsapp = await FindWhatsappByApiToken(token);
 
     const getToken = whatsapp?.token;
     if (!getToken) {
@@ -116,6 +124,15 @@ const isAuthApi = async (
   // quedaba INERTE en toda la API pública: estos endpoints dependían al 100% de
   // que cada servicio filtrase a mano. Arranca en modo 'observe' para esta
   // superficie (ver TENANT_SCOPE_GUARD_API en helpers/tenantScope).
+  // [2026-08-01] La conexión viaja en el request para que los handlers no repitan
+  // la consulta. La duplicación no era solo trabajo de más: cuando el token pasó a
+  // guardarse cifrado, middleware y handlers dejaron de encontrarlo cada uno por su
+  // lado y respondían códigos distintos al mismo cliente. Además, la búsqueda del
+  // handler corre con el contexto de tenant ya abierto, así que el guard de
+  // aislamiento la veía como una consulta sin filtro de empresa — un aviso que no
+  // señalaba nada que arreglar y que bloqueaba el paso a `enforce`.
+  req.apiWhatsapp = whatsapp ?? undefined;
+
   if (whatsapp?.companyId != null) {
     const route = normalizeRoute(req);
     recordApiSurfaceRequest(route);

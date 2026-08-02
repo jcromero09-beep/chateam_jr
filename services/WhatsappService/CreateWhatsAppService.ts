@@ -2,6 +2,7 @@ import * as Yup from "yup";
 
 import AppError from "../../errors/AppError";
 import Whatsapp from "../../models/Whatsapp";
+import FindWhatsappByApiToken from "./FindWhatsappByApiToken";
 import Company from "../../models/Company";
 import Plan from "../../models/Plan";
 import AssociateWhatsappQueue from "./AssociateWhatsappQueue";
@@ -187,10 +188,14 @@ const CreateWhatsAppService = async ({
           "This whatsapp token is already used.",
           async value => {
             if (!value) return false;
-            const tokenExists = await Whatsapp.findOne({
-              where: { token: value, channel: channel }
-            });
-            return !tokenExists;
+            // [Incidente 2026-08-01] Antes: `where: { token: value, channel }`.
+            // La columna se cifra con IV aleatorio, así que ese where no encontraba
+            // NUNCA un duplicado y esta validación llevaba desde el 26/07 dejando
+            // pasar tokens repetidos. Importa más de lo que parece: tokenAuth resuelve
+            // la conexión a partir del token, y con dos conexiones que compartan uno
+            // la empresa que reciba el `findOne` es la que decida Postgres.
+            const tokenExists = await FindWhatsappByApiToken(value);
+            return !tokenExists || tokenExists.channel !== channel;
           }
         )
     });

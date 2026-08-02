@@ -131,7 +131,7 @@ const downloadMedia = async (
   msg: proto.IWebMessageInfo,
   isImported: Date = null,
   wbot: Session,
-  ticket: Ticket,
+  _ticket: Ticket,
 ) => {
   const unpackedMessage = getUnpackedMessage(msg);
   const message = getMessageMedia(unpackedMessage);

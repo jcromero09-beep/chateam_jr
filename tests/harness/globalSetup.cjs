@@ -13,6 +13,11 @@ const pingOk = () => {
 };
 
 module.exports = async () => {
+  // [2026-08-01] Si el entorno ya trae un REDIS_URI, ahí hay un Redis de verdad y
+  // este arranque efímero sobra. Es el caso del CI, que levanta un service container
+  // en 6379. Sin esta salida temprana el harness solo funcionaba en el NAS.
+  if (process.env.REDIS_URI) return;
+
   if (pingOk()) { // ya activo → reusar, no somos dueños
     if (fs.existsSync(PIDFILE)) { try { fs.unlinkSync(PIDFILE); } catch {} }
     return;
@@ -23,6 +28,17 @@ module.exports = async () => {
       ["--port", String(PORT), "--save", "", "--appendonly", "no", "--dir", "/tmp"],
       { detached: true, stdio: "ignore" }
     );
+    // OJO: si el binario no existe, spawn NO lanza aquí — emite un evento `error`
+    // asíncrono que el try/catch de abajo no puede ver, y sin handler Node lo
+    // convierte en excepción no capturada que MATA el proceso de jest. Eso es lo que
+    // pasaba en el runner de GitHub, donde no hay redis-server: el step del
+    // golden-master moría en 1 segundo, antes de ejecutar un solo test.
+    child.on("error", err => {
+      console.warn(
+        `[harness] no se pudo lanzar redis-server (${err.message}); ` +
+          "flujos con Bull pueden colgar"
+      );
+    });
     child.unref();
     for (let i = 0; i < 50 && !pingOk(); i++) {
       await new Promise((r) => setTimeout(r, 100));

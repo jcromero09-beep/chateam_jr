@@ -29,7 +29,25 @@ type Session = WASocket & { id?: number };
 
 // --- deps de las fases anadidas el 2026-07-30 (campana y flowbuilder) ---
 import { Op } from "sequelize";
-import { isNil } from "lodash";
+// [2026-08-01] Desestructurado en runtime, NO `import { isNil } from "lodash"`.
+//
+// El proyecto es `"type": "module"` y lodash es CommonJS: Node solo deja importar
+// nombres sueltos de un CJS si consigue deducirlos analizando el fichero, y con
+// lodash no lo consigue. El named import compila y pasa los tests —jest corre en
+// CommonJS, donde equivale a un require— pero mata el proceso al arrancar:
+//
+//     SyntaxError: The requested module 'lodash' does not provide an export
+//     named 'isNil'
+//
+// Lo escribí así al extraer estas fases del monolito (2c70d76), donde el original
+// hacía exactamente lo de abajo. Ese descuido tumbó producción al desplegar. Los
+// otros 53 imports de lodash del proyecto usan la forma default por este mismo
+// motivo; hay un comentario de la Fase A documentando el mismo tropiezo.
+//
+// scripts/checkEsmNamedImports.ts lo detecta antes de desplegar.
+import lodash from "lodash";
+
+const { isNil } = lodash;
 import CampaignMessage from "../../models/CampaignMessage";
 import { FlowBuilderModel } from "../../models/FlowBuilder";
 import { ActionsWebhookService } from "../WebhookService/ActionsWebhookService";

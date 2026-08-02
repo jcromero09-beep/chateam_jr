@@ -3,6 +3,7 @@ import multer from "multer";
 import uploadConfig from "../config/upload";
 
 import * as ApiController from "../controllers/ApiController";
+import * as ApiFailedMessageController from "../controllers/ApiFailedMessageController";
 import tokenAuth from "../middleware/tokenAuth";
 
 import isAuth from "../middleware/isAuth";
@@ -27,9 +28,9 @@ ApiRoutes.get("/stats", isAuth, ApiController.getApiStats);
 ApiRoutes.get("/dashboard-stats", isAuth, ApiController.getDashboardStats);
 
 // Mensajes fallidos - lista y reintento
-ApiRoutes.get("/failed-messages", isAuth, ApiController.listFailedMessages);
-ApiRoutes.post("/failed-messages/:id/retry", isAuth, ApiController.retryFailedMessage);
-ApiRoutes.delete("/failed-messages/:id", isAuth, ApiController.deleteFailedMessage);
+ApiRoutes.get("/failed-messages", isAuth, ApiFailedMessageController.listFailedMessages);
+ApiRoutes.post("/failed-messages/:id/retry", isAuth, ApiFailedMessageController.retryFailedMessage);
+ApiRoutes.delete("/failed-messages/:id", isAuth, ApiFailedMessageController.deleteFailedMessage);
 
 // ApiRoutes.post("/send/linkVideo", tokenAuth, ApiController.indexVideo);
 // ApiRoutes.post("/send/toManyText", tokenAuth, ApiController.indexToMany);

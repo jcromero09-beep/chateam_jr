@@ -8,6 +8,7 @@ import path from "path";
 import multer from "multer";
 import fs from "fs";
 import Whatsapp from "../models/Whatsapp";
+import FindWhatsappByApiToken from "../services/WhatsappService/FindWhatsappByApiToken";
 import lodash from "lodash";
 const { isEmpty, isNil } = lodash;
 
@@ -56,7 +57,7 @@ export default {
         try {
           const authHeader = req.headers.authorization;
           const [, token] = authHeader.split(" ");
-          const whatsapp = await Whatsapp.findOne({ where: { token } });
+          const whatsapp = await FindWhatsappByApiToken(token);
           if (whatsapp?.companyId) {
             companyId = whatsapp.companyId;
           }
