@@ -9,8 +9,16 @@
  * huella de tokens que nadie conoce en claro. Guardar el registro dispara el setter,
  * que recifra el token (con un IV nuevo, es lo esperado) y escribe la huella.
  *
- *     npx tsx scripts/backfillTokenHash.ts            # aplica
- *     npx tsx scripts/backfillTokenHash.ts --dry-run  # solo cuenta
+ * ## Cómo se ejecuta
+ *
+ *     node scripts/withPm2Env.cjs npx tsx scripts/backfillTokenHash.ts --dry-run
+ *     node scripts/withPm2Env.cjs npx tsx scripts/backfillTokenHash.ts
+ *
+ * SIEMPRE a través de `withPm2Env`, nunca `npx tsx` a secas. El `.env` del proyecto
+ * está desactualizado —apunta a `localhost:5432`, otra base— y un script que lo use
+ * no falla: se queda COLGADO en `authenticate()` sin un solo mensaje. El runner pone
+ * el entorno real de PM2 antes de arrancar este proceso; el porqué de hacerlo en el
+ * padre y no aquí dentro está explicado en su cabecera.
  *
  * Es idempotente: por defecto solo toca filas con tokenHash a null. Con --force
  * recalcula todas (lo que hace falta si alguna vez cambia ENCRYPTION_KEY: las
@@ -25,6 +33,10 @@ const dryRun = process.argv.includes("--dry-run");
 const force = process.argv.includes("--force");
 
 async function main() {
+  // Se dice a qué base se va a escribir ANTES de escribir. Este script cambia una
+  // columna en producción; equivocarse de base es el fallo caro.
+  const cfg: any = sequelize.config;
+  console.log(`Base: ${cfg.database} @ ${cfg.host}:${cfg.port} (usuario ${cfg.username})`);
   await sequelize.authenticate();
 
   const conexiones = await Whatsapp.findAll({
