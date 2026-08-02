@@ -20,6 +20,7 @@ import SetTicketMessagesAsRead from "../helpers/SetTicketMessagesAsRead";
 import Message from "../models/Message";
 import Whatsapp from "../models/Whatsapp";
 import FindWhatsappByApiToken from "../services/WhatsappService/FindWhatsappByApiToken";
+import { enlacesInternos, urlInterna } from "../helpers/outboundUrlGuard";
 import CreateOrUpdateContactService from "../services/ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../services/TicketServices/FindOrCreateTicketService";
 import CheckIsValidContact from "../services/WbotServices/CheckIsValidContact";
@@ -368,6 +369,27 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   }
 
   const companyId = whatsapp.companyId;
+
+  // [2026-08-02 · SSRF] Antes de mandar nada: si el texto trae un enlace hacia la red
+  // interna, se rechaza. Baileys genera la previsualización PIDIENDO esa URL desde el
+  // servidor, y link-preview-js no filtra loopback ni rangos privados (advisory alto,
+  // sin parche upstream). Esta ruta acepta texto de cualquier cliente con token.
+  // Ver helpers/outboundUrlGuard: ni desactivar la opción de preview ni sustituir el
+  // resolvedor de baileys cierran el vector, así que el filtro va antes de llamarle.
+  const enlacesProhibidos = await enlacesInternos(body);
+  if (enlacesProhibidos.length) {
+    logWarn("[api/send] mensaje rechazado: enlace hacia la red interna", {
+      companyId,
+      whatsappId: whatsapp.id,
+      enlaces: enlacesProhibidos
+    });
+    return res.status(400).json({
+      status: "ERROR",
+      error:
+        "El mensaje contiene un enlace que apunta a una dirección de red interna: " +
+        enlacesProhibidos.map(e => e.host).join(", ")
+    });
+  }
 
   // Validar número
   if (!newContact.number) {
@@ -831,6 +853,28 @@ export const indexImage = async (req: Request, res: Response): Promise<Response>
     return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
   }
   const companyId = whatsapp.companyId;
+
+  // [2026-08-02 · SSRF] `url` llega en el cuerpo y acaba en `image: { url }` de
+  // baileys, que la DESCARGA tal cual. Aquí no hay regex que valga: una IP literal
+  // funciona, así que este vector es MÁS directo que el de la previsualización de
+  // enlaces — no hace falta controlar un dominio, basta con escribir la dirección.
+  // Se valida la url y también el pie de foto, que es texto libre.
+  const urlProhibida = await urlInterna(url);
+  const enlacesEnPie = await enlacesInternos(caption);
+  if (urlProhibida || enlacesEnPie.length) {
+    const detalle = [urlProhibida, ...enlacesEnPie].filter(Boolean);
+    logWarn("[api/send/linkImage] rechazado: destino en la red interna", {
+      companyId,
+      whatsappId: whatsapp.id,
+      detalle
+    });
+    return res.status(400).json({
+      status: "ERROR",
+      error:
+        "La petición apunta a una dirección de red interna: " +
+        detalle.map(d => d!.host).join(", ")
+    });
+  }
 
   newContact.number = newContact.number.replace("-", "").replace(" ", "");
 
