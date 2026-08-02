@@ -37,7 +37,15 @@ set -euo pipefail
 PROD=/opt/chateam
 DEV="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RAMA="${DEPLOY_BRANCH:-refactor/verificabilidad-y-canales}"
-ESTADO="$PROD/.deploy-punto-de-retorno"
+# Dentro de .git/ a propósito: git no rastrea nada de ahí.
+#
+# [2026-08-01] Estuvo en la raíz del repo y fue un error con consecuencias. El
+# fichero aparecía como cambio sin commitear, `desplegar` abortaba por "working tree
+# sucio" —protegiendo contra un problema que se había inventado él solo—, y volver a
+# correr `salvaguarda` lo metía en un commit. Un fichero de estado del despliegue no
+# es parte del código desplegado y no debe poder ensuciar el árbol.
+ESTADO="$PROD/.git/deploy-punto-de-retorno"
+ESTADO_VIEJO="$PROD/.deploy-punto-de-retorno"
 ECOSYSTEM="$PROD/ecosystem.chateam.local.config.cjs"
 
 rojo()  { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -51,6 +59,20 @@ abortar() { rojo "ABORTA · $*"; exit 1; }
 # ---------------------------------------------------------------- salvaguarda
 salvaguarda() {
   info "== Salvaguarda =="
+
+  # Arrastre de la primera versión, que guardaba el estado en la raíz del repo.
+  # Se saca del índice y se marca como ignorado; el fichero no se borra de disco.
+  if git -C "$PROD" ls-files --error-unmatch .deploy-punto-de-retorno >/dev/null 2>&1; then
+    info "  el fichero de estado estaba versionado por error; sacándolo del índice"
+    git -C "$PROD" rm --cached -q .deploy-punto-de-retorno
+    grep -qx '.deploy-punto-de-retorno' "$PROD/.git/info/exclude" 2>/dev/null \
+      || echo '.deploy-punto-de-retorno' >> "$PROD/.git/info/exclude"
+    git -C "$PROD" commit -q -m "chore: el estado del despliegue no va versionado
+
+Lo escribía scripts/deploy-prod.sh en la raíz del repo. Aparecía como cambio sin
+commitear, así que la fase siguiente abortaba por 'working tree sucio' y volver a
+correr la salvaguarda lo metía en un commit. Ahora vive en .git/, que git no rastrea."
+  fi
 
   local rama_actual head_actual
   rama_actual=$(git -C "$PROD" rev-parse --abbrev-ref HEAD)
@@ -88,8 +110,12 @@ desplegar() {
   info "== Desplegar (guard en observe) =="
 
   [ -f "$ESTADO" ] || abortar "no hay punto de retorno. Corre primero: salvaguarda"
-  [ -z "$(git -C "$PROD" status --porcelain)" ] \
-    || abortar "hay cambios sin commitear en $PROD. Corre primero: salvaguarda"
+
+  if [ -n "$(git -C "$PROD" status --porcelain)" ]; then
+    rojo "Hay cambios sin commitear en $PROD:"
+    git -C "$PROD" status --short | sed 's/^/    /'
+    abortar "el checkout se los llevaría por delante. Corre primero: salvaguarda"
+  fi
 
   info "Trayendo $RAMA..."
   git -C "$PROD" fetch origin --quiet
@@ -125,8 +151,12 @@ desplegar() {
 # ---------------------------------------------------------------- guard
 guard_a() {
   local modo=$1
+  # El flag lo introduce la rama nueva. Si no está, es que producción sigue con el
+  # código viejo — que es una respuesta mucho más útil que "falta una variable".
   grep -q "TENANT_SCOPE_GUARD_API" "$ECOSYSTEM" \
-    || abortar "el ecosystem no define TENANT_SCOPE_GUARD_API"
+    || abortar "el ecosystem de producción no define TENANT_SCOPE_GUARD_API: esa
+          variable llega con la rama nueva, así que el despliegue todavía no se ha
+          hecho. Corre antes: salvaguarda y desplegar."
   sed -i -E "s/(TENANT_SCOPE_GUARD_API: *')[a-z]+(')/\1${modo}\2/" "$ECOSYSTEM"
   grep -qE "TENANT_SCOPE_GUARD_API: *'${modo}'" "$ECOSYSTEM" \
     || abortar "no se pudo poner el guard en ${modo}"
@@ -158,8 +188,16 @@ for a in apps:
     [ "$cwd" = "$PROD" ] || rojo "  OJO: no es $PROD"
   fi
 
+  # Los verificadores salen del repo de DESARROLLO, no de producción.
+  #
+  # [2026-08-01] Corrían desde $PROD y reventaban con MODULE_NOT_FOUND al usarlos
+  # antes de desplegar — producción todavía no tenía esos ficheros. El error no decía
+  # nada útil: parecía un fallo de la API cuando lo que faltaba era el propio script.
+  # Y justo antes de desplegar es cuando más falta hace poder medir el estado de
+  # partida. Solo hacen peticiones HTTP y leen la base compartida, así que da igual
+  # de qué copia salgan.
   info "Probando la autenticación de la API..."
-  ( cd "$PROD" && node scripts/withPm2Env.cjs npx tsx scripts/verifyApiAuth.ts ) \
+  ( cd "$DEV" && node scripts/withPm2Env.cjs npx tsx scripts/verifyApiAuth.ts ) \
     || abortar "la API no autentica"
 
   # Lo que decide si se puede pasar a enforce. En observe, el guard anota los
