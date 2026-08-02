@@ -126,7 +126,7 @@ class Whatsapp extends Model<Whatsapp> {
     },
     set(value: string) {
       this.setDataValue("token", encryptSecret(value) as any);
-      this.setDataValue("tokenHash", hashSecret(value) as any);
+      this.setDataValue("tokenHash", hashSecret(value));
     }
   })
   token: string;
@@ -138,8 +138,13 @@ class Whatsapp extends Model<Whatsapp> {
    * Si aparece a null en una conexión que sí tiene token, es una fila anterior al
    * 2026-08-01 que no ha pasado por el backfill (scripts/backfillTokenHash.ts).
    */
+  // Nullable de verdad: `hashSecret` devuelve null para un token vacío, y las filas
+  // anteriores al backfill lo tienen a null. Declararlo `string` a secas obligaba a
+  // castear en el setter, que es la forma de que el tipo mienta sin que nadie se
+  // entere. (Ojo al redactar aquí: el trinquete de tipos cuenta TEXTO, así que
+  // escribir el cast literalmente en un comentario lo pone en rojo.)
   @Column(DataType.STRING(64))
-  tokenHash: string;
+  tokenHash: string | null;
 
   @Column(DataType.TEXT)
   facebookUserId: string;

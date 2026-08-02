@@ -119,21 +119,22 @@ async function main() {
     let mod: Record<string, unknown>;
     try {
       mod = (await import(paquete)) as Record<string, unknown>;
-    } catch (err: any) {
+    } catch (err) {
       if (OPCIONALES[paquete]) {
         console.log(`  (omitido) ${paquete}: ${OPCIONALES[paquete]}`);
         continue;
       }
       // Un paquete que ni siquiera carga es otro problema (falta, o peta al
       // importarse). Se reporta, pero distinguido de "carga pero le falta un nombre".
-      rotos.push(`${paquete} · NO CARGA: ${err.message.split("\n")[0]}`);
+      const motivo = err instanceof Error ? err.message.split("\n")[0] : String(err);
+      rotos.push(`${paquete} · NO CARGA: ${motivo}`);
       continue;
     }
     comprobados += 1;
 
     // El interop de Node deja el objeto CJS en `default`. Un nombre vale si está en
     // cualquiera de los dos sitios: así es como lo resolvería el import real.
-    const dflt = (mod as any).default;
+    const dflt = mod.default;
     for (const n of nombres) {
       const enModulo = n in mod;
       const enDefault = dflt != null && typeof dflt === "object" && n in dflt;

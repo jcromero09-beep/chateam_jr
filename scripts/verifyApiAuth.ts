@@ -55,10 +55,10 @@ async function main() {
     process.exit(2);
   }
 
-  const conexiones = (await Whatsapp.findAll({
+  const conexiones = await Whatsapp.findAll({
     attributes: ["id", "name", "companyId", "token", "tokenHash"],
     order: [["id", "ASC"]]
-  })) as any[];
+  });
   const conToken = conexiones.filter(w => w.token);
   const aProbar = todas ? conToken : conToken.slice(0, MUESTRA);
 

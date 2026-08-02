@@ -39,7 +39,7 @@ import { QueryInterface, DataTypes } from "sequelize";
  */
 module.exports = {
   up: async (queryInterface: QueryInterface) => {
-    const table: any = await queryInterface.describeTable("Whatsapps");
+    const table = await queryInterface.describeTable("Whatsapps");
     if (!table.tokenHash) {
       await queryInterface.addColumn("Whatsapps", "tokenHash", {
         type: DataTypes.STRING(64),
@@ -55,7 +55,7 @@ module.exports = {
     await queryInterface.sequelize.query(
       'DROP INDEX IF EXISTS "whatsapps_token_hash";'
     );
-    const table: any = await queryInterface.describeTable("Whatsapps");
+    const table = await queryInterface.describeTable("Whatsapps");
     if (table.tokenHash) {
       await queryInterface.removeColumn("Whatsapps", "tokenHash");
     }

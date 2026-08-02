@@ -35,8 +35,8 @@ const force = process.argv.includes("--force");
 async function main() {
   // Se dice a qué base se va a escribir ANTES de escribir. Este script cambia una
   // columna en producción; equivocarse de base es el fallo caro.
-  const cfg: any = sequelize.config;
-  console.log(`Base: ${cfg.database} @ ${cfg.host}:${cfg.port} (usuario ${cfg.username})`);
+  const { database, host, port, username } = sequelize.config;
+  console.log(`Base: ${database} @ ${host}:${port} (usuario ${username})`);
   await sequelize.authenticate();
 
   const conexiones = await Whatsapp.findAll({
@@ -65,7 +65,7 @@ async function main() {
     // update() directo sobre la columna: pasar por el setter de `token` recifraría
     // el secreto sin necesidad, y cada recifrado es una oportunidad de perderlo.
     await Whatsapp.update(
-      { tokenHash: huella } as any,
+      { tokenHash: huella },
       { where: { id: w.id }, hooks: false, silent: true }
     );
     ok += 1;
