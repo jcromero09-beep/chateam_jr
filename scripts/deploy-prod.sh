@@ -56,6 +56,34 @@ abortar() { rojo "ABORTA · $*"; exit 1; }
 
 [ -d "$PROD/.git" ] || abortar "$PROD no es un repo git"
 
+# ---------------------------------------------------------------- node
+#
+# npm TIENE que correr con el mismo Node que arranca la app. No es cosmético:
+#
+# [2026-08-01] Este script llamaba a `npm ci` a secas, así que usaba el Node del
+# shell —18.20.4— mientras PM2 arranca con el 22 que declara el ecosystem. El árbol
+# de dependencias salió distinto y el servidor murió al arrancar con
+# "The requested module 'lodash' does not provide an export named 'isNil'".
+#
+# Lo caro vino después: el `rollback` volvió a llamar a `npm ci`, que BORRA
+# node_modules antes de instalar, y esta vez abortó porque baileys exige Node 20+.
+# Producción se quedó sin node_modules y sin forma de arrancar. Un rollback que
+# puede dejar el sistema peor que el fallo del que te rescata no es un rollback.
+#
+# Por eso la comprobación es lo primero que hace el script, antes de tocar nada.
+NODE_BIN=$(grep -oP "(?<=const NODE22 = ')[^']+" "$ECOSYSTEM" 2>/dev/null || true)
+[ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] \
+  || abortar "no se pudo leer el Node del ecosystem ($ECOSYSTEM). Sin eso, npm
+          correría con el Node del shell y produciría un árbol distinto del que
+          usa PM2 — que es exactamente como se tumbó producción el 2026-08-01."
+export PATH="$(dirname "$NODE_BIN"):$PATH"
+
+NODE_MAJOR=$("$NODE_BIN" -v | sed -E 's/^v([0-9]+).*/\1/')
+[ "$NODE_MAJOR" -ge 20 ] \
+  || abortar "el ecosystem apunta a Node $NODE_MAJOR y baileys exige 20+"
+
+info "Node para npm y pm2: $("$NODE_BIN" -v) ($NODE_BIN)"
+
 # ---------------------------------------------------------------- salvaguarda
 salvaguarda() {
   info "== Salvaguarda =="
