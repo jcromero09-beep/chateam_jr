@@ -352,17 +352,17 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   const medias = req.files as Express.Multer.File[];
 
   // Validar token de autorización
+  // [2026-08-01] La conexión la resolvió `tokenAuth` y viaja en el request: aquí ya
+  // no se vuelve a consultar. La búsqueda duplicada es lo que hizo que el middleware
+  // y este handler respondieran códigos distintos al mismo cliente cuando el token
+  // pasó a guardarse cifrado, y además el guard de aislamiento la contaba como una
+  // consulta sin filtro de empresa.
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ status: "ERROR", error: "Token de autorización requerido" });
   }
 
-  const [, token] = authHeader.split(" ");
-  if (!token) {
-    return res.status(401).json({ status: "ERROR", error: "Formato de token inválido" });
-  }
-
-  const whatsapp = await FindWhatsappByApiToken(token);
+  const whatsapp = req.apiWhatsapp;
   if (!whatsapp) {
     return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
   }
@@ -818,9 +818,18 @@ export const indexImage = async (req: Request, res: Response): Promise<Response>
   const url = req.body.url;
   const caption = req.body.caption;
 
-  const authHeader = req.headers.authorization;
-  const [, token] = authHeader.split(" ");
-  const whatsapp = await FindWhatsappByApiToken(token);
+  // [2026-08-01] La conexión la resolvió `tokenAuth` y viaja en el request: aquí ya
+  // no se vuelve a consultar. La búsqueda duplicada es lo que hizo que el middleware
+  // y este handler respondieran códigos distintos al mismo cliente cuando el token
+  // pasó a guardarse cifrado, y además el guard de aislamiento la contaba como una
+  // consulta sin filtro de empresa.
+  //
+  // Además, este bloque hacía `whatsapp.companyId` sin comprobar nada: con un token
+  // que no resolviera, reventaba con un 500 en vez del 401 que devuelven los demás.
+  const whatsapp = req.apiWhatsapp;
+  if (!whatsapp) {
+    return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
+  }
   const companyId = whatsapp.companyId;
 
   newContact.number = newContact.number.replace("-", "").replace(" ", "");
@@ -891,9 +900,18 @@ export const indexImage = async (req: Request, res: Response): Promise<Response>
 export const checkNumber = async (req: Request, res: Response): Promise<Response> => {
   const newContact: ContactData = req.body;
 
-  const authHeader = req.headers.authorization;
-  const [, token] = authHeader.split(" ");
-  const whatsapp = await FindWhatsappByApiToken(token);
+  // [2026-08-01] La conexión la resolvió `tokenAuth` y viaja en el request: aquí ya
+  // no se vuelve a consultar. La búsqueda duplicada es lo que hizo que el middleware
+  // y este handler respondieran códigos distintos al mismo cliente cuando el token
+  // pasó a guardarse cifrado, y además el guard de aislamiento la contaba como una
+  // consulta sin filtro de empresa.
+  //
+  // Además, este bloque hacía `whatsapp.companyId` sin comprobar nada: con un token
+  // que no resolviera, reventaba con un 500 en vez del 401 que devuelven los demás.
+  const whatsapp = req.apiWhatsapp;
+  if (!whatsapp) {
+    return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
+  }
   const companyId = whatsapp.companyId;
 
   const number = newContact.number.replace("-", "").replace(" ", "");
@@ -1228,19 +1246,18 @@ export const checkNumbers = async (req: Request, res: Response): Promise<void> =
   }
 
   // Autenticación por token
+  // [2026-08-01] La conexión la resolvió `tokenAuth` y viaja en el request: aquí ya
+  // no se vuelve a consultar. La búsqueda duplicada es lo que hizo que el middleware
+  // y este handler respondieran códigos distintos al mismo cliente cuando el token
+  // pasó a guardarse cifrado, y además el guard de aislamiento la contaba como una
+  // consulta sin filtro de empresa.
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     res.status(401).json({ success: false, error: "Token de autorización requerido" });
     return;
   }
 
-  const [, token] = authHeader.split(" ");
-  if (!token) {
-    res.status(401).json({ success: false, error: "Formato de token inválido" });
-    return;
-  }
-
-  const whatsapp = await FindWhatsappByApiToken(token);
+  const whatsapp = req.apiWhatsapp;
   if (!whatsapp) {
     res.status(401).json({ success: false, error: "Token inválido" });
     return;
@@ -1440,13 +1457,7 @@ export const sendTemplate = async (req: Request, res: Response): Promise<Respons
     return res.status(401).json({ status: "ERROR", error: "Token de autorización requerido" });
   }
 
-  const [, token] = authHeader.split(" ");
-  if (!token) {
-    return res.status(401).json({ status: "ERROR", error: "Formato de token inválido" });
-  }
-
-  // Buscar la conexión por token
-  const whatsapp = await FindWhatsappByApiToken(token);
+  const whatsapp = req.apiWhatsapp;
   if (!whatsapp) {
     return res.status(401).json({ status: "ERROR", error: "Token inválido o conexión no encontrada" });
   }

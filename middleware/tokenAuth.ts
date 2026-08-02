@@ -124,6 +124,15 @@ const isAuthApi = async (
   // quedaba INERTE en toda la API pública: estos endpoints dependían al 100% de
   // que cada servicio filtrase a mano. Arranca en modo 'observe' para esta
   // superficie (ver TENANT_SCOPE_GUARD_API en helpers/tenantScope).
+  // [2026-08-01] La conexión viaja en el request para que los handlers no repitan
+  // la consulta. La duplicación no era solo trabajo de más: cuando el token pasó a
+  // guardarse cifrado, middleware y handlers dejaron de encontrarlo cada uno por su
+  // lado y respondían códigos distintos al mismo cliente. Además, la búsqueda del
+  // handler corre con el contexto de tenant ya abierto, así que el guard de
+  // aislamiento la veía como una consulta sin filtro de empresa — un aviso que no
+  // señalaba nada que arreglar y que bloqueaba el paso a `enforce`.
+  req.apiWhatsapp = whatsapp ?? undefined;
+
   if (whatsapp?.companyId != null) {
     const route = normalizeRoute(req);
     recordApiSurfaceRequest(route);
