@@ -47,9 +47,14 @@ RAMA="${DEPLOY_BRANCH:-refactor/verificabilidad-y-canales}"
 ESTADO="$PROD/.git/deploy-punto-de-retorno"
 ESTADO_VIEJO="$PROD/.deploy-punto-de-retorno"
 
-# Fuera del repo y al lado, no dentro: `mv` en el mismo sistema de ficheros es
-# instantáneo, así que restaurar no depende de copiar gigabytes ni de que npm arranque.
-RESPALDO_MODULOS="$PROD/../chateam-node_modules-respaldo"
+# Dentro de .git/ por dos motivos: git no rastrea nada de ahí (así el respaldo no
+# ensucia el árbol) y está en el mismo sistema de ficheros, así que el `mv` es
+# instantáneo y restaurar no depende de copiar gigabytes ni de que npm funcione.
+#
+# [2026-08-01] El primer intento lo puso en "$PROD/.." y falló con "Permission
+# denied": /opt es de root, solo /opt/chateam pertenece al usuario. El script abortó
+# a medias, con el checkout ya hecho.
+RESPALDO_MODULOS="$PROD/.git/node_modules-respaldo"
 ECOSYSTEM="$PROD/ecosystem.chateam.local.config.cjs"
 
 rojo()  { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -148,6 +153,16 @@ desplegar() {
     git -C "$PROD" status --short | sed 's/^/    /'
     abortar "el checkout se los llevaría por delante. Corre primero: salvaguarda"
   fi
+
+  # Todo lo que puede fallar por permisos o por falta de sitio se comprueba ANTES de
+  # tocar el código. Un despliegue que aborta con el checkout ya hecho deja el disco
+  # con una versión y el proceso con otra: no rompe nada de inmediato, pero el
+  # siguiente reinicio arranca una mezcla que nadie ha probado.
+  [ -w "$(dirname "$RESPALDO_MODULOS")" ] \
+    || abortar "no se puede escribir el respaldo en $(dirname "$RESPALDO_MODULOS")"
+  [ -e "$RESPALDO_MODULOS" ] \
+    && abortar "ya existe $RESPALDO_MODULOS — de un despliegue anterior que no
+          terminó. Revísalo y quítalo de en medio antes de seguir."
 
   info "Trayendo $RAMA..."
   git -C "$PROD" fetch origin --quiet
