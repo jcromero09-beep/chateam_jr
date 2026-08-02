@@ -46,6 +46,10 @@ RAMA="${DEPLOY_BRANCH:-refactor/verificabilidad-y-canales}"
 # es parte del código desplegado y no debe poder ensuciar el árbol.
 ESTADO="$PROD/.git/deploy-punto-de-retorno"
 ESTADO_VIEJO="$PROD/.deploy-punto-de-retorno"
+
+# Fuera del repo y al lado, no dentro: `mv` en el mismo sistema de ficheros es
+# instantáneo, así que restaurar no depende de copiar gigabytes ni de que npm arranque.
+RESPALDO_MODULOS="$PROD/../chateam-node_modules-respaldo"
 ECOSYSTEM="$PROD/ecosystem.chateam.local.config.cjs"
 
 rojo()  { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -161,12 +165,42 @@ desplegar() {
   git -C "$PROD" checkout -B "$RAMA" "origin/$RAMA" --quiet
   verde "  código en $RAMA @ $destino"
 
+  # El respaldo va ANTES del npm ci, y no es opcional.
+  #
+  # [2026-08-01] `npm ci` BORRA node_modules antes de instalar. Si la instalación
+  # falla a mitad —pasó: baileys abortó por la versión de Node— producción se queda
+  # sin dependencias y sin forma de arrancar, y el rollback tampoco puede levantarla
+  # porque también necesita npm. Con la copia, volver no depende de que npm funcione.
+  if [ -d "$PROD/node_modules" ]; then
+    info "Respaldando node_modules (para poder volver sin depender de npm)..."
+    mv "$PROD/node_modules" "$RESPALDO_MODULOS"
+    verde "  copia en $RESPALDO_MODULOS"
+  fi
+
   # 105 paquetes cambian de versión: `npm ci` reconstruye exactamente el lockfile.
   # `npm install` NO sirve aquí — resolvería versiones por su cuenta y el despliegue
   # dejaría de ser reproducible.
   info "Instalando dependencias (npm ci)..."
-  ( cd "$PROD" && npm ci --no-audit --no-fund )
+  if ! ( cd "$PROD" && npm ci --no-audit --no-fund ); then
+    rojo "npm ci falló. Restaurando el node_modules anterior..."
+    [ -d "$PROD/node_modules" ] && mv "$PROD/node_modules" "$PROD/node_modules.fallido"
+    mv "$RESPALDO_MODULOS" "$PROD/node_modules"
+    ( cd "$PROD" && pm2 reload ecosystem.chateam.local.config.cjs --update-env ) || true
+    abortar "dependencias restauradas y servicio recargado. El código sigue en la
+          rama nueva: corre 'rollback' para volver también el código."
+  fi
   verde "  dependencias al día"
+
+  # Comprobación de arranque ANTES de recargar: los named imports de paquetes CJS
+  # son la clase de fallo que compila, pasa los tests (jest corre en CommonJS) y solo
+  # revienta al arrancar en ESM. Así se ve aquí y no con el proceso ya caído.
+  if [ -f "$PROD/scripts/checkEsmNamedImports.ts" ]; then
+    info "Comprobando que los imports se resuelven al arrancar..."
+    ( cd "$PROD" && "$NODE_BIN" --import tsx/esm --require tsx/cjs \
+        scripts/checkEsmNamedImports.ts ) \
+      || abortar "hay imports que matarían el proceso al arrancar. NO se ha recargado
+          nada: el servicio sigue con el código anterior en memoria. Corre 'rollback'."
+  fi
 
   # El ecosystem de la rama trae enforce. Esta fase entra en observe a propósito.
   guard_a observe
@@ -267,7 +301,20 @@ rollback() {
 
   git -C "$PROD" checkout -f "$rama" --quiet
   git -C "$PROD" reset --hard "$commit" --quiet
-  ( cd "$PROD" && npm ci --no-audit --no-fund )
+
+  # Se prefiere el respaldo a `npm ci` a propósito: es un `mv` instantáneo, es
+  # EXACTAMENTE el árbol con el que producción funcionaba, y sobre todo no puede
+  # fallar a mitad dejando el sistema sin dependencias. Un rollback no puede depender
+  # de que una instalación de red salga bien.
+  if [ -d "$RESPALDO_MODULOS" ]; then
+    info "  restaurando node_modules desde el respaldo"
+    [ -d "$PROD/node_modules" ] && mv "$PROD/node_modules" "$PROD/node_modules.descartado"
+    mv "$RESPALDO_MODULOS" "$PROD/node_modules"
+  else
+    rojo "  no hay respaldo de node_modules; hay que reinstalar"
+    ( cd "$PROD" && npm ci --no-audit --no-fund )
+  fi
+
   ( cd "$PROD" && pm2 reload ecosystem.chateam.local.config.cjs --update-env )
 
   verde "Revertido. La columna tokenHash se queda en la base: es aditiva y el código"
