@@ -1,0 +1,30 @@
+# Sonda de la API pública de chateam — /etc/cron.d/chateam-api-probe
+#
+# Instalación (necesita sudo; crontab de usuario está bloqueado en este NAS):
+#
+#     sudo cp /home/jcromero09/chateam_jr/scripts/chateam-api-probe.cron \
+#             /etc/cron.d/chateam-api-probe
+#     sudo chown root:root /etc/cron.d/chateam-api-probe
+#     sudo chmod 644 /etc/cron.d/chateam-api-probe
+#
+# REQUISITO: /opt/chateam tiene que llevar ya scripts/apiHealthProbe.ts y
+# scripts/withPm2Env.cjs — es decir, hay que desplegar antes de instalar esto. Si se
+# instala antes, el cron falla cada 5 minutos en silencio, que es peor que no tenerlo:
+# parecería que hay vigilancia.
+#
+# Comprobar que funciona sin esperar al cron:
+#     sudo run-parts --test /etc/cron.d   # (no ejecuta, solo lista)
+#     tail -f /opt/chateam/logs/api-probe.log
+#
+# Cada 5 minutos, y avisa tras 3 fallos seguidos (API_PROBE_UMBRAL en el script), o
+# sea ~15 minutos de caída real. Un reload de PM2 tarda segundos y no dispara nada.
+#
+# El log va a /opt/chateam/logs porque /var/log es de root. Rota solo: el script
+# escribe pocas líneas y en marcha normal no escribe ninguna.
+
+SHELL=/bin/bash
+PATH=/home/jcromero09/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin
+
+# El Node es EXPLÍCITO y el mismo que arranca la app: el `node` por defecto del
+# sistema es la 18, con la que ni siquiera instalan las dependencias del proyecto.
+*/5 * * * * jcromero09 cd /opt/chateam && node scripts/withPm2Env.cjs node --import tsx/esm --require tsx/cjs scripts/apiHealthProbe.ts >> /opt/chateam/logs/api-probe.log 2>&1
