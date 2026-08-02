@@ -160,9 +160,14 @@ desplegar() {
   # siguiente reinicio arranca una mezcla que nadie ha probado.
   [ -w "$(dirname "$RESPALDO_MODULOS")" ] \
     || abortar "no se puede escribir el respaldo en $(dirname "$RESPALDO_MODULOS")"
-  [ -e "$RESPALDO_MODULOS" ] \
-    && abortar "ya existe $RESPALDO_MODULOS — de un despliegue anterior que no
-          terminó. Revísalo y quítalo de en medio antes de seguir."
+  if [ -e "$RESPALDO_MODULOS" ]; then
+    abortar "ya existe un respaldo en $RESPALDO_MODULOS.
+
+          Si viene de un despliegue que SÍ funcionó, es que nadie lo cerró: pasa
+          'verificar' y, si sale bien, te dirá cómo retirarlo.
+          Si viene de uno que se quedó a medias, mira antes qué hay ahí — es el
+          node_modules con el que producción funcionaba."
+  fi
 
   info "Trayendo $RAMA..."
   git -C "$PROD" fetch origin --quiet
@@ -292,6 +297,24 @@ for a in apps:
   else
     verde "  sin avisos · el guard no vería nada que corregir"
     info "  (con poco tráfico esto no prueba mucho: dejar correr unas horas)"
+  fi
+
+  # Cerrar el ciclo del respaldo.
+  #
+  # [2026-08-02] `desplegar` creaba el respaldo y NADIE lo cerraba, así que el
+  # siguiente despliegue abortaba con "ya existe un respaldo de un despliegue que no
+  # terminó" — sobre uno que había terminado perfectamente. Un guardarraíl que
+  # bloquea el camino normal, y encima describiendo mal la situación, acaba
+  # desactivado a martillazos el día que corre prisa.
+  #
+  # No se borra desde aquí a propósito: son cientos de megas y es la única vuelta
+  # atrás que no depende de npm. Que desaparezca tiene que ser una decisión, no un
+  # efecto secundario de haber pasado una comprobación.
+  if [ -d "$RESPALDO_MODULOS" ]; then
+    echo
+    verde "Despliegue CONFIRMADO · el respaldo de node_modules ya no hace falta:"
+    info "  rm -rf $RESPALDO_MODULOS"
+    info "  (mientras exista, el próximo 'desplegar' se negará a empezar)"
   fi
 }
 
