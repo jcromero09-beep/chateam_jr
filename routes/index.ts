@@ -235,6 +235,7 @@ import aiCorrectionReviewRoutes from "./aiCorrectionReviewRoutes";
 import agentDeviceRoutes from "./agentDeviceRoutes";
 
 import agentInteractionRoutes from "./agentInteractionRoutes";
+import smartPlugRoutes from "./smartPlugRoutes";
 
 import integrationRoutes from "./integrationRoutes";
 
@@ -486,6 +487,9 @@ routes.use(aiCorrectionReviewRoutes); // Sprint 1 — /ai/correction-review
 // ── BATCH: UGC Agent extras ──
 routes.use(agentDeviceRoutes);       // /ugc/devices
 routes.use(agentInteractionRoutes);  // /ugc/interactions
+
+// ── IoT: tomacorrientes inteligentes WiFi (Tapo) ──
+routes.use(smartPlugRoutes);         // /smart-plugs
 
 // Integrations (CRM, ERP, etc.)
 routes.use("/integrations", integrationRoutes);

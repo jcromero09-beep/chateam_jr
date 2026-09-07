@@ -213,6 +213,7 @@ import CampaignRule from "../models/CampaignRule";
 import CampaignRuleLog from "../models/CampaignRuleLog";
 import AgentDevice from "../models/AgentDevice";
 import AgentInteraction from "../models/AgentInteraction";
+import SmartPlug from "../models/SmartPlug"; // [Smart Plug · Ola A]
 import ContactTemperature from "../models/ContactTemperature";
 import RecommendationRun from "../models/RecommendationRun"; // [Ola D · G0]
 import CampaignApproval from "../models/CampaignApproval"; // [Ola F · F2.1]
@@ -472,6 +473,7 @@ const models = [
   CampaignRuleLog,
   AgentDevice,
   AgentInteraction,
+  SmartPlug,
   ContactTemperature,
   RecommendationRun,
   CampaignApproval,
