@@ -300,7 +300,64 @@ Criterios: 14/14 ready · ≈16 ESTABLISHED al XVR · `skipped_fps` = 0 · infer
 
 ---
 
-## 6. Referencias en el repo de Frigate
+## 6. Fusión de `centinela_detector.py` + `motor_eventos.py`: verificación del plan
+
+Premisa correcta: dos procesos decodifican el mismo RTSP y corren dos detectores (YOLOv8s
+Ultralytics para overlay, RF-DETR ONNX para eventos) sobre los mismos píxeles. RF-DETR base es
+COCO, así que ya emite `person`, `cat`, `dog` y vehículos. Frigate hace exactamente "una
+inferencia, varias vistas": `min_score` (por detección) y `threshold` (mediana del historial) son
+dos filtros sobre el mismo array (`docs/docs/configuration/object_filters.md:14-39`).
+
+Módulo listo para injertar: **`docs/video/overlay_sink.py`** (supervision MIT + ffmpeg → MediaMTX).
+`to_sv_detections()` envuelve los arrays que motor_eventos ya calcula; `OverlaySink.push()` anota
+y publica en un hilo aparte con backoff, sin bloquear la rama de eventos. Publica a 1 fps cuando no
+hay detecciones (equivalente al "smart streaming" de Frigate) y a fps completo cuando las hay.
+
+### Contraste de los "3 asteriscos" de Frigate contra el código (rama `dev`, 2026-09-14)
+
+| Afirmación | Veredicto | Evidencia |
+| --- | --- | --- |
+| "RF-DETR en CPU no lo recomiendan, solo GPU Arc discreta; Frigate te empuja a D-FINE/OpenVINO CPU" | **No confirmado en `dev`.** RF-DETR está listado bajo OpenVINO y ONNX como modelo `recommended: false` igual que YOLO-NAS, YOLOX y D-FINE; el detector OpenVINO lo soporta y OpenVINO corre en modo `CPU`. No hay frase que lo restrinja a Arc. Tampoco hay cifras de RF-DETR en CPU: las publicadas son Nvidia (Nano-320: 4-12 ms) y AMD 9060XT vía ROCm (~90 ms). D-FINE se documenta a **640×640**, más pesado que RF-DETR Nano a 320. | `docs/data/object_detectors_models.yaml:290-331,332-427`, `frigate/detectors/plugins/openvino.py:23,39-46`, `docs/docs/frigate/hardware.md:197-202,226-230` |
+| "Eventos salen por MQTT, no a Postgres" | **Confirmado.** BD interna SQLite en `/config/frigate.db`; eventos por MQTT y REST. `tracked_object_update` tipo `lpr` trae `plate`, `score` y `plate_box`. | `docs/docs/configuration/advanced/system.md:168`, `docs/docs/integrations/mqtt.md` ("License Plate Recognition Update") |
+| "El LPR interno usa un YOLOv9 (GPL); tendrías que apuntarlo a tu fast-alpr" | **Confirmado a medias.** El detector de placas es `yolov9-256-license-plates.onnx` descargado de `hawkeye217/yolov9-license-plates`, con URL **fija en código**; la config de LPR no tiene campo `path`. **No existe hook para enchufar fast-alpr.** La única salida documentada es usar un modelo de detección que emita nativamente la etiqueta `license_plate` (Frigate+ o custom), con lo que el YOLOv9 no se usa. El OCR es PaddleOCR (Apache-2.0). | `frigate/embeddings/onnx/lpr_embedding.py:217-231`, `frigate/config/classification.py:336-350`, `docs/docs/configuration/license_plate_recognition.md:32-34` |
+
+Consecuencia práctica: el motivo real para **no** adoptar Frigate en tu caso no es RF-DETR
+(cabe con `openvino:CPU`), sino que no puedes reutilizar fast-alpr ni escribir directo a
+`oi_evento_vehicular` sin un puente. La fusión con supervision sigue siendo la ruta más corta.
+
+### Qué cambia con la fusión
+
+- Desaparece la decodificación duplicada y la inferencia YOLOv8s (~104 % CPU según tu medición).
+- Desaparece la dependencia Ultralytics AGPL del producto.
+- El ~476 % de RF-DETR no baja por la fusión; baja con el gating por movimiento y regiones
+  320 de la sección 3.2-3.3 (inferir solo cuando y donde hay movimiento).
+
+### Cómo injertarlo en `motor_eventos.py`
+
+```python
+from overlay_sink import OverlaySink, to_sv_detections
+
+sink = OverlaySink(
+    rtsp_url="rtsp://127.0.0.1:8554/perim-cam1-overlay",
+    width=W, height=H, fps=5,
+    labels=LABELMAP,                       # el mismo que usa la rama de eventos
+    min_confidence=0.22,                   # umbral del overlay, no de eventos
+    zones={"garita": np.array(POLIGONO_GARITA)},
+)
+
+for frame in frames():                     # el decode que ya existe
+    xyxy, conf, cls = rfdetr_infer(frame)  # la inferencia que ya existe
+    tracked = bytetrack.update(...)        # el tracker que ya existe
+    dets = to_sv_detections(xyxy, conf, cls, tracker_id=tracked_ids)
+    eventos.procesar(dets)                 # rama actual: filtro alto, vehículo-céntrico → BD
+    sink.push(frame, dets)                 # rama nueva: overlay → MediaMTX → web
+```
+
+MediaMTX: el path `perim-cam1-overlay` se crea al publicar (o declararlo con `source: publisher`).
+Prueba: `ffprobe -v error -show_streams rtsp://127.0.0.1:8554/perim-cam1-overlay` debe mostrar
+H264 a 5 fps; `top` debe mostrar un solo proceso Python y ningún proceso de `centinela_detector`.
+
+## 7. Referencias en el repo de Frigate
 
 | Tema | Archivo |
 | --- | --- |
