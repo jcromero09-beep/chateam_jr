@@ -357,6 +357,62 @@ MediaMTX: el path `perim-cam1-overlay` se crea al publicar (o declararlo con `so
 Prueba: `ffprobe -v error -show_streams rtsp://127.0.0.1:8554/perim-cam1-overlay` debe mostrar
 H264 a 5 fps; `top` debe mostrar un solo proceso Python y ningún proceso de `centinela_detector`.
 
+### Gating por movimiento + regiones 320: `docs/video/motion_gate.py`
+
+Port de Frigate para poner delante de RF-DETR sin cambiar el modelo:
+
+| Pieza | Origen en Frigate | Clase / función en el módulo |
+| --- | --- | --- |
+| Detector de movimiento (frame a 100 px, contraste, umbral 30, contornos, lightning) | `frigate/motion/improved_motion.py` | `MotionDetector` |
+| Región cuadrada ≥ modelo, múltiplo de 4, recortada al frame | `frigate/util/image.py:calculate_region` | `calculate_region` |
+| Agrupar motion boxes y objetos trackeados en regiones | `frigate/util/object.py:get_cluster_*` | `RegionPlanner` |
+| Recorte 320×320 y mapeo de vuelta a píxeles del frame | `frigate/video/detect.py:139-175` | `crop_region`, `map_back` |
+| NMS por clase entre regiones, penalizando cajas cortadas por el borde | `frigate/util/object.py:reduce_detections` | `reduce_detections` |
+| Objetos estáticos re-verificados cada N frames | `detect.stationary.interval` | `MotionGatedDetector(stationary_interval=50)` |
+
+Una desviación deliberada: Frigate arranca el historial de contraste en `[0,255]` y deriva
+durante 50 frames (marcado como TODO en su código). Aquí se siembra con el primer valor real,
+lo que elimina los motion boxes falsos de arranque.
+
+Pruebas: `docs/video/test_video_modules.py` (9 tests, sin cámara ni ffmpeg; pasan con
+supervision 0.30 + OpenCV 5). Benchmark sintético, 5 min a 5 fps con tres cruces de 12 s:
+
+| Métrica | Valor |
+| --- | --- |
+| Frames procesados | 1500 |
+| Inferencias RF-DETR | 180 (12 % de los frames, exactamente los que tenían objeto) |
+| Detecciones correctas | 180 / 180 |
+| Coste del gating por frame (CPU, sin modelo) | ~1 ms |
+
+En una escena real la fracción de frames con movimiento es la que manda: el ~476 % de RF-DETR
+pasa a ser proporcional a ese porcentaje, y cada inferencia es sobre 320×320, no sobre el frame.
+
+Injerto en `motor_eventos.py` (la inferencia recibe un recorte, no el frame):
+
+```python
+from motion_gate import MotionGatedDetector
+
+def infer_region(crop_bgr_320):
+    xyxy, conf, cls = rfdetr_onnx(crop_bgr_320)     # lo que ya existe, sobre 320×320
+    return xyxy, conf, cls                          # xyxy en píxeles del recorte
+
+gate = MotionGatedDetector((H, W), infer_region, model_size=320, labels=LABELMAP)
+
+for frame in frames():
+    active = [t.xyxy for t in tracks if not t.stationary]
+    quiet  = [t.xyxy for t in tracks if t.stationary]
+    res = gate.process(frame, tracked_boxes=active, stationary_boxes=quiet)
+    tracks = bytetrack.update(res.xyxy, res.confidence, res.class_id)
+    dets = to_sv_detections(res.xyxy, res.confidence, res.class_id, tracker_id=[t.id for t in tracks])
+    eventos.procesar(dets)
+    sink.push(frame, dets)
+```
+
+Métricas a exponer (las mismas que Frigate en `/api/stats`): `inferences/s`, `skipped`,
+`inference_ms`, `regions/frame`. Si `inferences/s` se acerca a `fps × cámaras`, el gating no
+está filtrando (umbral de movimiento demasiado bajo o cámara con ruido: subir `threshold` o
+`contour_area`, o añadir máscara de movimiento).
+
 ## 7. Referencias en el repo de Frigate
 
 | Tema | Archivo |
