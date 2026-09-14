@@ -423,6 +423,15 @@ Métricas a exponer (las mismas que Frigate en `/api/stats`): `inferences/s`, `s
 está filtrando (umbral de movimiento demasiado bajo o cámara con ruido: subir `threshold` o
 `contour_area`, o añadir máscara de movimiento).
 
+### Anexo de mascotas
+
+El alcance de detección de mascotas (perro, gato; ampliable) sobre la misma inferencia, la
+revisión del anexo técnico del equipo y su implementación corregida están en
+**`docs/ARQUITECTURA_VIDEO_ANEXO_MASCOTAS.md`** (`docs/video/pet_events.py`, 17 tests).
+Decisión que cambia el documento principal: el overlay de producción lo dibuja el **cliente** a
+partir de `tracking.update` con cajas normalizadas; `overlay_sink.py` queda como herramienta de
+depuración, no como salida permanente recodificada.
+
 ## 7. Referencias en el repo de Frigate
 
 | Tema | Archivo |

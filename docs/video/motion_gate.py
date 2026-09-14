@@ -254,6 +254,24 @@ class RegionPlanner:
         return regions
 
 
+def tile_regions(frame_shape: tuple[int, int], size: int = 320, overlap: float = 0.15) -> list[Box]:
+    """Cubre el frame con regiones cuadradas solapadas (para la inferencia de seguridad periódica).
+
+    Un solo full-frame redimensionado a 320 pierde mascotas pequeñas; Frigate en su lugar escanea
+    las 8 celdas históricamente más activas (`get_startup_regions`). Sin historial, se tesela.
+    """
+    h, w = frame_shape
+    size = min(size, h, w)
+    step = max(1, int(size * (1 - overlap)))
+    xs = list(range(0, max(1, w - size + 1), step))
+    ys = list(range(0, max(1, h - size + 1), step))
+    if xs[-1] + size < w:
+        xs.append(w - size)
+    if ys[-1] + size < h:
+        ys.append(h - size)
+    return [(x, y, x + size, y + size) for y in ys for x in xs]
+
+
 # ---------------------------------------------------------------------------
 # 3. Recorte, mapeo de vuelta y consolidación (frigate/video/detect.py + reduce_detections)
 # ---------------------------------------------------------------------------
@@ -349,10 +367,17 @@ class MotionGatedDetector:
         self.stationary_interval = stationary_interval
         self.frame_counter = 0
 
-    def process(self, frame_bgr: np.ndarray, tracked_boxes: Sequence[Box] = (), stationary_boxes: Sequence[Box] = ()) -> GateResult:
+    def process(
+        self,
+        frame_bgr: np.ndarray,
+        tracked_boxes: Sequence[Box] = (),
+        stationary_boxes: Sequence[Box] = (),
+        extra_regions: Sequence[Box] = (),
+    ) -> GateResult:
         """
         tracked_boxes    cajas de objetos activos (ByteTrack): siempre reciben región
         stationary_boxes cajas de objetos estáticos: solo reciben región cada stationary_interval frames
+        extra_regions    regiones forzadas (p. ej. `tile_regions()` para la inferencia de seguridad periódica)
         """
         self.frame_counter += 1
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -365,6 +390,7 @@ class MotionGatedDetector:
             boxes_for_regions += list(stationary_boxes)
 
         regions = self.planner.plan(motion_boxes, boxes_for_regions)
+        regions += [r for r in extra_regions if r not in regions]
         if not regions:
             return GateResult(np.zeros((0, 4), np.float32), np.zeros((0,), np.float32), np.zeros((0,), int),
                               [], motion_boxes, 0)
