@@ -325,6 +325,16 @@ Consecuencia práctica: el motivo real para **no** adoptar Frigate en tu caso no
 (cabe con `openvino:CPU`), sino que no puedes reutilizar fast-alpr ni escribir directo a
 `oi_evento_vehicular` sin un puente. La fusión con supervision sigue siendo la ruta más corta.
 
+### Ojo con los índices de clase de RF-DETR
+
+El texto revisado dice "person(0), cat(15), dog(16)". Eso es el esquema COCO-80 contiguo (el de
+Ultralytics/YOLOv8). El ONNX de RF-DETR emite logits en el esquema COCO-91 con índice 0 = fondo;
+Frigate hace `argmax` sobre `[1:]` y usa su `labelmap.txt` por defecto, donde
+**person = 0, cat = 16, dog = 17** (`labelmap.txt:1,17,18`; el yaml de RF-DETR no fija
+`labelmap_path`, `docs/data/object_detectors_models.yaml:322-331`). Con el mapa de 80 clases el
+overlay etiquetaría `bird` como `cat` y `cat` como `dog`. La rama de eventos ya funciona, así que
+el labelmap correcto es el que ella usa: pásale **ese mismo** a `OverlaySink(labels=...)`.
+
 ### Qué cambia con la fusión
 
 - Desaparece la decodificación duplicada y la inferencia YOLOv8s (~104 % CPU según tu medición).
