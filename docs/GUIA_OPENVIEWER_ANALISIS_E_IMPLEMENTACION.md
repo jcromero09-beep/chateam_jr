@@ -1,9 +1,27 @@
-# OpenViewer (aiopenviewer.com): análisis del catálogo, auditoría del paquete gratuito e implementación propia
+# Guía completa OpenViewer (aiopenviewer.com): análisis, auditoría e implementación propia
 
-> Sesión 2026-09-17. Complementa `ARQUITECTURA_VIDEO_FRIGATE_VS_YOLO_MEDIAMTX.md` (patrones de
-> Frigate) y `ARQUITECTURA_VIDEO_ANEXO_MASCOTAS.md` (contrato `Track`, `tracking.update`).
-> Código entregado en `docs/video/`: `frame_bus.py`, `zone_plugins.py`, `test_frame_bus.py`,
-> `test_zone_plugins.py` (19 tests, todos en verde con Python 3.11 + numpy, sin OpenCV ni vídeo).
+> Sesión 2026-09-17. Documento único que reúne el análisis del catálogo, la auditoría del paquete
+> gratuito, el análisis del vídeo "container code" y la implementación propia con código y tests.
+> Complementa `ARQUITECTURA_VIDEO_FRIGATE_VS_YOLO_MEDIAMTX.md` (patrones de Frigate) y
+> `ARQUITECTURA_VIDEO_ANEXO_MASCOTAS.md` (contrato `Track`, `tracking.update`).
+>
+> Código entregado en `docs/video/`: `frame_bus.py`, `zone_plugins.py`, `container_code.py` y sus
+> tests `test_frame_bus.py` (6), `test_zone_plugins.py` (13), `test_container_code.py` (14):
+> 33 tests en verde con Python 3.11 + numpy, sin OpenCV, sin modelos ni vídeo.
+
+## Índice
+
+1. Resumen ejecutivo
+2. Catálogo de `source.html`
+3. Auditoría del paquete gratuito `plugin-detection.zip`
+4. Implementación propia: `frame_bus.py` (bus de frames y detecciones)
+5. Implementación propia: `zone_plugins.py` (conteo, mapa de calor, estacionamiento)
+6. Injerto en `motor_eventos.py` y en el overlay
+7. Fuego y humo
+8. Análisis del vídeo "container code" de OpenViewer
+9. Implementación propia: `container_code.py` (ISO 6346, OCR y bloqueo por votación)
+10. Verificación tras integrar
+11. Referencias
 
 ---
 
@@ -14,7 +32,8 @@
 | ¿Qué vende aiopenviewer.com? | Paquetes de código Python sobre Ultralytics YOLO: un runtime de captura (01, $200), un runtime de inferencia (02, $200) y plugins de $29 (LPR, tracking, conteo, mapa de calor, estacionamiento, OCR de placas de motor), más un pipeline de fuego y humo ($100). Reconocimiento facial "muy pronto". Un plugin de detección es gratuito |
 | ¿Aporta algo que no tengamos? | No en captura, inferencia, tracking, conteo, heatmap ni estacionamiento: go2rtc + patrones de Frigate + RF-DETR + ByteTrack + supervision ya lo cubren. El único hueco real es un dataset/modelo de fuego y humo, y ahí faltan datos para decidir |
 | ¿Riesgo si se compra? | Licencia: todo depende de Ultralytics (AGPL-3.0) y los pesos `yolo26s.pt` llevan "AGPL-3.0" embebido. Para una plataforma multi-tenant comercial exige licencia Enterprise o publicar el código. Sin LICENSE, sin repositorio, sin reembolso, contacto por Gmail/Zalo, pago solo PayPal |
-| ¿Qué hemos hecho? | Auditar el paquete gratuito (2.061 líneas), medir su bus de memoria compartida, e implementar en `docs/video/` un bus propio corregido y los tres plugins de $29 sobre nuestros propios tracks, con tests |
+| ¿Qué hemos hecho? | Auditar el paquete gratuito (2.061 líneas), medir su bus de memoria compartida, analizar su vídeo de lectura de contenedores, e implementar en `docs/video/` un bus propio corregido, los tres plugins de $29 y la lectura ISO 6346 con bloqueo por votación, todo sobre nuestros propios tracks y con tests |
+| ¿Y el "container code" del vídeo? | Es el mismo esqueleto del plugin auditado (edición Ultralytics + bus 01/02) con un OCR inyectable, casi seguro PaddleOCR sobre ONNX Runtime. La parte difícil (validación ISO 6346, corrección de confusiones OCR y estado LOCKED) está implementada y probada en `container_code.py` (§9) |
 | Decisión | **No comprar 01/02 ni los plugins de $29.** Fuego y humo: solo tras obtener tamaño, licencia y mAP del dataset, y compararlo con un fine-tune de RF-DETR sobre datasets abiertos |
 
 ---
@@ -604,9 +623,310 @@ confirmación en 3 observaciones consecutivas y cooldown de 120 s por cámara.
 
 ---
 
-## 8. Verificación tras integrar
+## 8. Análisis del vídeo "container code" de OpenViewer
 
-1. `python3 docs/video/test_zone_plugins.py && python3 docs/video/test_frame_bus.py` en verde.
+Captura de un vídeo corto (0:29) publicado por la cuenta OpenViewer en una red social (contador
+de 21 "me gusta", 1 comentario, 4 compartidos, marca de agua "openviewer" y logo "WTM MEDIA").
+No está en `source.html`: es un plugin en promoción, probablemente el próximo de $29.
+
+### 8.1 Qué muestra la escena
+
+| Elemento | Lectura |
+| --- | --- |
+| Escena | Parte trasera de un contenedor de 20 pies de K LINE sobre camión en un patio portuario; otro contenedor y camión al fondo |
+| Detección | Caja amarilla sobre el bloque de marcado del contenedor (código de propietario, serie, dígito de control y código de tamaño/tipo), etiqueta `id6`: la caja está **trackeada**, no es una detección suelta |
+| Texto reconocido | `KKTU 777926 1 22G0`: propietario `KKT`, categoría `U` (contenedor de carga), serie `777926`, dígito de control `1`, tamaño/tipo `22G0` (20 pies, 8'6" de alto, uso general) |
+| Estado | Badge `LOCKED` arriba a la derecha: la lectura ya no cambia. Es el mismo patrón de votación por track que el LPR de Frigate y el que implementa `ContainerCodeTracker` (§9) |
+| Panel inferior derecho | Recorte ampliado del bloque de texto con la lectura debajo, y un icono de "5" que parece indicar el número de lecturas o el intervalo de refresco. Confirma que el OCR corre sobre un **recorte** de la caja detectada, no sobre el frame entero |
+| Validación | El dígito de control ISO 6346 de `KKTU777926` es **1**, calculado en `test_container_code.py`. La lectura del vídeo es correcta y consistente con la norma, así que el pipeline del vendedor valida o al menos acierta el dígito |
+
+### 8.2 Qué revela el código que aparece en pantalla
+
+El fragmento visible es el `main()` de `plugins/container-code/ultralytics/run.py`, con el mismo
+esqueleto que el `plugins/detection/ultralytics/run.py` auditado en §3:
+
+```python
+def main() -> None:
+    """CLI entry for the Ultralytics container-code plugin."""
+    parser = argparse.ArgumentParser(description="plugins/container-code ultralytics")
+    add_common_args(parser)
+    args = parser.parse_args()
+    config_path = Path(args.config) if args.config else _EDITION_ROOT / "configs" / "run.yaml"
+    yaml_data = load_yaml(config_path) if config_path.is_file() else {}
+    cfg = merge_run_config(yaml_data, args, edition=EDITION, license_tier=LICENSE)
+    run = cfg["run"]
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logger.info("edition=%s ocr=%s", cfg["edition"], cfg["container"].get("ocr_engine"))
+    engine = make_engine(cfg)
+    device = str(run.get("device") or "cpu")
+    ipc = run.get("ipc")
+    source = run.get("source")
+    if ipc:
+        engine.infer_label = "infer=topic-02 (boxes from InferSlot)"
+        run_ipc(str(ipc), engine, confidence=float(run["confidence"]), classes=run.get("classes"),
+                imshow=bool(run.get("imshow")), imshow_scale=float(run.get("imshow_scale", 1.0)),
+                save=bool(run.get("save", True)), output=run.get("output"))
+        return
+```
+
+| Evidencia | Conclusión |
+| --- | --- |
+| `add_common_args`, `load_yaml`, `merge_run_config`, `_EDITION_ROOT / "configs" / "run.yaml"`, `EDITION`, `LICENSE` | Misma plantilla de código que el paquete gratuito. Ediciones `ultralytics` (free) / `ort` / `tensorrt` (paid), luego **misma dependencia AGPL** de Ultralytics en la edición mostrada |
+| `run_ipc(..., "infer=topic-02 (boxes from InferSlot)")` | En modo IPC las cajas vienen del runtime 02 ($200) por el bus `InferSlot` (§3.3). El plugin solo recorta y hace OCR: **sin 01+02 no funciona en vivo** |
+| `cfg["container"].get("ocr_engine")` y `make_engine(cfg)` | Motor OCR inyectable por configuración. Dado el overlay `ocr=paddle-ort` del plugin de placas de motor (§2), casi seguro PaddleOCR sobre ONNX Runtime |
+| `save=bool(run.get("save", True))`, `output=run.get("output")` | Guarda recortes y lecturas en disco por defecto (para revisar o para construir dataset) |
+| Clase detectada `container-code` | El detector es un YOLO fine-tuned con una clase de bloque de texto de contenedor; el `.pt` no viene en el paquete gratuito |
+
+### 8.3 Qué merece copiar y qué no
+
+- **Copiar**: OCR sobre el recorte de una caja trackeada, no sobre el frame; bloqueo por votación
+  con estado visible; validación por dígito de control; guardar recortes para dataset.
+- **No copiar**: la dependencia de Ultralytics y del bus 01/02. En nuestro pipeline el detector
+  es RF-DETR (Apache-2.0) con una clase extra `container_code`, el tracker ByteTrack ya existe y el
+  OCR es RapidOCR o PaddleOCR en ONNX Runtime (Apache-2.0), todo en el mismo proceso de eventos.
+
+---
+
+## 9. Implementación propia: `docs/video/container_code.py`
+
+### 9.1 Arquitectura
+
+```text
+substream ─▶ MotionGatedDetector (RF-DETR, clases COCO + container_code)
+                 │  detecciones
+                 ▼
+             ByteTrack ──▶ Track(label="container_code", track_id, box)
+                 │
+                 ▼
+   ContainerCodeTracker.should_ocr(cam, id, now)?  ──no──▶ (bloqueado o intervalo no cumplido)
+                 │ sí
+                 ▼
+   crop_box(box, W, H, pad=0.15) → recorte BGR (reescalar ×2 si alto < 32 px)
+                 ▼
+   OcrEngine.read(crop) → [OcrResult(text, conf)]         (RapidOCR / PaddleOCR ONNX, inyectado)
+                 ▼
+   normalize_candidates(text) → corrección posicional → is_valid (dígito de control)
+                 ▼
+   ContainerCodeTracker.observe(...) → votos por track → CONTAINER_CODE_LOCKED (una vez)
+                                                        → CONTAINER_CODE_UNREADABLE (tras N lecturas)
+```
+
+Presupuesto de CPU: el OCR (≈ 30–80 ms en CPU por recorte con RapidOCR) solo corre para tracks
+de `container_code` no bloqueados y como máximo cada `ocr_interval_s` (0,4 s). Un contenedor
+que pasa por delante de la cámara genera entre 3 y 8 lecturas, no cientos.
+
+### 9.2 ISO 6346 en código
+
+Valores de letras (A=10 … Z=38, saltando 11, 22 y 33) y dígito de control: suma de
+`valor × 2^posición` sobre los 10 primeros caracteres, módulo 11, y el resto 10 cuenta como 0.
+
+```python
+LETTER_VALUES: dict[str, int] = {}
+_v = 10
+for _ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+    if _v % 11 == 0:
+        _v += 1
+    LETTER_VALUES[_ch] = _v
+    _v += 1
+
+def check_digit(owner_and_serial: str) -> int:
+    s = owner_and_serial.upper()                          # 3 letras + categoría + 6 dígitos
+    total = 0
+    for i, ch in enumerate(s):
+        val = int(ch) if ch.isdigit() else LETTER_VALUES[ch]
+        total += val * (2 ** i)
+    return (total % 11) % 10
+
+_CODE_RE = re.compile(r"^[A-Z]{3}[UJZ][0-9]{6}[0-9]$")
+
+def is_valid(code: str) -> bool:
+    code = code.upper()
+    return bool(_CODE_RE.match(code)) and check_digit(code[:10]) == int(code[10])
+```
+
+Comprobado: `check_digit("KKTU777926") == 1` (el contenedor del vídeo) y
+`check_digit("CSQU305438") == 3` (ejemplo clásico de la norma).
+
+Código de tamaño/tipo (`22G0`, `45G1`, `22R1`, `42U1`): 4 caracteres, posición 3 letra de tipo,
+posición 4 dígito; se corrige `O→0` en las posiciones numéricas y se valida con
+`^[1-9A-NP-Z][0-9A-Z][A-Z][0-9]$`.
+
+### 9.3 Corrección posicional de la salida OCR
+
+El OCR confunde glifos, pero el formato fija qué es letra y qué es dígito: las 4 primeras
+posiciones son letras (la 4.ª solo U/J/Z), las 7 siguientes dígitos. La corrección se aplica por
+posición y **solo se acepta si el dígito de control cuadra**, lo que descarta casi cualquier
+corrección espuria (probabilidad 1/10 de acertar por azar, y el vote por track la reduce más).
+
+```python
+_TO_LETTER = {"0": "O", "1": "I", "8": "B", "5": "S", "2": "Z", "6": "G", "4": "A", "7": "T"}
+_TO_DIGIT  = {"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "B": "8", "S": "5", "Z": "2", "G": "6", "T": "7", "A": "4"}
+
+def normalize_candidates(text: str) -> list[str]:
+    raw = re.sub(r"[^0-9A-Z]", "", text.upper())          # quita espacios, guiones, ruido
+    out = []
+    for start in range(0, max(1, len(raw) - 10)):         # ventana de 11 por si viene "…1 22G0" pegado
+        window = raw[start:start + 11]
+        if len(window) != 11: break
+        for cand in (window, _positional_fix(window)):    # primero tal cual, luego corregido
+            if cand not in out and is_valid(cand):
+                out.append(cand)
+    return out
+
+def _positional_fix(w: str) -> str:
+    return "".join(_TO_LETTER.get(c, c) for c in w[:4]) + "".join(_TO_DIGIT.get(c, c) for c in w[4:])
+```
+
+Casos cubiertos por tests: `"KKTU 77792G 1"` → `KKTU7779261` (G→6), `"KKTU 7779Z6 1"` (Z→2),
+`"KK7U 777926 1"` (7→T en cabecera), `"KKTU7779261 22G0"` (ventana), `"KKTU 777926 7"` → sin
+candidato (dígito de control incorrecto), `"K LINE"` → sin candidato.
+
+### 9.4 Bloqueo por votación (`LOCKED`)
+
+```python
+class ContainerCodeTracker:
+    def __init__(self, *, lock_votes=3, lock_margin=2, ocr_interval_s=0.4, max_readings=25, track_ttl_s=5.0): ...
+
+    def should_ocr(self, camera_id, track_id, now) -> bool:
+        st = self._tracks.get((camera_id, track_id))
+        if st is None: return True
+        if st.locked is not None or st.readings >= self.max_readings: return False
+        return now - st.last_ocr >= self.ocr_interval_s
+
+    def observe(self, camera_id, track_id, results, ts) -> list[dict]:
+        st = self._tracks.setdefault((camera_id, track_id), _CodeTrackState(first_seen=ts))
+        st.last_seen = st.last_ocr = ts; st.readings += 1
+        if st.locked is not None: return []
+        for r in results:
+            for cand in normalize_candidates(r.text):
+                st.votes[cand] += 1                           # una lectura, un voto (solo si válida)
+                st.conf_sum[cand] = st.conf_sum.get(cand, 0.0) + r.confidence
+                break
+            size = parse_size_type(...)                       # 22G0 se vota aparte
+            if size: st.size_votes[size] += 1
+        best = st.votes.most_common(2)
+        if best:
+            code, n = best[0]; second = best[1][1] if len(best) > 1 else 0
+            if n >= self.lock_votes and n - second >= self.lock_margin:
+                st.locked = code
+                return [{"type": "CONTAINER_CODE_LOCKED", "code": code, "code_formatted": format_code(code),
+                         "owner": code[:3], "category": code[3], "serial": code[4:10], "check_digit": int(code[10]),
+                         "size_type": st.size_votes.most_common(1)[0][0] if st.size_votes else None,
+                         "votes": n, "readings": st.readings, "mean_confidence": ..., "seconds_to_lock": ..., "ts": ts}]
+        if st.readings >= self.max_readings:
+            return [{"type": "CONTAINER_CODE_UNREADABLE", "readings": st.readings, "best_guess": ..., "ts": ts}]
+        return []
+```
+
+| Regla | Por qué |
+| --- | --- |
+| Solo votan lecturas que pasan `is_valid` | Una lectura errónea con dígito de control correcto es rarísima; una sin él no aporta nada |
+| `lock_votes=3` y `lock_margin=2` | Tres coincidencias con ventaja de dos sobre la alternativa: resiste a un OCR que alterna entre dos lecturas |
+| LOCKED una sola vez por track | Igual que `PET_ZONE_ENTER` en el anexo de mascotas: el evento es la transición, no el estado |
+| `max_readings=25` → `UNREADABLE` | Un contenedor sucio o a contraluz no debe consumir OCR indefinidamente; el evento lleva `best_guess` para revisión manual |
+| `ocr_interval_s=0.4` | El código no cambia: 2–3 OCR por segundo bastan y dejan CPU a RF-DETR |
+
+### 9.5 Motor OCR (inyectado, no incluido)
+
+Ambos son Apache-2.0 y corren en ONNX Runtime CPU; RapidOCR es más ligero de instalar en Windows.
+
+```python
+# pip install rapidocr-onnxruntime
+from rapidocr_onnxruntime import RapidOCR
+from container_code import OcrResult
+
+class RapidOcrEngine:
+    def __init__(self):
+        self._ocr = RapidOCR()                                # det + rec, modelos incluidos (~15 MB)
+    def read(self, crop_bgr) -> list[OcrResult]:
+        result, _elapsed = self._ocr(crop_bgr)                # [[box, text, score], ...] o None
+        if not result:
+            return []
+        # Une las líneas de arriba abajo: el bloque del contenedor suele venir en 2 líneas
+        lines = sorted(result, key=lambda r: r[0][0][1])
+        joined = " ".join(r[1] for r in lines)
+        conf = min(float(r[2]) for r in lines)
+        return [OcrResult(joined, conf)] + [OcrResult(r[1], float(r[2])) for r in lines]
+```
+
+Devolver tanto el texto unido como cada línea permite que `normalize_candidates` encuentre el
+código aunque el OCR parta `KKTU 777926 1` y `22G0` en líneas distintas o las junte.
+
+### 9.6 Detector: la clase `container_code` en RF-DETR
+
+No hay dataset en el repo. Opciones, en orden:
+
+1. **Fine-tune de RF-DETR** con una clase `container_code` (bloque de marcado) sobre imágenes
+   propias del cliente etiquetadas con el propio plugin en modo captura (guardar recortes como hace
+   el vendedor con `save=True`) más datasets abiertos de Roboflow Universe ("container number",
+   "container code"), **verificando la licencia de cada uno**. Con 300–500 imágenes bien
+   etiquetadas basta para un bloque de texto tan regular.
+2. **Sin detector dedicado (arranque rápido)**: usar la caja `truck` de COCO que ya detecta
+   RF-DETR y recortar el tercio superior de la cara visible del contenedor; RapidOCR detecta
+   las líneas de texto dentro. Peor precisión con contenedores de lado, suficiente para una
+   garita con cámara frontal.
+
+Entrenamiento: misma plantilla que fuego y humo (§7) con `dataset_dir="data/container_coco"`,
+`resolution=320` y labelmap `[..., "container_code"]`; `validate_labelmap` lo comprueba al arranque.
+
+### 9.7 Injerto en `motor_eventos.py`
+
+```python
+from container_code import ContainerCodeTracker, crop_box
+codes = ContainerCodeTracker(lock_votes=3, lock_margin=2, ocr_interval_s=0.4)
+ocr = RapidOcrEngine()                                        # §9.5; construir una vez
+
+for frame, ts in frames():
+    ...
+    tracks = bytetrack[camera].update(dets, ts)
+    await router.process(camera, frame_id, frame, tracks, ts, (W, H))
+
+    codes.touch(camera, [t.track_id for t in tracks], ts)     # expira tracks desaparecidos
+    for t in tracks:
+        if t.label != "container_code" or not codes.should_ocr(camera, t.track_id, ts):
+            continue
+        x1, y1, x2, y2 = crop_box(t.box, W, H, pad=0.15)
+        crop = frame[y1:y2, x1:x2]
+        if crop.shape[0] < 32:                                # texto pequeño: reescalar antes del OCR
+            crop = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        results = await asyncio.to_thread(ocr.read, crop)     # no bloquear el loop de eventos
+        for ev in codes.observe(camera, t.track_id, results, ts):
+            await bus.publish({**ev, "installation_id": cfg["installation_id"],
+                               "box": t.box.normalized(W, H), "crop_path": save_crop(crop, ev) if ev["type"] == "CONTAINER_CODE_LOCKED" else None})
+```
+
+Overlay: reutilizar `ZoneOverlaySink` (§6.3) y, para cada track `container_code`, pintar la caja
+en amarillo con `codes.locked_code(camera, id)` si existe (badge `LOCKED`) o `"…"` si sigue
+votando; opcionalmente el recorte ampliado en la esquina, como en el vídeo.
+
+Persistencia: `CONTAINER_CODE_LOCKED` es el evento de negocio (entrada/salida de contenedor por
+garita); guardar `code`, `size_type`, `camera_id`, `ts`, `crop_path` y `mean_confidence`.
+`CONTAINER_CODE_UNREADABLE` va a una cola de revisión manual con el `best_guess` y el recorte.
+
+### 9.8 Resultados de `test_container_code.py` (14 tests)
+
+| Test | Qué comprueba |
+| --- | --- |
+| `test_check_digit_of_the_openviewer_video_container` | `KKTU777926` → 1; `KKTU7779261` válido; formato `KKTU 777926 1` |
+| `test_known_examples_from_the_standard` | `CSQU305438` → 3 (ejemplo de la norma), `MSKU123456` → 5 |
+| `test_wrong_check_digit_or_format_is_rejected` | Dígito incorrecto, categoría no U/J/Z, longitud incorrecta |
+| `test_letter_values_skip_multiples_of_eleven` | A=10, K=21, L=23, Z=38; 11/22/33 ausentes |
+| `test_size_type` | `22G0`, `22 G 0`, `22GO`→`22G0`, `45G1`; rechaza `KKTU` y `2G0` |
+| `test_clean_text_with_spaces_is_accepted` | Texto con espacios → código |
+| `test_positional_confusions_are_fixed` | G→6, Z→2, 7→T corregidos y validados |
+| `test_size_type_glued_to_the_code_is_trimmed_by_window` | `KKTU7779261 22G0` → código |
+| `test_invalid_reading_gives_no_candidate` | Dígito erróneo y texto ajeno → sin candidatos |
+| `test_crop_box_pads_and_clips` | Margen del 15 % y recorte a los bordes del frame |
+| `test_locks_after_three_consistent_valid_readings_once` | LOCKED al 3.º voto, payload completo, `size_type` 22G0, no reemite, `should_ocr` False |
+| `test_invalid_readings_never_vote_and_margin_is_required` | 3 contra 2 no bloquea; 4 contra 2 sí |
+| `test_unreadable_after_max_readings` | UNREADABLE tras `max_readings` sin candidato |
+| `test_ocr_interval_and_expiry` | Intervalo de OCR respetado; expiración por `track_ttl_s` |
+
+---
+
+## 10. Verificación tras integrar
+
+1. `python3 docs/video/test_zone_plugins.py && python3 docs/video/test_frame_bus.py && python3 docs/video/test_container_code.py` en verde.
 2. Con vídeo real de una puerta: contar a mano 50 cruces y comparar con `LINE_CROSS`; ajustar
    `margin_px` (subir si hay dobles) y `min_frames_side` (subir si hay fantasmas).
 3. Heatmap: tras 10 min, `zone_density` del expositor debe ser HIGH y la del pasillo LOW/MEDIUM.
@@ -616,10 +936,13 @@ confirmación en 3 observaciones consecutivas y cooldown de 120 s por cámara.
    al parar el productor desaparecen; al parar un consumidor, no.
 6. Métrica `frame_bus_consumer_behind` en Prometheus: si crece, subir `slots` o bajar fps del
    consumidor, nunca ignorarla (equivale a leer frames reciclados).
+7. Contenedores: con 30 pasos de camión grabados, el 100 % de los `CONTAINER_CODE_LOCKED` debe
+   pasar `is_valid` (lo garantiza el código) y ≥ 95 % coincidir con la lectura manual; medir
+   `seconds_to_lock` (objetivo < 2 s a 5 fps de OCR) y la tasa de `CONTAINER_CODE_UNREADABLE`.
 
 ---
 
-## 9. Referencias
+## 11. Referencias
 
 - aiopenviewer.com, `source.html`, capturas del 2026-09-17 (catálogo y precios).
 - `plugin-detection.zip` (paquete gratuito), auditado en la sesión: `common/media/ipc.py`,
@@ -629,3 +952,6 @@ confirmación en 3 observaciones consecutivas y cooldown de 120 s por cámara.
   `docs/docs/configuration/objects.md` (anclaje en el borde inferior).
 - Ultralytics, condiciones de licencia AGPL-3.0 / Enterprise: https://ultralytics.com/license
 - RF-DETR (Apache-2.0): https://github.com/roboflow/rf-detr
+- Vídeo "container code" de la cuenta OpenViewer (captura del 2026-09-17, 0:29, marca WTM MEDIA).
+- ISO 6346, Freight containers — Coding, identification and marking (dígito de control; códigos de tamaño y tipo).
+- RapidOCR (Apache-2.0, ONNX Runtime): https://github.com/RapidAI/RapidOCR · PaddleOCR (Apache-2.0): https://github.com/PaddlePaddle/PaddleOCR
