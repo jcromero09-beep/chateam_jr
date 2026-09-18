@@ -222,6 +222,8 @@ import MetaAuditLog from "../models/MetaAuditLog"; // [N5]
 import ImpersonationAudit from "../models/ImpersonationAudit"; // [Super]
 import CompanyUser from "../models/CompanyUser"; // [Multi-empresa] membresías usuario↔empresa
 import CompanyUserQueue from "../models/CompanyUserQueue"; // [Multi-empresa] colas por membresía
+import DermaPatient from "../models/DermaPatient"; // [Derma] análisis facial
+import DermaAnalysis from "../models/DermaAnalysis";
 
 // AI Platform Models (batch)
 import AIDocument from "../models/AIDocument";
@@ -481,6 +483,8 @@ const models = [
   ImpersonationAudit,
   CompanyUser,
   CompanyUserQueue,
+  DermaPatient,
+  DermaAnalysis,
 ];
 
 // console.log("🔄 Adding models to sequelize...");

@@ -92,6 +92,7 @@ import {
   ManageAccounts as EmailProviderIcon,
   Engineering as SystemIcon,
   Savings as CreditPacksIcon,
+  Face as DermaIcon, // [Derma] análisis facial profesional
   // Sprint 1 (2026-05-20) — icono del panel de revisión de correcciones IA
   VerifiedUser as CorrectionReviewIcon,
   AccountCircle as ProfileIcon,
@@ -1076,6 +1077,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
               roles: ['super'],
             },
           ],
+        },
+      ],
+    },
+    {
+      // [Derma] Análisis facial profesional para esteticistas / cosmetólogas / cosmiatras
+      key: 'derma',
+      title: 'ESTÉTICA',
+      items: [
+        {
+          path: '/derma',
+          label: 'Derma · Análisis facial',
+          icon: <DermaIcon />,
+          module: 'derma',
         },
       ],
     },

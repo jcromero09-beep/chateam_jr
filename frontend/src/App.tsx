@@ -167,6 +167,9 @@ const AIAudio = lazy(() => import("./pages/AIAudio"))
 // Sprint 1 (2026-05-20) — Panel de revisión humana de correcciones IA
 const AICorrectionReview = lazy(() => import("./pages/AICorrectionReview"))
 const AIMultimodal = lazy(() => import("./pages/AIMultimodal"))
+// [Derma] análisis facial profesional
+const Derma = lazy(() => import("./pages/Derma"))
+const DermaAnalysisResult = lazy(() => import("./pages/DermaAnalysisResult"))
 const AICredits = lazy(() => import("./pages/AICredits"))
 const AITokenUsageAdmin = lazy(() => import("./pages/AITokenUsageAdmin"))
 const AIScheduler = lazy(() => import("./pages/AIScheduler"))
@@ -424,6 +427,9 @@ function App() {
           <Route path="/ai/writer" element={<Suspense fallback={null}><ProtectedRoute module="ai_writer"><AIWriter /></ProtectedRoute></Suspense>} />
           <Route path="/ai/audio" element={<Suspense fallback={null}><ProtectedRoute module="ai_audio"><AIAudio /></ProtectedRoute></Suspense>} />
           <Route path="/ai/multimodal" element={<Suspense fallback={null}><ProtectedRoute module="ai_multimodal"><AIMultimodal /></ProtectedRoute></Suspense>} />
+          <Route path="/derma" element={<Suspense fallback={null}><ProtectedRoute module="derma"><Derma /></ProtectedRoute></Suspense>} />
+          <Route path="/derma/patients/:patientId" element={<Suspense fallback={null}><ProtectedRoute module="derma"><Derma /></ProtectedRoute></Suspense>} />
+          <Route path="/derma/analyses/:id" element={<Suspense fallback={null}><ProtectedRoute module="derma"><DermaAnalysisResult /></ProtectedRoute></Suspense>} />
           <Route path="/ai/credits" element={<Suspense fallback={null}><ProtectedRoute module="ai_credits"><AICredits /></ProtectedRoute></Suspense>} />
           <Route path="/admin/ai-token-usage" element={<Suspense fallback={null}><ProtectedRoute superOnly><AITokenUsageAdmin /></ProtectedRoute></Suspense>} />
           <Route path="/admin/comunicados" element={<Suspense fallback={null}><ProtectedRoute superOnly><SuperAnnouncements /></ProtectedRoute></Suspense>} />

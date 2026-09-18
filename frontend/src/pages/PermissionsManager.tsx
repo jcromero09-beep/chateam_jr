@@ -201,6 +201,7 @@ const moduleCategories: Record<Module, ModuleCategory> = {
   ai_writer: 'openai',
   ai_audio: 'openai',
   ai_multimodal: 'openai',
+  derma: 'openai', // [Derma] análisis facial profesional
   ai_credits: 'openai',
   ai_scheduler: 'openai',
   ai_observability: 'openai',

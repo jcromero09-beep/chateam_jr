@@ -234,6 +234,7 @@ import aiCorrectionReviewRoutes from "./aiCorrectionReviewRoutes";
 // ── BATCH: Rutas UGC/Agent faltantes ──
 import agentDeviceRoutes from "./agentDeviceRoutes";
 
+import dermaRoutes from "./dermaRoutes"; // [Derma] análisis facial
 import agentInteractionRoutes from "./agentInteractionRoutes";
 
 import integrationRoutes from "./integrationRoutes";
@@ -486,6 +487,7 @@ routes.use(aiCorrectionReviewRoutes); // Sprint 1 — /ai/correction-review
 // ── BATCH: UGC Agent extras ──
 routes.use(agentDeviceRoutes);       // /ugc/devices
 routes.use(agentInteractionRoutes);  // /ugc/interactions
+routes.use(dermaRoutes);             // /derma/* — análisis facial profesional
 
 // Integrations (CRM, ERP, etc.)
 routes.use("/integrations", integrationRoutes);

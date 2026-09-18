@@ -127,6 +127,7 @@ export type Module =
   | 'ai_writer'
   | 'ai_audio'
   | 'ai_multimodal'
+  | 'derma' // [Derma] análisis facial profesional
   | 'ai_credits'
   | 'ai_scheduler'
   | 'ai_observability'
@@ -298,6 +299,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_writer: true,
     ai_audio: true,
     ai_multimodal: true,
+    derma: true, // [Derma] análisis facial profesional
     ai_credits: true,
     ai_scheduler: true,
     ai_observability: true,
@@ -459,6 +461,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_writer: true,
     ai_audio: true,
     ai_multimodal: true,
+    derma: true, // [Derma] análisis facial profesional
     ai_credits: true,
     ai_scheduler: true,
     ai_observability: true,
@@ -621,6 +624,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_writer: true,
     ai_audio: true,
     ai_multimodal: true,
+    derma: true, // [Derma] análisis facial profesional
     ai_credits: 'read',
     ai_scheduler: 'read',
     ai_observability: true,
@@ -783,6 +787,7 @@ export const PERMISSIONS_MATRIX: PermissionsMatrix = {
     ai_writer: false,
     ai_audio: false,
     ai_multimodal: false,
+    derma: true, // [Derma] análisis facial profesional — el personal operativo (esteticista) realiza los análisis
     ai_credits: 'read',
     ai_scheduler: false,
     ai_observability: false,
@@ -1015,6 +1020,7 @@ export const DEFAULT_PLAN_PERMISSIONS: InterfacePermissions = {
   ai_writer: true,
   ai_audio: true,
   ai_multimodal: true,
+  derma: true, // [Derma] análisis facial profesional
   ai_credits: true,
   ai_scheduler: true,
   ai_observability: true,
