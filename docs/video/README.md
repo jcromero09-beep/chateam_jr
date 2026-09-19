@@ -13,6 +13,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `plate_watchlist.py` | watchlist (exacta/difusa) y mapeo de rutas (GeoJSON) |
 | `vehicle_lock.py` | deduplicado espacial de vehículos (IoU + deriva) |
 | `aforo.py` | **conteo de personas por zona y control de aforo** |
+| `track_behavior.py` | **merodeo, contraflujo y cruce de línea** sobre tracks |
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
 
 ## aforo.py — control de aforo / conteo de personas
@@ -73,3 +74,53 @@ python test_aforo.py     # 15 pruebas
 Conteo por punto de pies (centro dentro / pie fuera no cuenta), zonas solapadas, entradas por
 tupla, niveles, suavizado por mediana, alarma por persistencia y su despeje, total global,
 densidad, estimación por área (con y sin zona) y dibujo. Todas sintéticas, sin cámara.
+
+## track_behavior.py — merodeo, contraflujo, cruce de línea
+
+Eventos de **comportamiento sobre tracks**. No detecta ni sigue: recibe observaciones ya
+rastreadas — `(track_id, caja)` por cuadro con su timestamp — de tu detector + ByteTrack, y
+aplica reglas. Solo stdlib; reusa `Box.anchor` y `point_in_polygon` de `pet_events.py`. La
+pertenencia y el cruce se miden con el **punto de pies**.
+
+- **`MerodeoDetector`** (loitering): un track permanece dentro de una zona más de
+  `dwell_seconds`. Con `cooldown_seconds` (no repetir) y `gap_seconds` (si se deja de ver el
+  track, reinicia el conteo de permanencia).
+- **`ContraflujoDetector`** (wrong-way): el desplazamiento del track en una ventana va en contra
+  de `allowed_direction` (coseno ≤ `-min_alignment`) y supera `min_displacement`. Opcional
+  `zone_polygon` para vigilar solo un tramo.
+- **`CruceLineaDetector`** (line crossing): cruce de una línea virtual `(p1, p2)` con **sentido**
+  (`name_pos`/`name_neg`). La orientación de la recta define qué lado es positivo (ver docstring:
+  para una vertical de abajo→arriba, izq→der es el lado positivo). `direction` filtra sentidos;
+  `margin` tolera cruces cerca de los extremos del segmento.
+- **`BehaviorEngine`**: corre varios detectores por cuadro y junta sus eventos.
+
+```python
+from track_behavior import (MerodeoDetector, ContraflujoDetector,
+                            CruceLineaDetector, BehaviorEngine)
+
+eng = BehaviorEngine([
+    MerodeoDetector({"anden": ANDEN_POLY}, dwell_seconds=15),
+    ContraflujoDetector(allowed_direction=(1, 0), min_displacement=40, zone_polygon=CARRIL),
+    CruceLineaDetector(((320, 480), (320, 0)), name_pos="entra", name_neg="sale"),
+])
+for frame, ts in stream():
+    obs = [(t.id, t.box) for t in tracker.tracks(frame)]   # ByteTrack sobre tu detector
+    for ev in eng.update(obs, ts):
+        alertar(ev.kind, ev.track_id, ev.zone, ev.direction)
+```
+
+Todos los eventos son `BehaviorEvent(kind, track_id, ts, zone, direction, detail)`, listos para
+`pet_events.EventRouter` o tu bus de alertas.
+
+Umbrales calibrables por sitio (dwell, ventana, alineación, desplazamiento mínimo).
+
+### Pruebas
+
+```
+python test_track_behavior.py     # 16 pruebas
+```
+
+Merodeo (antes/después del dwell, salir reinicia, cooldown), contraflujo (sentido correcto no
+dispara, opuesto sí, ruido por debajo del mínimo, restricción por zona, cooldown), cruce de
+línea (ambos sentidos, mismo lado no cruza, filtro de sentido, cruce fuera del segmento) y el
+motor combinado. Todas sintéticas, sin cámara.
