@@ -34,12 +34,29 @@ Los tres parámetros que importan, contra fotos reales de la bandeja:
   distancia de tu cámara. Descartan motas (muy pequeñas) y burbujas o sombras (muy grandes).
 - iluminación uniforme y fondo contrastado son más importantes que cualquier parámetro.
 
-## Limitación conocida
+## Larvas pegadas: watershed (opcional)
 
-Componentes conectados **no separa larvas que se tocan**: dos pegadas cuentan como una. Está
-cubierto por una prueba (`test_touching_larvae_merge_is_a_known_limitation`). Para separarlas haría
-falta `watershed` con transformada de distancia, que no está en este módulo. Con densidad alta,
-diluir la muestra o repartir en la bandeja da mejores resultados que cualquier post-proceso.
+Componentes conectados por sí solo cuenta dos larvas que se tocan como una. Para separarlas, el
+módulo incluye una ruta de **watershed con transformada de distancia**, desactivada por defecto:
+
+```python
+CountConfig(separate_touching=True, dist_ratio=0.6)   # o  --separate-touching  en la CLI
+```
+
+Cómo funciona: la transformada de distancia da el "centro" de cada larva; los picos por encima de
+`dist_ratio` del máximo **local de cada componente** son las semillas, y watershed traza la frontera
+entre ellas. El umbral es por componente (no global) para que larvas grandes y pequeñas en la misma
+imagen produzcan cada una su semilla.
+
+- `dist_ratio` más alto (0.6-0.7) separa pares más pegados, a costa de partir de más una larva
+  alargada; más bajo (0.4-0.5) es conservador. Ajústalo contra fotos reales.
+- Es más lento que componentes conectados (recorre cada componente), así que actívalo solo cuando la
+  densidad lo pida.
+- Con densidad muy alta sigue siendo mejor diluir la muestra o repartirla en la bandeja que forzar
+  el post-proceso.
+
+Cubierto por pruebas: sin watershed dos larvas pegadas cuentan 1; con `separate_touching=True`
+cuentan 2; con larvas separadas ambos modos coinciden; y el filtro de área se respeta en watershed.
 
 ## Pruebas
 

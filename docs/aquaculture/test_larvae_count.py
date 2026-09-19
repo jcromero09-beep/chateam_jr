@@ -84,14 +84,40 @@ class CountTests(unittest.TestCase):
         r = lc.count_larvae(img, lc.CountConfig(min_area=15, max_area=3000))
         self.assertEqual(r.count, 2)
 
-    def test_touching_larvae_merge_is_a_known_limitation(self):
-        # Componentes conectados NO separa larvas que se tocan: cuentan como 1.
-        # Para separarlas haría falta watershed / distance transform (fuera de este módulo).
+    def test_touching_larvae_merge_without_watershed(self):
+        # Sin watershed, componentes conectados cuenta dos larvas pegadas como 1.
         img = scene()
-        put_larva(img, 100, 100, r=7)
-        put_larva(img, 111, 100, r=7)   # solapadas
+        put_larva(img, 100, 100, r=8)
+        put_larva(img, 116, 100, r=8)   # bordes justo en contacto
         r = lc.count_larvae(img, lc.CountConfig(min_area=15, max_area=5000))
         self.assertEqual(r.count, 1)
+
+    def test_watershed_separates_touching_larvae(self):
+        # Con separate_touching=True, watershed separa el mismo par pegado en 2.
+        img = scene()
+        put_larva(img, 100, 100, r=8)
+        put_larva(img, 116, 100, r=8)
+        r = lc.count_larvae(img, lc.CountConfig(min_area=15, max_area=5000,
+                                                separate_touching=True, dist_ratio=0.6))
+        self.assertEqual(r.count, 2)
+
+    def test_watershed_matches_connected_components_when_separated(self):
+        # Con larvas bien separadas, watershed da el mismo conteo que componentes conectados.
+        img = scene()
+        for cx in (60, 140, 220, 300):
+            put_larva(img, cx, 100, r=6)
+        base = lc.count_larvae(img, lc.CountConfig(min_area=15, max_area=5000))
+        ws = lc.count_larvae(img, lc.CountConfig(min_area=15, max_area=5000, separate_touching=True))
+        self.assertEqual(base.count, 4)
+        self.assertEqual(ws.count, 4)
+
+    def test_watershed_respects_area_filter(self):
+        img = scene()
+        put_larva(img, 100, 100, r=8)
+        put_larva(img, 114, 100, r=8)
+        # min_area alto: descarta las mitades resultantes del corte
+        r = lc.count_larvae(img, lc.CountConfig(min_area=100000, max_area=200000, separate_touching=True))
+        self.assertEqual(r.count, 0)
 
 
 class DrawTests(unittest.TestCase):

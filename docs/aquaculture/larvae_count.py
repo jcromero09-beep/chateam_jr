@@ -39,6 +39,8 @@ class CountConfig:
     open_kernel_final: int = 3     # apertura final: vuelve a separar larvas pegadas por el cierre
     min_area: int = 15             # área mínima (px) para contar como larva
     max_area: int = 500            # área máxima; descarta manchas grandes (burbujas, sombras)
+    separate_touching: bool = False  # separar larvas pegadas con watershed (más lento, más preciso)
+    dist_ratio: float = 0.5        # pico de la transformada de distancia (fracción del máx. local) = semilla
 
 
 @dataclass
@@ -108,6 +110,60 @@ def detect_from_mask(mask: np.ndarray, min_area: int = 15, max_area: int = 500) 
     return blobs, labels
 
 
+def _sure_foreground(mask: np.ndarray, dist: np.ndarray, dist_ratio: float) -> np.ndarray:
+    """Semillas de watershed: el pico de la transformada de distancia DENTRO de cada componente.
+
+    Se umbraliza por el máximo LOCAL de cada componente, no por el global, para que larvas grandes
+    y pequeñas en la misma imagen produzcan cada una su propia semilla.
+    """
+    num, labels, _, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    sure = np.zeros_like(mask)
+    for i in range(1, num):
+        comp = labels == i
+        local_max = float(dist[comp].max())
+        if local_max <= 0:
+            continue
+        sure[comp & (dist >= dist_ratio * local_max)] = 255
+    return sure
+
+
+def detect_with_watershed(mask: np.ndarray, min_area: int = 15, max_area: int = 500,
+                          dist_ratio: float = 0.5) -> tuple[list[Blob], np.ndarray]:
+    """Separa larvas pegadas con transformada de distancia + watershed. Devuelve (blobs, etiquetas).
+
+    Componentes conectados cuenta un grupo de larvas que se tocan como una sola; watershed usa los
+    picos de la transformada de distancia como semillas y traza la frontera entre ellas.
+    """
+    dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+    sure_fg = _sure_foreground(mask, dist, dist_ratio)
+    sure_bg = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=2)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    n_markers, markers = cv2.connectedComponents(sure_fg)
+    markers = markers + 1                      # el fondo pasa a 1, las semillas a 2..n
+    markers[unknown == 255] = 0               # región desconocida = 0, la resuelve watershed
+    color = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    cv2.watershed(color, markers)             # las fronteras quedan marcadas como -1
+
+    blobs: list[Blob] = []
+    labels_out = np.zeros(mask.shape, np.int32)
+    for m in range(2, n_markers + 1):         # 1 es el fondo; 2.. son las larvas
+        region = (markers == m) & (mask > 0)
+        area = int(region.sum())
+        if area < min_area or area > max_area:
+            continue
+        ys, xs = np.where(region)
+        if xs.size == 0:
+            continue
+        x0, x1 = int(xs.min()), int(xs.max())
+        y0, y1 = int(ys.min()), int(ys.max())
+        cx, cy = float(xs.mean()), float(ys.mean())
+        idx = len(blobs) + 1
+        labels_out[region] = idx
+        blobs.append(Blob(idx, cx, cy, area, float(np.sqrt(area / np.pi)), (x0, y0, x1 - x0 + 1, y1 - y0 + 1)))
+    return blobs, labels_out
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -120,7 +176,10 @@ def count_larvae(image: np.ndarray, config: CountConfig | None = None) -> CountR
     blurred = denoise_blur(gray, cfg.blur_kernel)
     binary = apply_threshold(blurred, cfg.thresh)
     refined = refine_mask(binary, cfg.open_kernel, cfg.close_kernel, cfg.open_kernel_final)
-    blobs, labels = detect_from_mask(refined, cfg.min_area, cfg.max_area)
+    if cfg.separate_touching:
+        blobs, labels = detect_with_watershed(refined, cfg.min_area, cfg.max_area, cfg.dist_ratio)
+    else:
+        blobs, labels = detect_from_mask(refined, cfg.min_area, cfg.max_area)
     return CountResult(len(blobs), blobs, refined, labels)
 
 
@@ -163,9 +222,11 @@ if __name__ == "__main__":
     ap.add_argument("--thresh", type=int, default=180)
     ap.add_argument("--min-area", type=int, default=15)
     ap.add_argument("--max-area", type=int, default=500)
+    ap.add_argument("--separate-touching", action="store_true", help="separar larvas pegadas con watershed")
     ap.add_argument("--out", help="ruta para guardar la imagen anotada")
     a = ap.parse_args()
-    cfg = CountConfig(thresh=a.thresh, min_area=a.min_area, max_area=a.max_area)
+    cfg = CountConfig(thresh=a.thresh, min_area=a.min_area, max_area=a.max_area,
+                      separate_touching=a.separate_touching)
     r = count_image_file(a.image, cfg, a.out)
     print(f"Conteo: {r.count}")
     if a.out:
