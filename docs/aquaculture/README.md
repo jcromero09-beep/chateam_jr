@@ -58,9 +58,59 @@ imagen produzcan cada una su semilla.
 Cubierto por pruebas: sin watershed dos larvas pegadas cuentan 1; con `separate_touching=True`
 cuentan 2; con larvas separadas ambos modos coinciden; y el filtro de área se respeta en watershed.
 
+## Clasificación por talla / edad
+
+`count_larvae` clasifica cada larva por longitud (el lado mayor de su caja) en clases configurables,
+para elegir el calibre del alimento y estimar la ración:
+
+```python
+from larvae_count import CountConfig, SizeClass, DEFAULT_SIZE_CLASSES, count_larvae
+
+# por píxeles (sin calibración)
+r = count_larvae(img, CountConfig(size_classes=DEFAULT_SIZE_CLASSES))
+print(r.size_distribution)   # {"pequena": .., "mediana": .., "grande": ..}
+print(r.mean_length)
+
+# por milímetros (con calibración px→mm de tu cámara)
+clases_mm = (SizeClass("PL8", 6.0), SizeClass("PL12", 9.0), SizeClass("PL15", float("inf")))
+r = count_larvae(img, CountConfig(size_classes=clases_mm, px_per_mm=23.5))
+```
+
+`px_per_mm` se mide una vez fotografiando una regla a la distancia de trabajo. Con clases vacías
+(por defecto) no hay clasificación y `size_distribution` queda vacío.
+
+## Actividad por movimiento y control de alimentación
+
+`feeding_control.py` añade la segunda señal para decidir CUÁNDO alimentar: el nivel de actividad de
+las larvas entre fotogramas. Requiere video (secuencia de imágenes), no una foto.
+
+```python
+from feeding_control import MovementAnalyzer, recommend_feeding
+from larvae_count import CountConfig, DEFAULT_SIZE_CLASSES
+
+analyzer = MovementAnalyzer(CountConfig(size_classes=DEFAULT_SIZE_CLASSES))
+for frame in frames():                 # fotogramas consecutivos de la bandeja
+    activity = analyzer.update(frame)   # conteo + talla + actividad
+advice = recommend_feeding(activity)
+print(advice.action, advice.feed_grade, advice.ration_mg, advice.reason)
+```
+
+- **Actividad**: fracción de píxeles de larva que cambian entre fotogramas (diferencia de imagen
+  limitada a la máscara), más el nº de larvas con movimiento en su propia región.
+- **Recomendación**: combina conteo, talla dominante y actividad. Alta actividad → apetito → ración
+  completa; actividad baja → saciedad, frío o estrés → reducir; sin larvas → esperar. El calibre del
+  alimento sale de la talla dominante.
+
+Las reglas (`FeedingPolicy`) y sus umbrales son un **punto de partida**: se calibran por criadero
+contra el comportamiento real (respuesta al alimento, curva de crecimiento). El módulo da la señal;
+la decisión final y su ajuste son del técnico.
+
 ## Pruebas
 
-`python test_larvae_count.py` — 11 pruebas con imágenes sintéticas de conteo conocido (sin cámara).
+- `python test_larvae_count.py` — 17 pruebas: conteo, filtro de área, watershed y clasificación por talla.
+- `python test_feeding_control.py` — 11 pruebas: actividad por movimiento y recomendación de alimentación.
+
+Todas con imágenes sintéticas de conteo/movimiento conocido, sin cámara.
 
 ## Relación con SGR
 

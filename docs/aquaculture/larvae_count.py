@@ -31,6 +31,22 @@ BBOX_THICKNESS = 1
 
 
 @dataclass(frozen=True)
+class SizeClass:
+    """Clase de talla/edad por longitud. `max_length` es el límite superior (px, o mm si hay
+    calibración); usa float('inf') en la última clase. Sirve para calibre de alimento y ración."""
+    name: str
+    max_length: float
+
+
+# Escala genérica por longitud en px (se reemplaza por mm cuando se pasa px_per_mm).
+DEFAULT_SIZE_CLASSES: tuple[SizeClass, ...] = (
+    SizeClass("pequena", 12.0),
+    SizeClass("mediana", 20.0),
+    SizeClass("grande", float("inf")),
+)
+
+
+@dataclass(frozen=True)
 class CountConfig:
     thresh: int = 180              # umbral binario; las larvas oscuras se vuelven blancas (THRESH_BINARY_INV)
     blur_kernel: int = 5           # desenfoque gaussiano previo (0/1 = sin desenfoque)
@@ -41,6 +57,8 @@ class CountConfig:
     max_area: int = 500            # área máxima; descarta manchas grandes (burbujas, sombras)
     separate_touching: bool = False  # separar larvas pegadas con watershed (más lento, más preciso)
     dist_ratio: float = 0.5        # pico de la transformada de distancia (fracción del máx. local) = semilla
+    size_classes: tuple[SizeClass, ...] = ()   # vacío = sin clasificación por talla
+    px_per_mm: float | None = None            # calibración: si se da, las tallas se miden en mm
 
 
 @dataclass
@@ -51,6 +69,8 @@ class Blob:
     area: int
     radius: float
     box: tuple[int, int, int, int]  # x, y, w, h
+    length: float = 0.0             # longitud (lado mayor de la caja) en px, o mm si hay calibración
+    size_class: str | None = None   # nombre de la clase de talla asignada
 
 
 @dataclass
@@ -59,6 +79,33 @@ class CountResult:
     blobs: list[Blob] = field(default_factory=list)
     refined: np.ndarray | None = None   # máscara binaria limpia
     labels: np.ndarray | None = None    # mapa de etiquetas de componentes conectados
+    size_distribution: dict[str, int] = field(default_factory=dict)  # conteo por clase de talla
+    mean_length: float = 0.0            # longitud media (px o mm) de las larvas contadas
+
+
+def classify_by_size(blobs: list[Blob], size_classes: tuple[SizeClass, ...],
+                     px_per_mm: float | None = None) -> dict[str, int]:
+    """Asigna `length` y `size_class` a cada blob y devuelve la distribución por clase.
+
+    La longitud es el lado mayor de la caja (buen proxy para larvas alargadas); se pasa a mm si hay
+    calibración. Modifica los blobs en sitio.
+    """
+    dist = {sc.name: 0 for sc in size_classes} if size_classes else {}
+    ordered = sorted(size_classes, key=lambda s: s.max_length)
+    for b in blobs:
+        _, _, w, h = b.box
+        length_px = float(max(w, h))
+        b.length = length_px / px_per_mm if px_per_mm else length_px
+        if not ordered:
+            continue
+        for sc in ordered:
+            if b.length <= sc.max_length:
+                b.size_class = sc.name
+                break
+        else:
+            b.size_class = ordered[-1].name
+        dist[b.size_class] += 1
+    return dist
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +227,9 @@ def count_larvae(image: np.ndarray, config: CountConfig | None = None) -> CountR
         blobs, labels = detect_with_watershed(refined, cfg.min_area, cfg.max_area, cfg.dist_ratio)
     else:
         blobs, labels = detect_from_mask(refined, cfg.min_area, cfg.max_area)
-    return CountResult(len(blobs), blobs, refined, labels)
+    dist = classify_by_size(blobs, cfg.size_classes, cfg.px_per_mm)
+    mean_length = float(np.mean([b.length for b in blobs])) if blobs else 0.0
+    return CountResult(len(blobs), blobs, refined, labels, dist, mean_length)
 
 
 def draw_result(image: np.ndarray, result: CountResult,

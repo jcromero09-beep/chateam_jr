@@ -137,5 +137,44 @@ class DrawTests(unittest.TestCase):
         self.assertEqual(out.ndim, 3)   # se convierte a BGR para dibujar
 
 
+# --- Clasificación por talla ---
+
+
+class SizeClassTests(unittest.TestCase):
+    def _img_with_sizes(self):
+        img = scene(500, 300)
+        put_larva(img, 60, 100, r=4)     # pequeña
+        put_larva(img, 160, 100, r=4)    # pequeña
+        put_larva(img, 280, 100, r=8)    # mediana
+        put_larva(img, 400, 100, r=14)   # grande
+        return img
+
+    def test_size_distribution_px(self):
+        img = self._img_with_sizes()
+        cfg = lc.CountConfig(min_area=15, max_area=5000, size_classes=lc.DEFAULT_SIZE_CLASSES)
+        r = lc.count_larvae(img, cfg)
+        self.assertEqual(r.count, 4)
+        self.assertEqual(r.size_distribution, {"pequena": 2, "mediana": 1, "grande": 1})
+        self.assertGreater(r.mean_length, 0)
+        for b in r.blobs:
+            self.assertIn(b.size_class, {"pequena", "mediana", "grande"})
+
+    def test_no_classification_when_no_classes(self):
+        img = self._img_with_sizes()
+        r = lc.count_larvae(img, lc.CountConfig(min_area=15, max_area=5000))
+        self.assertEqual(r.size_distribution, {})
+        self.assertIsNone(r.blobs[0].size_class)
+
+    def test_calibration_to_mm(self):
+        img = scene()
+        put_larva(img, 100, 100, r=10)   # caja ~20 px de lado
+        cfg = lc.CountConfig(min_area=15, max_area=5000,
+                             size_classes=(lc.SizeClass("chica", 1.5), lc.SizeClass("normal", float("inf"))),
+                             px_per_mm=10.0)   # 10 px = 1 mm -> ~2 mm de largo
+        r = lc.count_larvae(img, cfg)
+        self.assertEqual(r.blobs[0].size_class, "normal")
+        self.assertAlmostEqual(r.blobs[0].length, 2.0, delta=0.5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
