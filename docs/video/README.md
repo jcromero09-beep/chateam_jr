@@ -16,6 +16,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `track_behavior.py` | **merodeo, contraflujo y cruce de línea** sobre tracks |
 | `abandoned_object.py` | **objeto abandonado** por doble fondo |
 | `railway_stall.py` | **vehículo detenido en cruce de vía** (zona + velocidad + permanencia) |
+| `zone_safety.py` | **zonas graduadas de peligro** (cerca/peligro) con permanencia |
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
 
 ## aforo.py — control de aforo / conteo de personas
@@ -204,3 +205,49 @@ python test_railway_stall.py     # 9 pruebas
 Vehículo parado sobre la vía dispara (y no antes de `stall_s`); vehículo en movimiento no; parado
 fuera del polígono no; `grace` tolera un empujón breve; salir de la zona reinicia; cooldown de un
 evento; acepta cajas por tupla; `reset()`. Todas sintéticas, sin cámara.
+
+## zone_safety.py — zonas graduadas de peligro (persona en zona)
+
+Alerta de persona en **zonas graduadas** con permanencia. Reescritura limpia y generalizada del
+RiverbankMonitor del video "Riverbank child safety" (allá: CLEAR / NEAR vereda / DANGER orilla).
+Aquí se generaliza a **N niveles ordenados por prioridad** (el primero que contiene al objeto
+gana), así sirve para orilla de río, borde de piscina, borde de andén, zona de exclusión de
+maquinaria, etc. Sobre tracks (no detecta ni sigue); reusa `point_in_polygon` de `pet_events`.
+
+Por nivel y track lleva un reloj de **permanencia** con dos protecciones del original:
+
+- **velocidad**: si el objeto va rápido (> `max_speed_px_s`) es un paso, no permanencia → no cuenta.
+- **radio**: si se aleja más de `loiter_radius_px` de su sitio, reinicia el reloj ahí.
+
+Al superar el `dwell_s` del nivel emite `enter`; al salir del nivel, `leave`.
+
+```python
+from zone_safety import ZoneSafetyMonitor, ZoneSafetyConfig, SafetyLevel, draw
+
+cfg = ZoneSafetyConfig(levels=(
+    SafetyLevel("peligro", ORILLA, dwell_s=2.0),   # más peligroso primero
+    SafetyLevel("cerca",  VEREDA, dwell_s=1.0),
+), max_speed_px_s=60.0, loiter_radius_px=40.0)
+mon = ZoneSafetyMonitor(cfg)
+for frame, ts in stream():
+    obs = [(t.id, t.box) for t in tracker.people(frame)]
+    for ev in mon.update(obs, ts):
+        alertar(ev.kind, ev.level, ev.track_id)    # enter/leave por nivel
+    salida = draw(frame, cfg, mon)                  # HUD CLEAR / <nivel>
+```
+
+Casos de uso: seguridad infantil en orilla/piscina, borde de andén, exclusión de maquinaria.
+Límite honesto: la persona debe estar bien rastreada; con cajas inestables ajusta `loiter_radius_px`
+y `dwell_s`.
+
+### Pruebas
+
+```
+python test_zone_safety.py     # 14 pruebas
+```
+
+Prioridad de niveles; enter tras dwell (y no antes); enter en el nivel de menor dwell; leave al
+salir de todas las zonas; transición cerca→peligro (leave cerca + enter peligro); leave al
+desaparecer el track; paso rápido no dispara (gate de velocidad) vs quieto sí; deambular más que el
+radio retrasa el disparo vs micro-movimientos disparan; `active_level` para HUD; `reset()`; dibujo.
+Todas sintéticas, sin cámara.
