@@ -105,12 +105,52 @@ Las reglas (`FeedingPolicy`) y sus umbrales son un **punto de partida**: se cali
 contra el comportamiento real (respuesta al alimento, curva de crecimiento). El módulo da la señal;
 la decisión final y su ajuste son del técnico.
 
+## Recomendación de cosecha (estadística de población)
+
+`harvest_readiness.py` decide si el lote está listo para cosechar a partir de las tallas que ya
+mide el modelo de visión, con estadística, no con otra red neuronal. No sustituye al criterio del
+técnico: le da la señal cuantitativa.
+
+Una muestra:
+
+```python
+from harvest_readiness import HarvestPolicy, assess_sample, lengths_from_result
+from larvae_count import count_larvae, CountConfig
+
+r = count_larvae(img, CountConfig(size_classes=(), px_per_mm=23.5))   # tallas en mm
+policy = HarvestPolicy(target_length=12.0, min_fraction_at_target=0.8, max_cv=0.20, min_sample=30)
+a = assess_sample(lengths_from_result(r), policy)
+print(a.ready, a.reason, a.stats.fraction_at_target, a.stats.cv)
+```
+
+Criterio: **lista** si una fracción suficiente alcanza la talla objetivo Y la población es uniforme
+(coeficiente de variación bajo). La uniformidad importa: un lote disparejo se cosecha peor aunque la
+media llegue. El resumen incluye media, desviación, CV, percentiles p10/p50/p90 y fracción en talla.
+
+Serie temporal (proyección):
+
+```python
+from harvest_readiness import HarvestTracker
+from datetime import datetime, timezone
+
+tracker = HarvestTracker(policy, start_date=datetime(2026, 9, 1, tzinfo=timezone.utc))
+tracker.add_sample(day=0,  lengths=muestra_dia_0)
+tracker.add_sample(day=5,  lengths=muestra_dia_5)
+a = tracker.assess(muestra_actual)
+print(a.ready, a.days_to_harvest, a.projected_date, a.growth_rate)
+```
+
+La tasa de crecimiento se estima por mínimos cuadrados sobre la talla media vs día; si aún no está
+lista y crece, proyecta los días que faltan para la talla objetivo y la fecha estimada. Si no crece,
+no proyecta (evita fechas infinitas). Los umbrales de `HarvestPolicy` se calibran por especie/criadero.
+
 ## Pruebas
 
 - `python test_larvae_count.py` — 17 pruebas: conteo, filtro de área, watershed y clasificación por talla.
 - `python test_feeding_control.py` — 11 pruebas: actividad por movimiento y recomendación de alimentación.
+- `python test_harvest_readiness.py` — 13 pruebas: estadística de población y proyección de cosecha.
 
-Todas con imágenes sintéticas de conteo/movimiento conocido, sin cámara.
+Todas con datos sintéticos de valor conocido, sin cámara.
 
 ## Relación con SGR
 
