@@ -1,7 +1,19 @@
-# environment — detección de fuego y humo (visión clásica)
+# environment — detección ambiental (visión clásica)
 
-Módulo **separado del SGR** y de los demás dominios (acuicultura, agricultura). Detecta fuego
-y humo por **visión clásica**: OpenCV + numpy puro, sin Ultralytics, sin torch, **sin AGPL**.
+Módulos **separados del SGR** y de los demás dominios (acuicultura, agricultura), de visión
+clásica: OpenCV + numpy puro, sin Ultralytics, sin torch, **sin AGPL**.
+
+| Módulo | Qué hace |
+|---|---|
+| `fire_smoke.py` | detección de fuego y humo (color ∧ movimiento) |
+| `terrain_change.py` | monitor de movimiento de tierra / deslizamiento (cámara fija) |
+
+---
+
+## fire_smoke.py — detección de fuego y humo
+
+Detecta fuego y humo por **visión clásica**: OpenCV + numpy puro, sin Ultralytics, sin torch,
+**sin AGPL**.
 
 Es el **primer filtro barato y explicable** más toda la lógica de negocio (zonas, alarma, HUD).
 La versión robusta lo combina con un detector RF-DETR (Apache-2.0) entrenado en fuego/humo para
@@ -112,3 +124,83 @@ python test_fire_smoke.py     # 15 pruebas
 - dibujo y HUD.
 
 Todas con fotogramas sintéticos de contenido conocido, sin cámara.
+
+---
+
+## terrain_change.py — movimiento de tierra / deslizamiento
+
+Monitor de **cambio contra una imagen base**, para una **cámara fija** mirando un talud, muro o
+ladera. No mide milímetros (eso son inclinómetros/GPS): da **alerta temprana**. Compara cada
+cuadro contra una base robusta y mide el **área que cambió**; sigue esa área en el tiempo y
+estima su **tendencia** por mínimos cuadrados. Si el cambio crece de forma sostenida, hay
+movimiento activo.
+
+### Cómo reduce falsos positivos
+
+- **Base robusta = mediana de N cuadros de referencia**: una hoja o una persona que cruzó en un
+  cuadro no queda en la base.
+- **Normalización de iluminación** (igualar la media): un cambio global de luz —sol que sale, una
+  nube— no cuenta como movimiento.
+- **Filtro de área contigua**: motas pequeñas = ruido/vegetación; una mancha grande y contigua =
+  tierra desplazada.
+- **ROI** (mirar solo el talud) y **máscaras de exclusión** (árboles, vía con tráfico, cielo).
+- **Persistencia + tendencia**: un temblor puntual de cámara no sostiene el cambio ni genera
+  tendencia creciente.
+
+### Uso
+
+```python
+from terrain_change import build_baseline, TerrainMonitor, TerrainConfig, AlarmPolicy, draw
+
+cfg = TerrainConfig(
+    diff_thresh=25, min_area=400,
+    roi_polygon=TALUD,                 # [(x,y),...] solo la ladera
+    ignore_polygons=[ARBOLES, VIA],    # zonas que se mueven por otras causas
+)
+baseline = build_baseline(primeros_cuadros, cfg)   # p.ej. 30 cuadros de un día tranquilo
+mon = TerrainMonitor(baseline, cfg, AlarmPolicy(min_fraction=0.05, rising_rate=0.01))
+
+for frame, ts in stream():             # cámara fija; ts en segundos
+    report = mon.update(frame, ts)
+    if report.alarm:
+        alertar(report.reason)         # nivel sostenido o "movimiento activo" (tendencia)
+    salida = draw(frame, report)
+```
+
+Por línea de comandos (toma los primeros N cuadros como base y monitorea el resto):
+
+```
+python terrain_change.py talud.mp4 --baseline-frames 30 --out anotado.mp4
+```
+
+### Ajuste en campo
+
+- `diff_thresh`: cuánto debe cambiar un píxel; súbelo si el ruido de la cámara marca falso cambio.
+- `min_area`: tamaño mínimo de la mancha; fíjalo al tamaño real de un desprendimiento a tu
+  distancia y resolución.
+- `min_fraction`: fracción del talud cambiada que consideras seria.
+- `rising_rate` / `min_samples_rate`: sensibilidad de la alerta por tendencia (crecimiento por
+  segundo y cuántas muestras para confiar).
+- Rehaz la base tras cada evento o intervención (obra, limpieza), o quedará desfasada.
+
+### Límites honestos
+
+- **No mide desplazamiento real** (mm): es alerta temprana por área de cambio. La medición
+  geotécnica necesita sensores.
+- Si la cámara **se mueve** de verdad (viento fuerte, mal montaje) hace falta alinear cuadros
+  (no incluido); un montaje firme importa más que cualquier umbral.
+- Lluvia intensa, niebla o cambios de luz muy desiguales degradan la señal; sube umbrales,
+  restringe el ROI o confirma en sitio.
+- Comparte el patrón de **tendencia por mínimos cuadrados** con
+  `aquaculture/harvest_readiness.py` (allá proyecta cosecha; aquí, crecimiento del cambio).
+
+### Pruebas
+
+```
+python test_terrain_change.py     # 13 pruebas
+```
+
+Sin cambio con imagen idéntica, mancha grande detectada, mota pequeña ignorada, cambio global de
+luz ignorado al normalizar, mediana que borra un objeto transitorio de la base, ROI y máscara de
+exclusión, tendencia positiva al crecer la mancha, alarma por nivel sostenido y por tendencia,
+escena estable sin alarma, `reset()` y dibujo. Todas sintéticas, sin cámara.
