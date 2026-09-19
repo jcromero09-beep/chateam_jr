@@ -328,3 +328,47 @@ bus.subscribe(watch.on_event)                          # el bus reenvía cada ev
 La lista de búsqueda se carga y recarga desde la BD (tabla propia o `oi_placa_estado`); el módulo
 no lee archivos. Lo que muestra el mapa del video es `route_geojson(plate)` pintado sobre Leaflet o
 similar en el frontend.
+
+
+---
+
+## 7. Candado espacial de vehículos: `docs/video/vehicle_lock.py`
+
+Origen: `VehicleSpatialLock` del `media_worker.py` de OpenViewer (EP.03, transcrito de video).
+Problema: ByteTrack a veces asigna un id nuevo al mismo coche (oclusión, salto de detección,
+cambio de carril), y entonces `plate_capture` o el `EventRouter` disparan un segundo evento del
+mismo vehículo físico. El candado deduplica por posición, no por id de track.
+
+| Original | Aquí |
+| --- | --- |
+| Compara la caja normalizada con un umbral fijo de distancia | IoU entre cajas normalizadas + límite de desplazamiento del centro; robusto a tamaños y perspectiva |
+| TTL fijo de 3600 s | `ttl_seconds` configurable con purga perezosa (cámaras 24/7) |
+| Decide el recorte por sí solo (`vehicle_cropped`) | `observe()` devuelve `vehicle_key` estable, si es nuevo y con qué track se fusionó; el EventRouter decide |
+
+`observe(track_id, box_norm, ts)` devuelve un `LockResult` con: `vehicle_key` (id del vehículo
+físico, estable aunque cambie el track), `is_new`, `is_duplicate_track` y `merged_from`. La regla
+de negocio: emitir el evento de vehículo (placa, entrada) solo cuando `is_new`, y para el resto
+adjuntar el `vehicle_key` para agrupar.
+
+Pruebas (`docs/video/test_vehicle_lock.py`, 10): IoU y normalización, mismo track nunca es
+duplicado, cambio de id en la misma posición se fusiona, dos vehículos distintos quedan separados,
+solape de refilón no fusiona, deriva del centro bloquea la fusión pese al solape, caducidad por
+TTL, reset, y un coche cuyo track se parte tres veces (1→5→9) que conserva un solo `vehicle_key`.
+
+Injerto en el flujo de placas (antes de `PlateService.consider`):
+
+```python
+from vehicle_lock import VehicleSpatialLock, normalize_box
+
+lock = VehicleSpatialLock(iou_threshold=0.45, ttl_seconds=3600)
+
+for t in vehicle_tracks:
+    res = lock.observe(t.track_id, normalize_box(t.box_px, W, H), ts)
+    t.attributes["vehicle_key"] = res.vehicle_key
+    if res.is_new:
+        await lpr.consider(t, frame, ts)        # una lectura de placa por vehículo físico
+    # los eventos PLATE_READ / WATCHLIST_HIT ya llevan vehicle_key para agrupar en el mapa de ruta
+```
+
+Con esto, un coche que ByteTrack parte en dos ids produce **una** lectura de placa y **un** punto
+de ruta, no dos.
