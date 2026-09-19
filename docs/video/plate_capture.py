@@ -234,11 +234,16 @@ def _iso(ts: float) -> str:
 class PlateService:
     def __init__(self, event_bus, ocr_fn: OcrFn, policy: PlateCapturePolicy, installation_id: str,
                  frame_size: tuple[int, int], model_name: str = "fast-alpr", model_version: str = "unknown",
-                 plate_box_fn: Callable[[Any, Box], Box | None] | None = None):
+                 plate_box_fn: Callable[[Any, Box], Box | None] | None = None,
+                 vehicle_lock: Any = None):
         """
         ocr_fn        (frame, caja_vehiculo) → (texto, confianza) o None. fast-alpr detecta la placa
                       dentro del recorte y la lee; si tu detector devuelve la caja de la placa,
                       pásala por plate_box_fn para medir su área.
+        vehicle_lock  VehicleSpatialLock opcional (docs/video/vehicle_lock.py). Si se pasa, la
+                      identidad de la captura y del evento es el `vehicle_key` estable del vehículo
+                      físico, no el track_id: un coche que ByteTrack parte en varios ids produce
+                      UNA sola lectura de placa. Sin él, la identidad es el track_id (compatibilidad).
         """
         self.bus = event_bus
         self.ocr = ocr_fn
@@ -247,24 +252,37 @@ class PlateService:
         self.frame_size = frame_size
         self.model = {"name": model_name, "version": model_version}
         self.plate_box_fn = plate_box_fn
+        self.vehicle_lock = vehicle_lock
+
+    def _identity(self, track: Track, ts: float) -> tuple[Any, str | None]:
+        """Devuelve (clave de captura, vehicle_key). Con candado, ambas cuelgan del vehículo físico."""
+        if self.vehicle_lock is None:
+            return track.track_id, None
+        w, h = self.frame_size
+        box_norm = (track.box.x1 / w, track.box.y1 / h, track.box.x2 / w, track.box.y2 / h)
+        res = self.vehicle_lock.observe(track.track_id, box_norm, ts)
+        track.attributes["vehicle_key"] = res.vehicle_key
+        return res.vehicle_key, res.vehicle_key
 
     async def consider(self, track: Track, frame: Any, ts: float) -> None:
+        key, vehicle_key = self._identity(track, ts)
         decision = None
-        if self.policy.should_read(track.track_id, track.box.anchor, ts):
+        if self.policy.should_read(key, track.box.anchor, ts):
             out = self.ocr(frame, track.box)
             pbox = self.plate_box_fn(frame, track.box) if self.plate_box_fn else None
             area = (pbox.x2 - pbox.x1) * (pbox.y2 - pbox.y1) if pbox else self.policy.min_area
             text, conf = out if out else (None, 0.0)
-            decision = self.policy.submit(track.track_id, text, conf, area, ts)
+            decision = self.policy.submit(key, text, conf, area, ts)
         else:
-            decision = self.policy.tick(track.track_id, ts)
+            decision = self.policy.tick(key, ts)
         if decision:
             track.attributes["plate"] = decision.plate.display
-            await self.bus.publish({
+            event = {
                 "type": "PLATE_READ",
                 "cameraId": track.camera_id,
                 "installationId": self.installation_id,
                 "trackId": track.track_id,
+                "vehicleKey": vehicle_key,
                 "plate": decision.plate.display,
                 "plateRaw": decision.plate.text,
                 "plateKind": decision.plate.kind,
@@ -279,7 +297,11 @@ class PlateService:
                 "timestamp": _iso(ts),
                 "model": self.model,
                 "state": "confirmed" if decision.votes >= 2 else "provisional",
-            })
+            }
+            await self.bus.publish(event)
 
     def forget(self, track_id: int) -> None:
-        self.policy.forget(track_id)
+        # Con candado, la captura cuelga del vehicle_key: no se olvida por track_id (varios ids
+        # comparten vehículo). El candado purga por TTL; sin candado, se olvida por track_id.
+        if self.vehicle_lock is None:
+            self.policy.forget(track_id)

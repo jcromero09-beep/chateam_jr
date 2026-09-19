@@ -61,6 +61,9 @@ class Bus:
     async def publish(self, e):
         self.events.append(e)
 
+    def of(self, kind):
+        return [e for e in self.events if e["type"] == kind]
+
 
 def vehicle(tid, y, ts):
     return Track("garita", tid, "car", 0.9, Box(280, y - 80, 360, y), ts, ts)
@@ -128,6 +131,63 @@ class PolicyTests(unittest.TestCase):
         self._drive(svc, tid=1)
         self._drive(svc, tid=2)
         self.assertEqual([e["trackId"] for e in bus.events], [1, 2])
+
+
+# --- Injerto de vehicle_lock: una lectura por vehículo físico aunque el track cambie de id ---
+
+import vehicle_lock as vl  # noqa: E402
+
+
+class VehicleLockIntegrationTests(unittest.TestCase):
+    def _service_with_lock(self, readings):
+        calls = []
+
+        def ocr(frame, box):
+            calls.append(box)
+            return readings[min(len(calls) - 1, len(readings) - 1)]
+
+        policy = pc.PlateCapturePolicy(None, max_reads=3)   # sin línea: lee desde que aparece
+        bus = Bus()
+        lock = vl.VehicleSpatialLock(iou_threshold=0.45, ttl_seconds=600)
+        svc = pc.PlateService(bus, ocr, policy, "urb-costalmar", (640, 360), vehicle_lock=lock)
+        return svc, bus, calls, lock
+
+    def test_track_id_split_yields_single_plate_read(self):
+        svc, bus, calls, lock = self._service_with_lock([("PBC-1234", 0.9)])
+        # el mismo coche, en la misma posición, con ids 1 -> 2 -> 3 (ByteTrack lo parte)
+        ts = 10.0
+        for tid in [1, 1, 2, 3, 3]:
+            t = pc.Track("garita", tid, "car", 0.9, pc.Box(280, 220, 360, 320), ts, ts)
+            run(svc.consider(t, None, ts))
+            ts += 0.2
+        reads = bus.of("PLATE_READ")
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(reads[0]["plate"], "PBC-1234")
+        self.assertTrue(reads[0]["vehicleKey"].startswith("veh_"))
+        self.assertEqual(lock.active_vehicles(), 1)
+
+    def test_two_cars_get_two_reads_with_distinct_vehicle_keys(self):
+        svc, bus, calls, lock = self._service_with_lock([("PBC-1234", 0.9)])
+        ts = 10.0
+        for _ in range(3):
+            run(svc.consider(pc.Track("garita", 1, "car", 0.9, pc.Box(60, 220, 160, 320), ts, ts), None, ts))
+            run(svc.consider(pc.Track("garita", 2, "car", 0.9, pc.Box(460, 220, 560, 320), ts, ts), None, ts))
+            ts += 0.2
+        reads = bus.of("PLATE_READ")
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(len({r["vehicleKey"] for r in reads}), 2)
+
+    def test_without_lock_backward_compatible(self):
+        # sin candado el evento no lleva vehicleKey poblado y la identidad sigue siendo el track
+        bus = Bus()
+        policy = pc.PlateCapturePolicy(None, max_reads=2)
+        svc = pc.PlateService(bus, lambda f, b: ("GSA-5678", 0.9), policy, "urb-costalmar", (640, 360))
+        ts = 10.0
+        for _ in range(2):
+            run(svc.consider(pc.Track("garita", 1, "car", 0.9, pc.Box(280, 220, 360, 320), ts, ts), None, ts))
+            ts += 0.2
+        self.assertEqual(len(bus.of("PLATE_READ")), 1)
+        self.assertIsNone(bus.of("PLATE_READ")[0]["vehicleKey"])
 
 
 if __name__ == "__main__":

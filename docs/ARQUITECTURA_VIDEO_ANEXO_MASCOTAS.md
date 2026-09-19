@@ -372,3 +372,25 @@ for t in vehicle_tracks:
 
 Con esto, un coche que ByteTrack parte en dos ids produce **una** lectura de placa y **un** punto
 de ruta, no dos.
+
+### Injerto ya hecho en `plate_capture.py`
+
+`PlateService` acepta un `vehicle_lock` opcional. Cuando se pasa, la identidad de la política de
+captura y del evento deja de ser el `track_id` y pasa a ser el `vehicle_key` estable del candado:
+un coche partido en varios ids continúa la MISMA ventana de captura y emite un solo `PLATE_READ`,
+que además lleva el campo `vehicleKey` para agrupar en el mapa de ruta. Sin candado el comportamiento
+es el de antes (identidad por track, `vehicleKey` nulo).
+
+```python
+from vehicle_lock import VehicleSpatialLock
+from plate_capture import PlateCapturePolicy, PlateService
+
+lock = VehicleSpatialLock(iou_threshold=0.45, ttl_seconds=3600)
+policy = PlateCapturePolicy(CaptureLine((0, 220), (640, 220), "forward"), max_reads=3)
+lpr = PlateService(bus, ocr_fn=fast_alpr_read, policy=policy, installation_id="urb-costalmar",
+                   frame_size=(W, H), vehicle_lock=lock)     # <-- el candado se inyecta aquí
+```
+
+Pruebas del injerto en `test_plate_capture.py` (3 añadidas, 14 en total): track partido 1→2→3 en
+la misma posición produce una sola lectura con `vehicleKey`; dos coches distintos producen dos
+lecturas con claves distintas; sin candado el evento es compatible hacia atrás (`vehicleKey` nulo).
