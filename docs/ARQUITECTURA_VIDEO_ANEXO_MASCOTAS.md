@@ -248,3 +248,46 @@ for t in tracks:                                    # tras router.process()
         ...                                         # VEHICLE_STOPPED con el mismo cooldown que las mascotas
 est.expire(ts)
 ```
+
+
+---
+
+## 5. Lectura de placas, formato ecuatoriano: `docs/video/plate_capture.py`
+
+Origen: `LicensePlatePipeline` del proyecto "OpenViewer" (topic 11-license-plate), transcrito de
+video (líneas 85-473; el archivo es más largo por ambos extremos y no está publicado). Se toman
+cuatro ideas y se descarta el resto (detectores YOLO26/Ultralytics, tracker didáctico, HUD):
+
+| Idea del original | Aquí |
+| --- | --- |
+| `PlateCaptureLine` con vector de movimiento: OCR solo al cruzar la línea | `CaptureLine(start, end, direction)` con test de intersección de segmento y sentido |
+| `ocr_cache: once` (primera lectura válida, bloqueada) | `PlateCapturePolicy`: hasta `max_reads` lecturas válidas en `max_attempts` intentos o `window_seconds`, y **voto** ponderado por confianza × área. La primera lectura errónea se corrige |
+| `is_plausible_plate(text)` | `normalize_ecuador_plate()`: limpia, corrige confusiones por posición (O↔0, I↔1, B↔8, S↔5, Z↔2, G↔6…), valida `LLL-DDD(D)` auto y `LL-DDDL` moto, primera letra = provincia ANT, segunda = servicio (A comercial, E estatal, M municipal, X provincial) |
+| Zona de detección por anclaje inferior | ya en `EventRouter` / `ZoneEngine` |
+
+`PlateService.consider(track, frame, ts)` encaja en `EventRouter(lpr_service=...)`: recibe el
+`ocr_fn(frame, caja_vehículo)` de fast-alpr, aplica la política y publica **un** `PLATE_READ` por
+track con placa normalizada, provincia, servicio, tipo, confianza, votos, intentos, caja normalizada
+y estado `confirmed` (≥ 2 votos) o `provisional`.
+
+Sin línea de captura (`capture_line=None`) la ventana se abre con el track: modo para una cámara
+de garita fija donde el vehículo se detiene frente a la barrera.
+
+Pruebas (`docs/video/test_plate_capture.py`, 11 tests): formatos válidos e inválidos, moto vs
+auto en 6 caracteres (gana el candidato con menos sustituciones), Ñ y tildes rechazadas,
+cruce con dirección y sobre la prolongación de la línea, cero OCR antes del cruce y máximo
+`max_reads` después, voto que corrige una primera lectura errónea, cierre por intentos y por
+tiempo, un evento por track.
+
+```python
+from plate_capture import CaptureLine, PlateCapturePolicy, PlateService
+
+policy = PlateCapturePolicy(CaptureLine((0, 220), (640, 220), "forward"), max_reads=3, window_seconds=2.0)
+lpr = PlateService(bus, ocr_fn=fast_alpr_read, policy=policy, installation_id="urb-costalmar",
+                   frame_size=(W, H), model_name="fast-alpr", model_version=FAST_ALPR_VERSION)
+router = EventRouter(policy_clases, zones, pets, face_service, lpr, ws_publisher)
+```
+
+Pendiente en sitio: fijar la línea de captura donde la placa mide ≥ 600 px² en el substream
+(`min_plate_area`), y comprobar con placas reales de la urbanización la lista de confusiones del
+OCR de fast-alpr, que puede diferir de la de PaddleOCR.
