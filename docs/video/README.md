@@ -14,6 +14,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `vehicle_lock.py` | deduplicado espacial de vehículos (IoU + deriva) |
 | `aforo.py` | **conteo de personas por zona y control de aforo** |
 | `track_behavior.py` | **merodeo, contraflujo y cruce de línea** sobre tracks |
+| `abandoned_object.py` | **objeto abandonado** por doble fondo |
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
 
 ## aforo.py — control de aforo / conteo de personas
@@ -124,3 +125,46 @@ Merodeo (antes/después del dwell, salir reinicia, cooldown), contraflujo (senti
 dispara, opuesto sí, ruido por debajo del mínimo, restricción por zona, cooldown), cruce de
 línea (ambos sentidos, mismo lado no cruza, filtro de sentido, cruce fuera del segmento) y el
 motor combinado. Todas sintéticas, sin cámara.
+
+## abandoned_object.py — objeto abandonado
+
+Detecta un objeto que **aparece y se queda quieto** más de `static_seconds`. **No necesita
+detector**: usa **doble fondo** (uno lento, uno rápido) de visión clásica.
+
+- **Fondo lento** (BL): el objeto sigue siendo primer plano frente a él durante mucho rato.
+- **Fondo rápido** (BS): una vez que el objeto se detiene, BS lo absorbe y deja de verlo como
+  movimiento.
+- **Candidato estático** = primer plano vs BL **Y** ya no movimiento vs BS. Se acumula
+  **evidencia en segundos** donde hay candidato y se descuenta donde no; al superar
+  `static_seconds`, se marca objeto abandonado.
+
+El movimiento continuo sobre la región (una persona parada, tráfico) no acumula, así que no
+alarma. ROI y máscaras de exclusión acotan; filtro de área descarta motas. Evento **una sola
+vez** por objeto (dedup por centroide); si lo recogen y aparece otro en el mismo sitio, vuelve
+a disparar.
+
+```python
+from abandoned_object import AbandonedObjectDetector, AbandonedConfig, draw
+
+det = AbandonedObjectDetector(AbandonedConfig(static_seconds=20, roi_polygon=ANDEN))
+for frame, ts in stream():             # cámara fija; ts en segundos
+    r = det.update(frame, ts)
+    for ev in r.events:                # objetos que acaban de cumplir el tiempo
+        alertar(ev.box, ev.age)
+    salida = draw(frame, r)
+```
+
+Ajuste: `static_seconds` (cuánto quieto para alarmar), `alpha_short`/`alpha_long` (rapidez de los
+fondos), `diff_thresh`, `min_area`, `dedup_dist`. Límite honesto: es cámara fija; con mucho
+tráfico o cambios de luz sube umbrales, y para distinguir "maleta" de "persona sentada quieta"
+conviene confirmar con detector.
+
+### Pruebas
+
+```
+python test_abandoned_object.py     # 12 pruebas
+```
+
+Objeto estático marcado tras `static_seconds`, no antes; objeto en movimiento no se marca; objeto
+retirado antes del umbral no dispara; objeto pequeño ignorado; evento una sola vez y reaparición
+tras retiro; ROI y zona ignorada; `reset()` y primer cuadro vacío; dibujo. Todas sintéticas.
