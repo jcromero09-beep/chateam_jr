@@ -7,6 +7,7 @@ clásica: OpenCV + numpy puro, sin Ultralytics, sin torch, **sin AGPL**.
 |---|---|
 | `fire_smoke.py` | detección de fuego y humo (color ∧ movimiento) |
 | `terrain_change.py` | monitor de movimiento de tierra / deslizamiento (cámara fija) |
+| `water_level.py` | nivel de agua por línea de agua + fracción por color (cámara fija) |
 
 ---
 
@@ -204,3 +205,65 @@ Sin cambio con imagen idéntica, mancha grande detectada, mota pequeña ignorada
 luz ignorado al normalizar, mediana que borra un objeto transitorio de la base, ROI y máscara de
 exclusión, tendencia positiva al crecer la mancha, alarma por nivel sostenido y por tendencia,
 escena estable sin alarma, `reset()` y dibujo. Todas sintéticas, sin cámara.
+
+---
+
+## water_level.py — nivel de agua
+
+Para **cámara fija** ante una regleta, el muro de un canal o un embalse. Dos usos:
+
+- **Nivel por línea de agua**: en una franja vertical (`roi`) encuentra la **frontera seco/mojado**
+  —la fila donde cambia el patrón de brillo entre la pared seca (arriba) y el agua (abajo)— y con
+  una **calibración de dos marcas** la convierte en nivel real (cm/m). Suaviza en el tiempo
+  (mediana) y alarma por **nivel alto/bajo**.
+- **Fracción de agua por color** (`water_fraction`): en una vista de área, qué parte del ROI es
+  agua, como aforo aproximado de llenado.
+
+### Uso
+
+```python
+from water_level import WaterLevelMonitor, WaterLevelConfig, Calibration, draw
+
+cal = Calibration(y1=470, level1=0.0, y2=60, level2=3.0)   # fila 470 = 0 m, fila 60 = 3 m
+cfg = WaterLevelConfig(roi=(300, 40, 360, 480), calibration=cal,
+                       level_high=2.5, level_low=0.5, window=5)
+mon = WaterLevelMonitor(cfg)
+for frame in stream():                 # cámara fija
+    r = mon.update(frame)
+    if r.alarm:
+        alertar(r.status, r.level)     # "alto" / "bajo"
+    salida = draw(frame, r)
+    print(r.hud_line())  # "nivel=1.85 linea_y=210 [ok]"
+```
+
+Calibración: fotografía dos marcas de altura conocida en la regleta y anota su fila de imagen
+(`y`) y su nivel real (`level`); el mapeo píxel→nivel es lineal entre ambas.
+
+Fracción por color (vista de embalse):
+
+```python
+from water_level import water_fraction
+frac = water_fraction(frame, roi_polygon=EMBALSE)   # 0..1 del ROI cubierto por agua
+```
+
+### Ajuste y límites honestos
+
+- La línea de agua se detecta como el **mayor cambio de brillo** en la franja; acota el `roi` a la
+  regleta/muro para no capturar bordes espurios (horizonte, sombras). Si el contraste seco/agua es
+  bajo, sube el contraste de la toma o marca la regleta con franjas.
+- `min_edge_strength` filtra lecturas sin borde claro (devuelve estado `sin_lectura`).
+- El **color de agua** para `water_fraction` es muy dependiente del sitio (turbia, barrosa, con
+  reflejos); por defecto solo trae azul/verde-azulado. Para agua oscura define tus bandas —no se
+  incluye una banda "oscura" por defecto porque marcaría cualquier sombra como agua.
+- No reemplaza un sensor de nivel (radar/presión): es medición óptica, barata y trazable en video.
+
+### Pruebas
+
+```
+python test_water_level.py     # 16 pruebas
+```
+
+Calibración lineal; frontera detectada y su seguimiento al subir el agua; imagen uniforme sin
+lectura; nivel con calibración; ROI acota; suavizado por mediana; alarma alto/bajo y ok entre
+umbrales; sin calibración reporta píxeles; sin lectura; `reset()`; fracción por color (con y sin
+ROI) y dibujo. Todas sintéticas, sin cámara.
