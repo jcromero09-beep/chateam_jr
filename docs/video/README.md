@@ -15,6 +15,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `aforo.py` | **conteo de personas por zona y control de aforo** |
 | `track_behavior.py` | **merodeo, contraflujo y cruce de línea** sobre tracks |
 | `abandoned_object.py` | **objeto abandonado** por doble fondo |
+| `railway_stall.py` | **vehículo detenido en cruce de vía** (zona + velocidad + permanencia) |
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
 
 ## aforo.py — control de aforo / conteo de personas
@@ -168,3 +169,38 @@ python test_abandoned_object.py     # 12 pruebas
 Objeto estático marcado tras `static_seconds`, no antes; objeto en movimiento no se marca; objeto
 retirado antes del umbral no dispara; objeto pequeño ignorado; evento una sola vez y reaparición
 tras retiro; ROI y zona ignorada; `reset()` y primer cuadro vacío; dibujo. Todas sintéticas.
+
+## railway_stall.py — vehículo detenido en cruce de vía
+
+Alarma cuando un vehículo se **detiene sobre el cruce de la vía**. Sobre tracks (no detecta ni
+sigue): recibe `(track_id, caja)` por cuadro de tu detector + ByteTrack; reusa `Box.anchor` y
+`point_in_polygon` de `pet_events`.
+
+Regla = **zona + velocidad + permanencia**: vehículo con el punto de apoyo dentro del polígono de
+la vía y **velocidad < `min_speed_px_s`** durante **`stall_s` segundos** (con `grace_frames` de
+tolerancia a parpadeos) → `railway_stall`.
+
+```python
+from railway_stall import RailwayStallMonitor, RailwayStallConfig, draw
+
+mon = RailwayStallMonitor(RailwayStallConfig(polygon=CRUCE, min_speed_px_s=20, stall_s=5))
+for frame, ts in stream():
+    obs = [(t.id, t.box) for t in tracker.vehicles(frame)]
+    for ev in mon.update(obs, ts):
+        alertar(ev.track_id, ev.stall_seconds)     # vehículo parado en la vía
+    salida = draw(frame, CRUCE, mon.update(obs, ts))
+```
+
+La velocidad va en px/s del plano de imagen; si tienes homografía, mídela en el mundo real con
+`speed_bev` y ajusta el umbral. Combina los patrones de `pet_events` (zona), `speed_bev`
+(velocidad) y `track_behavior` (permanencia).
+
+### Pruebas
+
+```
+python test_railway_stall.py     # 9 pruebas
+```
+
+Vehículo parado sobre la vía dispara (y no antes de `stall_s`); vehículo en movimiento no; parado
+fuera del polígono no; `grace` tolera un empujón breve; salir de la zona reinicia; cooldown de un
+evento; acepta cajas por tupla; `reset()`. Todas sintéticas, sin cámara.

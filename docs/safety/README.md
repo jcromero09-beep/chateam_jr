@@ -1,7 +1,19 @@
-# safety — cumplimiento de EPP (casco y chaleco)
+# safety — seguridad de personas (EPP, caídas)
 
-Módulo **separado del SGR** (dominio seguridad/obra), de visión clásica: OpenCV + numpy puro,
-sin Ultralytics, sin torch, **sin AGPL**.
+Módulos **separados del SGR** (dominio seguridad/obra), de visión clásica: OpenCV + numpy puro,
+sin Ultralytics, sin torch, **sin AGPL**. Reciben cajas de tu detector externo (RF-DETR/D-FINE,
+Apache-2.0).
+
+| Módulo | Qué hace |
+|---|---|
+| `ppe_detect.py` | cumplimiento de EPP (casco y chaleco) por color |
+| `fall_detection.py` | detección de caída por aspecto de caja (sin pose) |
+
+---
+
+## ppe_detect.py — cumplimiento de EPP (casco y chaleco)
+
+Visión clásica: OpenCV + numpy puro, sin Ultralytics, sin torch, **sin AGPL**.
 
 Verifica que cada persona lleve su EPP mirando el **color en la sub-región** donde debe estar.
 **No trae detector**: recibe las cajas de persona de tu detector externo (RF-DETR/D-FINE,
@@ -89,3 +101,43 @@ python test_ppe_detect.py     # 12 pruebas (1 se salta si Box no está en el pat
 EPP completo cumple; falta casco; falta chaleco; faltan ambos; casco blanco cuenta; chaleco
 naranja cuenta; reporte con conteos y HUD; exigir solo casco; mancha pequeña por debajo del
 umbral = falta; interop con `Box`; dibujo. Todas con 'personas' sintéticas de color por región.
+
+---
+
+## fall_detection.py — caída por aspecto de caja (sin pose)
+
+Reescritura limpia de la variante **sin pose** del FallMonitor del video "Drone Object Detection"
+(el código decía: *"fall.model unset → fall detection uses bbox aspect only"*). La versión con
+pose usa YOLO-pose (Ultralytics, **AGPL**); ésta usa solo la **geometría de la caja**, así que es
+license-clean (stdlib). Recibe `(track_id, caja)` por cuadro de tu detector de personas + ByteTrack.
+
+Idea: una persona de pie tiene caja **alta** (ancho/alto < 1); una persona caída, caja **ancha y
+baja** (aspecto alto). Si el aspecto supera `fall_aspect` y se **mantiene** `persist_s` segundos,
+se marca posible caída.
+
+```python
+from fall_detection import FallDetector, FallConfig, draw
+
+det = FallDetector(FallConfig(fall_aspect=1.1, persist_s=0.6))
+for frame, ts in stream():
+    obs = [(t.id, t.box) for t in tracker.people(frame)]
+    for ev in det.update(obs, ts):
+        alertar(ev.track_id, ev.aspect)     # posible caída
+    salida = draw(frame, obs, det.update(obs, ts))
+```
+
+También `is_fallen_box(box)` para un juicio instantáneo de un solo cuadro.
+
+**Límite honesto**: por aspecto no distingue "caído" de "agachado / sentado en el piso / acostado
+a propósito"; es una **alerta para revisión**, no un diagnóstico. Para exigencia real, confirma con
+pose o con un humano. La persistencia evita disparar por un cuadro raro.
+
+### Pruebas
+
+```
+python test_fall_detection.py     # 11 pruebas
+```
+
+Aspecto de caja y juicio instantáneo; caída confirmada tras `persist_s`; caja ancha de un cuadro
+no dispara; de pie nunca dispara; levantarse reinicia; cooldown de un evento; varias personas a la
+vez; `reset()`; dibujo. Todas con cajas sintéticas, sin cámara.
