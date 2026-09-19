@@ -291,3 +291,40 @@ router = EventRouter(policy_clases, zones, pets, face_service, lpr, ws_publisher
 Pendiente en sitio: fijar la línea de captura donde la placa mide ≥ 600 px² en el substream
 (`min_plate_area`), y comprobar con placas reales de la urbanización la lista de confusiones del
 OCR de fast-alpr, que puede diferir de la de PaddleOCR.
+
+
+---
+
+## 6. Lista de búsqueda y mapa de ruta: `docs/video/plate_watchlist.py`
+
+Origen: `search_plate_pipeline.py` (video "Object Tracking and Route Mapping", placas
+vietnamitas, líneas 1-161 transcritas). El original detecta caracteres con un YOLO de 32 clases y
+los ordena por posición; la coincidencia con la lista negra compara **solo los últimos 5 dígitos**
+(`89C-04048` ≡ `88C-04048`), lo que en Ecuador (3 letras + 3-4 dígitos) colisionaría entre
+provincias y series.
+
+| Idea del original | Aquí |
+| --- | --- |
+| Coincidencia por últimos 5 dígitos | `Watchlist.match()`: exacta sobre la placa normalizada; si no, dígitos idénticos y **una** letra distinta dentro de pares que el OCR confunde (E/F, O/Q/D, M/N, U/V, C/G, K/X, I/L, P/R, T/Y). Devuelve `exact` o `fuzzy`; auto y moto nunca se cruzan; `allow_fuzzy=False` para listas críticas |
+| `clean_vietnamese_plate_syntax` | ya cubierto por `normalize_ecuador_plate` (plate_capture.py) |
+| Ruta sobre mapa satelital | `RouteMapper`: encadena `PLATE_READ` por placa y cámara en orden temporal, colapsa relecturas en la misma cámara (`dedupe_seconds`), y emite la ruta como lista de puntos y como GeoJSON (LineString + Points) con las coordenadas de `CameraSite` |
+| Overlay "BLACKLIST VEHICLE" | `WatchlistService`: consume `PLATE_READ` del bus, publica `ROUTE_UPDATE` por punto nuevo y `WATCHLIST_HIT` con cooldown por (placa, cámara); estado `confirmed` solo si la coincidencia es exacta y la lectura venía confirmada |
+
+Pruebas (`docs/video/test_plate_watchlist.py`, 14): carga con rechazo de entradas inválidas,
+exacta, difusa por una letra confusa, sin coincidencia con dígitos distintos o letras no confusas,
+moto/auto separados, difusa desactivable, alta y baja, ruta ordenada con colapso de repeticiones,
+GeoJSON, cámara sin coordenadas, alerta con cooldown y ruta adjunta, residentes sin alerta,
+lectura difusa o provisional → alerta provisional, timestamps ISO y numéricos.
+
+```python
+from plate_watchlist import CameraSite, RouteMapper, Watchlist, WatchlistService
+
+wl = Watchlist(load_watchlist_rows())                   # [(placa, lista, etiqueta)] desde BD
+mapper = RouteMapper([CameraSite("garita-norte", "Garita Norte", lat, lon), ...], dedupe_seconds=60)
+watch = WatchlistService(bus, wl, mapper, "urb-costalmar", alert_cooldown_seconds=300, alert_lists={"blacklist"})
+bus.subscribe(watch.on_event)                          # el bus reenvía cada evento publicado
+```
+
+La lista de búsqueda se carga y recarga desde la BD (tabla propia o `oi_placa_estado`); el módulo
+no lee archivos. Lo que muestra el mapa del video es `route_geojson(plate)` pintado sobre Leaflet o
+similar en el frontend.
