@@ -214,14 +214,16 @@ tracks de RF-DETR + ByteTrack que ya produce el pipeline.
 | --- | --- | --- |
 | Homografía | `build_bev_transform`, `to_bev` | Idénticas, en `RoadPlane` |
 | Punto medido | base de la caja | `Box.anchor` (centro del borde inferior), el mismo que usan las zonas |
-| Velocidad | diferencia frame a frame, promedio de 25 | desplazamiento entre extremos de una ventana de 1.5 s, mediana de las últimas 5 ventanas |
+| Velocidad | desplazamiento entre el primer y el último de los últimos 26 puntos (ventana de 25 **frames**), promediando las últimas 25 ventanas | desplazamiento entre extremos de una ventana de 1.5 **segundos**, mediana de las últimas 5 ventanas |
 | Filtros | `MIN/MAX_PLAUSIBLE_KPH`, `MIN_TRACK_FRAMES` | los mismos, más `max_jump_m` que reinicia el track ante un salto imposible (id reasignado, oclusión) |
 | Varias calzadas | dos homografías fijas L/R | lista de `RoadPlane`; cada track usa el plano donde cae su anclaje |
 | Detenido | no existe | `is_stopped()` con `stopped_seconds` e histéresis (`resume_kph`) |
 
-Motivo del cambio de método: a 5 fps (substream) la diferencia entre frames consecutivos multiplica
-el jitter del tracker por 5 y el promedio de 25 muestras tarda 5 s en estabilizar; la ventana da
-una medida usable a los 1.5 s y es la misma idea que la estimación de velocidad por zona de Frigate.
+Motivo del cambio de método: la ventana del original está en frames, así que a 30 fps son 0.8 s
+pero a 5 fps (substream) son 5 s, y el promedio de 25 ventanas suma otros 5 s de retardo; una ventana
+en segundos da una medida usable a los 1.5 s con cualquier fps, que es la idea de la estimación de
+velocidad por zona de Frigate. El original tampoco reinicia el historial ante un salto implausible:
+descarta la muestra pero los puntos viejos siguen en la cola hasta 25 frames después.
 
 Pruebas (`docs/video/test_speed_bev.py`, 7 tests): geometría de la homografía contra valores
 conocidos, selección de plano, recuperación de 18/36/72 km/h con error < 5 % sobre un objeto
