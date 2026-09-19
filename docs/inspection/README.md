@@ -1,10 +1,17 @@
-# inspection — grietas y baches en pavimento/muro
+# inspection — inspección de infraestructura (visión clásica)
 
-Módulo **separado del SGR** y de los demás dominios. Inspección de infraestructura por **visión
-clásica**: OpenCV + numpy puro, sin Ultralytics, sin torch, **sin AGPL**.
+Módulos **separados del SGR** y de los demás dominios. Inspección de infraestructura por **visión
+clásica**: OpenCV + numpy puro, sin Ultralytics, sin torch, **sin AGPL**. Pases sobre foto o
+video cercano (dron o cámara montada), no vigilancia en vivo a distancia.
 
-Es un **pase de inspección** sobre foto o video cercano (dron o cámara montada sobre el
-pavimento), no vigilancia en vivo a distancia.
+| Módulo | Qué hace |
+|---|---|
+| `pavement_defects.py` | grietas y baches en pavimento/muro |
+| `corrosion.py` | corrosión / óxido en estructura metálica |
+
+---
+
+## pavement_defects.py — grietas y baches
 
 ## Dos defectos, dos firmas
 
@@ -92,3 +99,71 @@ Grieta fina detectada, vía limpia sin grietas, más ancha → mayor severidad, 
 como grieta; bache detectado, vía limpia sin baches, grieta no reportada como bache, bache más
 grande → mayor severidad; `analyze` reporta ambos, ROI restringe, inspector acumula y dibujo.
 Todas con imágenes sintéticas, sin cámara.
+
+---
+
+## corrosion.py — corrosión / óxido
+
+Detecta óxido en estructura metálica (tanque, baranda, torre, tubería) por su **color**
+(rojo-marrón a naranja apagado, bandas HSV configurables) y, opcional, su **textura** rugosa.
+Mide la **fracción de superficie afectada** y da una severidad global.
+
+```
+color de óxido (HSV)  [ + textura rugosa opcional ]  -> fracción afectada -> severidad
+```
+
+- **Color**: bandas de óxido naranja-marrón y rojo-marrón (saturado, valor no muy alto).
+- **Textura (opcional)**: exige desviación local alta para no confundir **pintura naranja lisa**,
+  madera o tierra con óxido. Actívalo con `use_texture=True`.
+- **Severidad** global por fracción de la superficie: `sano` / `leve` / `moderado` / `severo`
+  (umbrales calibrables). ROI opcional para acotar la estructura.
+
+### Uso
+
+```python
+from corrosion import detect_corrosion, CorrosionConfig, draw
+
+cfg = CorrosionConfig(use_texture=True, roi_polygon=ESTRUCTURA)
+r = detect_corrosion(imagen_bgr, cfg)
+print(r.hud_line())        # "oxido=7.3% [moderado] focos=4"
+anotada = draw(imagen_bgr, r)
+```
+
+Recorrido de video (acumula, guarda la peor severidad vista):
+
+```python
+from corrosion import CorrosionInspector
+insp = CorrosionInspector(cfg)
+for frame in frames():
+    insp.analyze(frame)
+print(insp.summary())      # {'frames':.., 'cuadros_con_oxido':.., 'peor_severidad':..}
+```
+
+CLI:
+
+```
+python corrosion.py tanque.jpg --texture --out anotada.jpg
+python corrosion.py recorrido.mp4 --out anotado.mp4
+```
+
+### Ajuste y límites honestos
+
+- Calibra las **bandas** al óxido real y la luz de tu sitio; el tono del óxido varía de naranja
+  fresco a marrón oscuro.
+- `use_texture` + `min_texture` reducen falsos positivos de superficies lisas del mismo color;
+  un óxido muy uniforme podría requerir bajarlo.
+- Color+textura **no distingue** óxido de manchas del mismo tono (barro, ciertas pinturas). Para
+  inspección crítica, confirma con un modelo entrenado o revisión humana.
+
+Reusa el patrón de **máscara HSV** (como `agriculture/ripeness_hsv`) y de **componentes con
+filtro de área** (como `aquaculture/larvae_count`).
+
+### Pruebas
+
+```
+python test_corrosion.py     # 9 pruebas
+```
+
+Metal sano sin óxido, parche de óxido detectado, mota por debajo del área ignorada, severidad
+que crece con la fracción, ROI restringe; gate de textura (naranja liso rechazado, óxido moteado
+aceptado); inspector que guarda la peor severidad; dibujo. Todas sintéticas, sin cámara.
