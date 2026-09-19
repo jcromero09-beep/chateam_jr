@@ -199,3 +199,50 @@ for frame, ts in frames():
 Lo que sigue siendo responsabilidad de desarrollo y no está en estos módulos: el adaptador
 RF-DETR real (`infer_region`, con el post-proceso del ONNX exportado), el `ws_publisher` hacia el
 frontend, los servicios de rostro y LPR, y el scheduler multi-cámara con equidad (riesgos F y G).
+
+
+---
+
+## 4. Velocidad por track en vista de pájaro: `docs/video/speed_bev.py`
+
+Origen: el `vehicle_speed.py` publicado en video por Mohsin Ali (Facebook, 2026-09-19), transcrito
+de capturas líneas 5-120. Se reutiliza solo la parte OpenCV (homografía calzada → plano métrico,
+filtros de plausibilidad); el detector y tracker de Ultralytics (AGPL) se sustituyen por los
+tracks de RF-DETR + ByteTrack que ya produce el pipeline.
+
+| Pieza | Original | Aquí |
+| --- | --- | --- |
+| Homografía | `build_bev_transform`, `to_bev` | Idénticas, en `RoadPlane` |
+| Punto medido | base de la caja | `Box.anchor` (centro del borde inferior), el mismo que usan las zonas |
+| Velocidad | diferencia frame a frame, promedio de 25 | desplazamiento entre extremos de una ventana de 1.5 s, mediana de las últimas 5 ventanas |
+| Filtros | `MIN/MAX_PLAUSIBLE_KPH`, `MIN_TRACK_FRAMES` | los mismos, más `max_jump_m` que reinicia el track ante un salto imposible (id reasignado, oclusión) |
+| Varias calzadas | dos homografías fijas L/R | lista de `RoadPlane`; cada track usa el plano donde cae su anclaje |
+| Detenido | no existe | `is_stopped()` con `stopped_seconds` e histéresis (`resume_kph`) |
+
+Motivo del cambio de método: a 5 fps (substream) la diferencia entre frames consecutivos multiplica
+el jitter del tracker por 5 y el promedio de 25 muestras tarda 5 s en estabilizar; la ventana da
+una medida usable a los 1.5 s y es la misma idea que la estimación de velocidad por zona de Frigate.
+
+Pruebas (`docs/video/test_speed_bev.py`, 7 tests): geometría de la homografía contra valores
+conocidos, selección de plano, recuperación de 18/36/72 km/h con error < 5 % sobre un objeto
+sintético proyectado por la homografía inversa, ausencia de estimación antes de la ventana,
+"detenido" a los 5-8 s con jitter de ±1 px, reinicio ante salto imposible, expiración.
+
+Calibración por cámara: cuatro puntos en píxeles del frame de detección (lejos-izquierda,
+lejos-derecha, cerca-derecha, cerca-izquierda) más el ancho real de la calzada y la longitud
+visible en metros. Con una referencia medida en sitio (ancho de la vía de la garita, o la
+distancia entre dos marcas del pavimento) basta.
+
+```python
+from speed_bev import RoadPlane, SpeedEstimator
+
+est = SpeedEstimator([RoadPlane("acceso", cfg["road_pts_px"], road_width_m=7.0, visible_len_m=40.0)], fps=5)
+
+for t in tracks:                                    # tras router.process()
+    kph = est.update(t.track_id, t.box.anchor, ts)
+    if kph is not None:
+        t.attributes["speed_kph"] = kph             # viaja en tracking.update al overlay
+    if est.is_stopped(t.track_id):
+        ...                                         # VEHICLE_STOPPED con el mismo cooldown que las mascotas
+est.expire(ts)
+```
