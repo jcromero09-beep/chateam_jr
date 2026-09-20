@@ -82,6 +82,8 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `tracking.py` | tracker por IoU (identidad estable entre cuadros muestreados) |
 | `forensic.py` | manifiesto/hash, detección→track→entidad, exportación JSON/CSV/MD + recortes |
 | `example_wiring.py` | **cableado con modelos reales** (MediaPipe / RF-DETR / fast-alpr) |
+| `app.py` | **API web (FastAPI)**: subir, analizar en background, servir reporte/CSV/timeline/recortes |
+| `gradio_app.py` | **interfaz gráfica (Gradio)**: subir video → resumen + tabla + galería de recortes |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -106,6 +108,38 @@ En código: `build_detectors(watchlist=[...])` arma el dict con los modelos inst
 OCR y el `match` de watchlist viajan en los atributos de la detección y quedan en la entidad (el
 orquestador propaga los atributos de la mejor detección).
 
+## Interfaces listas: `app.py` (web) y `gradio_app.py` (GUI)
+
+Ambos usan el mismo motor; los imports de FastAPI/Gradio son **perezosos** (los módulos se importan
+y prueban aunque no tengas esas librerías). La lógica de análisis está en funciones puras
+reutilizables: `app.run_case(...)` y `gradio_app.audit_video(...)` / `audit_images(...)`.
+
+**Web (FastAPI):**
+
+```bash
+pip install fastapi "uvicorn[standard]" python-multipart
+uvicorn app:app --host 0.0.0.0 --port 8090        # o: uvicorn "app:create_app" --factory
+```
+
+Rutas: `POST /api/cases` (multipart `files`, `step`, `keyframes`, `images`, `watchlist`),
+`GET /api/cases`, `GET /api/cases/{id}`, `/report`, `/detections.csv`, `/timeline.md`,
+`/crops/{entity_id}.png`, `DELETE /api/cases/{id}`. Casos en `$FORENSE_CASES_DIR` (por defecto
+`./casos`). Ideal como servicio Python bajo PM2/uvicorn con proxy desde tu app Node.
+
+**GUI (Gradio):**
+
+```bash
+pip install gradio
+python gradio_app.py                               # http://0.0.0.0:8091
+```
+
+Sube un video → resumen + tabla de entidades (tipo, id, desde/hasta, apariciones, conf, placa,
+texto, match) + galería con el mejor recorte de cada entidad.
+
+> Producción: rostros/placas son datos personales — protege estos endpoints con **autenticación**,
+> define **retención/borrado** y registra accesos. Ver `GUIA_INTERFAZ.md` (en el zip mínimo) para
+> más rutas, SSE/WebSocket de progreso, y opciones de frontend HTML/JS y desktop.
+
 ## Ajuste y límites
 
 - `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
@@ -119,11 +153,13 @@ python test_frame_sampler.py     # 3
 python test_tracking.py          # 6
 python test_forensic.py          # 13 (video e imágenes)
 python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
+python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + lógica pura)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
 IoU y expiración de tracks; deduplicación por track en video; una entidad por detección en
 imágenes; filtro por confianza; hash determinista; manifiesto por-archivo; enrichers (y su
 tolerancia a errores); propagación de atributos de la mejor detección a la entidad; exportación
-válida de JSON/CSV/MD y recortes; y el cableado (importa siempre, degrada sin modelos, normalizador
-de placa devuelve string). Total: **27 pruebas verdes**.
+válida de JSON/CSV/MD y recortes; el cableado (importa siempre, degrada sin modelos, normalizador
+de placa devuelve string); y los apps web/GUI (importan sin FastAPI/Gradio, `run_case`/`audit_*`
+producen reporte sobre video e imágenes, captura de errores). Total: **34 pruebas verdes**.
