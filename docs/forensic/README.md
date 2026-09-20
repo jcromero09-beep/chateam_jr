@@ -84,6 +84,7 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `example_wiring.py` | **cableado con modelos reales** (MediaPipe / RF-DETR / fast-alpr) |
 | `app.py` | **API web (FastAPI)**: subir, analizar en background, servir reporte/CSV/timeline/recortes |
 | `gradio_app.py` | **interfaz gráfica (Gradio)**: subir video → resumen + tabla + galería de recortes |
+| `redaction.py` | **anonimización**: difumina/pixela/tapa rostros y placas (privacidad) |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -140,6 +141,52 @@ texto, match) + galería con el mejor recorte de cada entidad.
 > define **retención/borrado** y registra accesos. Ver `GUIA_INTERFAZ.md` (en el zip mínimo) para
 > más rutas, SSE/WebSocket de progreso, y opciones de frontend HTML/JS y desktop.
 
+## redaction.py — anonimización de rostros/placas
+
+Cierra la brecha de privacidad: rostros y placas son **datos personales**. Difumina, pixela o tapa
+esas regiones antes de guardar/exportar/compartir. OpenCV puro, sin AGPL. Dos modos:
+
+- **Por caja** (sin dependencias): redacta el rectángulo de cada detección (las cajas que ya da tu
+  detector). Métodos `blur` / `pixelate` / `box`; `invert=True` redacta todo MENOS las cajas.
+- **Por máscara** (parser inyectable): redacta solo los píxeles de la región (p.ej. la cara y no el
+  fondo dentro de la caja) usando un modelo de *face parsing* como `uniface`. El parser se inyecta
+  (`parser(crop_bgr) -> mask`), así se prueba sin instalarlo.
+
+```python
+from redaction import redact_boxes, redact_frame, redact_boxes_with_parser, RedactConfig
+
+# por caja (lo habitual): difumina rostros de un cuadro
+anon = redact_boxes(frame, face_boxes, RedactConfig(method="blur", blur_ksize=41))
+
+# a partir de detecciones por tipo (integra con el forense)
+anon = redact_frame(frame, detections_by_kind, kinds=("face", "plate"),
+                    cfg=RedactConfig(method="pixelate", pixel_blocks=8))
+
+# región precisa con uniface (opcional):
+#   from uniface import BiSeNet, ParsingWeights, SCRFD    # pesos: ver licencia (research/no-comm.)
+#   parser = BiSeNet(model_name=ParsingWeights.RESNET34)
+#   anon = redact_boxes_with_parser(frame, face_boxes, lambda crop: parser.parse(crop),
+#                                   RedactConfig(method="blur"), classes=None)
+```
+
+Uso típico con el analizador: corre `ForensicAnalyzer` para obtener las cajas y **redacta los
+cuadros antes de escribir el video/recortes** que vas a compartir; guarda el original íntegro (con
+su SHA-256) bajo acceso restringido y comparte solo la versión anonimizada.
+
+> Nota de licencia de `uniface`: su código es MIT, pero los **pesos** (SCRFD/InsightFace, BiSeNet
+> sobre CelebAMask-HQ) pueden ser de uso **research/no comercial** — verifícalo. El modo por caja no
+> necesita nada de eso.
+
+### Pruebas
+
+```
+python test_redaction.py     # 15 pruebas
+```
+
+blur/pixelate/caja sólida (solo dentro de la caja, fuera intacto), `invert`, `expand`, varias
+cajas, redacción por máscara y por clases, parser inyectable (región precisa y fallback a caja),
+integración por tipo de detección. Todas con imágenes sintéticas, sin cámara ni uniface.
+
 ## Ajuste y límites
 
 - `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
@@ -154,6 +201,7 @@ python test_tracking.py          # 6
 python test_forensic.py          # 13 (video e imágenes)
 python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
 python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + lógica pura)
+python test_redaction.py         # 15 (anonimización de rostros/placas)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
@@ -162,4 +210,4 @@ imágenes; filtro por confianza; hash determinista; manifiesto por-archivo; enri
 tolerancia a errores); propagación de atributos de la mejor detección a la entidad; exportación
 válida de JSON/CSV/MD y recortes; el cableado (importa siempre, degrada sin modelos, normalizador
 de placa devuelve string); y los apps web/GUI (importan sin FastAPI/Gradio, `run_case`/`audit_*`
-producen reporte sobre video e imágenes, captura de errores). Total: **34 pruebas verdes**.
+producen reporte sobre video e imágenes, captura de errores). Total: **49 pruebas verdes**.
