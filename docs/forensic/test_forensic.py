@@ -182,6 +182,19 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(data["summary"]["entities"], 2)   # 1 rostro + 1 placa en la foto
 
 
+class AttrsPropagationTests(unittest.TestCase):
+    def test_best_detection_attrs_reach_entity(self):
+        # el detector adjunta texto de placa en la deteccion; debe quedar en la entidad
+        det = {"plate": lambda fr: [((60, 180, 140, 210), 0.9, {"text": "PXA1234",
+                                                                 "plate": "PXA-1234"})]}
+        an = fo.ForensicAnalyzer(det, fo.ForensicConfig(save_crops=False))
+        with tempfile.TemporaryDirectory() as d:
+            rep = an.analyze_frames(synthetic_frames(4),
+                                    fo.CaseManifest("x.mp4", "b" * 64, 1), d)
+        plate = [e for e in rep.entities if e.kind == "plate"][0]
+        self.assertEqual(plate.attrs.get("plate"), "PXA-1234")
+
+
 class SummaryTests(unittest.TestCase):
     def test_report_summary(self):
         det = {"face": FakeDetectors.face, "plate": FakeDetectors.plate}

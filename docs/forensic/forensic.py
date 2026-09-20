@@ -234,6 +234,7 @@ class ForensicAnalyzer:
                         e["best_conf"] = conf
                         e["best_bbox"] = bbox
                         e["best_source"] = source
+                        e["attrs"] = dict(attrs)   # atributos de la mejor detección (p.ej. placa)
                         crop = crop_bbox(frame, bbox, cfg.crop_padding)
                         e["best_crop"] = None if crop is None else crop.copy()
 
@@ -335,7 +336,7 @@ class ForensicAnalyzer:
                 "manifest": manifest.to_dict(),
                 "summary": {"entities": len(entities), "detections": len(detections)},
                 "entities": [e.to_dict() for e in entities],
-            }, f, ensure_ascii=False, indent=2)
+            }, f, ensure_ascii=False, indent=2, default=str)   # default=str: nunca falla por un attr raro
 
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             wr = csv.writer(f)

@@ -81,6 +81,30 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `frame_sampler.py` | muestreo por N o por keyframe de escena; iterador de video; metadatos |
 | `tracking.py` | tracker por IoU (identidad estable entre cuadros muestreados) |
 | `forensic.py` | manifiesto/hash, detección→track→entidad, exportación JSON/CSV/MD + recortes |
+| `example_wiring.py` | **cableado con modelos reales** (MediaPipe / RF-DETR / fast-alpr) |
+
+## example_wiring.py — cableado con los módulos reales
+
+Enchufa detectores reales al analizador; **cada uno es opcional** (si falta su librería se omite
+ese tipo, con aviso, y el resto sigue). Todos de licencia limpia, sin Ultralytics/AGPL:
+
+- `face` → **MediaPipe FaceDetection** (Apache) · `pip install mediapipe`
+- `person` / `vehicle` → **RF-DETR** (Apache) · `pip install rfdetr` — IDs de clase COCO
+  **configurables** (verifícalos contra el labelmap de tu modelo: COCO-80 vs COCO-91 difieren)
+- `plate` → **fast-alpr** (detección + OCR, MIT) · `pip install fast-alpr`, con **normalización
+  ecuatoriana** reusando `video/plate_capture.normalize_ecuador_plate` y **cotejo opcional** contra
+  una watchlist que tú das.
+
+```bash
+python example_wiring.py caso.mp4 --out casos/caso_001 --step 5
+python example_wiring.py foto1.jpg foto2.jpg --images --out casos/lote_002
+python example_wiring.py caso.mp4 --out casos/x --watchlist PXA-1234,ABC-0007
+```
+
+En código: `build_detectors(watchlist=[...])` arma el dict con los modelos instalados;
+`ForensicAnalyzer(detectors, cfg).analyze_video(...)` o `.analyze_images(...)`. El texto/placa del
+OCR y el `match` de watchlist viajan en los atributos de la detección y quedan en la entidad (el
+orquestador propaga los atributos de la mejor detección).
 
 ## Ajuste y límites
 
@@ -93,10 +117,13 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 ```
 python test_frame_sampler.py     # 3
 python test_tracking.py          # 6
-python test_forensic.py          # 12 (video e imágenes)
+python test_forensic.py          # 13 (video e imágenes)
+python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
 IoU y expiración de tracks; deduplicación por track en video; una entidad por detección en
 imágenes; filtro por confianza; hash determinista; manifiesto por-archivo; enrichers (y su
-tolerancia a errores); exportación válida de JSON/CSV/MD y recortes. Total: **21 pruebas verdes**.
+tolerancia a errores); propagación de atributos de la mejor detección a la entidad; exportación
+válida de JSON/CSV/MD y recortes; y el cableado (importa siempre, degrada sin modelos, normalizador
+de placa devuelve string). Total: **27 pruebas verdes**.
