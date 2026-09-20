@@ -1,9 +1,16 @@
 """
-tracking.py — tracker por IoU para dar identidad estable a cada objeto entre cuadros muestreados.
+tracking.py — tracker por IoU con identidad estable y REUSO de ID al reaparecer.
 
 Sin dependencias externas (solo stdlib). No sustituye a ByteTrack en tiempo real; sirve para
 enlazar detecciones entre cuadros MUESTREADOS (forense): así un mismo rostro/placa/persona que
 aparece en varios cuadros cuenta como UNA entidad, no muchas.
+
+Además del enlace por solapamiento entre cuadros contiguos, incorpora un patrón de "stable ID"
+(inspirado en el proyecto MIT `Nawaf-Rayhan585/Horse_Analysis_System`): cuando un objeto se pierde
+unos cuadros y REAPARECE cerca, RECUPERA su ID en vez de recibir uno nuevo. Se distingue el
+emparejamiento ACTIVO (cuadro contiguo, umbral estricto) del REUSO por reaparición (dentro de una
+ventana más larga, umbral más laxo), y opcionalmente respeta la CLASE (no reasigna el ID de un
+vehículo a una persona).
 """
 
 from __future__ import annotations
@@ -25,37 +32,55 @@ def iou(a, b) -> float:
 
 
 class IoUTracker:
-    """Asigna IDs de track por solapamiento entre cuadros consecutivos (muestreados)."""
+    """Asigna IDs de track por solapamiento, con reuso del ID de objetos que reaparecen.
 
-    def __init__(self, iou_thresh: float = 0.3, max_gap: int = 2):
+    - `iou_thresh`: umbral para el emparejamiento ACTIVO (el track se vio el cuadro anterior).
+    - `reuse_iou`: umbral (más laxo) para REUSAR el ID de un track perdido que reaparece cerca.
+    - `max_gap`: pasos muestreados que un track sobrevive sin verse antes de expirar (ventana de
+      reuso). Un objeto que reaparece dentro de esta ventana recupera su ID.
+    - `classes` (en `update`): si se dan, el emparejamiento respeta la clase.
+    """
+
+    def __init__(self, iou_thresh: float = 0.3, max_gap: int = 2, reuse_iou: float = 0.1):
         self.iou_thresh = iou_thresh
-        self.max_gap = max_gap          # pasos muestreados que un track sobrevive sin verse
+        self.reuse_iou = min(reuse_iou, iou_thresh)
+        self.max_gap = max_gap
         self._next_id = 0
-        self._tracks = {}               # id -> {"box":.., "last_step":..}
+        self._tracks = {}               # id -> {"box":.., "cls":.., "last_step":..}
         self._step = 0
 
-    def update(self, boxes) -> list:
-        """Recibe cajas (x1,y1,x2,y2) de un cuadro; devuelve un track_id por caja (alineado)."""
+    def update(self, boxes, classes=None) -> list:
+        """Cajas (x1,y1,x2,y2) de un cuadro -> un track_id por caja (alineado).
+
+        `classes`: lista opcional de clase por caja; si se da, no se mezclan clases distintas.
+        """
         self._step += 1
-        assigned = {}
+        boxes = list(boxes)
+        classes = list(classes) if classes is not None else [None] * len(boxes)
         used = set()
         ids = []
-        for box in boxes:
-            best_id, best_iou = None, self.iou_thresh
+        for box, cls in zip(boxes, classes):
+            best_id, best_iou = None, 0.0
             for tid, tr in self._tracks.items():
                 if tid in used:
                     continue
+                if cls is not None and tr["cls"] is not None and tr["cls"] != cls:
+                    continue
+                age = self._step - tr["last_step"]
+                if age > self.max_gap:
+                    continue
+                # activo (visto el cuadro anterior) exige umbral estricto; reaparición, laxo
+                thr = self.iou_thresh if age <= 1 else self.reuse_iou
                 v = iou(box, tr["box"])
-                if v >= best_iou:
+                if v >= thr and v > best_iou:
                     best_iou, best_id = v, tid
             if best_id is None:
                 best_id = self._next_id
                 self._next_id += 1
             used.add(best_id)
-            self._tracks[best_id] = {"box": box, "last_step": self._step}
-            assigned[best_id] = box
+            self._tracks[best_id] = {"box": box, "cls": cls, "last_step": self._step}
             ids.append(best_id)
-        # expirar tracks no vistos por más de max_gap
+        # expirar tracks fuera de la ventana de reuso
         for tid in list(self._tracks):
             if self._step - self._tracks[tid]["last_step"] > self.max_gap:
                 del self._tracks[tid]

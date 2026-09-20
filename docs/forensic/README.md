@@ -79,7 +79,7 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | Archivo | Rol |
 |---|---|
 | `frame_sampler.py` | muestreo por N o por keyframe de escena; iterador de video; metadatos |
-| `tracking.py` | tracker por IoU (identidad estable entre cuadros muestreados) |
+| `tracking.py` | tracker por IoU + **reuso de ID al reaparecer** (patrón stable-ID) y por clase |
 | `forensic.py` | manifiesto/hash, detección→track→entidad, exportación JSON/CSV/MD + recortes |
 | `example_wiring.py` | **cableado con modelos reales** (MediaPipe / RF-DETR / fast-alpr) |
 | `app.py` | **API web (FastAPI)**: subir, analizar en background, servir reporte/CSV/timeline/recortes |
@@ -197,7 +197,7 @@ integración por tipo de detección. Todas con imágenes sintéticas, sin cámar
 
 ```
 python test_frame_sampler.py     # 3
-python test_tracking.py          # 6
+python test_tracking.py          # 12 (+ reuso de ID / por clase)
 python test_forensic.py          # 13 (video e imágenes)
 python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
 python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + lógica pura)
@@ -205,9 +205,9 @@ python test_redaction.py         # 15 (anonimización de rostros/placas)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
-IoU y expiración de tracks; deduplicación por track en video; una entidad por detección en
+IoU, expiración, reuso de ID al reaparecer y emparejamiento por clase; deduplicación por track en video; una entidad por detección en
 imágenes; filtro por confianza; hash determinista; manifiesto por-archivo; enrichers (y su
 tolerancia a errores); propagación de atributos de la mejor detección a la entidad; exportación
 válida de JSON/CSV/MD y recortes; el cableado (importa siempre, degrada sin modelos, normalizador
 de placa devuelve string); y los apps web/GUI (importan sin FastAPI/Gradio, `run_case`/`audit_*`
-producen reporte sobre video e imágenes, captura de errores). Total: **49 pruebas verdes**.
+producen reporte sobre video e imágenes, captura de errores). Total: **55 pruebas verdes**.
