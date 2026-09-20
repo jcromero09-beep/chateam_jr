@@ -7,7 +7,8 @@ Apache-2.0).
 | Módulo | Qué hace |
 |---|---|
 | `ppe_detect.py` | cumplimiento de EPP (casco y chaleco) por color |
-| `fall_detection.py` | detección de caída por aspecto de caja (sin pose) |
+| `fall_detection.py` | detección de caída por aspecto de caja (sin pose, burda) |
+| `fall_kinematics.py` | detección de caída por cinemática de pose (precisa) |
 
 ---
 
@@ -141,3 +142,52 @@ python test_fall_detection.py     # 11 pruebas
 Aspecto de caja y juicio instantáneo; caída confirmada tras `persist_s`; caja ancha de un cuadro
 no dispara; de pie nunca dispara; levantarse reinicia; cooldown de un evento; varias personas a la
 vez; `reset()`; dibujo. Todas con cajas sintéticas, sin cámara.
+
+---
+
+## fall_kinematics.py — caída por cinemática de pose (precisa)
+
+Reescritura limpia del FallKinematicAnalyzer + PersonFallTracker del video "Fall Detection and
+Alert". El video saca los keypoints con `ultralytics.YOLO` (pose) = **AGPL** + torch; **eso no se
+porta**. Lo portado es el **análisis**, matemática pura sobre keypoints COCO-17: **no depende de
+Ultralytics**. Aliméntalo con keypoints de un modelo de pose de licencia limpia (MoveNet/Apache,
+MediaPipe, RTMPose/Apache-2.0, o un RF-DETR-pose Apache) y el flujo queda libre de AGPL.
+
+Frente a `fall_detection.py` (solo aspecto de caja, más burdo), aquí se mide:
+
+- **ángulo del torso** (vector hombros→cadera respecto a la horizontal): 90° = de pie, ~0° = tumbado;
+- **cabeza vs cadera** (`head_hip_ratio`): cabeza muy por encima = de pie; a la altura/por debajo = caído;
+- **velocidad de caída** (descenso del centro): un desplome rápido acelera el diagnóstico;
+- máquina de estados **STANDING → FALLING → FALLEN → RECOVERING** con persistencia (confirma la
+  caída tras N cuadros, y exige levantarse sostenido para recuperar).
+
+```python
+from fall_kinematics import analyze_pose, FallKinematicMonitor, FallKinematicConfig
+
+mon = FallKinematicMonitor(FallKinematicConfig())
+for frame, ts in stream():
+    obs = []
+    for t in tracker.people(frame):                 # tu detector + pose de licencia limpia
+        m = analyze_pose(t.keypoints_xy, t.keypoints_conf, t.box)   # COCO-17
+        obs.append((t.id, t.box, m))
+    for ev in mon.update(obs, ts):
+        alertar(ev.track_id, ev.state)              # entró en FALLEN
+```
+
+Si no tienes pose, `analyze_pose` cae a solo-aspecto (`has_pose=False`) y la decisión usa la caja,
+como `fall_detection.py`.
+
+**Límite honesto**: la calidad depende del modelo de pose y del ángulo de cámara; keypoints ruidosos
+degradan el ángulo del torso. Es alerta para revisión, no diagnóstico médico; calibra los umbrales a
+tu escena. Con pose limpia es mucho más preciso que la versión por aspecto.
+
+### Pruebas
+
+```
+python test_fall_kinematics.py     # 12 pruebas
+```
+
+Métricas de pose (de pie / caído / sin pose por baja confianza); clasificación upright/horizontal y
+fallback por aspecto; máquina de estados (horizontal confirma FALLEN, evento una sola vez, de pie
+nunca cae, recuperación tras caída, caída rápida, varias personas, `reset()`). Todas con keypoints
+sintéticos, sin modelo de pose.
