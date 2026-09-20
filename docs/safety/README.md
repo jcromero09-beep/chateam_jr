@@ -9,6 +9,7 @@ Apache-2.0).
 | `ppe_detect.py` | cumplimiento de EPP (casco y chaleco) por color |
 | `fall_detection.py` | detección de caída por aspecto de caja (sin pose, burda) |
 | `fall_kinematics.py` | detección de caída por cinemática de pose (precisa) |
+| `drowsiness.py` | somnolencia del conductor (EAR/MAR/PERCLOS/microsueño/bostezo) |
 
 ---
 
@@ -191,3 +192,57 @@ Métricas de pose (de pie / caído / sin pose por baja confianza); clasificació
 fallback por aspecto; máquina de estados (horizontal confirma FALLEN, evento una sola vez, de pie
 nunca cae, recuperación tras caída, caída rápida, varias personas, `reset()`). Todas con keypoints
 sintéticos, sin modelo de pose.
+
+---
+
+## drowsiness.py — somnolencia del conductor (DMS)
+
+Reescritura limpia de `drowsiness_detection_pipeline.py` del video "Driver Drowsiness Detection".
+Los landmarks vienen de **MediaPipe FaceMesh**, que es **Apache-2.0** (no AGPL): junto con OpenCV +
+numpy, es directamente portable. Sin Ultralytics/YOLO.
+
+Métricas clásicas sobre los 468/478 landmarks:
+
+- **EAR** (Eye Aspect Ratio): apertura de ojos; bajo = cerrados.
+- **MAR** (Mouth Aspect Ratio): apertura de boca; alto sostenido = bostezo.
+- **PERCLOS**: % de cierre de ojos en una ventana → fatiga.
+- **Microsueño**: ojos cerrados de forma continua > `microsleep_s` → alerta crítica.
+- **Pose de cabeza** (pitch/yaw/roll) por `solvePnP` (cv2), opcional.
+
+Diseño testeable: los landmarks se **inyectan** como array de píxeles `(N,2)`; así todo se prueba
+sin MediaPipe. En producción conviértelos con `mediapipe_to_xy(result, w, h)`.
+
+```python
+import mediapipe as mp                      # Apache-2.0
+from drowsiness import DrowsinessMonitor, mediapipe_to_xy
+
+face_mesh = mp.solutions.face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True)
+mon = DrowsinessMonitor()
+for frame, ts in stream():
+    res = face_mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    lm = mediapipe_to_xy(res.multi_face_landmarks[0], w, h) if res.multi_face_landmarks else None
+    st = mon.update(lm, ts)
+    if st.alert:
+        alarma_sonora(st.hud_line())         # MICROSUEÑO / FATIGA
+    if "yawn" in st.events:
+        registrar_bostezo(ts)
+```
+
+`DrowsinessState` trae `ear, mar, eyes_closed, perclos, closed_dur, microsleep, yawning,
+perclos_alarm, face, events` y `hud_line()`.
+
+**Ajuste y límites honestos**: calibra `ear_thresh`/`mar_thresh` por conductor, cámara y luz (la
+IR de noche ayuda mucho); `microsleep_s` y `perclos_alarm` según tu política. Es **ayuda a la
+seguridad (alerta), no un sistema certificado**; con gafas oscuras o cámara mal ubicada la señal
+se degrada.
+
+### Pruebas
+
+```
+python test_drowsiness.py     # 14 pruebas
+```
+
+EAR/MAR abierto vs cerrado y guarda de horizontal cero; ojos abiertos sin alerta; microsueño tras
+el umbral (y no antes, una sola vez por episodio); PERCLOS alto/bajo; bostezo; reabrir ojos
+reinicia; sin cara; `reset()`; pose de cabeza finita; dibujo. Todas con landmarks sintéticos, sin
+MediaPipe.
