@@ -357,6 +357,23 @@ heat = b.heatmap("cam2")      # DensityHeatmap acumulado del rastro en esa cáma
   Cuando el track activo de una ruta deja de verse `gap_s`, la ruta pasa a `handoff`; un track
   **nuevo** que aparece en una cámara **vecina** dentro de la ventana se enlaza como el siguiente
   tramo. Produce rutas **candidatas** con confianza, **no** una afirmación de identidad.
+- **Gate por zonas de salida/entrada** (opcional, más preciso): en vez de `(t_min, t_max)`, una
+  arista puede ser un `Edge(window, exit_zone, entry_zone)`. El salto solo se considera si la
+  persona **salió** por `exit_zone` (polígono en la cámara origen, su último punto cae dentro) y el
+  candidato **entró** por `entry_zone` (polígono en la cámara destino, su primer punto cae dentro).
+  Así se descartan cruces por tiempo casual: solo enlaza quien salió y entró por las puertas
+  correctas. Compatible: `(t_min, t_max)` a secas sigue funcionando (sin gate de zonas).
+
+```python
+from sentinel_route import Camera, Edge
+
+cams = [
+    Camera("cam1", H, W, sentinel=True, edges={
+        "cam2": Edge(window=(2.0, 6.0), exit_zone=PUERTA_DER_CAM1, entry_zone=PUERTA_IZQ_CAM2),
+    }),
+    Camera("cam2", H, W),
+]
+```
 - **ReID inyectable y opcional**: `matcher(feat_a, feat_b) -> score` (embeddings de apariencia que
   TÚ calculas). Sin él, se asocia solo por topología+tiempo (`method="topology"`, puede ser
   ambiguo); con él sube la confianza (`method="reid+topology"`). **Ni con ReID se afirma identidad
@@ -367,5 +384,5 @@ heat = b.heatmap("cam2")      # DensityHeatmap acumulado del rastro en esa cáma
 > `(t_min, t_max)` midiendo tiempos reales de tránsito entre cámaras de tu sitio.
 
 ```
-python test_sentinel_route.py     # 11 pruebas (apertura en centinela, ventana de handoff, 3 cámaras, ReID acepta/rechaza, heatmap)
+python test_sentinel_route.py     # 15 pruebas (centinela, ventana de handoff, gate por zonas salida/entrada, 3 cámaras, ReID, heatmap)
 ```

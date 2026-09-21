@@ -23,16 +23,37 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from density_heatmap import DensityHeatmap, box_point
+from pet_events import point_in_polygon
+
+
+@dataclass
+class Edge:
+    """Arista de transición entre cámaras, con gating opcional por zonas.
+
+    - `window`: (t_min, t_max) segundos esperados de tránsito.
+    - `exit_zone`: polígono en la cámara de ORIGEN; la persona debe SALIR por ahí (su último punto
+      cae dentro) para considerar el salto. None = sin gate de salida.
+    - `entry_zone`: polígono en la cámara DESTINO; el candidato debe ENTRAR por ahí (su primer punto
+      cae dentro). None = sin gate de entrada.
+    """
+    window: tuple
+    exit_zone: list | None = None
+    entry_zone: list | None = None
+
+
+def _as_edge(val) -> Edge:
+    """Acepta (t_min, t_max) (compatibilidad) o un Edge ya construido."""
+    return val if isinstance(val, Edge) else Edge(window=tuple(val))
 
 
 @dataclass
 class Camera:
-    """Nodo de cámara. `edges`: {vecina: (t_min, t_max)} ventana de transición esperada (s)."""
+    """Nodo de cámara. `edges`: {vecina: (t_min,t_max) | Edge} transición esperada."""
     name: str
     height: int
     width: int
     sentinel: bool = False
-    edges: dict = field(default_factory=dict)     # {nombre_vecina: (t_min_s, t_max_s)}
+    edges: dict = field(default_factory=dict)     # {nombre_vecina: (t_min,t_max) | Edge}
 
 
 @dataclass
@@ -42,6 +63,7 @@ class Segment:
     t_enter: float
     t_exit: float | None = None
     points: list = field(default_factory=list)    # [(x, y), ...] rastro en esa cámara
+    exit_point: tuple | None = None               # último punto conocido (para el gate de salida)
 
 
 @dataclass
@@ -84,6 +106,8 @@ class SentinelRouteBuilder:
     - Cuando el track activo de una ruta deja de verse `gap_s`, la ruta pasa a `handoff`.
     - Al aparecer un track NUEVO en una cámara vecina dentro de la ventana de transición del grafo
       (y, si hay `matcher`, con score suficiente), se enlaza como el siguiente tramo de la ruta.
+    - Opcionalmente el salto se GATEA por zonas: la persona debe salir por la `exit_zone` de la
+      cámara origen y el candidato entrar por la `entry_zone` de la destino (ver `Edge`).
     """
 
     def __init__(self, cameras, *, matcher=None, match_thresh: float = 0.5,
@@ -99,6 +123,7 @@ class SentinelRouteBuilder:
         self._assigned = set()                    # (camera, track_id) ya en alguna ruta
         self._first_seen = {}                     # (camera, track_id) -> ts
         self._last_seen = {}                      # (camera, track_id) -> ts
+        self._first_point = {}                    # (camera, track_id) -> (x,y) primer punto (entrada)
         self._clock = 0.0
         self._heat = {c.name: DensityHeatmap(c.height, c.width, radius=heatmap_radius,
                                              decay=heatmap_decay) for c in cameras}
@@ -116,7 +141,9 @@ class SentinelRouteBuilder:
         for tid, box in observations:
             key = (camera, tid)
             seen_ids.append(tid)
-            self._first_seen.setdefault(key, ts)
+            if key not in self._first_seen:
+                self._first_seen[key] = ts
+                self._first_point[key] = box_point(box, "bottom")   # punto de entrada
             self._last_seen[key] = ts
 
         # 1) cerrar tramos "vencidos" (no vistos hace > gap_s) -> pasa a handoff
@@ -178,15 +205,24 @@ class SentinelRouteBuilder:
             last = self._last_seen.get((seg.camera, seg.track_id), seg.t_enter)
             if (self._clock - last) > self.gap_s:
                 seg.t_exit = last
+                seg.exit_point = seg.points[-1] if seg.points else \
+                    self._first_point.get((seg.camera, seg.track_id))
                 r.state = "handoff"
 
     def _try_handoff(self, route: Route, camera: str, observations, ts: float) -> bool:
         prev = route.segments[-1]
-        edge = self.cams[prev.camera].edges.get(camera)
-        if edge is None:                          # no hay arista prev_camera -> camera
+        raw = self.cams[prev.camera].edges.get(camera)
+        if raw is None:                           # no hay arista prev_camera -> camera
             return False
-        t_min, t_max = edge
+        edge = _as_edge(raw)
+        t_min, t_max = edge.window
         t_exit = prev.t_exit if prev.t_exit is not None else prev.t_enter
+
+        # gate de SALIDA: la persona debió salir por la zona de salida de la cámara origen
+        if edge.exit_zone is not None:
+            if prev.exit_point is None or not point_in_polygon(prev.exit_point, edge.exit_zone):
+                return False
+
         best = None
         for tid, box in observations:
             key = (camera, tid)
@@ -196,6 +232,11 @@ class SentinelRouteBuilder:
             dt = first - t_exit
             if not (t_min <= dt <= t_max):        # fuera de la ventana de transición
                 continue
+            # gate de ENTRADA: el candidato debió entrar por la zona de entrada de la cámara destino
+            if edge.entry_zone is not None:
+                entry_pt = self._first_point.get(key, box_point(box, "bottom"))
+                if not point_in_polygon(entry_pt, edge.entry_zone):
+                    continue
             method, conf = "topology", self._topology_conf(dt, t_min, t_max)
             if self.matcher is not None:
                 fa = self.features.get((prev.camera, prev.track_id))

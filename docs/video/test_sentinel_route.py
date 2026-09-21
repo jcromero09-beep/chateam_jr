@@ -101,6 +101,49 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual(b.routes()[0].cameras, ["cam1"])
 
 
+class ZoneGateTests(unittest.TestCase):
+    """Gating del handoff por zonas de salida (origen) y entrada (destino)."""
+
+    # zona de salida = mitad derecha de cam1; zona de entrada = mitad izquierda de cam2
+    EXIT = [(100, 0), (200, 0), (200, 200), (100, 200)]
+    ENTRY = [(0, 0), (100, 0), (100, 200), (0, 200)]
+
+    def _cams(self, exit_zone, entry_zone):
+        edge = sr.Edge(window=(2.0, 6.0), exit_zone=exit_zone, entry_zone=entry_zone)
+        return [
+            sr.Camera("cam1", 200, 200, sentinel=True, edges={"cam2": edge}),
+            sr.Camera("cam2", 200, 200),
+        ]
+
+    def _drive(self, cams, exit_x, entry_x):
+        b = sr.SentinelRouteBuilder(cams, gap_s=1.0)
+        for ts in (0.0, 1.0, 2.0):
+            b.update("cam1", [(7, box_at(exit_x, 100))], ts=ts)   # sale por exit_x
+        b.update("cam2", [(3, box_at(entry_x, 100))], ts=4.0)     # entra por entry_x, dt=2
+        return b
+
+    def test_both_gates_pass_links(self):
+        b = self._drive(self._cams(self.EXIT, self.ENTRY), exit_x=150, entry_x=50)
+        self.assertEqual(b.routes()[0].cameras, ["cam1", "cam2"])
+
+    def test_exit_gate_blocks_wrong_side(self):
+        # sale por la izquierda (x=30), fuera de la zona de salida -> no enlaza
+        b = self._drive(self._cams(self.EXIT, None), exit_x=30, entry_x=50)
+        self.assertEqual(b.routes()[0].cameras, ["cam1"])
+
+    def test_entry_gate_blocks_wrong_side(self):
+        # entra por la derecha (x=170), fuera de la zona de entrada -> no enlaza
+        b = self._drive(self._cams(None, self.ENTRY), exit_x=150, entry_x=170)
+        self.assertEqual(b.routes()[0].cameras, ["cam1"])
+
+    def test_tuple_edge_still_works(self):
+        # compatibilidad: edges como (t_min, t_max) sin zonas
+        cams = [sr.Camera("cam1", 200, 200, sentinel=True, edges={"cam2": (2.0, 6.0)}),
+                sr.Camera("cam2", 200, 200)]
+        b = self._drive(cams, exit_x=30, entry_x=170)     # sin gates, enlaza igual
+        self.assertEqual(b.routes()[0].cameras, ["cam1", "cam2"])
+
+
 class HeatmapTests(unittest.TestCase):
     def test_heatmap_accumulates_route_points(self):
         b = sr.SentinelRouteBuilder(topo(), gap_s=1.0)
