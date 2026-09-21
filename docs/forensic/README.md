@@ -86,6 +86,7 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `gradio_app.py` | **interfaz gráfica (Gradio)**: subir video → resumen + tabla + galería de recortes |
 | `redaction.py` | **anonimización**: difumina/pixela/tapa rostros y placas (privacidad) |
 | `audio_forensics.py` | **puente de audio**: cadena de custodia (SHA-256) + segmentos VAD + mediciones prosódicas (usa `docs/audio`) — **descriptivo, sin veredictos** |
+| `osint_enrichment.py` | **contrato OSINT**: presencia de un alias en sitios públicos como PISTA, con verificador inyectable (Sherlock u otro), procedencia y custodia — **sin identidad, sin biometría** |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -216,6 +217,40 @@ blur/pixelate/caja sólida (solo dentro de la caja, fuera intacto), `invert`, `e
 cajas, redacción por máscara y por clases, parser inyectable (región precisa y fallback a caja),
 integración por tipo de detección. Todas con imágenes sintéticas, sin cámara ni uniface.
 
+## osint_enrichment.py — contrato de enriquecimiento OSINT (alias → pista, con custodia)
+
+CONTRATO para adjuntar a un caso la **presencia pública de un identificador** (alias / nombre de
+usuario) como **pista** de investigación. Patrón inspirado en **Sherlock** (MIT, ~400 sitios; regla
+por sitio `status_code` | `message` | `response_url`) — pero **no lo reimplementa ni sale a la red**
+aquí: el verificador real se **inyecta** (`checker(username) -> [{"site","url","status"}]`), como
+inyectamos RF-DETR en el forense de medios. Este archivo fija tipos, custodia y las reglas éticas
+**en código**.
+
+```python
+from osint_enrichment import IdentifierQuery, enrich_identifiers, dry_run_checker
+
+# identificadores del INVESTIGADOR o de OCR de un handle visible (NUNCA de biometría)
+queries = [IdentifierQuery("alias_visto", source="ocr"),
+           IdentifierQuery("nick_aportado", source="investigator")]
+
+# el checker real (Sherlock por subproceso→JSON) se inyecta; aquí un dry-run sin red:
+rep = enrich_identifiers(queries, dry_run_checker(SITES), legal_basis="Caso 2026-CT-001",
+                         dry_run=True, out_dir="casos/osint_001")   # -> osint.json + osint.csv
+```
+
+Reglas que el contrato **hace cumplir** (lanzan `ValueError`): `legal_basis` obligatorio;
+`source="biometric"/"face"/"voice"` rechazado (no se deriva un alias de un rostro/voz); formato de
+identificador validado. El reporte lleva `scope`/`disclaimer` fijos: **es una pista, no prueba de
+identidad** (mismo alias ≠ misma persona), y exige verificación humana.
+
+> Cablear Sherlock (subproceso → su JSON) es el paso siguiente: implica **red saliente** (~400
+> peticiones, ToS de cada sitio, política de red del entorno) y va como `checker` inyectado, no
+> dentro de este contrato.
+
+```
+python test_osint_enrichment.py   # 14 (biometría rechazada, base legal, solo 'claimed', dry-run, custodia, sin identidad)
+```
+
 ## Ajuste y límites
 
 - `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
@@ -232,6 +267,7 @@ python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
 python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + lógica pura)
 python test_redaction.py         # 15 (anonimización de rostros/placas)
 python test_audio_forensics.py   # 8  (cadena de custodia de audio + prosodia, sin veredicto)
+python test_osint_enrichment.py  # 14 (contrato OSINT: ética + custodia, sin red)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
@@ -242,5 +278,7 @@ válida de JSON/CSV/MD y recortes; el cableado (importa siempre, degrada sin mod
 de placa devuelve string); y los apps web/GUI (importan sin FastAPI/Gradio, `run_case`/`audit_*`
 producen reporte sobre video e imágenes, captura de errores); y la auditoría de audio (doble hash
 de cadena de custodia, segmentos VAD, mediciones prosódicas con disclaimer, ASR inyectado y su
-aislamiento de errores, y verificación de que NO se emite ningún veredicto). Total: **63 pruebas
+aislamiento de errores, y verificación de que NO se emite ningún veredicto); y el contrato OSINT (rechazo de
+fuentes biométricas, base legal obligatoria, solo 'claimed', dry-run sin red, custodia y ausencia
+de juicio de identidad). Total: **77 pruebas
 verdes**.
