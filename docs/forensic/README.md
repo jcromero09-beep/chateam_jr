@@ -85,6 +85,7 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `app.py` | **API web (FastAPI)**: subir, analizar en background, servir reporte/CSV/timeline/recortes |
 | `gradio_app.py` | **interfaz gráfica (Gradio)**: subir video → resumen + tabla + galería de recortes |
 | `redaction.py` | **anonimización**: difumina/pixela/tapa rostros y placas (privacidad) |
+| `audio_forensics.py` | **puente de audio**: cadena de custodia (SHA-256) + segmentos VAD + mediciones prosódicas (usa `docs/audio`) — **descriptivo, sin veredictos** |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -183,6 +184,34 @@ su SHA-256) bajo acceso restringido y comparte solo la versión anonimizada.
 python test_redaction.py     # 15 pruebas
 ```
 
+## audio_forensics.py — auditoría de la pista de audio
+
+Extiende la cadena de custodia al **audio** de un caso (video o wav). Reutiliza el paquete
+`docs/audio` (numpy/scipy, PyAV — sin AGPL) y produce un `report.json` con:
+
+- **Manifiesto de doble hash**: SHA-256 del archivo original **y** del audio mono derivado
+  (`audio.wav`), sr, duración, parámetros y fecha UTC → integridad reproducible.
+- **Segmentos por VAD**: turnos de habla / pausas → `segments.csv` + `timeline.md`.
+- **Mediciones prosódicas**: F0, jitter/shimmer, pausas, tasa de habla, centroide, energía —
+  con su `disclaimer`, que viaja dentro del reporte.
+- **Transcripción opcional inyectable**: `transcriber(clip, sr, span) -> str` (un ASR que TÚ
+  aportas); su error se aísla por segmento y no tumba la auditoría. Sin ASR, el módulo igual corre.
+
+```python
+from audio_forensics import analyze_audio
+rep = analyze_audio("caso.mp4", "casos/audio_001", sr=16000, f0_method="yin")
+# opcional: analyze_audio(..., transcriber=mi_asr)
+```
+
+> ⚠️ **Alcance honesto (dentro del reporte, campo `scope`)**: NO identifica personas por su voz
+> (biometría = dato sensible) y **NO detecta mentiras/engaño/emoción** — el análisis de estrés
+> vocal carece de respaldo científico (National Research Council 2003 y estudios de campo lo
+> sitúan en el azar; prohibido por `AGENTS.md §3`). Es apoyo pericial humano, no prueba certificada.
+
+```
+python test_audio_forensics.py   # 8 (doble hash, segmentos, prosodia, ASR inyectado, sin veredicto)
+```
+
 blur/pixelate/caja sólida (solo dentro de la caja, fuera intacto), `invert`, `expand`, varias
 cajas, redacción por máscara y por clases, parser inyectable (región precisa y fallback a caja),
 integración por tipo de detección. Todas con imágenes sintéticas, sin cámara ni uniface.
@@ -202,6 +231,7 @@ python test_forensic.py          # 13 (video e imágenes)
 python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
 python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + lógica pura)
 python test_redaction.py         # 15 (anonimización de rostros/placas)
+python test_audio_forensics.py   # 8  (cadena de custodia de audio + prosodia, sin veredicto)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
@@ -210,4 +240,7 @@ imágenes; filtro por confianza; hash determinista; manifiesto por-archivo; enri
 tolerancia a errores); propagación de atributos de la mejor detección a la entidad; exportación
 válida de JSON/CSV/MD y recortes; el cableado (importa siempre, degrada sin modelos, normalizador
 de placa devuelve string); y los apps web/GUI (importan sin FastAPI/Gradio, `run_case`/`audit_*`
-producen reporte sobre video e imágenes, captura de errores). Total: **55 pruebas verdes**.
+producen reporte sobre video e imágenes, captura de errores); y la auditoría de audio (doble hash
+de cadena de custodia, segmentos VAD, mediciones prosódicas con disclaimer, ASR inyectado y su
+aislamiento de errores, y verificación de que NO se emite ningún veredicto). Total: **63 pruebas
+verdes**.
