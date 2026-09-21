@@ -88,6 +88,7 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `audio_forensics.py` | **puente de audio**: cadena de custodia (SHA-256) + segmentos VAD + mediciones prosódicas (usa `docs/audio`) — **descriptivo, sin veredictos** |
 | `osint_enrichment.py` | **contrato OSINT**: presencia de un alias en sitios públicos como PISTA, con verificador inyectable (Sherlock u otro), procedencia y custodia — **sin identidad, sin biometría** |
 | `sherlock_checker.py` | **adaptador Sherlock** (MIT) como `checker` del contrato — **seguro por defecto** (sin red salvo opt-in), parseo puro, runner inyectable |
+| `route_forensics.py` | **rutas multi-cámara → caso forense**: vuelca las `Route` de `sentinel_route` a report.json/CSV/timeline + heatmaps, con cadena de custodia — **ruta candidata, sin identidad** |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -282,6 +283,32 @@ rep = enrich_identifiers([IdentifierQuery("alias", source="investigator")], chec
 python test_sherlock_checker.py   # 8 (parseo, gate de red por defecto, runner inyectado, contrato, sin Sherlock)
 ```
 
+## route_forensics.py — rutas multi-cámara al caso forense (con custodia)
+
+Vuelca las `Route` que arma `docs/video/sentinel_route` (centinela → handoff entre cámaras) a un
+caso con **cadena de custodia**: `report.json` + `routes.csv` + `timeline.md`, y opcionalmente los
+**mapas de calor por cámara** (`heatmaps/<cam>.png`) si le pasas los `DensityHeatmap`.
+
+```python
+from route_forensics import analyze_routes
+rep = analyze_routes(builder.routes(), "casos/ruta_001", legal_basis="Caso 2026-CT-042",
+                     heatmaps=builder.heatmaps())   # heatmaps opcional (requiere cv2)
+```
+
+- **Integridad**: SHA-256 del payload de rutas (JSON canónico) + SHA-256 de cada PNG de heatmap,
+  `tool/version` y fecha UTC en el manifiesto → reproducible.
+- **Resumen por ruta**: cámaras recorridas, nº de saltos, y **confianza mín** (eslabón más débil) y
+  media de los saltos.
+- Acepta `Route` (con `to_dict()`) o dicts ya serializados.
+
+> ⚠️ **Alcance honesto (en el reporte, campo `scope`)**: es una **ruta CANDIDATA** (topología +
+> tiempo + zonas de puerta, ReID opcional), **no** una afirmación de identidad ni un nombre.
+> Requiere `legal_basis` (lanza `ValueError` sin ella). Rutas y rastros son datos personales.
+
+```
+python test_route_forensics.py    # 8 (base legal, scope/disclaimer, confianza, hash de custodia, sin identidad, heatmaps)
+```
+
 ## Ajuste y límites
 
 - `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
@@ -300,6 +327,7 @@ python test_redaction.py         # 15 (anonimización de rostros/placas)
 python test_audio_forensics.py   # 8  (cadena de custodia de audio + prosodia, sin veredicto)
 python test_osint_enrichment.py  # 14 (contrato OSINT: ética + custodia, sin red)
 python test_sherlock_checker.py  # 8  (adaptador Sherlock: parseo + gate de red, sin red)
+python test_route_forensics.py   # 8  (rutas multi-cámara -> caso forense, custodia)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
@@ -313,5 +341,7 @@ de cadena de custodia, segmentos VAD, mediciones prosódicas con disclaimer, ASR
 aislamiento de errores, y verificación de que NO se emite ningún veredicto); y el contrato OSINT (rechazo de
 fuentes biométricas, base legal obligatoria, solo 'claimed', dry-run sin red, custodia y ausencia
 de juicio de identidad); y el adaptador Sherlock (parseo puro de su salida, gate de red seguro por
-defecto y runner inyectado, sin tocar la red). Total: **85 pruebas
+defecto y runner inyectado, sin tocar la red); y el volcado de rutas multi-cámara al caso
+(base legal, hash de custodia del payload, confianza por salto, heatmaps hasheados, sin identidad).
+Total: **93 pruebas
 verdes**.
