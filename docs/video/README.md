@@ -20,6 +20,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
 | `home_monitor_wiring.py` | **orquestador**: aforo + merodeo/contraflujo + zonas de seguridad en un `update()` |
 | `density_heatmap.py` | **mapa de calor de densidad** (splat gaussiano + decay + colormap) y **densidad por zona** |
+| `sentinel_route.py` | **ruta multi-cámara**: desde la cámara centinela arma el rastro y heatmap **entre cámaras** (handoff por topología+tiempo; ReID inyectable) |
 
 ## aforo.py — control de aforo / conteo de personas
 
@@ -322,4 +323,49 @@ detección de aglomeraciones, colas. Complementa `aforo.py` (conteo) con la **de
 
 ```
 python test_density_heatmap.py     # 14 pruebas (kernel, splat, decay, clip de borde, zonas, niveles, render)
+```
+
+## sentinel_route.py — ruta y mapa de calor ENTRE cámaras (handoff desde la centinela)
+
+Cuando una persona aparece en la cámara **centinela**, se abre un "caso" y —según sale del campo de
+una cámara y entra en una vecina— se **arma su ruta a través del sitio** (cámara → cámara),
+acumulando su rastro y un **mapa de calor por cámara**. No trae detector ni tracker: recibe
+observaciones ya rastreadas por cámara `(track_id, box)` de tu RF-DETR/D-FINE + ByteTrack/IoUTracker.
+Reusa `density_heatmap`.
+
+```python
+from sentinel_route import Camera, SentinelRouteBuilder
+
+cams = [
+    Camera("cam1", H, W, sentinel=True, edges={"cam2": (2.0, 6.0)}),   # cam1 -> cam2 en 2-6 s
+    Camera("cam2", H, W, edges={"cam3": (1.0, 4.0)}),
+    Camera("cam3", H, W),
+]
+b = SentinelRouteBuilder(cams, gap_s=1.5)          # matcher=... para ReID opcional
+
+for camera, frame, ts in multi_camera_stream():
+    obs = [(t.id, t.box) for t in trackers[camera].people(frame)]
+    b.update(camera, obs, ts)
+
+for r in b.routes():
+    print(r.to_dict())        # {cameras:[cam1,cam2,cam3], segments:[...], hops:[{from,to,dt,confidence,method}]}
+heat = b.heatmap("cam2")      # DensityHeatmap acumulado del rastro en esa cámara
+```
+
+**Cómo asocia entre cámaras (honesto):**
+- **Topología + tiempo**: un grafo de cámaras con ventanas de transición esperadas `(t_min, t_max)`.
+  Cuando el track activo de una ruta deja de verse `gap_s`, la ruta pasa a `handoff`; un track
+  **nuevo** que aparece en una cámara **vecina** dentro de la ventana se enlaza como el siguiente
+  tramo. Produce rutas **candidatas** con confianza, **no** una afirmación de identidad.
+- **ReID inyectable y opcional**: `matcher(feat_a, feat_b) -> score` (embeddings de apariencia que
+  TÚ calculas). Sin él, se asocia solo por topología+tiempo (`method="topology"`, puede ser
+  ambiguo); con él sube la confianza (`method="reid+topology"`). **Ni con ReID se afirma identidad
+  biométrica**: es apoyo a un operador humano.
+
+> ⚠️ Es tracking multi-cámara, no identificación de personas. No pone nombre a nadie. Rutas y
+> rastros son datos personales: base legal, retención y control de acceso. Calibra las ventanas
+> `(t_min, t_max)` midiendo tiempos reales de tránsito entre cámaras de tu sitio.
+
+```
+python test_sentinel_route.py     # 11 pruebas (apertura en centinela, ventana de handoff, 3 cámaras, ReID acepta/rechaza, heatmap)
 ```
