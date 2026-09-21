@@ -10,6 +10,7 @@ Apache-2.0).
 | `fall_detection.py` | detección de caída por aspecto de caja (sin pose, burda) |
 | `fall_kinematics.py` | detección de caída por cinemática de pose (precisa) |
 | `drowsiness.py` | somnolencia del conductor (EAR/MAR/PERCLOS/microsueño/bostezo) |
+| `eldercare_wiring.py` | **orquestador de cuidado**: caída (caja/pose) + zonas de riesgo + respiración, sin biometría |
 
 ---
 
@@ -246,3 +247,36 @@ EAR/MAR abierto vs cerrado y guarda de horizontal cero; ojos abiertos sin alerta
 el umbral (y no antes, una sola vez por episodio); PERCLOS alto/bajo; bostezo; reabrir ojos
 reinicia; sin cara; `reset()`; pose de cabeza finita; dibujo. Todas con landmarks sintéticos, sin
 MediaPipe.
+
+## eldercare_wiring.py — orquestador de cuidado (caída + zonas + respiración), SIN biometría
+
+Cablea tres módulos ya probados para vigilancia asistencial en casa/residencia, alimentados por el
+MISMO flujo `(track_id, box)` de tu detector+tracker EXTERNO (RF-DETR/D-FINE Apache). No identifica
+a nadie (no reconoce rostros): solo cajas, poses opcionales y una señal de pecho. Cada pieza es
+**opcional**: caída por caja (`FallDetector`), caída por pose (`FallKinematicMonitor`, si pasas
+keypoints), zonas de riesgo (`ZoneSafetyMonitor` de `video/`) y respiración (`BreathingMonitor` de
+`health/`, con alarma de apnea/ausencia).
+
+```python
+from eldercare_wiring import EldercareMonitor, EldercareConfig
+from zone_safety import SafetyLevel, ZoneSafetyConfig
+
+cfg = EldercareConfig(
+    safety=ZoneSafetyConfig(levels=(SafetyLevel("escaleras", ESC, dwell_s=1.0),)),
+    breathing_roi=(x, y, w, h),            # ROI del pecho; None = sin respiración
+    no_breath_seconds=10.0,
+)
+mon = EldercareMonitor(cfg)
+for frame, ts in stream():
+    obs = [(t.id, t.box) for t in tracker.people(frame)]
+    rep = mon.update(obs, ts, frame=frame)      # + pose_observations=... si tienes keypoints
+    if rep.any_alarm:
+        avisar(rep.alarms)                       # ["caida#2", "zona:escaleras#2", "apnea"]
+```
+
+> ⚠️ Ayuda de monitoreo, **NO dispositivo médico**. La respiración por cámara es estimación de
+> tendencia, no sustituye un sensor clínico. Sin biometría; define base legal, retención y aviso.
+
+```
+python test_eldercare_wiring.py     # 9 pruebas (config opcional, caída caja, zonas, respiración, apnea, reset)
+```

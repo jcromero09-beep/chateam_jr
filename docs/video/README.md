@@ -18,6 +18,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `railway_stall.py` | **vehículo detenido en cruce de vía** (zona + velocidad + permanencia) |
 | `zone_safety.py` | **zonas graduadas de peligro** (cerca/peligro) con permanencia |
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
+| `home_monitor_wiring.py` | **orquestador**: aforo + merodeo/contraflujo + zonas de seguridad en un `update()` |
 
 ## aforo.py — control de aforo / conteo de personas
 
@@ -251,3 +252,36 @@ salir de todas las zonas; transición cerca→peligro (leave cerca + enter pelig
 desaparecer el track; paso rápido no dispara (gate de velocidad) vs quieto sí; deambular más que el
 radio retrasa el disparo vs micro-movimientos disparan; `active_level` para HUD; `reset()`; dibujo.
 Todas sintéticas, sin cámara.
+
+## home_monitor_wiring.py — orquestador (aforo + comportamiento + zonas)
+
+Cablea en un solo objeto tres módulos ya probados, alimentados por el MISMO flujo de observaciones
+`(track_id, box)` de tu detector+tracker EXTERNO (RF-DETR/D-FINE Apache + tracker o
+`docs/forensic/tracking.IoUTracker`). No trae modelos; es solo integración. Cada pieza es
+**opcional** (si no pasas sus zonas/config se omite).
+
+```python
+from home_monitor_wiring import HomeMonitor, HomeMonitorConfig
+from aforo import Zone
+from zone_safety import SafetyLevel, ZoneSafetyConfig
+
+cfg = HomeMonitorConfig(
+    aforo_zones=[Zone("sala", SALA, capacity=8)],
+    behavior_zones={"pasillo": PASILLO}, dwell_seconds=10.0,
+    contraflujo={"allowed_direction": (1, 0)},          # opcional
+    safety=ZoneSafetyConfig(levels=(SafetyLevel("escaleras", ESC, dwell_s=2.0),)),
+)
+mon = HomeMonitor(cfg)
+for frame, ts in stream():
+    obs = [(t.id, t.box) for t in tracker.people(frame)]
+    rep = mon.update(obs, ts)          # HomeMonitorReport
+    if rep.any_alarm:
+        notificar(rep.alarms)          # ["aforo:sala", "merodeo:pasillo", "zona:escaleras#3", ...]
+```
+
+`update()` devuelve `HomeMonitorReport(ts, aforo, behavior_events, safety_events)` con una lista
+unificada `alarms`. Sin biometría: cuenta y sigue cajas, no identifica personas.
+
+```
+python test_home_monitor_wiring.py     # 7 pruebas (config opcional, aforo, merodeo, contraflujo, zonas, combinado, reset)
+```
