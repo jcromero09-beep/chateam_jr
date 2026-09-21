@@ -87,6 +87,7 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `redaction.py` | **anonimización**: difumina/pixela/tapa rostros y placas (privacidad) |
 | `audio_forensics.py` | **puente de audio**: cadena de custodia (SHA-256) + segmentos VAD + mediciones prosódicas (usa `docs/audio`) — **descriptivo, sin veredictos** |
 | `osint_enrichment.py` | **contrato OSINT**: presencia de un alias en sitios públicos como PISTA, con verificador inyectable (Sherlock u otro), procedencia y custodia — **sin identidad, sin biometría** |
+| `sherlock_checker.py` | **adaptador Sherlock** (MIT) como `checker` del contrato — **seguro por defecto** (sin red salvo opt-in), parseo puro, runner inyectable |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -251,6 +252,36 @@ identidad** (mismo alias ≠ misma persona), y exige verificación humana.
 python test_osint_enrichment.py   # 14 (biometría rechazada, base legal, solo 'claimed', dry-run, custodia, sin identidad)
 ```
 
+### sherlock_checker.py — adaptador Sherlock (opt-in de red)
+
+Envuelve **Sherlock** (MIT) como `checker` del contrato: convierte su salida `--print-found` en la
+lista `[{"site","url","status","method"}]` que consume `osint_enrichment`. **No reimplementa
+Sherlock**; lo invoca por subproceso y parsea. El parseo es puro; el subproceso se **inyecta**
+(`runner`), así se prueba sin Sherlock ni red.
+
+**Seguro por defecto — `enable_network=False`:** con la red desactivada el checker **no ejecuta
+nada** y lanza `NetworkDisabled` (que el contrato registra como hit `error`). Para consultar de
+verdad: instalar Sherlock (`pipx install sherlock-project`), `enable_network=True`, y que la
+**política de red del entorno** permita la salida. Cada corrida real toca ~400 sitios → respeta
+ToS, límites de tasa y la base legal (el contrato ya la exige); limita con `sites=[...]`.
+
+```python
+from sherlock_checker import build_sherlock_checker
+from osint_enrichment import IdentifierQuery, enrich_identifiers
+
+checker = build_sherlock_checker(enable_network=True, sites=["GitHub", "Reddit"], timeout=30)
+rep = enrich_identifiers([IdentifierQuery("alias", source="investigator")], checker,
+                         legal_basis="Caso 2026-CT-001", checker_name="sherlock",
+                         out_dir="casos/osint_001")
+
+# CLI (dry-run por defecto; --enable-network para ejecutar de verdad):
+#   python sherlock_checker.py alias1 alias2 --legal-basis "Caso 2026-CT-001" --site GitHub
+```
+
+```
+python test_sherlock_checker.py   # 8 (parseo, gate de red por defecto, runner inyectado, contrato, sin Sherlock)
+```
+
 ## Ajuste y límites
 
 - `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
@@ -268,6 +299,7 @@ python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + l
 python test_redaction.py         # 15 (anonimización de rostros/placas)
 python test_audio_forensics.py   # 8  (cadena de custodia de audio + prosodia, sin veredicto)
 python test_osint_enrichment.py  # 14 (contrato OSINT: ética + custodia, sin red)
+python test_sherlock_checker.py  # 8  (adaptador Sherlock: parseo + gate de red, sin red)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
@@ -280,5 +312,6 @@ producen reporte sobre video e imágenes, captura de errores); y la auditoría d
 de cadena de custodia, segmentos VAD, mediciones prosódicas con disclaimer, ASR inyectado y su
 aislamiento de errores, y verificación de que NO se emite ningún veredicto); y el contrato OSINT (rechazo de
 fuentes biométricas, base legal obligatoria, solo 'claimed', dry-run sin red, custodia y ausencia
-de juicio de identidad). Total: **77 pruebas
+de juicio de identidad); y el adaptador Sherlock (parseo puro de su salida, gate de red seguro por
+defecto y runner inyectado, sin tocar la red). Total: **85 pruebas
 verdes**.
