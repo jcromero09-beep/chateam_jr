@@ -31,6 +31,18 @@ ese binario. **Cero Ultralytics/YOLO.** El pipeline original usa `efficientnet_b
 | `features.py` | **mel-espectrograma**, `spectrogram_image` (entrada de la CNN), RMS(dB), centroide, ZCR, banda de voz, **F0/pitch** (autocorrelación **y YIN**) y estadísticos de **variación de tono** |
 | `vad.py` | **detección de actividad** (voz/sonido) por energía + banda → máscara y segmentos |
 | `sliding_window.py` | **motor genérico**: ventana deslizante + pre-filtro de energía + gate por racha, con **clasificador inyectado** → eventos |
+| `prosody.py` | **mediciones prosódicas** para apoyo forense (F0, jitter/shimmer, pausas, tasa de habla, energía) — **descriptivas, con `disclaimer`; NO detectan mentiras** |
+
+## 🚫 Lo que este paquete NO hace: detección de mentiras por voz
+
+`prosody.py` mide propiedades del habla, pero **no infiere veracidad, engaño ni emoción**, y no
+debe usarse para eso. El "análisis de estrés vocal" / detección de mentiras por voz (VSA, LVA)
+**carece de respaldo científico**: la evidencia revisada por pares (p. ej. *National Research
+Council*, 2003, y estudios de campo posteriores) la sitúa **en el azar**. El tono, las pausas y el
+jitter suben con el **estrés, los nervios, el acento, el ruido o un resfriado — no con la mentira**.
+Etiquetar estas cifras como "engaño" fabrica un dato y discrimina por acento/nervios (prohibido por
+`AGENTS.md §3`). Uso legítimo: transcripción, diarización, control de calidad y **mediciones neutras
+para un perito humano**. Cada reporte lleva un campo `disclaimer` que viaja con el dato.
 
 ## Uso
 
@@ -68,6 +80,9 @@ HUD) → mata falsos positivos de un pico aislado.
   clasificador inyectado, el motor no cambia.
 - **Salud** → tos/ronquido/respiración (complementa `docs/safety/breathing_rate.py`, que lo hace
   por video).
+- **Apoyo forense** → `prosody.prosody_report(y, sr)` da mediciones neutras (F0, jitter/shimmer,
+  pausas, tasa, energía) con su `disclaimer`; combínalas con el hash SHA-256 de la pista de audio
+  (cadena de custodia, como el video en `docs/forensic/forensic.py`). **No** emite veredictos.
 
 ## Validado sobre audio real
 
@@ -83,7 +98,8 @@ python test_features.py        # 18  (energía, mel, espectral, F0 autocorr + YI
 python test_vad.py             # 6   (actividad, segmentos, banda, merge, mínimos)
 python test_sliding_window.py  # 9   (pre-filtro, racha, clase, resumen, eventos)
 python test_audio_io.py        # 5   (round-trip WAV, resample, mono, stdlib)
+python test_prosody.py         # 10  (jitter/shimmer, pausas, tasa, reporte SIN veredicto)
 ```
 
-**38 pruebas verdes** con señales sintéticas (tonos/ruido/silencio) — sin audio real, sin
+**48 pruebas verdes** con señales sintéticas (tonos/ruido/silencio) — sin audio real, sin
 torch/librosa, sin GPU. El clasificador pesado se sustituye por uno falso inyectado.
