@@ -35,9 +35,9 @@ Es un gate **liviano y local**: solo pruebas de Python. NO hace builds, migracio
 ```
 agriculture   19 · aquaculture  41 · audio        48 · environment  44
 forensic      85 · health       12 · inspection   21 · logistics    18
-safety        58 · tools        16 · vehicle      12 · video        144
+safety        58 · tools        16 · vehicle      12 · video        158
 ------------------------------------------------------------
-TOTAL: 518 pruebas en 44 archivos — todo verde
+TOTAL: 532 pruebas en 45 archivos — todo verde
 ```
 
 Regenera este conteo con `python docs/run_tests.py`.

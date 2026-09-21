@@ -19,6 +19,7 @@ detector externo RF-DETR/D-FINE Apache-2.0). El diseño y los injertos están en
 | `zone_safety.py` | **zonas graduadas de peligro** (cerca/peligro) con permanencia |
 | `overlay_sink.py` | anotado → ffmpeg → MediaMTX |
 | `home_monitor_wiring.py` | **orquestador**: aforo + merodeo/contraflujo + zonas de seguridad en un `update()` |
+| `density_heatmap.py` | **mapa de calor de densidad** (splat gaussiano + decay + colormap) y **densidad por zona** |
 
 ## aforo.py — control de aforo / conteo de personas
 
@@ -284,4 +285,41 @@ unificada `alarms`. Sin biometría: cuenta y sigue cajas, no identifica personas
 
 ```
 python test_home_monitor_wiring.py     # 7 pruebas (config opcional, aforo, merodeo, contraflujo, zonas, combinado, reset)
+```
+
+## density_heatmap.py — mapa de calor de densidad + densidad por zona
+
+Portado del walkthrough OpenViewer **"Human Heatmap & Tracking Pipeline"**. El original detecta y
+sigue con **Ultralytics YOLO + ByteTrack (AGPL)** → **eso no se porta**. Lo portado es la parte
+**license-clean** (numpy + cv2 opcional): el **acumulador de densidad** por *splatting* gaussiano
+con **decaimiento temporal**, el render con colormap, y la **densidad por zona**. Se alimenta con
+los **puntos de las personas** que da TU detector+tracker externo (RF-DETR/D-FINE + `forensic`
+`tracking.IoUTracker` o ByteTrack), igual que `aforo.py`.
+
+```python
+from density_heatmap import DensityHeatmap, ZoneDensity, box_point
+
+hm = DensityHeatmap(H, W, radius=25, decay=0.95, colormap="JET")
+zones = [{"name": "Pasillo 1", "polygon": [(x1,y1),(x2,y2),(x3,y3),(x4,y4)]}]
+zd = ZoneDensity(zones, H, W)
+
+for frame, ts in stream():
+    pts = [box_point(t.box, "bottom") for t in tracker.people(frame)]   # pie de cada persona
+    acc = hm.update(pts)                       # acumula + decae
+    stats = zd.analyze(acc, pts)               # por zona: persons, density_mean/max/sum, level
+    vis = hm.render(frame, alpha=0.5)          # overlay del mapa (solo donde hay densidad)
+    heat_only = hm.render()                    # mapa suelto (para exportar)
+```
+
+Niveles de densidad por zona (fieles al original): `HIGH>5.0 · MEDIUM>1.0 · LOW>0.1 · CLEAR`.
+`decay=1.0` acumula histórico permanente (mapa de "zonas calientes" total); `decay<1.0` da un mapa
+"vivo" que olvida el pasado. `radius`/`sigma` controlan el tamaño de cada mancha. `box_point(box,
+loc)` elige el punto a *splat*ear (`center`/`bottom`/`top`). Sin cv2, el acumulador y las zonas
+funcionan igual (relleno de polígono en numpy); el render con colormap sí requiere cv2.
+
+Casos de uso: retail (mapas de calor de tránsito y permanencia por pasillo), aforo con densidad,
+detección de aglomeraciones, colas. Complementa `aforo.py` (conteo) con la **densidad espacial**.
+
+```
+python test_density_heatmap.py     # 14 pruebas (kernel, splat, decay, clip de borde, zonas, niveles, render)
 ```
