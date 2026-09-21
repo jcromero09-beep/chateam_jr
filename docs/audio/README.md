@@ -28,7 +28,7 @@ ese binario. **Cero Ultralytics/YOLO.** El pipeline original usa `efficientnet_b
 | Archivo | Rol |
 |---|---|
 | `audio_io.py` | cargar audio de WAV o de la **pista de un video** → mono float32 @ 16 kHz (PyAV → librosa → wav stdlib → ffmpeg) |
-| `features.py` | **mel-espectrograma**, `spectrogram_image` (entrada de la CNN), RMS(dB), centroide, ZCR, banda de voz, **F0/pitch** (autocorrelación) y estadísticos de **variación de tono** |
+| `features.py` | **mel-espectrograma**, `spectrogram_image` (entrada de la CNN), RMS(dB), centroide, ZCR, banda de voz, **F0/pitch** (autocorrelación **y YIN**) y estadísticos de **variación de tono** |
 | `vad.py` | **detección de actividad** (voz/sonido) por energía + banda → máscara y segmentos |
 | `sliding_window.py` | **motor genérico**: ventana deslizante + pre-filtro de energía + gate por racha, con **clasificador inyectado** → eventos |
 
@@ -63,7 +63,7 @@ HUD) → mata falsos positivos de un pico aislado.
 ## Otros usos (misma arquitectura, otra etiqueta)
 
 - **VAD / voz vs. no-voz** → `vad.detect_segments` (energía + banda 300-3000 Hz).
-- **Variación de tono / entonación** → `F.f0_track` + `F.f0_stats` (mediana, rango, desviación).
+- **Variación de tono / entonación** → `F.f0_track(method='autocorr'|'yin')` + `F.f0_stats` (mediana, rango, desviación). YIN es más robusto ante el error de octava.
 - **Eventos del hogar/seguridad** → llanto, tos, cristal, alarma, ladrido: reentrena el
   clasificador inyectado, el motor no cambia.
 - **Salud** → tos/ronquido/respiración (complementa `docs/safety/breathing_rate.py`, que lo hace
@@ -79,11 +79,11 @@ con PyAV (AAC 44.1 kHz estéreo → 16 kHz mono).
 ## Pruebas
 
 ```
-python test_features.py        # 13  (energía, mel, espectral, F0, imagen)
+python test_features.py        # 18  (energía, mel, espectral, F0 autocorr + YIN, imagen)
 python test_vad.py             # 6   (actividad, segmentos, banda, merge, mínimos)
 python test_sliding_window.py  # 9   (pre-filtro, racha, clase, resumen, eventos)
 python test_audio_io.py        # 5   (round-trip WAV, resample, mono, stdlib)
 ```
 
-**33 pruebas verdes** con señales sintéticas (tonos/ruido/silencio) — sin audio real, sin
+**38 pruebas verdes** con señales sintéticas (tonos/ruido/silencio) — sin audio real, sin
 torch/librosa, sin GPU. El clasificador pesado se sustituye por uno falso inyectado.

@@ -185,20 +185,82 @@ def f0_autocorr(frame, sr: int = 16000, fmin: float = 80.0, fmax: float = 1000.0
     return sr / lag
 
 
+def f0_yin(frame, sr: int = 16000, fmin: float = 80.0, fmax: float = 1000.0,
+           threshold: float = 0.15, voiced_rms: float = 1e-3) -> float:
+    """F0 de UNA ventana por YIN (de Cheveigné & Kawahara, 2002). 0.0 si es no-sonora.
+
+    Más robusto que la autocorrelación pura ante el error de octava: usa la función de
+    diferencia con media acumulada normalizada (CMND) + umbral absoluto + interpolación
+    parabólica del mínimo. numpy puro. Pasos del paper:
+      d(tau)   = sum_j (x[j] - x[j+tau])^2                 (diferencia)
+      d'(tau)  = d(tau) / ((1/tau) * sum_{k=1..tau} d(k))  (media acumulada normalizada)
+      tau*     = primer tau con d'(tau) < threshold (mínimo local); si no, argmin global
+      f0       = sr / (tau* refinado por parábola)
+    """
+    x = np.asarray(frame, dtype=np.float64)
+    x = x - x.mean()
+    n = len(x)
+    if rms(x) < voiced_rms:
+        return 0.0
+    tau_min = max(1, int(sr / fmax))
+    tau_max = min(n - 1, int(sr / fmin))
+    if tau_max <= tau_min:
+        return 0.0
+
+    # 1) función de diferencia d(tau) para tau en [0, tau_max]
+    d = np.zeros(tau_max + 1)
+    for tau in range(1, tau_max + 1):
+        diff = x[:n - tau] - x[tau:]
+        d[tau] = np.dot(diff, diff)
+
+    # 2) media acumulada normalizada d'(tau)
+    dprime = np.ones(tau_max + 1)
+    cum = np.cumsum(d[1:])
+    taus = np.arange(1, tau_max + 1)
+    dprime[1:] = d[1:] * taus / np.maximum(cum, 1e-12)
+
+    # 3) umbral absoluto: primer mínimo local por debajo de `threshold`
+    tau_star = None
+    for tau in range(tau_min, tau_max):
+        if dprime[tau] < threshold:
+            while tau + 1 <= tau_max and dprime[tau + 1] < dprime[tau]:
+                tau += 1
+            tau_star = tau
+            break
+    if tau_star is None:                      # nada bajo el umbral -> mínimo global en el rango
+        tau_star = tau_min + int(np.argmin(dprime[tau_min:tau_max + 1]))
+    if tau_star <= 0:
+        return 0.0
+
+    # 4) interpolación parabólica alrededor de tau_star (afina el periodo)
+    tau_ref = float(tau_star)
+    if 1 <= tau_star < tau_max:
+        a, b, c = dprime[tau_star - 1], dprime[tau_star], dprime[tau_star + 1]
+        denom = a - 2 * b + c
+        if abs(denom) > 1e-12:
+            tau_ref = tau_star + 0.5 * (a - c) / denom
+
+    f0 = sr / tau_ref
+    return float(f0) if fmin <= f0 <= fmax else 0.0
+
+
 def f0_track(y, sr: int = 16000, win_sec: float = 0.040, hop_sec: float = 0.020,
-             fmin: float = 80.0, fmax: float = 1000.0, voiced_rms: float = 1e-3):
+             fmin: float = 80.0, fmax: float = 1000.0, voiced_rms: float = 1e-3,
+             method: str = "autocorr"):
     """Contorno de tono: (times[s], f0[Hz]) con NaN en tramos no-sonoros.
 
+    `method`: 'autocorr' (rápido, por defecto) o 'yin' (más robusto ante error de octava).
     Con el contorno se miden las "variaciones de tono": mediana, rango, desviación (entonación).
     """
     y = np.asarray(y, dtype=np.float64)
     wl = max(2, int(win_sec * sr))
     hp = max(1, int(hop_sec * sr))
+    est = f0_yin if method == "yin" else f0_autocorr
     times, f0 = [], []
     for i in range(0, max(1, len(y) - wl + 1), hp):
         seg = y[i:i + wl]
         times.append((i + wl / 2) / sr)
-        f = f0_autocorr(seg, sr, fmin, fmax, voiced_rms)
+        f = est(seg, sr, fmin, fmax, voiced_rms=voiced_rms)
         f0.append(f if f > 0 else np.nan)
     return np.array(times), np.array(f0)
 

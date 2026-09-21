@@ -87,5 +87,37 @@ class F0Tests(unittest.TestCase):
         self.assertEqual(st["voiced"], 0)
 
 
+class YinTests(unittest.TestCase):
+    def test_yin_pure_tone(self):
+        for hz in [150, 220, 440, 700]:
+            f = F.f0_yin(tone(hz, dur=0.06), sr=16000)
+            self.assertAlmostEqual(f, hz, delta=max(3, hz * 0.03))
+
+    def test_yin_silence_is_zero(self):
+        self.assertEqual(F.f0_yin(np.zeros(640), sr=16000), 0.0)
+
+    def test_yin_robust_to_octave_on_rich_harmonics(self):
+        # tono + armónicos fuertes: la autocorrelación puede caer en la octava; YIN debe
+        # devolver el fundamental (~200 Hz), no 100 ni 400.
+        sr = 16000
+        t = np.arange(int(sr * 0.06)) / sr
+        y = (np.sin(2 * np.pi * 200 * t)
+             + 0.9 * np.sin(2 * np.pi * 400 * t)
+             + 0.8 * np.sin(2 * np.pi * 600 * t)).astype(np.float32)
+        f = F.f0_yin(y, sr=sr, fmin=80, fmax=1000)
+        self.assertAlmostEqual(f, 200, delta=12)
+
+    def test_yin_respects_bounds(self):
+        # un fundamental de 440 con fmax por debajo no debe reportarse
+        f = F.f0_yin(tone(440, dur=0.06), sr=16000, fmin=80, fmax=300)
+        self.assertTrue(f == 0.0 or f <= 300)
+
+    def test_f0_track_yin_method(self):
+        _, f0 = F.f0_track(tone(330, dur=1.0), sr=16000, method="yin")
+        st = F.f0_stats(f0)
+        self.assertGreater(st["voiced"], 5)
+        self.assertAlmostEqual(st["median"], 330, delta=10)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
