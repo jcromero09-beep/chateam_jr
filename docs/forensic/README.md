@@ -1,0 +1,347 @@
+# forensic — auditoría forense de video e imágenes
+
+Sistema que analiza **un video o un lote de imágenes**, extrae **rostros, placas, personas,
+vehículos, objetos** (lo que le digas), los deduplica en el tiempo y arma una **línea de tiempo
+con cadena de custodia**. OpenCV + numpy + stdlib, **sin AGPL**.
+
+Es un **orquestador**: no trae detectores; se le **inyectan** (RF-DETR/D-FINE Apache para
+personas/vehículos/objetos, MediaPipe para rostros, fast-alpr/OCR para placas). Así queda de
+licencia limpia y se prueba sin modelos pesados.
+
+## ⚠️ Alcance honesto
+
+- **Detección + extracción + línea de tiempo.** NO identifica personas (no pone nombre a un
+  rostro): eso es reconocimiento facial de identidad, sensible y regulado, y no se incluye.
+- Es una **ayuda de investigación**, no prueba pericial certificada. Su validez legal depende de
+  tu jurisdicción, de la **cadena de custodia del archivo original** y de revisión humana.
+- Rostros y placas son **datos personales**: acceso restringido y base legal para tratarlos.
+
+## Qué produce (cadena de custodia)
+
+1. **Manifiesto**: SHA-256 del video (o por-archivo en lote de imágenes), tamaño, fps, duración,
+   parámetros usados, versión de la herramienta y fecha UTC → integridad y reproducibilidad.
+2. **`report.json`**: manifiesto + entidades deduplicadas (tipo, primera/última aparición, conteo,
+   mejor confianza, caja, recorte, atributos como texto de placa).
+3. **`detections.csv`**: cada detección (tipo, entidad, archivo/frame, timestamp, caja, confianza).
+4. **`crops/`**: el mejor recorte (thumbnail) de cada entidad.
+5. **`timeline.md`**: línea de tiempo legible por entidad.
+
+## Uso — video
+
+```python
+from forensic import ForensicAnalyzer, ForensicConfig
+
+detectors = {
+    "face":    lambda fr: mp_face_boxes(fr),        # MediaPipe (Apache) -> [(bbox, conf), ...]
+    "plate":   lambda fr: plate_boxes(fr),          # tu detector de placas
+    "person":  lambda fr: rfdetr_person(fr),        # RF-DETR (Apache)
+    "vehicle": lambda fr: rfdetr_vehicle(fr),
+}
+enrichers = {"plate": lambda crop: {"text": ocr(crop), "plate": normalizar(ocr(crop))}}
+
+an = ForensicAnalyzer(detectors, ForensicConfig(step=5, min_confidence=0.4), enrichers=enrichers)
+report = an.analyze_video("caso.mp4", out_dir="casos/caso_001")
+print(report.summary())           # {'entities':.., 'detections':.., 'by_kind':{...}}
+```
+
+## Uso — imágenes (una foto o un lote)
+
+```python
+an = ForensicAnalyzer(detectors, ForensicConfig(save_crops=True), enrichers=enrichers)
+an.analyze_image("foto.jpg", "casos/foto_001")            # una imagen
+an.analyze_images(["a.jpg", "b.jpg", "c.jpg"], "casos/lote_002")   # lote
+```
+
+En imágenes cada archivo se **hashea por separado** (cadena de custodia por foto) y, al ser
+escenas no relacionadas, **cada detección es su propia entidad** (sin enlazar entre fotos). En
+video sí se enlazan por IoU entre cuadros muestreados (una entidad = un track).
+
+## Cómo conectar tus detectores
+
+Cada detector es una función `fn(frame_bgr) -> lista`, donde cada elemento es:
+
+- `(bbox, confianza)` — bbox = `(x1, y1, x2, y2)` en píxeles, o
+- `(bbox, confianza, attrs)` con un dict de atributos, o
+- `{"bbox":..., "confidence":..., "attrs":{...}}`.
+
+Los **enrichers** (`{tipo: fn(crop_bgr)->dict}`) corren sobre el mejor recorte de cada entidad
+(p.ej. OCR de placa, o cotejo contra una watchlist que TÚ proporciones). Un error del enricher no
+tumba la auditoría: se registra en `attrs["enricher_error"]`.
+
+## Muestreo
+
+- `ForensicConfig(step=N)`: un cuadro cada N (regular, reproducible).
+- `ForensicConfig(use_keyframes=True, scene_thresh=...)`: keyframes por cambio de escena
+  (`frame_sampler.SceneKeyframer`) — capta cortes/entradas/salidas sin procesar todos los cuadros.
+
+## Módulos
+
+| Archivo | Rol |
+|---|---|
+| `frame_sampler.py` | muestreo por N o por keyframe de escena; iterador de video; metadatos |
+| `tracking.py` | tracker por IoU + **reuso de ID al reaparecer** (patrón stable-ID) y por clase |
+| `forensic.py` | manifiesto/hash, detección→track→entidad, exportación JSON/CSV/MD + recortes |
+| `example_wiring.py` | **cableado con modelos reales** (MediaPipe / RF-DETR / fast-alpr) |
+| `app.py` | **API web (FastAPI)**: subir, analizar en background, servir reporte/CSV/timeline/recortes |
+| `gradio_app.py` | **interfaz gráfica (Gradio)**: subir video → resumen + tabla + galería de recortes |
+| `redaction.py` | **anonimización**: difumina/pixela/tapa rostros y placas (privacidad) |
+| `audio_forensics.py` | **puente de audio**: cadena de custodia (SHA-256) + segmentos VAD + mediciones prosódicas (usa `docs/audio`) — **descriptivo, sin veredictos** |
+| `osint_enrichment.py` | **contrato OSINT**: presencia de un alias en sitios públicos como PISTA, con verificador inyectable (Sherlock u otro), procedencia y custodia — **sin identidad, sin biometría** |
+| `sherlock_checker.py` | **adaptador Sherlock** (MIT) como `checker` del contrato — **seguro por defecto** (sin red salvo opt-in), parseo puro, runner inyectable |
+| `route_forensics.py` | **rutas multi-cámara → caso forense**: vuelca las `Route` de `sentinel_route` a report.json/CSV/timeline + heatmaps, con cadena de custodia — **ruta candidata, sin identidad** |
+
+## example_wiring.py — cableado con los módulos reales
+
+Enchufa detectores reales al analizador; **cada uno es opcional** (si falta su librería se omite
+ese tipo, con aviso, y el resto sigue). Todos de licencia limpia, sin Ultralytics/AGPL:
+
+- `face` → **MediaPipe FaceDetection** (Apache) · `pip install mediapipe`
+- `person` / `vehicle` → **RF-DETR** (Apache) · `pip install rfdetr` — IDs de clase COCO
+  **configurables** (verifícalos contra el labelmap de tu modelo: COCO-80 vs COCO-91 difieren)
+- `plate` → **fast-alpr** (detección + OCR, MIT) · `pip install fast-alpr`, con **normalización
+  ecuatoriana** reusando `video/plate_capture.normalize_ecuador_plate` y **cotejo opcional** contra
+  una watchlist que tú das.
+
+```bash
+python example_wiring.py caso.mp4 --out casos/caso_001 --step 5
+python example_wiring.py foto1.jpg foto2.jpg --images --out casos/lote_002
+python example_wiring.py caso.mp4 --out casos/x --watchlist PXA-1234,ABC-0007
+```
+
+En código: `build_detectors(watchlist=[...])` arma el dict con los modelos instalados;
+`ForensicAnalyzer(detectors, cfg).analyze_video(...)` o `.analyze_images(...)`. El texto/placa del
+OCR y el `match` de watchlist viajan en los atributos de la detección y quedan en la entidad (el
+orquestador propaga los atributos de la mejor detección).
+
+## Interfaces listas: `app.py` (web) y `gradio_app.py` (GUI)
+
+Ambos usan el mismo motor; los imports de FastAPI/Gradio son **perezosos** (los módulos se importan
+y prueban aunque no tengas esas librerías). La lógica de análisis está en funciones puras
+reutilizables: `app.run_case(...)` y `gradio_app.audit_video(...)` / `audit_images(...)`.
+
+**Web (FastAPI):**
+
+```bash
+pip install fastapi "uvicorn[standard]" python-multipart
+uvicorn app:app --host 0.0.0.0 --port 8090        # o: uvicorn "app:create_app" --factory
+```
+
+Rutas: `POST /api/cases` (multipart `files`, `step`, `keyframes`, `images`, `watchlist`),
+`GET /api/cases`, `GET /api/cases/{id}`, `/report`, `/detections.csv`, `/timeline.md`,
+`/crops/{entity_id}.png`, `DELETE /api/cases/{id}`. Casos en `$FORENSE_CASES_DIR` (por defecto
+`./casos`). Ideal como servicio Python bajo PM2/uvicorn con proxy desde tu app Node.
+
+**GUI (Gradio):**
+
+```bash
+pip install gradio
+python gradio_app.py                               # http://0.0.0.0:8091
+```
+
+Sube un video → resumen + tabla de entidades (tipo, id, desde/hasta, apariciones, conf, placa,
+texto, match) + galería con el mejor recorte de cada entidad.
+
+> Producción: rostros/placas son datos personales — protege estos endpoints con **autenticación**,
+> define **retención/borrado** y registra accesos. Ver `GUIA_INTERFAZ.md` (en el zip mínimo) para
+> más rutas, SSE/WebSocket de progreso, y opciones de frontend HTML/JS y desktop.
+
+## redaction.py — anonimización de rostros/placas
+
+Cierra la brecha de privacidad: rostros y placas son **datos personales**. Difumina, pixela o tapa
+esas regiones antes de guardar/exportar/compartir. OpenCV puro, sin AGPL. Dos modos:
+
+- **Por caja** (sin dependencias): redacta el rectángulo de cada detección (las cajas que ya da tu
+  detector). Métodos `blur` / `pixelate` / `box`; `invert=True` redacta todo MENOS las cajas.
+- **Por máscara** (parser inyectable): redacta solo los píxeles de la región (p.ej. la cara y no el
+  fondo dentro de la caja) usando un modelo de *face parsing* como `uniface`. El parser se inyecta
+  (`parser(crop_bgr) -> mask`), así se prueba sin instalarlo.
+
+```python
+from redaction import redact_boxes, redact_frame, redact_boxes_with_parser, RedactConfig
+
+# por caja (lo habitual): difumina rostros de un cuadro
+anon = redact_boxes(frame, face_boxes, RedactConfig(method="blur", blur_ksize=41))
+
+# a partir de detecciones por tipo (integra con el forense)
+anon = redact_frame(frame, detections_by_kind, kinds=("face", "plate"),
+                    cfg=RedactConfig(method="pixelate", pixel_blocks=8))
+
+# región precisa con uniface (opcional):
+#   from uniface import BiSeNet, ParsingWeights, SCRFD    # pesos: ver licencia (research/no-comm.)
+#   parser = BiSeNet(model_name=ParsingWeights.RESNET34)
+#   anon = redact_boxes_with_parser(frame, face_boxes, lambda crop: parser.parse(crop),
+#                                   RedactConfig(method="blur"), classes=None)
+```
+
+Uso típico con el analizador: corre `ForensicAnalyzer` para obtener las cajas y **redacta los
+cuadros antes de escribir el video/recortes** que vas a compartir; guarda el original íntegro (con
+su SHA-256) bajo acceso restringido y comparte solo la versión anonimizada.
+
+> Nota de licencia de `uniface`: su código es MIT, pero los **pesos** (SCRFD/InsightFace, BiSeNet
+> sobre CelebAMask-HQ) pueden ser de uso **research/no comercial** — verifícalo. El modo por caja no
+> necesita nada de eso.
+
+### Pruebas
+
+```
+python test_redaction.py     # 15 pruebas
+```
+
+## audio_forensics.py — auditoría de la pista de audio
+
+Extiende la cadena de custodia al **audio** de un caso (video o wav). Reutiliza el paquete
+`docs/audio` (numpy/scipy, PyAV — sin AGPL) y produce un `report.json` con:
+
+- **Manifiesto de doble hash**: SHA-256 del archivo original **y** del audio mono derivado
+  (`audio.wav`), sr, duración, parámetros y fecha UTC → integridad reproducible.
+- **Segmentos por VAD**: turnos de habla / pausas → `segments.csv` + `timeline.md`.
+- **Mediciones prosódicas**: F0, jitter/shimmer, pausas, tasa de habla, centroide, energía —
+  con su `disclaimer`, que viaja dentro del reporte.
+- **Transcripción opcional inyectable**: `transcriber(clip, sr, span) -> str` (un ASR que TÚ
+  aportas); su error se aísla por segmento y no tumba la auditoría. Sin ASR, el módulo igual corre.
+
+```python
+from audio_forensics import analyze_audio
+rep = analyze_audio("caso.mp4", "casos/audio_001", sr=16000, f0_method="yin")
+# opcional: analyze_audio(..., transcriber=mi_asr)
+```
+
+> ⚠️ **Alcance honesto (dentro del reporte, campo `scope`)**: NO identifica personas por su voz
+> (biometría = dato sensible) y **NO detecta mentiras/engaño/emoción** — el análisis de estrés
+> vocal carece de respaldo científico (National Research Council 2003 y estudios de campo lo
+> sitúan en el azar; prohibido por `AGENTS.md §3`). Es apoyo pericial humano, no prueba certificada.
+
+```
+python test_audio_forensics.py   # 8 (doble hash, segmentos, prosodia, ASR inyectado, sin veredicto)
+```
+
+blur/pixelate/caja sólida (solo dentro de la caja, fuera intacto), `invert`, `expand`, varias
+cajas, redacción por máscara y por clases, parser inyectable (región precisa y fallback a caja),
+integración por tipo de detección. Todas con imágenes sintéticas, sin cámara ni uniface.
+
+## osint_enrichment.py — contrato de enriquecimiento OSINT (alias → pista, con custodia)
+
+CONTRATO para adjuntar a un caso la **presencia pública de un identificador** (alias / nombre de
+usuario) como **pista** de investigación. Patrón inspirado en **Sherlock** (MIT, ~400 sitios; regla
+por sitio `status_code` | `message` | `response_url`) — pero **no lo reimplementa ni sale a la red**
+aquí: el verificador real se **inyecta** (`checker(username) -> [{"site","url","status"}]`), como
+inyectamos RF-DETR en el forense de medios. Este archivo fija tipos, custodia y las reglas éticas
+**en código**.
+
+```python
+from osint_enrichment import IdentifierQuery, enrich_identifiers, dry_run_checker
+
+# identificadores del INVESTIGADOR o de OCR de un handle visible (NUNCA de biometría)
+queries = [IdentifierQuery("alias_visto", source="ocr"),
+           IdentifierQuery("nick_aportado", source="investigator")]
+
+# el checker real (Sherlock por subproceso→JSON) se inyecta; aquí un dry-run sin red:
+rep = enrich_identifiers(queries, dry_run_checker(SITES), legal_basis="Caso 2026-CT-001",
+                         dry_run=True, out_dir="casos/osint_001")   # -> osint.json + osint.csv
+```
+
+Reglas que el contrato **hace cumplir** (lanzan `ValueError`): `legal_basis` obligatorio;
+`source="biometric"/"face"/"voice"` rechazado (no se deriva un alias de un rostro/voz); formato de
+identificador validado. El reporte lleva `scope`/`disclaimer` fijos: **es una pista, no prueba de
+identidad** (mismo alias ≠ misma persona), y exige verificación humana.
+
+> Cablear Sherlock (subproceso → su JSON) es el paso siguiente: implica **red saliente** (~400
+> peticiones, ToS de cada sitio, política de red del entorno) y va como `checker` inyectado, no
+> dentro de este contrato.
+
+```
+python test_osint_enrichment.py   # 14 (biometría rechazada, base legal, solo 'claimed', dry-run, custodia, sin identidad)
+```
+
+### sherlock_checker.py — adaptador Sherlock (opt-in de red)
+
+Envuelve **Sherlock** (MIT) como `checker` del contrato: convierte su salida `--print-found` en la
+lista `[{"site","url","status","method"}]` que consume `osint_enrichment`. **No reimplementa
+Sherlock**; lo invoca por subproceso y parsea. El parseo es puro; el subproceso se **inyecta**
+(`runner`), así se prueba sin Sherlock ni red.
+
+**Seguro por defecto — `enable_network=False`:** con la red desactivada el checker **no ejecuta
+nada** y lanza `NetworkDisabled` (que el contrato registra como hit `error`). Para consultar de
+verdad: instalar Sherlock (`pipx install sherlock-project`), `enable_network=True`, y que la
+**política de red del entorno** permita la salida. Cada corrida real toca ~400 sitios → respeta
+ToS, límites de tasa y la base legal (el contrato ya la exige); limita con `sites=[...]`.
+
+```python
+from sherlock_checker import build_sherlock_checker
+from osint_enrichment import IdentifierQuery, enrich_identifiers
+
+checker = build_sherlock_checker(enable_network=True, sites=["GitHub", "Reddit"], timeout=30)
+rep = enrich_identifiers([IdentifierQuery("alias", source="investigator")], checker,
+                         legal_basis="Caso 2026-CT-001", checker_name="sherlock",
+                         out_dir="casos/osint_001")
+
+# CLI (dry-run por defecto; --enable-network para ejecutar de verdad):
+#   python sherlock_checker.py alias1 alias2 --legal-basis "Caso 2026-CT-001" --site GitHub
+```
+
+```
+python test_sherlock_checker.py   # 8 (parseo, gate de red por defecto, runner inyectado, contrato, sin Sherlock)
+```
+
+## route_forensics.py — rutas multi-cámara al caso forense (con custodia)
+
+Vuelca las `Route` que arma `docs/video/sentinel_route` (centinela → handoff entre cámaras) a un
+caso con **cadena de custodia**: `report.json` + `routes.csv` + `timeline.md`, y opcionalmente los
+**mapas de calor por cámara** (`heatmaps/<cam>.png`) si le pasas los `DensityHeatmap`.
+
+```python
+from route_forensics import analyze_routes
+rep = analyze_routes(builder.routes(), "casos/ruta_001", legal_basis="Caso 2026-CT-042",
+                     heatmaps=builder.heatmaps())   # heatmaps opcional (requiere cv2)
+```
+
+- **Integridad**: SHA-256 del payload de rutas (JSON canónico) + SHA-256 de cada PNG de heatmap,
+  `tool/version` y fecha UTC en el manifiesto → reproducible.
+- **Resumen por ruta**: cámaras recorridas, nº de saltos, y **confianza mín** (eslabón más débil) y
+  media de los saltos.
+- Acepta `Route` (con `to_dict()`) o dicts ya serializados.
+
+> ⚠️ **Alcance honesto (en el reporte, campo `scope`)**: es una **ruta CANDIDATA** (topología +
+> tiempo + zonas de puerta, ReID opcional), **no** una afirmación de identidad ni un nombre.
+> Requiere `legal_basis` (lanza `ValueError` sin ella). Rutas y rastros son datos personales.
+
+```
+python test_route_forensics.py    # 8 (base legal, scope/disclaimer, confianza, hash de custodia, sin identidad, heatmaps)
+```
+
+## Ajuste y límites
+
+- `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
+- La calidad depende de tus detectores/OCR; con video muy movido baja `step` o usa keyframes.
+- Con video largo, el muestreo controla el costo; el hash del original garantiza integridad.
+
+## Pruebas
+
+```
+python test_frame_sampler.py     # 3
+python test_tracking.py          # 12 (+ reuso de ID / por clase)
+python test_forensic.py          # 13 (video e imágenes)
+python test_example_wiring.py    # 5  (importa y degrada sin los modelos)
+python test_apps.py              # 7  (app FastAPI y Gradio: import perezoso + lógica pura)
+python test_redaction.py         # 15 (anonimización de rostros/placas)
+python test_audio_forensics.py   # 8  (cadena de custodia de audio + prosodia, sin veredicto)
+python test_osint_enrichment.py  # 14 (contrato OSINT: ética + custodia, sin red)
+python test_sherlock_checker.py  # 8  (adaptador Sherlock: parseo + gate de red, sin red)
+python test_route_forensics.py   # 8  (rutas multi-cámara -> caso forense, custodia)
+```
+
+Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
+IoU, expiración, reuso de ID al reaparecer y emparejamiento por clase; deduplicación por track en video; una entidad por detección en
+imágenes; filtro por confianza; hash determinista; manifiesto por-archivo; enrichers (y su
+tolerancia a errores); propagación de atributos de la mejor detección a la entidad; exportación
+válida de JSON/CSV/MD y recortes; el cableado (importa siempre, degrada sin modelos, normalizador
+de placa devuelve string); y los apps web/GUI (importan sin FastAPI/Gradio, `run_case`/`audit_*`
+producen reporte sobre video e imágenes, captura de errores); y la auditoría de audio (doble hash
+de cadena de custodia, segmentos VAD, mediciones prosódicas con disclaimer, ASR inyectado y su
+aislamiento de errores, y verificación de que NO se emite ningún veredicto); y el contrato OSINT (rechazo de
+fuentes biométricas, base legal obligatoria, solo 'claimed', dry-run sin red, custodia y ausencia
+de juicio de identidad); y el adaptador Sherlock (parseo puro de su salida, gate de red seguro por
+defecto y runner inyectado, sin tocar la red); y el volcado de rutas multi-cámara al caso
+(base legal, hash de custodia del payload, confianza por salto, heatmaps hasheados, sin identidad).
+Total: **93 pruebas
+verdes**.
