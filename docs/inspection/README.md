@@ -8,6 +8,7 @@ video cercano (dron o cámara montada), no vigilancia en vivo a distancia.
 |---|---|
 | `pavement_defects.py` | grietas y baches en pavimento/muro |
 | `corrosion.py` | corrosión / óxido en estructura metálica |
+| `pothole_depth.py` | **profundidad relativa de un bache** desde un mapa de profundidad inyectado (severidad) |
 
 ---
 
@@ -167,3 +168,39 @@ python test_corrosion.py     # 9 pruebas
 Metal sano sin óxido, parche de óxido detectado, mota por debajo del área ignorada, severidad
 que crece con la fracción, ROI restringe; gate de textura (naranja liso rechazado, óxido moteado
 aceptado); inspector que guarda la peor severidad; dibujo. Todas sintéticas, sin cámara.
+
+---
+
+## pothole_depth.py — profundidad relativa de un bache (mapa de profundidad inyectado)
+
+Portado del walkthrough **"¿Cómo calcular la profundidad de un bache?"**. El original detecta con
+un YOLO entrenado (`best.pt`) y estima profundidad con otro YOLO (`yolo26n-depth.pt`) — ambos
+**Ultralytics = AGPL**, así que **no se portan**. Lo portado es la **matemática pura** (numpy):
+dada una **caja** de bache y un **mapa de profundidad** (de CUALQUIER modelo monocular —
+MiDaS/Depth-Anything Apache/MIT, o el que inyectes), estima:
+
+```
+pothole_depth = percentil 75 de la profundidad dentro de la caja
+road_depth    = percentil 50 (mediana) del ANILLO alrededor (caja ensanchada − caja)
+delta         = |pothole_depth − road_depth| * scale        # el "Delta" del HUD (severidad)
+```
+
+```python
+from pothole_depth import analyze_potholes, rank_by_severity, PotholeDepthConfig
+
+depth = depth_model(frame)                 # (H,W) de TU modelo de profundidad (MiDaS/Depth-Anything)
+boxes = [d.xyxy for d in detector(frame)]  # cajas de baches de TU detector
+res = analyze_potholes(depth, boxes, PotholeDepthConfig(pothole_pct=75, road_pct=50))
+for r in rank_by_severity(res):            # peor bache primero
+    print(r.to_dict())   # {box, pothole_depth, road_depth, delta, severity, ...}
+```
+
+> ⚠️ **Profundidad RELATIVA, no métrica.** Un mapa monocular da valores sin escala física (y a
+> menudo inversos: más grande = más cerca); por eso `delta` es una **magnitud relativa**, útil para
+> **ordenar baches por severidad**, no para dar centímetros. Para métrico, calibra y pasa `scale`.
+> El detector y el modelo de profundidad se **inyectan** (license-clean: RF-DETR/YOLO-libre +
+> MiDaS/Depth-Anything). Complementa `pavement_defects.py` (detección 2D) con la severidad en Z.
+
+```
+python test_pothole_depth.py     # 12 pruebas (delta = pit−road, escala, no-finitos, borde, anillo mínimo, severidad, ranking)
+```
