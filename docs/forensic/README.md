@@ -89,6 +89,8 @@ tumba la auditoría: se registra en `attrs["enricher_error"]`.
 | `osint_enrichment.py` | **contrato OSINT**: presencia de un alias en sitios públicos como PISTA, con verificador inyectable (Sherlock u otro), procedencia y custodia — **sin identidad, sin biometría** |
 | `sherlock_checker.py` | **adaptador Sherlock** (MIT) como `checker` del contrato — **seguro por defecto** (sin red salvo opt-in), parseo puro, runner inyectable |
 | `route_forensics.py` | **rutas multi-cámara → caso forense**: vuelca las `Route` de `sentinel_route` a report.json/CSV/timeline + heatmaps, con cadena de custodia — **ruta candidata, sin identidad** |
+| `face_match_enrichment.py` | **contrato de cotejo facial 1:N CONSENTIDO**: solo contra galería propia enrolada con consentimiento, extractor inyectable, base legal obligatoria — **sin red, sin scraping, no identifica desconocidos** |
+| `BUSCADOR_FACIAL_INTERNET.md` | **análisis** de cómo funciona un buscador facial de internet (PimEyes/Clearview/FaceSeek) y por qué **no** se implementa aquí |
 
 ## example_wiring.py — cableado con los módulos reales
 
@@ -309,6 +311,37 @@ rep = analyze_routes(builder.routes(), "casos/ruta_001", legal_basis="Caso 2026-
 python test_route_forensics.py    # 8 (base legal, scope/disclaimer, confianza, hash de custodia, sin identidad, heatmaps)
 ```
 
+## face_match_enrichment.py — cotejo facial 1:N CONSENTIDO (no es un buscador de internet)
+
+Permite el uso **legítimo** de reconocimiento facial: verificar (1:1) o cotejar (1:N) **contra una
+galería que TÚ posees y enrolaste con CONSENTIMIENTO** (empleados/socios/miembros opt-in, o una
+watchlist con base legal). **No** produce embeddings (el extractor —ArcFace/InsightFace/CompreFace—
+es externo e inyectable); aquí vive el 1:N por coseno + las reglas éticas **en código** + la
+custodia. **Sin red, sin scraping, no identifica desconocidos.**
+
+```python
+from face_match_enrichment import ConsentedGallery, EnrolledFace, match_probe, write_report
+
+g = ConsentedGallery()
+g.add(EnrolledFace("empleado_017", embedding=vec, consent_ref="RRHH-2026-017"))   # consent obligatorio
+res = match_probe(probe_vec, g, legal_basis="Control de acceso consentido", threshold=0.5)
+write_report([res], "casos/facematch_001", legal_basis="Control de acceso consentido")
+```
+
+Reglas que el contrato **hace cumplir** (`ValueError`): cada enrolamiento exige `consent_ref` y un
+`source` permitido (opt-in/badge/signup/watchlist legal); `legal_basis` obligatorio por consulta.
+El resultado es una **pista** (coincidir ≠ identidad probada); biometría = dato personal sensible
+(GDPR art. 9 / BIPA): define retención, acceso y borrado.
+
+> Cómo funciona el buscador facial de internet estilo **FaceSeek/PimEyes/Clearview**, con las
+> tecnologías detalladas por etapa (RetinaFace/SCRFD → alineación → ArcFace 512-d → FAISS/HNSW →
+> re-ranking) y por qué **no** se implementa aquí (GDPR/BIPA, multas a Clearview, daño): ver
+> **`BUSCADOR_FACIAL_INTERNET.md`**.
+
+```
+python test_face_match_enrichment.py   # 15 (consentimiento obligatorio, base legal, 1:1/1:N, umbral, top-K, reporte)
+```
+
 ## Ajuste y límites
 
 - `min_confidence`, `step`, `iou_thresh`, `max_gap`, `crop_padding`: calíbralos a tu caso.
@@ -328,6 +361,7 @@ python test_audio_forensics.py   # 8  (cadena de custodia de audio + prosodia, s
 python test_osint_enrichment.py  # 14 (contrato OSINT: ética + custodia, sin red)
 python test_sherlock_checker.py  # 8  (adaptador Sherlock: parseo + gate de red, sin red)
 python test_route_forensics.py   # 8  (rutas multi-cámara -> caso forense, custodia)
+python test_face_match_enrichment.py  # 15 (cotejo facial 1:N consentido, sin red)
 ```
 
 Con detectores falsos y frames/imágenes sintéticas (sin modelos pesados): muestreo y keyframes;
@@ -342,6 +376,7 @@ aislamiento de errores, y verificación de que NO se emite ningún veredicto); y
 fuentes biométricas, base legal obligatoria, solo 'claimed', dry-run sin red, custodia y ausencia
 de juicio de identidad); y el adaptador Sherlock (parseo puro de su salida, gate de red seguro por
 defecto y runner inyectado, sin tocar la red); y el volcado de rutas multi-cámara al caso
-(base legal, hash de custodia del payload, confianza por salto, heatmaps hasheados, sin identidad).
-Total: **93 pruebas
+(base legal, hash de custodia del payload, confianza por salto, heatmaps hasheados, sin identidad); y el cotejo facial 1:N CONSENTIDO (consentimiento
+obligatorio por enrolamiento, base legal, 1:1/1:N por coseno, umbral/top-K, reporte con custodia).
+Total: **108 pruebas
 verdes**.
