@@ -163,3 +163,11 @@ _cuarentena/
 .env.bak*
 *.env.bak
 **/.env.bak
+
+# Python (bytecode y artefactos de los módulos de visión en docs/)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
